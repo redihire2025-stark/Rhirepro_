@@ -111,41 +111,46 @@ export function Landing({ onNavigate, onViewJob }: LandingProps) {
             </p>
 
             {/* Search Bar */}
-            <Card className="p-2 sm:p-3">
+            <Card className="p-1 sm:p-2">
               <CardContent className="p-0">
-                <div className="flex flex-col sm:flex-row gap-2">
-                  <div className="flex-1 flex items-center gap-2 px-3 py-2 bg-gray-50 rounded-lg">
-                    <Search className="w-5 h-5 text-gray-400" />
-                    <Input 
+                <div className="flex flex-col sm:flex-row gap-2 h-4">
+
+                  <div className="flex-1 flex items-center gap-2 px-2 h-10 bg-gray-50 rounded-lg">
+                    <Search className="w-5 h-5 text-gray-500" />
+                    <Input
                       placeholder="Skills, designations, companies"
                       className="border-0 bg-transparent focus-visible:ring-0 focus-visible:ring-offset-0 p-0"
                     />
                   </div>
-                  <div className="flex-1 flex items-center gap-2 px-3 py-2 bg-gray-50 rounded-lg">
+
+                  <div className="flex-1 flex items-center gap-2 px-2 h-10 bg-gray-50 rounded-lg">
                     <MapPin className="w-5 h-5 text-gray-400" />
-                    <Input 
+                    <Input
                       placeholder="Location"
                       className="border-0 bg-transparent focus-visible:ring-0 focus-visible:ring-offset-0 p-0"
                     />
                   </div>
-                  <Button 
-                    size="lg"
-                    className="rounded-lg bg-gradient-to-r from-blue-600 to-teal-500 hover:from-blue-700 hover:to-teal-600"
+
+                  <Button
+                    className="rounded-lg bg-gradient-to-r from-blue-600 to-teal-500 hover:from-blue-700 hover:to-teal-600 h-10 px-4"
                   >
                     <Search className="w-5 h-5 sm:mr-2" />
                     <span className="hidden sm:inline">Search</span>
                   </Button>
+
                 </div>
               </CardContent>
             </Card>
+
+
 
             {/* Quick Links */}
             <div className="mt-6 flex flex-wrap gap-2">
               <span className="text-blue-100 text-sm">Trending searches:</span>
               {['Frontend Developer', 'Product Manager', 'Data Analyst', 'UI Designer'].map((tag) => (
-                <Badge 
+                <Badge
                   key={tag}
-                  variant="secondary" 
+                  variant="secondary"
                   className="bg-white/20 hover:bg-white/30 text-white border-0 cursor-pointer rounded-full"
                 >
                   {tag}
@@ -192,7 +197,7 @@ export function Landing({ onNavigate, onViewJob }: LandingProps) {
 
           <div className="grid grid-cols-1 md:grid-cols-2 lg:grid-cols-3 gap-4">
             {featuredJobs.map((job) => (
-              <Card 
+              <Card
                 key={job.id}
                 className="hover:shadow-lg transition-shadow cursor-pointer group"
                 onClick={() => onViewJob(job.id)}
@@ -254,7 +259,7 @@ export function Landing({ onNavigate, onViewJob }: LandingProps) {
 
           <div className="grid grid-cols-2 sm:grid-cols-3 lg:grid-cols-6 gap-4">
             {topCompanies.map((company) => (
-              <Card 
+              <Card
                 key={company.name}
                 className="hover:shadow-lg transition-shadow cursor-pointer group"
               >
@@ -300,7 +305,7 @@ export function Landing({ onNavigate, onViewJob }: LandingProps) {
                   <span className="text-gray-700">Dedicated account manager</span>
                 </li>
               </ul>
-              <Button 
+              <Button
                 size="lg"
                 className="rounded-full bg-gradient-to-r from-blue-600 to-teal-500 hover:from-blue-700 hover:to-teal-600"
                 onClick={() => onNavigate('auth')}

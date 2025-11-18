@@ -7,23 +7,105 @@ import { Label } from './ui/label';
 import { Textarea } from './ui/textarea';
 import { Tabs, TabsContent, TabsList, TabsTrigger } from './ui/tabs';
 import { Badge } from './ui/badge';
-import { 
-  User, Mail, Phone, MapPin, Briefcase, GraduationCap, 
-  Award, Upload, X, Plus, Save, ArrowLeft, Building2, 
-  Link as LinkIcon, Calendar, DollarSign
+import {
+  User, Mail, Phone, MapPin, Briefcase, GraduationCap,
+  Award, Upload, X, Plus, Save, ArrowLeft, Building2,
+  Link as LinkIcon, Calendar, DollarSign, Edit, FileText
 } from 'lucide-react';
 import { UserType } from '../App';
 import { Select, SelectContent, SelectItem, SelectTrigger, SelectValue } from './ui/select';
 import { Switch } from './ui/switch';
+import { Dialog, DialogContent, DialogDescription, DialogHeader, DialogTitle, DialogTrigger } from './ui/dialog';
 
 interface ProfileSettingsProps {
   userType: UserType;
   onNavigate: (screen: 'landing' | 'jobseeker-dashboard' | 'recruiter-dashboard' | 'job-details' | 'auth' | 'profile-settings') => void;
 }
 
+interface Experience {
+  id: string;
+  designation: string;
+  company: string;
+  startDate: string;
+  endDate: string;
+  location: string;
+  description: string;
+  current: boolean;
+}
+
+interface Education {
+  id: string;
+  degree: string;
+  college: string;
+  startYear: string;
+  endYear: string;
+}
+
+interface Certification {
+  id: string;
+  name: string;
+  year: string;
+}
+
 export function ProfileSettings({ userType, onNavigate }: ProfileSettingsProps) {
   const [skills, setSkills] = useState(['React', 'TypeScript', 'Next.js', 'Node.js']);
   const [newSkill, setNewSkill] = useState('');
+
+  // Experience state
+  const [experiences, setExperiences] = useState<Experience[]>([
+    {
+      id: '1',
+      designation: 'Senior Frontend Developer',
+      company: 'TechStartup Inc',
+      startDate: '2022-01',
+      endDate: '',
+      location: 'Bangalore, Karnataka',
+      description: 'Leading frontend development for a SaaS platform. Built scalable React applications and mentored junior developers.',
+      current: true
+    },
+    {
+      id: '2',
+      designation: 'Frontend Developer',
+      company: 'WebSolutions Ltd',
+      startDate: '2020-06',
+      endDate: '2021-12',
+      location: 'Mumbai, Maharashtra',
+      description: 'Developed responsive web applications using React and collaborated with design teams.',
+      current: false
+    }
+  ]);
+  const [isAddExpOpen, setIsAddExpOpen] = useState(false);
+  const [isEditExpOpen, setIsEditExpOpen] = useState(false);
+  const [editingExp, setEditingExp] = useState<Experience | null>(null);
+  const [expForm, setExpForm] = useState<Partial<Experience>>({});
+
+  // Education state
+  const [educations, setEducations] = useState<Education[]>([
+    {
+      id: '1',
+      degree: 'Bachelor of Technology in Computer Science',
+      college: 'ABC University',
+      startYear: '2016',
+      endYear: '2020'
+    }
+  ]);
+  const [isAddEduOpen, setIsAddEduOpen] = useState(false);
+  const [isEditEduOpen, setIsEditEduOpen] = useState(false);
+  const [editingEdu, setEditingEdu] = useState<Education | null>(null);
+  const [eduForm, setEduForm] = useState<Partial<Education>>({});
+
+  // Certification state
+  const [certifications, setCertifications] = useState<Certification[]>([
+    {
+      id: '1',
+      name: 'React Advanced Certification',
+      year: '2023'
+    }
+  ]);
+  const [isAddCertOpen, setIsAddCertOpen] = useState(false);
+  const [isEditCertOpen, setIsEditCertOpen] = useState(false);
+  const [editingCert, setEditingCert] = useState<Certification | null>(null);
+  const [certForm, setCertForm] = useState<Partial<Certification>>({});
 
   const handleAddSkill = () => {
     if (newSkill.trim() && !skills.includes(newSkill.trim())) {
@@ -46,6 +128,119 @@ export function ProfileSettings({ userType, onNavigate }: ProfileSettingsProps) 
     }
   };
 
+  // Experience handlers
+  const handleAddExperience = () => {
+    if (expForm.designation && expForm.company && expForm.startDate) {
+      const newExp: Experience = {
+        id: Date.now().toString(),
+        designation: expForm.designation,
+        company: expForm.company,
+        startDate: expForm.startDate,
+        endDate: expForm.endDate || '',
+        location: expForm.location || '',
+        description: expForm.description || '',
+        current: expForm.current || false
+      };
+      setExperiences([...experiences, newExp]);
+      setExpForm({});
+      setIsAddExpOpen(false);
+    }
+  };
+
+  const handleEditExperience = () => {
+    if (editingExp && expForm.designation && expForm.company && expForm.startDate) {
+      setExperiences(experiences.map(exp =>
+        exp.id === editingExp.id
+          ? { ...exp, ...expForm } as Experience
+          : exp
+      ));
+      setExpForm({});
+      setEditingExp(null);
+      setIsEditExpOpen(false);
+    }
+  };
+
+  const openEditExp = (exp: Experience) => {
+    setEditingExp(exp);
+    setExpForm(exp);
+    setIsEditExpOpen(true);
+  };
+
+  // Education handlers
+  const handleAddEducation = () => {
+    if (eduForm.degree && eduForm.college && eduForm.startYear && eduForm.endYear) {
+      const newEdu: Education = {
+        id: Date.now().toString(),
+        degree: eduForm.degree,
+        college: eduForm.college,
+        startYear: eduForm.startYear,
+        endYear: eduForm.endYear
+      };
+      setEducations([...educations, newEdu]);
+      setEduForm({});
+      setIsAddEduOpen(false);
+    }
+  };
+
+  const handleEditEducation = () => {
+    if (editingEdu && eduForm.degree && eduForm.college && eduForm.startYear && eduForm.endYear) {
+      setEducations(educations.map(edu =>
+        edu.id === editingEdu.id
+          ? { ...edu, ...eduForm } as Education
+          : edu
+      ));
+      setEduForm({});
+      setEditingEdu(null);
+      setIsEditEduOpen(false);
+    }
+  };
+
+  const openEditEdu = (edu: Education) => {
+    setEditingEdu(edu);
+    setEduForm(edu);
+    setIsEditEduOpen(true);
+  };
+
+  // Certification handlers
+  const handleAddCertification = () => {
+    if (certForm.name && certForm.year) {
+      const newCert: Certification = {
+        id: Date.now().toString(),
+        name: certForm.name,
+        year: certForm.year
+      };
+      setCertifications([...certifications, newCert]);
+      setCertForm({});
+      setIsAddCertOpen(false);
+    }
+  };
+
+  const handleEditCertification = () => {
+    if (editingCert && certForm.name && certForm.year) {
+      setCertifications(certifications.map(cert =>
+        cert.id === editingCert.id
+          ? { ...cert, ...certForm } as Certification
+          : cert
+      ));
+      setCertForm({});
+      setEditingCert(null);
+      setIsEditCertOpen(false);
+    }
+  };
+
+  const openEditCert = (cert: Certification) => {
+    setEditingCert(cert);
+    setCertForm(cert);
+    setIsEditCertOpen(true);
+  };
+
+  const formatDateDisplay = (dateStr: string) => {
+    if (!dateStr) return 'Present';
+    const [year, month] = dateStr.split('-');
+    const months = ['Jan', 'Feb', 'Mar', 'Apr', 'May', 'Jun', 'Jul', 'Aug', 'Sep', 'Oct', 'Nov', 'Dec'];
+    return `${months[parseInt(month) - 1]} ${year}`;
+  };
+
   return (
     <div className="min-h-screen bg-gray-50">
       <Header userType={userType} onNavigate={onNavigate} />
@@ -53,8 +248,8 @@ export function ProfileSettings({ userType, onNavigate }: ProfileSettingsProps) 
       <div className="max-w-5xl mx-auto px-4 sm:px-6 lg:px-8 py-6">
         {/* Header */}
         <div className="mb-6">
-          <Button 
-            variant="ghost" 
+          <Button
+            variant="ghost"
             className="mb-4 rounded-full"
             onClick={handleBack}
           >
@@ -139,8 +334,8 @@ export function ProfileSettings({ userType, onNavigate }: ProfileSettingsProps) 
 
                   <div className="space-y-2">
                     <Label htmlFor="bio">About Me</Label>
-                    <Textarea 
-                      id="bio" 
+                    <Textarea
+                      id="bio"
                       rows={4}
                       defaultValue="Passionate frontend developer with 4+ years of experience building modern web applications using React, TypeScript, and Next.js."
                     />
@@ -162,7 +357,7 @@ export function ProfileSettings({ userType, onNavigate }: ProfileSettingsProps) 
                       ))}
                     </div>
                     <div className="flex gap-2">
-                      <Input 
+                      <Input
                         placeholder="Add a skill"
                         value={newSkill}
                         onChange={(e) => setNewSkill(e.target.value)}
@@ -192,45 +387,219 @@ export function ProfileSettings({ userType, onNavigate }: ProfileSettingsProps) 
                   <CardDescription>Add your work experience and achievements</CardDescription>
                 </CardHeader>
                 <CardContent className="space-y-6">
-                  {/* Experience Entry */}
-                  <div className="border-l-2 border-blue-200 pl-6 pb-6">
-                    <div className="flex items-start justify-between mb-4">
-                      <div>
-                        <h3 className="text-lg text-gray-900">Senior Frontend Developer</h3>
-                        <p className="text-gray-600">TechStartup Inc</p>
-                        <p className="text-sm text-gray-500">Jan 2022 - Present • 2 years</p>
-                        <p className="text-sm text-gray-500">Bangalore, Karnataka</p>
+                  {/* Experience Entries */}
+                  {experiences.map((exp) => (
+                    <div key={exp.id} className="border-l-2 border-blue-200 pl-6 pb-6">
+                      <div className="flex items-start justify-between mb-4">
+                        <div>
+                          <h3 className="text-lg text-gray-900">{exp.designation}</h3>
+                          <p className="text-gray-600">{exp.company}</p>
+                          <p className="text-sm text-gray-500">
+                            {formatDateDisplay(exp.startDate)} - {exp.current ? 'Present' : formatDateDisplay(exp.endDate)}
+                          </p>
+                          <p className="text-sm text-gray-500">{exp.location}</p>
+                        </div>
+                        <Button
+                          variant="ghost"
+                          size="sm"
+                          className="rounded-full"
+                          onClick={() => openEditExp(exp)}
+                        >
+                          <Edit className="w-4 h-4 mr-1" />
+                          Edit
+                        </Button>
                       </div>
-                      <Button variant="ghost" size="sm" className="rounded-full">
-                        Edit
-                      </Button>
+                      <p className="text-gray-700">{exp.description}</p>
                     </div>
-                    <p className="text-gray-700">
-                      Leading frontend development for a SaaS platform. Built scalable React applications and mentored junior developers.
-                    </p>
-                  </div>
+                  ))}
 
-                  <div className="border-l-2 border-gray-200 pl-6 pb-6">
-                    <div className="flex items-start justify-between mb-4">
-                      <div>
-                        <h3 className="text-lg text-gray-900">Frontend Developer</h3>
-                        <p className="text-gray-600">WebSolutions Ltd</p>
-                        <p className="text-sm text-gray-500">Jun 2020 - Dec 2021 • 1.5 years</p>
-                        <p className="text-sm text-gray-500">Mumbai, Maharashtra</p>
+                  {/* Add Experience Dialog */}
+                  <Dialog open={isAddExpOpen} onOpenChange={setIsAddExpOpen}>
+                    <DialogTrigger asChild>
+                      <Button variant="outline" className="rounded-full">
+                        <Plus className="w-4 h-4 mr-2" />
+                        Add Experience
+                      </Button>
+                    </DialogTrigger>
+                    <DialogContent className="max-w-2xl max-h-[90vh] overflow-y-auto">
+                      <DialogHeader>
+                        <DialogTitle>Add Work Experience</DialogTitle>
+                        <DialogDescription>Fill in your work experience details</DialogDescription>
+                      </DialogHeader>
+                      <div className="space-y-4 py-4">
+                        <div className="space-y-2">
+                          <Label htmlFor="add-designation">Designation *</Label>
+                          <Input
+                            id="add-designation"
+                            placeholder="e.g. Senior Frontend Developer"
+                            value={expForm.designation || ''}
+                            onChange={(e) => setExpForm({ ...expForm, designation: e.target.value })}
+                          />
+                        </div>
+                        <div className="space-y-2">
+                          <Label htmlFor="add-company">Company Name *</Label>
+                          <Input
+                            id="add-company"
+                            placeholder="e.g. TechCorp Inc"
+                            value={expForm.company || ''}
+                            onChange={(e) => setExpForm({ ...expForm, company: e.target.value })}
+                          />
+                        </div>
+                        <div className="grid grid-cols-2 gap-4">
+                          <div className="space-y-2">
+                            <Label htmlFor="add-start-date">Start Date *</Label>
+                            <Input
+                              id="add-start-date"
+                              type="month"
+                              value={expForm.startDate || ''}
+                              onChange={(e) => setExpForm({ ...expForm, startDate: e.target.value })}
+                            />
+                          </div>
+                          <div className="space-y-2">
+                            <Label htmlFor="add-end-date">End Date</Label>
+                            <Input
+                              id="add-end-date"
+                              type="month"
+                              value={expForm.endDate || ''}
+                              onChange={(e) => setExpForm({ ...expForm, endDate: e.target.value })}
+                              disabled={expForm.current}
+                            />
+                          </div>
+                        </div>
+                        <div className="flex items-center space-x-2">
+                          <input
+                            type="checkbox"
+                            id="add-current"
+                            checked={expForm.current || false}
+                            onChange={(e) => setExpForm({ ...expForm, current: e.target.checked, endDate: e.target.checked ? '' : expForm.endDate })}
+                            className="rounded"
+                          />
+                          <Label htmlFor="add-current" className="cursor-pointer">I currently work here</Label>
+                        </div>
+                        <div className="space-y-2">
+                          <Label htmlFor="add-location">Location</Label>
+                          <Input
+                            id="add-location"
+                            placeholder="e.g. Bangalore, Karnataka"
+                            value={expForm.location || ''}
+                            onChange={(e) => setExpForm({ ...expForm, location: e.target.value })}
+                          />
+                        </div>
+                        <div className="space-y-2">
+                          <Label htmlFor="add-description">Description</Label>
+                          <Textarea
+                            id="add-description"
+                            rows={4}
+                            placeholder="Describe your responsibilities and achievements..."
+                            value={expForm.description || ''}
+                            onChange={(e) => setExpForm({ ...expForm, description: e.target.value })}
+                          />
+                        </div>
+                        <div className="flex justify-end gap-3 pt-4">
+                          <Button variant="outline" onClick={() => { setIsAddExpOpen(false); setExpForm({}); }}>
+                            Cancel
+                          </Button>
+                          <Button
+                            className="rounded-full bg-gradient-to-r from-blue-600 to-teal-500 hover:from-blue-700 hover:to-teal-600"
+                            onClick={handleAddExperience}
+                          >
+                            Add Experience
+                          </Button>
+                        </div>
                       </div>
-                      <Button variant="ghost" size="sm" className="rounded-full">
-                        Edit
-                      </Button>
-                    </div>
-                    <p className="text-gray-700">
-                      Developed responsive web applications using React and collaborated with design teams.
-                    </p>
-                  </div>
+                    </DialogContent>
+                  </Dialog>
 
-                  <Button variant="outline" className="rounded-full">
-                    <Plus className="w-4 h-4 mr-2" />
-                    Add Experience
-                  </Button>
+                  {/* Edit Experience Dialog */}
+                  <Dialog open={isEditExpOpen} onOpenChange={setIsEditExpOpen}>
+                    <DialogContent className="max-w-2xl max-h-[90vh] overflow-y-auto">
+                      <DialogHeader>
+                        <DialogTitle>Edit Work Experience</DialogTitle>
+                        <DialogDescription>Update your work experience details</DialogDescription>
+                      </DialogHeader>
+                      <div className="space-y-4 py-4">
+                        <div className="space-y-2">
+                          <Label htmlFor="edit-designation">Designation *</Label>
+                          <Input
+                            id="edit-designation"
+                            placeholder="e.g. Senior Frontend Developer"
+                            value={expForm.designation || ''}
+                            onChange={(e) => setExpForm({ ...expForm, designation: e.target.value })}
+                          />
+                        </div>
+                        <div className="space-y-2">
+                          <Label htmlFor="edit-company">Company Name *</Label>
+                          <Input
+                            id="edit-company"
+                            placeholder="e.g. TechCorp Inc"
+                            value={expForm.company || ''}
+                            onChange={(e) => setExpForm({ ...expForm, company: e.target.value })}
+                          />
+                        </div>
+                        <div className="grid grid-cols-2 gap-4">
+                          <div className="space-y-2">
+                            <Label htmlFor="edit-start-date">Start Date *</Label>
+                            <Input
+                              id="edit-start-date"
+                              type="month"
+                              value={expForm.startDate || ''}
+                              onChange={(e) => setExpForm({ ...expForm, startDate: e.target.value })}
+                            />
+                          </div>
+                          <div className="space-y-2">
+                            <Label htmlFor="edit-end-date">End Date</Label>
+                            <Input
+                              id="edit-end-date"
+                              type="month"
+                              value={expForm.endDate || ''}
+                              onChange={(e) => setExpForm({ ...expForm, endDate: e.target.value })}
+                              disabled={expForm.current}
+                            />
+                          </div>
+                        </div>
+                        <div className="flex items-center space-x-2">
+                          <input
+                            type="checkbox"
+                            id="edit-current"
+                            checked={expForm.current || false}
+                            onChange={(e) => setExpForm({ ...expForm, current: e.target.checked, endDate: e.target.checked ? '' : expForm.endDate })}
+                            className="rounded"
+                          />
+                          <Label htmlFor="edit-current" className="cursor-pointer">I currently work here</Label>
+                        </div>
+                        <div className="space-y-2">
+                          <Label htmlFor="edit-location">Location</Label>
+                          <Input
+                            id="edit-location"
+                            placeholder="e.g. Bangalore, Karnataka"
+                            value={expForm.location || ''}
+                            onChange={(e) => setExpForm({ ...expForm, location: e.target.value })}
+                          />
+                        </div>
+                        <div className="space-y-2">
+                          <Label htmlFor="edit-description">Description</Label>
+                          <Textarea
+                            id="edit-description"
+                            rows={4}
+                            placeholder="Describe your responsibilities and achievements..."
+                            value={expForm.description || ''}
+                            onChange={(e) => setExpForm({ ...expForm, description: e.target.value })}
+                          />
+                        </div>
+                        <div className="flex justify-end gap-3 pt-4">
+                          <Button variant="outline" onClick={() => { setIsEditExpOpen(false); setExpForm({}); setEditingExp(null); }}>
+                            Cancel
+                          </Button>
+                          <Button
+                            className="rounded-full bg-gradient-to-r from-blue-600 to-teal-500 hover:from-blue-700 hover:to-teal-600"
+                            onClick={handleEditExperience}
+                          >
+                            Save Changes
+                          </Button>
+                        </div>
+                      </div>
+                    </DialogContent>
+                  </Dialog>
                 </CardContent>
               </Card>
             </TabsContent>
@@ -243,44 +612,274 @@ export function ProfileSettings({ userType, onNavigate }: ProfileSettingsProps) 
                   <CardDescription>Add your educational qualifications</CardDescription>
                 </CardHeader>
                 <CardContent className="space-y-6">
-                  {/* Education Entry */}
-                  <div className="border-l-2 border-blue-200 pl-6 pb-6">
-                    <div className="flex items-start justify-between mb-4">
-                      <div>
-                        <h3 className="text-lg text-gray-900">Bachelor of Technology in Computer Science</h3>
-                        <p className="text-gray-600">ABC University</p>
-                        <p className="text-sm text-gray-500">2016 - 2020</p>
-                        <p className="text-sm text-gray-500">Grade: 8.5 CGPA</p>
+                  {/* Education Entries */}
+                  {educations.map((edu) => (
+                    <div key={edu.id} className="border-l-2 border-blue-200 pl-6 pb-6">
+                      <div className="flex items-start justify-between mb-4">
+                        <div>
+                          <h3 className="text-lg text-gray-900">{edu.degree}</h3>
+                          <p className="text-gray-600">{edu.college}</p>
+                          <p className="text-sm text-gray-500">{edu.startYear} - {edu.endYear}</p>
+                        </div>
+                        <Button
+                          variant="ghost"
+                          size="sm"
+                          className="rounded-full"
+                          onClick={() => openEditEdu(edu)}
+                        >
+                          <Edit className="w-4 h-4 mr-1" />
+                          Edit
+                        </Button>
                       </div>
-                      <Button variant="ghost" size="sm" className="rounded-full">
-                        Edit
-                      </Button>
                     </div>
-                  </div>
+                  ))}
 
-                  <Button variant="outline" className="rounded-full">
-                    <Plus className="w-4 h-4 mr-2" />
-                    Add Education
-                  </Button>
-
-                  <div className="border-t pt-6">
-                    <h3 className="text-lg text-gray-900 mb-4">Certifications</h3>
-                    <div className="space-y-3">
-                      <div className="flex items-center justify-between p-3 bg-gray-50 rounded-lg">
-                        <div className="flex items-center gap-3">
-                          <Award className="w-5 h-5 text-blue-600" />
-                          <div>
-                            <h4 className="text-gray-900">React Advanced Certification</h4>
-                            <p className="text-sm text-gray-600">Meta • 2023</p>
+                  {/* Add Education Dialog */}
+                  <Dialog open={isAddEduOpen} onOpenChange={setIsAddEduOpen}>
+                    <DialogTrigger asChild>
+                      <Button variant="outline" className="rounded-full">
+                        <Plus className="w-4 h-4 mr-2" />
+                        Add Education
+                      </Button>
+                    </DialogTrigger>
+                    <DialogContent className="max-w-2xl">
+                      <DialogHeader>
+                        <DialogTitle>Add Education</DialogTitle>
+                        <DialogDescription>Fill in your education details</DialogDescription>
+                      </DialogHeader>
+                      <div className="space-y-4 py-4">
+                        <div className="space-y-2">
+                          <Label htmlFor="add-degree">Degree *</Label>
+                          <Input
+                            id="add-degree"
+                            placeholder="e.g. Bachelor of Technology in Computer Science"
+                            value={eduForm.degree || ''}
+                            onChange={(e) => setEduForm({ ...eduForm, degree: e.target.value })}
+                          />
+                        </div>
+                        <div className="space-y-2">
+                          <Label htmlFor="add-college">College Name *</Label>
+                          <Input
+                            id="add-college"
+                            placeholder="e.g. ABC University"
+                            value={eduForm.college || ''}
+                            onChange={(e) => setEduForm({ ...eduForm, college: e.target.value })}
+                          />
+                        </div>
+                        <div className="grid grid-cols-2 gap-4">
+                          <div className="space-y-2">
+                            <Label htmlFor="add-start-year">Start Year *</Label>
+                            <Input
+                              id="add-start-year"
+                              type="number"
+                              placeholder="e.g. 2016"
+                              value={eduForm.startYear || ''}
+                              onChange={(e) => setEduForm({ ...eduForm, startYear: e.target.value })}
+                            />
+                          </div>
+                          <div className="space-y-2">
+                            <Label htmlFor="add-end-year">End Year *</Label>
+                            <Input
+                              id="add-end-year"
+                              type="number"
+                              placeholder="e.g. 2020"
+                              value={eduForm.endYear || ''}
+                              onChange={(e) => setEduForm({ ...eduForm, endYear: e.target.value })}
+                            />
                           </div>
                         </div>
-                        <Button variant="ghost" size="sm">Edit</Button>
+                        <div className="flex justify-end gap-3 pt-4">
+                          <Button variant="outline" onClick={() => { setIsAddEduOpen(false); setEduForm({}); }}>
+                            Cancel
+                          </Button>
+                          <Button
+                            className="rounded-full bg-gradient-to-r from-blue-600 to-teal-500 hover:from-blue-700 hover:to-teal-600"
+                            onClick={handleAddEducation}
+                          >
+                            Add Education
+                          </Button>
+                        </div>
                       </div>
+                    </DialogContent>
+                  </Dialog>
+
+                  {/* Edit Education Dialog */}
+                  <Dialog open={isEditEduOpen} onOpenChange={setIsEditEduOpen}>
+                    <DialogContent className="max-w-2xl">
+                      <DialogHeader>
+                        <DialogTitle>Edit Education</DialogTitle>
+                        <DialogDescription>Update your education details</DialogDescription>
+                      </DialogHeader>
+                      <div className="space-y-4 py-4">
+                        <div className="space-y-2">
+                          <Label htmlFor="edit-degree">Degree *</Label>
+                          <Input
+                            id="edit-degree"
+                            placeholder="e.g. Bachelor of Technology in Computer Science"
+                            value={eduForm.degree || ''}
+                            onChange={(e) => setEduForm({ ...eduForm, degree: e.target.value })}
+                          />
+                        </div>
+                        <div className="space-y-2">
+                          <Label htmlFor="edit-college">College Name *</Label>
+                          <Input
+                            id="edit-college"
+                            placeholder="e.g. ABC University"
+                            value={eduForm.college || ''}
+                            onChange={(e) => setEduForm({ ...eduForm, college: e.target.value })}
+                          />
+                        </div>
+                        <div className="grid grid-cols-2 gap-4">
+                          <div className="space-y-2">
+                            <Label htmlFor="edit-start-year">Start Year *</Label>
+                            <Input
+                              id="edit-start-year"
+                              type="number"
+                              placeholder="e.g. 2016"
+                              value={eduForm.startYear || ''}
+                              onChange={(e) => setEduForm({ ...eduForm, startYear: e.target.value })}
+                            />
+                          </div>
+                          <div className="space-y-2">
+                            <Label htmlFor="edit-end-year">End Year *</Label>
+                            <Input
+                              id="edit-end-year"
+                              type="number"
+                              placeholder="e.g. 2020"
+                              value={eduForm.endYear || ''}
+                              onChange={(e) => setEduForm({ ...eduForm, endYear: e.target.value })}
+                            />
+                          </div>
+                        </div>
+                        <div className="flex justify-end gap-3 pt-4">
+                          <Button variant="outline" onClick={() => { setIsEditEduOpen(false); setEduForm({}); setEditingEdu(null); }}>
+                            Cancel
+                          </Button>
+                          <Button
+                            className="rounded-full bg-gradient-to-r from-blue-600 to-teal-500 hover:from-blue-700 hover:to-teal-600"
+                            onClick={handleEditEducation}
+                          >
+                            Save Changes
+                          </Button>
+                        </div>
+                      </div>
+                    </DialogContent>
+                  </Dialog>
+
+                  {/* Certifications Section */}
+                  <div className="border-t pt-6">
+                    <h3 className="text-lg text-gray-900 mb-4">Certifications</h3>
+                    <div className="space-y-3 mb-4">
+                      {certifications.map((cert) => (
+                        <div key={cert.id} className="flex items-center justify-between p-3 bg-gray-50 rounded-lg">
+                          <div className="flex items-center gap-3">
+                            <Award className="w-5 h-5 text-blue-600" />
+                            <div>
+                              <h4 className="text-gray-900">{cert.name}</h4>
+                              <p className="text-sm text-gray-600">Year: {cert.year}</p>
+                            </div>
+                          </div>
+                          <Button
+                            variant="ghost"
+                            size="sm"
+                            onClick={() => openEditCert(cert)}
+                          >
+                            <Edit className="w-4 h-4 mr-1" />
+                            Edit
+                          </Button>
+                        </div>
+                      ))}
                     </div>
-                    <Button variant="outline" className="rounded-full mt-4">
-                      <Plus className="w-4 h-4 mr-2" />
-                      Add Certification
-                    </Button>
+
+                    {/* Add Certification Dialog */}
+                    <Dialog open={isAddCertOpen} onOpenChange={setIsAddCertOpen}>
+                      <DialogTrigger asChild>
+                        <Button variant="outline" className="rounded-full">
+                          <Plus className="w-4 h-4 mr-2" />
+                          Add Certification
+                        </Button>
+                      </DialogTrigger>
+                      <DialogContent>
+                        <DialogHeader>
+                          <DialogTitle>Add Certification</DialogTitle>
+                          <DialogDescription>Fill in your certification details</DialogDescription>
+                        </DialogHeader>
+                        <div className="space-y-4 py-4">
+                          <div className="space-y-2">
+                            <Label htmlFor="add-cert-name">Certification Name *</Label>
+                            <Input
+                              id="add-cert-name"
+                              placeholder="e.g. AWS Certified Solutions Architect"
+                              value={certForm.name || ''}
+                              onChange={(e) => setCertForm({ ...certForm, name: e.target.value })}
+                            />
+                          </div>
+                          <div className="space-y-2">
+                            <Label htmlFor="add-cert-year">Year Achieved *</Label>
+                            <Input
+                              id="add-cert-year"
+                              type="number"
+                              placeholder="e.g. 2023"
+                              value={certForm.year || ''}
+                              onChange={(e) => setCertForm({ ...certForm, year: e.target.value })}
+                            />
+                          </div>
+                          <div className="flex justify-end gap-3 pt-4">
+                            <Button variant="outline" onClick={() => { setIsAddCertOpen(false); setCertForm({}); }}>
+                              Cancel
+                            </Button>
+                            <Button
+                              className="rounded-full bg-gradient-to-r from-blue-600 to-teal-500 hover:from-blue-700 hover:to-teal-600"
+                              onClick={handleAddCertification}
+                            >
+                              Add Certification
+                            </Button>
+                          </div>
+                        </div>
+                      </DialogContent>
+                    </Dialog>
+
+                    {/* Edit Certification Dialog */}
+                    <Dialog open={isEditCertOpen} onOpenChange={setIsEditCertOpen}>
+                      <DialogContent>
+                        <DialogHeader>
+                          <DialogTitle>Edit Certification</DialogTitle>
+                          <DialogDescription>Update your certification details</DialogDescription>
+                        </DialogHeader>
+                        <div className="space-y-4 py-4">
+                          <div className="space-y-2">
+                            <Label htmlFor="edit-cert-name">Certification Name *</Label>
+                            <Input
+                              id="edit-cert-name"
+                              placeholder="e.g. AWS Certified Solutions Architect"
+                              value={certForm.name || ''}
+                              onChange={(e) => setCertForm({ ...certForm, name: e.target.value })}
+                            />
+                          </div>
+                          <div className="space-y-2">
+                            <Label htmlFor="edit-cert-year">Year Achieved *</Label>
+                            <Input
+                              id="edit-cert-year"
+                              type="number"
+                              placeholder="e.g. 2023"
+                              value={certForm.year || ''}
+                              onChange={(e) => setCertForm({ ...certForm, year: e.target.value })}
+                            />
+                          </div>
+                          <div className="flex justify-end gap-3 pt-4">
+                            <Button variant="outline" onClick={() => { setIsEditCertOpen(false); setCertForm({}); setEditingCert(null); }}>
+                              Cancel
+                            </Button>
+                            <Button
+                              className="rounded-full bg-gradient-to-r from-blue-600 to-teal-500 hover:from-blue-700 hover:to-teal-600"
+                              onClick={handleEditCertification}
+                            >
+                              Save Changes
+                            </Button>
+                          </div>
+                        </div>
+                      </DialogContent>
+                    </Dialog>
                   </div>
                 </CardContent>
               </Card>
@@ -311,24 +910,49 @@ export function ProfileSettings({ userType, onNavigate }: ProfileSettingsProps) 
 
                   <div className="grid grid-cols-1 md:grid-cols-2 gap-4">
                     <div className="space-y-2">
-                      <Label htmlFor="minSalary">Expected Min Salary (LPA)</Label>
+                      <Label htmlFor="currentSalary">Current Salary (INR)</Label>
                       <div className="relative">
                         <DollarSign className="absolute left-3 top-1/2 -translate-y-1/2 w-5 h-5 text-gray-400" />
-                        <Input id="minSalary" type="number" defaultValue="15" className="pl-10" />
+                        <Input id="currentSalary" type="number" placeholder="e.g. 1200000" className="pl-10" />
                       </div>
+                      <p className="text-xs text-gray-500">Enter annual salary in rupees</p>
                     </div>
                     <div className="space-y-2">
-                      <Label htmlFor="maxSalary">Expected Max Salary (LPA)</Label>
+                      <Label htmlFor="expectedSalary">Expected Salary (INR)</Label>
                       <div className="relative">
                         <DollarSign className="absolute left-3 top-1/2 -translate-y-1/2 w-5 h-5 text-gray-400" />
-                        <Input id="maxSalary" type="number" defaultValue="20" className="pl-10" />
+                        <Input id="expectedSalary" type="number" placeholder="e.g. 1500000" className="pl-10" />
                       </div>
+                      <p className="text-xs text-gray-500">Enter annual salary in rupees</p>
                     </div>
                   </div>
 
                   <div className="space-y-2">
                     <Label htmlFor="preferredLocations">Preferred Locations</Label>
                     <Input id="preferredLocations" defaultValue="Bangalore, Mumbai, Remote" />
+                  </div>
+
+                  <div className="space-y-2">
+                    <Label htmlFor="resume">Resume</Label>
+                    <div className="flex items-center gap-3">
+                      <Button variant="outline" className="rounded-full">
+                        <Upload className="w-4 h-4 mr-2" />
+                        Upload Resume
+                      </Button>
+                      <span className="text-sm text-gray-600">PDF, DOC, or DOCX. Max size 5MB</span>
+                    </div>
+                    <div className="mt-2 p-3 bg-gray-50 rounded-lg flex items-center justify-between">
+                      <div className="flex items-center gap-2">
+                        <FileText className="w-5 h-5 text-blue-600" />
+                        <div>
+                          <p className="text-sm text-gray-900">Rahul_Kumar_Resume.pdf</p>
+                          <p className="text-xs text-gray-500">Uploaded on Jan 15, 2025</p>
+                        </div>
+                      </div>
+                      <Button variant="ghost" size="sm">
+                        <X className="w-4 h-4" />
+                      </Button>
+                    </div>
                   </div>
 
                   <div className="space-y-4">
@@ -453,8 +1077,8 @@ export function ProfileSettings({ userType, onNavigate }: ProfileSettingsProps) 
 
                   <div className="space-y-2">
                     <Label htmlFor="description">Company Description</Label>
-                    <Textarea 
-                      id="description" 
+                    <Textarea
+                      id="description"
                       rows={4}
                       defaultValue="TechCorp Solutions is a leading technology company specializing in innovative web and mobile solutions."
                     />
