@@ -7,7 +7,8 @@ import { Tabs, TabsContent, TabsList, TabsTrigger } from './ui/tabs';
 import { Checkbox } from './ui/checkbox';
 import { Briefcase, ArrowLeft, Mail, Lock, User, Phone, Building2 } from 'lucide-react';
 import { UserType } from '../App';
-import { signInWithGoogle } from '../Firebase';
+import { auth, signInWithGoogle } from "../Firebase";
+
 
 interface AuthScreenProps {
   onLogin: (userType: UserType) => void;
@@ -153,7 +154,7 @@ export function AuthScreen({ onLogin, onNavigate }: AuthScreenProps) {
               {/* User Type Selection */}
               <Tabs
                 value={userType}
-                onValueChange={(value) => setUserType(value as 'jobseeker' | 'recruiter')}
+                onValueChange={(value: string) => setUserType(value as 'jobseeker' | 'recruiter')}
                 className="mb-6"
               >
                 <TabsList className="grid w-full grid-cols-2">
