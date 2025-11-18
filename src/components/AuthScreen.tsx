@@ -7,7 +7,9 @@ import { Tabs, TabsContent, TabsList, TabsTrigger } from './ui/tabs';
 import { Checkbox } from './ui/checkbox';
 import { Briefcase, ArrowLeft, Mail, Lock, User, Phone, Building2 } from 'lucide-react';
 import { UserType } from '../App';
-import { auth, signInWithGoogle } from "../Firebase";
+import { auth, signInWithGoogle } from '../Firebase';
+
+
 
 
 interface AuthScreenProps {
