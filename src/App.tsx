@@ -1,4 +1,4 @@
-import { useState } from 'react';
+import { useState, useEffect } from 'react';
 import { Landing } from './components/Landing';
 import { JobSeekerDashboard } from './components/JobSeekerDashboard';
 import { RecruiterDashboard } from './components/RecruiterDashboard';
@@ -9,20 +9,45 @@ import { ProfileSettings } from './components/ProfileSettings';
 export type UserType = 'jobseeker' | 'recruiter' | null;
 
 export default function App() {
-  const [currentScreen, setCurrentScreen] = useState<'landing' | 'jobseeker-dashboard' | 'recruiter-dashboard' | 'job-details' | 'auth' | 'profile-settings'>('landing');
+  const [currentScreen, setCurrentScreen] = useState<
+    'landing' |
+    'jobseeker-dashboard' |
+    'recruiter-dashboard' |
+    'job-details' |
+    'auth' |
+    'profile-settings'
+  >('landing');
+
   const [userType, setUserType] = useState<UserType>(null);
   const [selectedJobId, setSelectedJobId] = useState<string | null>(null);
 
+
+  useEffect(() => {
+    const storedUser = localStorage.getItem('user');
+    if (storedUser) {
+      const parsedUser = JSON.parse(storedUser);
+      setUserType(parsedUser.role);
+
+      if (parsedUser.role === 'jobseeker') {
+        setCurrentScreen('jobseeker-dashboard');
+      } else {
+        setCurrentScreen('recruiter-dashboard');
+      }
+    }
+  }, []);
+
   const handleLogin = (type: UserType) => {
     setUserType(type);
-    if (type === 'jobseeker') {
-      setCurrentScreen('jobseeker-dashboard');
-    } else if (type === 'recruiter') {
-      setCurrentScreen('recruiter-dashboard');
-    }
+    setCurrentScreen(
+      type === 'jobseeker'
+        ? 'jobseeker-dashboard'
+        : 'recruiter-dashboard'
+    );
   };
 
   const handleLogout = () => {
+    localStorage.removeItem('token');
+    localStorage.removeItem('user');
     setUserType(null);
     setCurrentScreen('landing');
   };
@@ -32,47 +57,46 @@ export default function App() {
     setCurrentScreen('job-details');
   };
 
-  const handleNavigate = (screen: 'landing' | 'jobseeker-dashboard' | 'recruiter-dashboard' | 'job-details' | 'auth' | 'profile-settings') => {
+  const handleNavigate = (screen: typeof currentScreen) => {
     setCurrentScreen(screen);
   };
 
   return (
     <div className="min-h-screen bg-gray-50">
       {currentScreen === 'landing' && (
-        <Landing 
-          onNavigate={handleNavigate}
-          onViewJob={handleViewJob}
-        />
+        <Landing onNavigate={handleNavigate} onViewJob={handleViewJob} />
       )}
-      {currentScreen === 'jobseeker-dashboard' && (
-        <JobSeekerDashboard 
-          onNavigate={handleNavigate}
-          onLogout={handleLogout}
-          onViewJob={handleViewJob}
-        />
-      )}
-      {currentScreen === 'recruiter-dashboard' && (
-        <RecruiterDashboard 
-          onNavigate={handleNavigate}
-          onLogout={handleLogout}
-        />
-      )}
-      {currentScreen === 'job-details' && (
-        <JobDetailsPage 
-          jobId={selectedJobId}
-          onNavigate={handleNavigate}
-          onViewJob={handleViewJob}
-          userType={userType}
-        />
-      )}
+
       {currentScreen === 'auth' && (
-        <AuthScreen 
-          onLogin={handleLogin}
+        <AuthScreen onLogin={handleLogin} onNavigate={handleNavigate} />
+      )}
+
+      {currentScreen === 'jobseeker-dashboard' && (
+        <JobSeekerDashboard
           onNavigate={handleNavigate}
+          onLogout={handleLogout}
+          onViewJob={handleViewJob}
         />
       )}
+
+      {currentScreen === 'recruiter-dashboard' && (
+        <RecruiterDashboard
+          onNavigate={handleNavigate}
+          onLogout={handleLogout}
+        />
+      )}
+
+      {currentScreen === 'job-details' && (
+        <JobDetailsPage
+          jobId={selectedJobId}
+          userType={userType}
+          onNavigate={handleNavigate}
+          onViewJob={handleViewJob}
+        />
+      )}
+
       {currentScreen === 'profile-settings' && (
-        <ProfileSettings 
+        <ProfileSettings
           userType={userType}
           onNavigate={handleNavigate}
         />

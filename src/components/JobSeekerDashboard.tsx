@@ -1,16 +1,17 @@
-import { useState } from 'react';
+import { useState, useEffect } from 'react';
 import { Header } from './Header';
 import { Button } from './ui/button';
 import { Card, CardContent, CardHeader, CardTitle } from './ui/card';
 import { Badge } from './ui/badge';
+import { Progress } from './ui/progress';
 import { Input } from './ui/input';
 import { Tabs, TabsContent, TabsList, TabsTrigger } from './ui/tabs';
-import { 
-  Briefcase, MapPin, Clock, TrendingUp, FileText, 
+import {
+  Briefcase, MapPin, Clock, TrendingUp, FileText,
   User, Bell, Search, Filter, BookmarkPlus, Building2,
   Calendar, DollarSign, CheckCircle2, XCircle, AlertCircle
 } from 'lucide-react';
-import { Progress } from './ui/progress';
+
 
 interface JobSeekerDashboardProps {
   onNavigate: (screen: 'landing' | 'jobseeker-dashboard' | 'recruiter-dashboard' | 'job-details' | 'auth' | 'profile-settings') => void;
@@ -96,6 +97,199 @@ const recommendedJobs = [
 export function JobSeekerDashboard({ onNavigate, onLogout, onViewJob }: JobSeekerDashboardProps) {
   const [searchQuery, setSearchQuery] = useState('');
   const [locationFilter, setLocationFilter] = useState('');
+  const [user, setUser] = useState<any>(null);
+  const [profileCompletion, setProfileCompletion] = useState(0);
+
+  useEffect(() => {
+    const storedUser = localStorage.getItem('user');
+    if (storedUser) {
+      setUser(JSON.parse(storedUser));
+    }
+  }, []);
+
+  useEffect(() => {
+    const fetchProfile = async () => {
+      try {
+        const token = localStorage.getItem('token');
+        if (!token) return;
+
+        const res = await fetch('http://localhost:5000/api/auth/me', {
+          headers: {
+            Authorization: `Bearer ${token}`,
+          },
+        });
+
+        if (!res.ok) return;
+        const data = await res.json();
+        setUser(data);
+        const percentage = calculateProfileCompletion(data);
+        setProfileCompletion(percentage);
+      } catch (err) {
+        console.error('Failed to fetch profile', err);
+      }
+    };
+
+    fetchProfile();
+  }, []);
+
+  const calculateProfileCompletion = (user: any) => {
+    if (!user) return 0;
+
+    // Define sections and their inner fields
+    const basicFields = [
+      user.firstName,
+      user.lastName,
+      user.phone,
+      user.location,
+      user.headline,
+      user.about,
+      user.profilePhoto,
+      user.resume,
+    ];
+
+    let professionalFields = [
+      user.totalExperience,
+      user.employmentStatus,
+      user.currentJobTitle,
+      user.currentCompany,
+      user.noticePeriod,
+      user.currentCTC,
+      user.expectedCTC,
+    ];
+
+    // If user is a fresher, consider project field instead of professional details
+    if (user.employmentStatus === 'fresher') {
+      professionalFields = [
+        user.project?.name,
+        user.project?.duration,
+        (user.project?.domains || []).length,
+      ];
+    }
+
+    const skillsEducationFields = [
+      (user.primarySkills || []).length,
+      (user.secondarySkills || []).length,
+      (user.education || []).length,
+      (user.certifications || []).length,
+    ];
+
+    // Only require the visible preference fields for completion
+    const preferencesFields = [
+      user.preferredJobType,
+      user.preferredLocation,
+      user.workMode,
+    ];
+
+    const sectionScore = (fields: any[]) => {
+      if (!fields || fields.length === 0) return 0;
+      const filled = fields.filter(Boolean).length;
+      return filled / fields.length; // 0..1
+    };
+
+    // Each section contributes 25%
+    const basicScore = sectionScore(basicFields) * 25;
+    const profScore = sectionScore(professionalFields) * 25;
+    const skillsEduScore = sectionScore(skillsEducationFields) * 25;
+    const prefScore = sectionScore(preferencesFields) * 25;
+
+    const total = basicScore + profScore + skillsEduScore + prefScore;
+    const rounded = Math.round(total);
+    if (rounded < 100) {
+      // debug info to help identify missing bits
+      // eslint-disable-next-line no-console
+      console.debug('Profile completion debug', {
+        basic: { filled: basicFields.filter(Boolean).length, total: basicFields.length, score: basicScore },
+        professional: { filled: professionalFields.filter(Boolean).length, total: professionalFields.length, score: profScore },
+        skillsEducation: { filled: skillsEducationFields.filter(Boolean).length, total: skillsEducationFields.length, score: skillsEduScore },
+        preferences: { filled: preferencesFields.filter(Boolean).length, total: preferencesFields.length, score: prefScore },
+        total,
+      });
+    }
+    return rounded;
+  };
+
+  const completion = calculateProfileCompletion(user);
+
+  const getCompletionDetails = (user: any) => {
+    if (!user) return null;
+    const basicFields = [
+      user.firstName,
+      user.lastName,
+      user.phone,
+      user.location,
+      user.headline,
+      user.about,
+      user.profilePhoto,
+      user.resume,
+    ];
+
+    let professionalFields = [
+      user.totalExperience,
+      user.employmentStatus,
+      user.currentJobTitle,
+      user.currentCompany,
+      user.noticePeriod,
+      user.currentCTC,
+      user.expectedCTC,
+    ];
+
+    if (user.employmentStatus === 'fresher') {
+      professionalFields = [user.project?.name, user.project?.duration, (user.project?.domains || []).length];
+    }
+
+    const skillsEducationFields = [
+      (user.primarySkills || []).length,
+      (user.secondarySkills || []).length,
+      (user.education || []).length,
+      (user.certifications || []).length,
+    ];
+
+    const preferencesFields = [user.preferredJobType, user.preferredLocation, user.workMode];
+
+    return {
+      basic: { filled: basicFields.filter(Boolean).length, total: basicFields.length },
+      professional: { filled: professionalFields.filter(Boolean).length, total: professionalFields.length },
+      skillsEdu: { filled: skillsEducationFields.filter(Boolean).length, total: skillsEducationFields.length },
+      preferences: { filled: preferencesFields.filter(Boolean).length, total: preferencesFields.length },
+    };
+  };
+
+  // Compute missing fields list for checklist under progress bar
+  const missingFields = (user: any) => {
+    if (!user) return [];
+    const missing: string[] = [];
+    if (!user.firstName) missing.push('First name');
+    if (!user.lastName) missing.push('Last name');
+    if (!user.phone) missing.push('Phone');
+    if (!user.location) missing.push('Location');
+    if (!user.headline) missing.push('Headline');
+    if (!user.about) missing.push('About');
+    if (!user.profilePhoto) missing.push('Profile photo');
+    if (!user.resume) missing.push('Resume');
+
+    // professional
+    if (user.employmentStatus !== 'fresher') {
+      if (!user.totalExperience) missing.push('Total experience');
+      if (!user.currentJobTitle) missing.push('Current job title');
+      if (!user.currentCompany) missing.push('Current company');
+    } else {
+      // For freshers, require project name, duration, and domains
+      if (!user.project?.name) missing.push('Project name');
+      if (!user.project?.duration) missing.push('Project duration');
+      if (!((user.project?.domains || []).length)) missing.push('Project domains');
+    }
+
+    if (!((user.primarySkills || []).length)) missing.push('Primary skills');
+    if (!((user.secondarySkills || []).length)) missing.push('Secondary skills');
+    if (!((user.education || []).length)) missing.push('Education');
+    if (!((user.certifications || []).length)) missing.push('Certifications');
+
+    if (!user.preferredJobType) missing.push('Preferred job type');
+    if (!user.preferredLocation) missing.push('Preferred location');
+    if (!user.workMode) missing.push('Work mode');
+
+    return missing;
+  };
 
   return (
     <div className="min-h-screen bg-gray-50">
@@ -108,10 +302,42 @@ export function JobSeekerDashboard({ onNavigate, onLogout, onViewJob }: JobSeeke
             <div className="flex flex-col sm:flex-row items-start sm:items-center justify-between gap-4">
               <div className="flex-1">
                 <h3 className="text-lg text-gray-900 mb-2">Complete your profile to get better job matches</h3>
-                <Progress value={65} className="h-2 mb-2" />
-                <p className="text-sm text-gray-600">65% completed - Add your skills and experience</p>
+                <div className="mb-2">
+                  <Progress value={completion} className="h-2" />
+                </div>
+                <p className="text-sm text-gray-600">{completion}% completed</p>
+                {completion < 100 && (
+                  <div className="mt-2 text-sm text-gray-700">
+                    <p className="font-medium">To reach 100% fill:</p>
+                    {missingFields(user).length > 0 ? (
+                      <ul className="list-disc ml-5">
+                        {missingFields(user).slice(0, 6).map((f, i) => (
+                          <li key={i}>{f}</li>
+                        ))}
+                        {missingFields(user).length > 6 && <li>and more...</li>}
+                      </ul>
+                    ) : (
+                      // no missing fields but not 100%: show breakdown
+                      (() => {
+                        const d = getCompletionDetails(user);
+                        if (!d) return <p>No details available</p>;
+                        return (
+                          <div className="text-sm text-gray-700">
+                            <p className="font-medium">Completion breakdown:</p>
+                            <ul className="list-disc ml-5">
+                              <li>Basic: {d.basic.filled}/{d.basic.total}</li>
+                              <li>Professional: {d.professional.filled}/{d.professional.total}</li>
+                              <li>Skills & Education: {d.skillsEdu.filled}/{d.skillsEdu.total}</li>
+                              <li>Preferences: {d.preferences.filled}/{d.preferences.total}</li>
+                            </ul>
+                          </div>
+                        );
+                      })()
+                    )}
+                  </div>
+                )}
               </div>
-              <Button 
+              <Button
                 className="rounded-full bg-gradient-to-r from-blue-600 to-teal-500 hover:from-blue-700 hover:to-teal-600"
                 onClick={() => onNavigate('profile-settings')}
               >
@@ -127,33 +353,43 @@ export function JobSeekerDashboard({ onNavigate, onLogout, onViewJob }: JobSeeke
             <Card>
               <CardContent className="p-6">
                 <div className="text-center mb-6">
-                  <div className="w-20 h-20 mx-auto bg-gradient-to-br from-blue-500 to-teal-400 rounded-full flex items-center justify-center mb-3">
-                    <User className="w-10 h-10 text-white" />
+                  <div className="w-20 h-20 mx-auto rounded-full overflow-hidden mb-3">
+                    {user?.profilePhoto ? (
+                      <img src={`http://localhost:5000${user.profilePhoto}`} alt="profile" className="w-20 h-20 object-cover" />
+                    ) : (
+                      <div className="w-20 h-20 bg-gradient-to-br from-blue-500 to-teal-400 rounded-full flex items-center justify-center">
+                        <User className="w-10 h-10 text-white" />
+                      </div>
+                    )}
                   </div>
-                  <h3 className="text-lg text-gray-900">Rahul Kumar</h3>
-                  <p className="text-gray-600">Frontend Developer</p>
+                  <h3 className="text-lg text-gray-900">
+                    {user?.firstName} {user?.lastName}
+                  </h3>
+                  <p className="text-gray-600">
+                    {user?.headline || 'Add Professional Headline'}
+                  </p>
                   <Badge variant="secondary" className="mt-2 rounded-full">
-                    4 years experience
+                    {user?.totalExperience || 0} years experience
                   </Badge>
                 </div>
 
                 <div className="space-y-3">
                   <div className="flex items-center gap-2 text-sm text-gray-600">
                     <MapPin className="w-4 h-4" />
-                    Bangalore, Karnataka
+                    {user?.location || 'Add Location'}
                   </div>
                   <div className="flex items-center gap-2 text-sm text-gray-600">
                     <Briefcase className="w-4 h-4" />
-                    Currently at TechStartup
+                    Currently at {user?.currentCompany || 'Add Company'}
                   </div>
                   <div className="flex items-center gap-2 text-sm text-gray-600">
                     <DollarSign className="w-4 h-4" />
-                    Expected: ₹15-20 LPA
+                    Expected: ₹{user?.expectedCTC || 'Add Expected Salary'}
                   </div>
                 </div>
 
-                <Button 
-                  variant="outline" 
+                <Button
+                  variant="outline"
                   className="w-full mt-6 rounded-full"
                   onClick={() => onNavigate('profile-settings')}
                 >
@@ -208,7 +444,7 @@ export function JobSeekerDashboard({ onNavigate, onLogout, onViewJob }: JobSeeke
                 <div className="flex flex-col sm:flex-row gap-2">
                   <div className="flex-1 flex items-center gap-2 px-3 py-2 bg-gray-50 rounded-lg">
                     <Search className="w-5 h-5 text-gray-400" />
-                    <Input 
+                    <Input
                       placeholder="Search jobs..."
                       value={searchQuery}
                       onChange={(e) => setSearchQuery(e.target.value)}
@@ -235,7 +471,7 @@ export function JobSeekerDashboard({ onNavigate, onLogout, onViewJob }: JobSeeke
               {/* Recommended Jobs Tab */}
               <TabsContent value="recommended" className="space-y-4">
                 {recommendedJobs.map((job) => (
-                  <Card 
+                  <Card
                     key={job.id}
                     className="hover:shadow-lg transition-shadow cursor-pointer group"
                     onClick={() => onViewJob(job.id)}
@@ -307,7 +543,7 @@ export function JobSeekerDashboard({ onNavigate, onLogout, onViewJob }: JobSeeke
               {/* Applied Jobs Tab */}
               <TabsContent value="applied" className="space-y-4">
                 {appliedJobs.map((job) => (
-                  <Card 
+                  <Card
                     key={job.id}
                     className="hover:shadow-lg transition-shadow cursor-pointer"
                     onClick={() => onViewJob(job.id)}
@@ -326,12 +562,11 @@ export function JobSeekerDashboard({ onNavigate, onLogout, onViewJob }: JobSeeke
                               </h3>
                               <p className="text-gray-600">{job.company}</p>
                             </div>
-                            <Badge 
-                              className={`rounded-full ${
-                                job.statusType === 'pending' ? 'bg-yellow-100 text-yellow-800' :
+                            <Badge
+                              className={`rounded-full ${job.statusType === 'pending' ? 'bg-yellow-100 text-yellow-800' :
                                 job.statusType === 'interview' ? 'bg-green-100 text-green-800' :
-                                'bg-red-100 text-red-800'
-                              }`}
+                                  'bg-red-100 text-red-800'
+                                }`}
                             >
                               {job.statusType === 'pending' && <AlertCircle className="w-3 h-3 mr-1" />}
                               {job.statusType === 'interview' && <CheckCircle2 className="w-3 h-3 mr-1" />}
