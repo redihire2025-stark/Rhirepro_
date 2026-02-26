@@ -1,4 +1,4 @@
-import { useState } from 'react';
+import { useState, useEffect, useRef } from 'react';
 import { Header } from './Header';
 import { Button } from './ui/button';
 import { Card, CardContent, CardDescription, CardHeader, CardTitle } from './ui/card';
@@ -48,8 +48,187 @@ interface Certification {
 }
 
 export function ProfileSettings({ userType, onNavigate }: ProfileSettingsProps) {
+  // list of Indian states and union territories (states-only for dropdowns)
+  const LOCATIONS = [
+    'Andhra Pradesh', 'Arunachal Pradesh', 'Assam', 'Bihar', 'Chhattisgarh',
+    'Goa', 'Gujarat', 'Haryana', 'Himachal Pradesh', 'Jharkhand',
+    'Karnataka', 'Kerala', 'Madhya Pradesh', 'Maharashtra', 'Manipur',
+    'Meghalaya', 'Mizoram', 'Nagaland', 'Odisha', 'Punjab',
+    'Rajasthan', 'Sikkim', 'Tamil Nadu', 'Telangana', 'Tripura',
+    'Uttar Pradesh', 'Uttarakhand', 'West Bengal', 'Delhi', 'Chandigarh',
+    'Puducherry', 'Andaman and Nicobar Islands', 'Lakshadweep'
+  ];
+  // Comprehensive skills options for multi-select
+  const SKILLS_OPTIONS = [
+    'JavaScript', 'TypeScript', 'React', 'Vue', 'Angular', 'Next.js', 'Gatsby',
+    'Node.js', 'Express', 'NestJS', 'Deno', 'HTML', 'CSS', 'Sass', 'Less', 'Tailwind CSS', 'Bootstrap',
+    'Redux', 'MobX', 'Recoil', 'RxJS', 'GraphQL', 'Apollo', 'REST', 'OpenAPI',
+    'MongoDB', 'PostgreSQL', 'MySQL', 'Redis', 'Cassandra', 'SQLite', 'Elasticsearch',
+    'Docker', 'Kubernetes', 'AWS', 'Azure', 'GCP', 'Terraform', 'Serverless',
+    'Python', 'Django', 'Flask', 'FastAPI', 'Pandas', 'NumPy', 'PyTorch', 'TensorFlow',
+    'Java', 'Spring Boot', 'Kotlin', 'Scala', 'C#', '.NET', 'Golang', 'Rust', 'C++', 'C',
+    'PHP', 'Laravel', 'Symfony', 'Ruby', 'Ruby on Rails', 'Perl',
+    'Blockchain', 'Solidity', 'Web3', 'Apache Kafka', 'RabbitMQ', 'Celery',
+    'Hadoop', 'Spark', 'Hive', 'Airflow', 'CI/CD', 'Jenkins', 'GitHub Actions', 'GitLab CI',
+    'Jest', 'Mocha', 'Chai', 'Cypress', 'Playwright', 'Selenium',
+    'JIRA', 'Confluence', 'Figma', 'Sketch', 'Adobe XD', 'Photoshop', 'Illustrator',
+    'SQL', 'NoSQL', 'Data Engineering', 'Data Science', 'Machine Learning', 'MLOps',
+    'DevOps', 'Site Reliability', 'Security', 'OAuth', 'OpenID', 'SAML',
+    'GraphQL', 'gRPC', 'WebSockets', 'RESTful APIs', 'Microservices', 'Monolith',
+    'React Native', 'Flutter', 'Android', 'iOS', 'Swift', 'Objective-C',
+    'Unity', 'Unreal', 'Game Development', 'Embedded Systems', 'IoT',
+    'Unit Testing', 'Integration Testing', 'Performance Testing', 'Accessibility',
+    'SEO', 'Analytics', 'Google Analytics', 'Power BI', 'Tableau'
+  ];
+
+  const [preferredLocations, setPreferredLocations] = useState<string[]>([]);
   const [skills, setSkills] = useState(['React', 'TypeScript', 'Next.js', 'Node.js']);
+  const [preferredFilter, setPreferredFilter] = useState('');
+  const [showPreferredDropdown, setShowPreferredDropdown] = useState(false);
   const [newSkill, setNewSkill] = useState('');
+  const [showSkillsDropdown, setShowSkillsDropdown] = useState(false);
+  const [profile, setProfile] = useState<any>({});
+  const photoInputRef = useRef<HTMLInputElement | null>(null);
+  const resumeInputRef = useRef<HTMLInputElement | null>(null);
+
+  useEffect(() => {
+    const fetchProfile = async () => {
+      try {
+        const token = localStorage.getItem('token');
+        if (!token) return;
+
+        const res = await fetch('http://localhost:5000/api/auth/me', {
+          headers: {
+            Authorization: `Bearer ${token}`,
+          },
+        });
+
+        if (!res.ok) return;
+        const data = await res.json();
+        setProfile(data || {});
+
+        // populate local lists if available and normalize ids
+        if (data?.experiences) setExperiences((data.experiences || []).map((e: any) => ({ ...(e || {}), id: e._id || e.id || (Date.now().toString() + Math.random()) })));
+        if (data?.education) setEducations((data.education || []).map((ed: any) => ({ ...(ed || {}), id: ed._id || ed.id || (Date.now().toString() + Math.random()) })));
+        if (data?.certifications) setCertifications((data.certifications || []).map((c: any) => ({ id: c._id || c.id || (Date.now().toString() + Math.random()), name: c.name || c.title || '', year: c.year })));
+        if (data?.project) setProfile((p: any) => ({ ...p, project: data.project }));
+        if (data?.primarySkills || data?.secondarySkills) {
+          const primary = Array.isArray(data.primarySkills) ? data.primarySkills : String(data.primarySkills || '').split(/,\s*/).filter(Boolean);
+          const secondary = Array.isArray(data.secondarySkills) ? data.secondarySkills : String(data.secondarySkills || '').split(/,\s*/).filter(Boolean);
+          setSkills([...new Set([...primary, ...secondary])]);
+        }
+        // preferred locations may be stored as comma separated string — normalize to array
+        if (data?.preferredLocation) {
+          const arr = Array.isArray(data.preferredLocation)
+            ? data.preferredLocation
+            : String(data.preferredLocation || '').split(/,\s*/).filter(Boolean);
+          setPreferredLocations(arr.slice(0, 3));
+        }
+      } catch (err) {
+        console.error('Failed to fetch profile', err);
+      }
+    };
+
+    fetchProfile();
+  }, []);
+
+  const handlePhotoChange = async (e: any) => {
+    const file = e.target.files?.[0];
+    if (!file) return;
+    const token = localStorage.getItem('token');
+    const fd = new FormData();
+    fd.append('photo', file);
+
+    try {
+      const res = await fetch('http://localhost:5000/api/auth/upload-photo', {
+        method: 'POST',
+        headers: { Authorization: `Bearer ${token}` },
+        body: fd,
+      });
+      if (res.ok) {
+        const data = await res.json();
+        setProfile(data);
+        localStorage.setItem('user', JSON.stringify(data));
+        alert('Photo uploaded');
+      } else {
+        alert('Photo upload failed');
+      }
+    } catch (err) {
+      console.error(err);
+      alert('Photo upload error');
+    }
+  };
+
+  const handleResumeChange = async (e: any) => {
+    const file = e.target.files?.[0];
+    if (!file) return;
+    const token = localStorage.getItem('token');
+    const fd = new FormData();
+    fd.append('resume', file);
+
+    try {
+      const res = await fetch('http://localhost:5000/api/auth/upload-resume', {
+        method: 'POST',
+        headers: { Authorization: `Bearer ${token}` },
+        body: fd,
+      });
+      if (res.ok) {
+        const data = await res.json();
+        setProfile(data);
+        localStorage.setItem('user', JSON.stringify(data));
+        alert('Resume uploaded');
+      } else {
+        alert('Resume upload failed');
+      }
+    } catch (err) {
+      console.error(err);
+      alert('Resume upload error');
+    }
+  };
+
+  const handleSave = async () => {
+    try {
+      const token = localStorage.getItem('token');
+      if (!token) return alert('Not authenticated');
+
+      // sync local arrays back to profile
+      const payload = { ...profile };
+      payload.experiences = experiences;
+      payload.education = educations;
+      // send certifications as { name, year }
+      payload.certifications = certifications.map((c) => ({ name: c.name, year: c.year }));
+      payload.primarySkills = skills;
+      payload.secondarySkills = [];
+      // preferredLocations: save as comma separated string for backend compatibility
+      if (preferredLocations && preferredLocations.length) payload.preferredLocation = preferredLocations.join(', ');
+      // include project (for freshers) - store structured object
+      payload.project = profile.project
+        ? {
+          name: profile.project.name || '',
+          duration: profile.project.duration || '',
+          domains: Array.isArray(profile.project.domains)
+            ? profile.project.domains
+            : (typeof profile.project.domains === 'string' && profile.project.domains.length)
+              ? profile.project.domains.split(',').map((s: string) => s.trim()).filter(Boolean)
+              : [],
+        }
+        : null;
+
+      await fetch('http://localhost:5000/api/auth/update-profile', {
+        method: 'PUT',
+        headers: {
+          'Content-Type': 'application/json',
+          Authorization: `Bearer ${token}`,
+        },
+        body: JSON.stringify(payload),
+      });
+
+      alert('Profile updated successfully!');
+    } catch (err) {
+      console.error('Save failed', err);
+      alert('Failed to save profile');
+    }
+  };
 
   // Experience state
   const [experiences, setExperiences] = useState<Experience[]>([
@@ -130,33 +309,119 @@ export function ProfileSettings({ userType, onNavigate }: ProfileSettingsProps) 
 
   // Experience handlers
   const handleAddExperience = () => {
-    if (expForm.designation && expForm.company && expForm.startDate) {
-      const newExp: Experience = {
-        id: Date.now().toString(),
-        designation: expForm.designation,
-        company: expForm.company,
-        startDate: expForm.startDate,
-        endDate: expForm.endDate || '',
-        location: expForm.location || '',
-        description: expForm.description || '',
-        current: expForm.current || false
-      };
-      setExperiences([...experiences, newExp]);
-      setExpForm({});
-      setIsAddExpOpen(false);
-    }
+    // save experience to server then reload
+    (async () => {
+      if (expForm.designation && expForm.company && expForm.startDate) {
+        const newExp: Experience = {
+          id: Date.now().toString(),
+          designation: expForm.designation,
+          company: expForm.company,
+          startDate: expForm.startDate,
+          endDate: expForm.endDate || '',
+          location: expForm.location || '',
+          description: expForm.description || '',
+          current: expForm.current || false
+        };
+        const newList = [...experiences, newExp];
+        setExperiences(newList);
+        setExpForm({});
+        setIsAddExpOpen(false);
+
+        try {
+          const token = localStorage.getItem('token');
+          const payload = newList.map(({ id, ...rest }) => rest);
+          await fetch('http://localhost:5000/api/auth/update-experience', {
+            method: 'PUT',
+            headers: {
+              'Content-Type': 'application/json',
+              Authorization: `Bearer ${token}`,
+            },
+            body: JSON.stringify({ experiences: payload }),
+          });
+        } catch (err) {
+          console.error('Failed to save experiences', err);
+        }
+
+        // refresh profile from server
+        try {
+          const token = localStorage.getItem('token');
+          const res = await fetch('http://localhost:5000/api/auth/me', {
+            headers: { Authorization: `Bearer ${token}` },
+          });
+          if (res.ok) {
+            const data = await res.json();
+            setProfile(data || {});
+            if (data?.experiences) setExperiences(data.experiences);
+          }
+        } catch (err) {
+          console.error('Failed to reload profile', err);
+        }
+      }
+    })();
   };
 
   const handleEditExperience = () => {
-    if (editingExp && expForm.designation && expForm.company && expForm.startDate) {
-      setExperiences(experiences.map(exp =>
-        exp.id === editingExp.id
-          ? { ...exp, ...expForm } as Experience
-          : exp
-      ));
-      setExpForm({});
-      setEditingExp(null);
-      setIsEditExpOpen(false);
+    (async () => {
+      if (editingExp && expForm.designation && expForm.company && expForm.startDate) {
+        const updated = experiences.map(exp =>
+          exp.id === editingExp.id
+            ? { ...exp, ...expForm } as Experience
+            : exp
+        );
+        setExperiences(updated);
+        setExpForm({});
+        setEditingExp(null);
+        setIsEditExpOpen(false);
+
+        try {
+          const token = localStorage.getItem('token');
+          await fetch('http://localhost:5000/api/auth/update-experience', {
+            method: 'PUT',
+            headers: {
+              'Content-Type': 'application/json',
+              Authorization: `Bearer ${token}`,
+            },
+            body: JSON.stringify({ experiences: updated.map(({ id, ...rest }) => rest) }),
+          });
+        } catch (err) {
+          console.error('Failed to update experiences', err);
+        }
+
+        // refresh profile
+        try {
+          const token = localStorage.getItem('token');
+          const res = await fetch('http://localhost:5000/api/auth/me', {
+            headers: { Authorization: `Bearer ${token}` },
+          });
+          if (res.ok) {
+            const data = await res.json();
+            setProfile(data || {});
+            if (data?.experiences) setExperiences(data.experiences);
+          }
+        } catch (err) {
+          console.error('Failed to reload profile', err);
+        }
+      }
+    })();
+  };
+
+  const handleRemoveExperience = async (id: string) => {
+    const newList = experiences.filter(e => e.id !== id);
+    setExperiences(newList);
+    try {
+      const token = localStorage.getItem('token');
+      const res = await fetch('http://localhost:5000/api/auth/update-experience', {
+        method: 'PUT',
+        headers: { 'Content-Type': 'application/json', Authorization: `Bearer ${token}` },
+        body: JSON.stringify({ experiences: newList.map(({ id, ...rest }) => rest) }),
+      });
+      if (res.ok) {
+        const data = await res.json();
+        setProfile(data || {});
+      }
+    } catch (err) {
+      console.error('Failed to remove experience', err);
+      alert('Failed to remove experience');
     }
   };
 
@@ -168,37 +433,121 @@ export function ProfileSettings({ userType, onNavigate }: ProfileSettingsProps) 
 
   // Education handlers
   const handleAddEducation = () => {
-    if (eduForm.degree && eduForm.college && eduForm.startYear && eduForm.endYear) {
-      const newEdu: Education = {
-        id: Date.now().toString(),
-        degree: eduForm.degree,
-        college: eduForm.college,
-        startYear: eduForm.startYear,
-        endYear: eduForm.endYear
-      };
-      setEducations([...educations, newEdu]);
-      setEduForm({});
-      setIsAddEduOpen(false);
-    }
+    (async () => {
+      if (eduForm.degree && eduForm.college && eduForm.startYear && eduForm.endYear) {
+        const newEdu: Education = {
+          id: Date.now().toString(),
+          degree: eduForm.degree,
+          college: eduForm.college,
+          startYear: eduForm.startYear,
+          endYear: eduForm.endYear
+        };
+        const newList = [...educations, newEdu];
+        setEducations(newList);
+        setEduForm({});
+        setIsAddEduOpen(false);
+
+        try {
+          const token = localStorage.getItem('token');
+          await fetch('http://localhost:5000/api/auth/update-education', {
+            method: 'PUT',
+            headers: {
+              'Content-Type': 'application/json',
+              Authorization: `Bearer ${token}`,
+            },
+            body: JSON.stringify({ education: newList.map(({ id, ...rest }) => rest) }),
+          });
+        } catch (err) {
+          console.error('Failed to save education', err);
+        }
+
+        // refresh profile
+        try {
+          const token = localStorage.getItem('token');
+          const res = await fetch('http://localhost:5000/api/auth/me', {
+            headers: { Authorization: `Bearer ${token}` },
+          });
+          if (res.ok) {
+            const data = await res.json();
+            setProfile(data || {});
+            if (data?.education) setEducations(data.education);
+          }
+        } catch (err) {
+          console.error('Failed to reload profile', err);
+        }
+      }
+    })();
   };
 
   const handleEditEducation = () => {
-    if (editingEdu && eduForm.degree && eduForm.college && eduForm.startYear && eduForm.endYear) {
-      setEducations(educations.map(edu =>
-        edu.id === editingEdu.id
-          ? { ...edu, ...eduForm } as Education
-          : edu
-      ));
-      setEduForm({});
-      setEditingEdu(null);
-      setIsEditEduOpen(false);
-    }
+    (async () => {
+      if (editingEdu && eduForm.degree && eduForm.college && eduForm.startYear && eduForm.endYear) {
+        const updated = educations.map(edu =>
+          edu.id === editingEdu.id
+            ? { ...edu, ...eduForm } as Education
+            : edu
+        );
+        setEducations(updated);
+        setEduForm({});
+        setEditingEdu(null);
+        setIsEditEduOpen(false);
+
+        try {
+          const token = localStorage.getItem('token');
+          await fetch('http://localhost:5000/api/auth/update-education', {
+            method: 'PUT',
+            headers: {
+              'Content-Type': 'application/json',
+              Authorization: `Bearer ${token}`,
+            },
+            body: JSON.stringify({ education: updated.map(({ id, ...rest }) => rest) }),
+          });
+        } catch (err) {
+          console.error('Failed to update education', err);
+        }
+
+        // refresh profile
+        try {
+          const token = localStorage.getItem('token');
+          const res = await fetch('http://localhost:5000/api/auth/me', {
+            headers: { Authorization: `Bearer ${token}` },
+          });
+          if (res.ok) {
+            const data = await res.json();
+            setProfile(data || {});
+            if (data?.education) setEducations(data.education);
+          }
+        } catch (err) {
+          console.error('Failed to reload profile', err);
+        }
+      }
+    })();
   };
 
   const openEditEdu = (edu: Education) => {
     setEditingEdu(edu);
     setEduForm(edu);
     setIsEditEduOpen(true);
+  };
+
+  const handleRemoveEducation = async (id: string) => {
+    const newList = educations.filter(e => e.id !== id);
+    setEducations(newList);
+    try {
+      const token = localStorage.getItem('token');
+      const res = await fetch('http://localhost:5000/api/auth/update-education', {
+        method: 'PUT',
+        headers: { 'Content-Type': 'application/json', Authorization: `Bearer ${token}` },
+        body: JSON.stringify({ education: newList.map(({ id, ...rest }) => rest) }),
+      });
+      if (res.ok) {
+        const data = await res.json();
+        setProfile(data || {});
+      }
+    } catch (err) {
+      console.error('Failed to remove education', err);
+      alert('Failed to remove education');
+    }
   };
 
   // Certification handlers
@@ -209,22 +558,52 @@ export function ProfileSettings({ userType, onNavigate }: ProfileSettingsProps) 
         name: certForm.name,
         year: certForm.year
       };
-      setCertifications([...certifications, newCert]);
+      const newList = [...certifications, newCert];
+      setCertifications(newList);
       setCertForm({});
       setIsAddCertOpen(false);
+
+      // persist certifications immediately
+      (async () => {
+        try {
+          const token = localStorage.getItem('token');
+          await fetch('http://localhost:5000/api/auth/update-certifications', {
+            method: 'PUT',
+            headers: { 'Content-Type': 'application/json', Authorization: `Bearer ${token}` },
+            body: JSON.stringify({ certifications: newList.map(c => ({ name: c.name, year: c.year })) }),
+          });
+        } catch (err) {
+          console.error('Failed to persist certifications', err);
+        }
+      })();
     }
   };
 
   const handleEditCertification = () => {
     if (editingCert && certForm.name && certForm.year) {
-      setCertifications(certifications.map(cert =>
+      const updated = certifications.map(cert =>
         cert.id === editingCert.id
           ? { ...cert, ...certForm } as Certification
           : cert
-      ));
+      );
+      setCertifications(updated);
       setCertForm({});
       setEditingCert(null);
       setIsEditCertOpen(false);
+
+      // persist certifications immediately
+      (async () => {
+        try {
+          const token = localStorage.getItem('token');
+          await fetch('http://localhost:5000/api/auth/update-certifications', {
+            method: 'PUT',
+            headers: { 'Content-Type': 'application/json', Authorization: `Bearer ${token}` },
+            body: JSON.stringify({ certifications: updated.map(c => ({ name: c.name, year: c.year })) }),
+          });
+        } catch (err) {
+          console.error('Failed to persist certifications', err);
+        }
+      })();
     }
   };
 
@@ -232,6 +611,28 @@ export function ProfileSettings({ userType, onNavigate }: ProfileSettingsProps) 
     setEditingCert(cert);
     setCertForm(cert);
     setIsEditCertOpen(true);
+  };
+
+  const handleRemoveCertification = async (id: string) => {
+    const newList = certifications.filter(c => c.id !== id);
+    setCertifications(newList);
+    try {
+      const token = localStorage.getItem('token');
+      await fetch('http://localhost:5000/api/auth/update-certifications', {
+        method: 'PUT',
+        headers: { 'Content-Type': 'application/json', Authorization: `Bearer ${token}` },
+        body: JSON.stringify({ certifications: newList.map(c => ({ name: c.name, year: c.year })) }),
+      });
+      // refresh profile
+      const res = await fetch('http://localhost:5000/api/auth/me', { headers: { Authorization: `Bearer ${token}` } });
+      if (res.ok) {
+        const data = await res.json();
+        setProfile(data || {});
+      }
+    } catch (err) {
+      console.error('Failed to remove certification', err);
+      alert('Failed to remove certification');
+    }
   };
 
   const formatDateDisplay = (dateStr: string) => {
@@ -265,8 +666,8 @@ export function ProfileSettings({ userType, onNavigate }: ProfileSettingsProps) 
           <Tabs defaultValue="basic" className="w-full">
             <TabsList className="grid w-full grid-cols-4 mb-6">
               <TabsTrigger value="basic">Basic Info</TabsTrigger>
-              <TabsTrigger value="experience">Experience</TabsTrigger>
-              <TabsTrigger value="education">Education</TabsTrigger>
+              <TabsTrigger value="professional">Professional</TabsTrigger>
+              <TabsTrigger value="skills">Skills & Education</TabsTrigger>
               <TabsTrigger value="preferences">Preferences</TabsTrigger>
             </TabsList>
 
@@ -280,11 +681,18 @@ export function ProfileSettings({ userType, onNavigate }: ProfileSettingsProps) 
                 <CardContent className="space-y-6">
                   {/* Profile Photo */}
                   <div className="flex items-center gap-6">
-                    <div className="w-24 h-24 bg-gradient-to-br from-blue-500 to-teal-400 rounded-full flex items-center justify-center">
-                      <User className="w-12 h-12 text-white" />
+                    <div className="w-24 h-24 rounded-full overflow-hidden bg-gray-100 flex items-center justify-center">
+                      {profile?.profilePhoto ? (
+                        <img src={`http://localhost:5000${profile.profilePhoto}`} alt="profile" className="w-full h-full object-cover" />
+                      ) : (
+                        <div className="w-full h-full flex items-center justify-center">
+                          <User className="w-12 h-12 text-gray-400" />
+                        </div>
+                      )}
                     </div>
                     <div>
-                      <Button variant="outline" className="rounded-full">
+                      <input ref={photoInputRef} type="file" accept="image/*" className="hidden" onChange={handlePhotoChange} />
+                      <Button variant="outline" className="rounded-full" onClick={() => photoInputRef.current?.click()}>
                         <Upload className="w-4 h-4 mr-2" />
                         Upload Photo
                       </Button>
@@ -295,11 +703,19 @@ export function ProfileSettings({ userType, onNavigate }: ProfileSettingsProps) 
                   <div className="grid grid-cols-1 md:grid-cols-2 gap-4">
                     <div className="space-y-2">
                       <Label htmlFor="firstName">First Name</Label>
-                      <Input id="firstName" defaultValue="Rahul" />
+                      <Input
+                        id="firstName"
+                        value={profile.firstName || ''}
+                        onChange={(e) => setProfile({ ...profile, firstName: e.target.value })}
+                      />
                     </div>
                     <div className="space-y-2">
                       <Label htmlFor="lastName">Last Name</Label>
-                      <Input id="lastName" defaultValue="Kumar" />
+                      <Input
+                        id="lastName"
+                        value={profile.lastName || ''}
+                        onChange={(e) => setProfile({ ...profile, lastName: e.target.value })}
+                      />
                     </div>
                   </div>
 
@@ -307,7 +723,13 @@ export function ProfileSettings({ userType, onNavigate }: ProfileSettingsProps) 
                     <Label htmlFor="email">Email</Label>
                     <div className="relative">
                       <Mail className="absolute left-3 top-1/2 -translate-y-1/2 w-5 h-5 text-gray-400" />
-                      <Input id="email" type="email" defaultValue="rahul.kumar@email.com" className="pl-10" />
+                      <Input
+                        id="email"
+                        type="email"
+                        className="pl-10"
+                        value={profile.email || ''}
+                        onChange={(e) => setProfile({ ...profile, email: e.target.value })}
+                      />
                     </div>
                   </div>
 
@@ -315,7 +737,13 @@ export function ProfileSettings({ userType, onNavigate }: ProfileSettingsProps) 
                     <Label htmlFor="phone">Phone Number</Label>
                     <div className="relative">
                       <Phone className="absolute left-3 top-1/2 -translate-y-1/2 w-5 h-5 text-gray-400" />
-                      <Input id="phone" type="tel" defaultValue="+91 98765 43210" className="pl-10" />
+                      <Input
+                        id="phone"
+                        type="tel"
+                        className="pl-10"
+                        value={profile.phone || ''}
+                        onChange={(e) => setProfile({ ...profile, phone: e.target.value })}
+                      />
                     </div>
                   </div>
 
@@ -323,13 +751,22 @@ export function ProfileSettings({ userType, onNavigate }: ProfileSettingsProps) 
                     <Label htmlFor="location">Location</Label>
                     <div className="relative">
                       <MapPin className="absolute left-3 top-1/2 -translate-y-1/2 w-5 h-5 text-gray-400" />
-                      <Input id="location" defaultValue="Bangalore, Karnataka" className="pl-10" />
+                      <Input
+                        id="location"
+                        className="pl-10"
+                        value={profile.location || ''}
+                        onChange={(e) => setProfile({ ...profile, location: e.target.value })}
+                      />
                     </div>
                   </div>
 
                   <div className="space-y-2">
                     <Label htmlFor="headline">Professional Headline</Label>
-                    <Input id="headline" defaultValue="Senior Frontend Developer" />
+                    <Input
+                      id="headline"
+                      value={profile.headline || ''}
+                      onChange={(e) => setProfile({ ...profile, headline: e.target.value })}
+                    />
                   </div>
 
                   <div className="space-y-2">
@@ -337,40 +774,12 @@ export function ProfileSettings({ userType, onNavigate }: ProfileSettingsProps) 
                     <Textarea
                       id="bio"
                       rows={4}
-                      defaultValue="Passionate frontend developer with 4+ years of experience building modern web applications using React, TypeScript, and Next.js."
+                      value={profile.about || ''}
+                      onChange={(e) => setProfile({ ...profile, about: e.target.value })}
                     />
                   </div>
-
-                  <div className="space-y-2">
-                    <Label>Skills</Label>
-                    <div className="flex flex-wrap gap-2 mb-3">
-                      {skills.map((skill) => (
-                        <Badge key={skill} variant="secondary" className="rounded-full pl-3 pr-1 py-1">
-                          {skill}
-                          <button
-                            onClick={() => handleRemoveSkill(skill)}
-                            className="ml-2 p-1 hover:bg-gray-300 rounded-full transition-colors"
-                          >
-                            <X className="w-3 h-3" />
-                          </button>
-                        </Badge>
-                      ))}
-                    </div>
-                    <div className="flex gap-2">
-                      <Input
-                        placeholder="Add a skill"
-                        value={newSkill}
-                        onChange={(e) => setNewSkill(e.target.value)}
-                        onKeyPress={(e) => e.key === 'Enter' && (e.preventDefault(), handleAddSkill())}
-                      />
-                      <Button onClick={handleAddSkill} className="rounded-full">
-                        <Plus className="w-4 h-4" />
-                      </Button>
-                    </div>
-                  </div>
-
                   <div className="flex justify-end">
-                    <Button className="rounded-full bg-gradient-to-r from-blue-600 to-teal-500 hover:from-blue-700 hover:to-teal-600">
+                    <Button onClick={handleSave} className="rounded-full bg-gradient-to-r from-blue-600 to-teal-500 hover:from-blue-700 hover:to-teal-600">
                       <Save className="w-4 h-4 mr-2" />
                       Save Changes
                     </Button>
@@ -379,8 +788,140 @@ export function ProfileSettings({ userType, onNavigate }: ProfileSettingsProps) 
               </Card>
             </TabsContent>
 
-            {/* Experience Tab */}
-            <TabsContent value="experience" className="space-y-6">
+            {/* Professional Tab */}
+            <TabsContent value="professional" className="space-y-6">
+              <Card>
+                <CardHeader>
+                  <CardTitle>Professional</CardTitle>
+                  <CardDescription>Update professional details</CardDescription>
+                </CardHeader>
+                <CardContent className="space-y-6">
+                  <div className="grid grid-cols-1 md:grid-cols-2 gap-4">
+                    <div className="space-y-2">
+                      <Label>Total Experience</Label>
+                      <Input
+                        placeholder="Total Experience"
+                        value={profile.totalExperience || ''}
+                        onChange={(e) => setProfile({ ...profile, totalExperience: e.target.value })}
+                        disabled={profile.employmentStatus === 'fresher'}
+                      />
+                    </div>
+                    <div className="space-y-2">
+                      <Label>Employment Status</Label>
+                      <Select value={profile.employmentStatus || ''} onValueChange={(val: string) => setProfile({ ...profile, employmentStatus: val })}>
+                        <SelectTrigger>
+                          <SelectValue />
+                        </SelectTrigger>
+                        <SelectContent>
+                          <SelectItem value="fresher">Fresher</SelectItem>
+                          <SelectItem value="experienced">Experienced</SelectItem>
+                          <SelectItem value="employed">Employed</SelectItem>
+                          <SelectItem value="unemployed">Unemployed</SelectItem>
+                          <SelectItem value="freelancer">Freelancer</SelectItem>
+                          <SelectItem value="student">Student</SelectItem>
+                        </SelectContent>
+                      </Select>
+                    </div>
+                  </div>
+
+                  <div className="grid grid-cols-1 md:grid-cols-2 gap-4">
+                    <div className="space-y-2">
+                      <Label>Current Job Title</Label>
+                      <Input
+                        placeholder="Current Job Title"
+                        value={profile.currentJobTitle || ''}
+                        onChange={(e) => setProfile({ ...profile, currentJobTitle: e.target.value })}
+                        disabled={profile.employmentStatus === 'fresher'}
+                      />
+                    </div>
+                    <div className="space-y-2">
+                      <Label>Current Company</Label>
+                      <Input
+                        placeholder="Current Company"
+                        value={profile.currentCompany || ''}
+                        onChange={(e) => setProfile({ ...profile, currentCompany: e.target.value })}
+                        disabled={profile.employmentStatus === 'fresher'}
+                      />
+                    </div>
+                  </div>
+
+                  <div className="grid grid-cols-1 md:grid-cols-2 gap-4">
+                    <div className="space-y-2">
+                      <Label>Notice Period</Label>
+                      <Input
+                        placeholder="Notice Period"
+                        value={profile.noticePeriod || ''}
+                        onChange={(e) => setProfile({ ...profile, noticePeriod: e.target.value })}
+                        disabled={profile.employmentStatus === 'fresher'}
+                      />
+                    </div>
+                    <div className="space-y-2">
+                      <Label>Current CTC</Label>
+                      <Input
+                        placeholder="Current CTC"
+                        value={profile.currentCTC || ''}
+                        onChange={(e) => setProfile({ ...profile, currentCTC: e.target.value })}
+                        disabled={profile.employmentStatus === 'fresher'}
+                      />
+                    </div>
+                  </div>
+
+                  <div className="space-y-2">
+                    <Label>Expected CTC</Label>
+                    <Input
+                      placeholder="Expected CTC"
+                      value={profile.expectedCTC || ''}
+                      onChange={(e) => setProfile({ ...profile, expectedCTC: e.target.value })}
+                      disabled={profile.employmentStatus === 'fresher'}
+                    />
+                  </div>
+
+                  {profile.employmentStatus === 'fresher' && (
+                    <div className="space-y-4 p-4 bg-gray-50 rounded">
+                      <h3 className="text-lg font-medium">Project (for freshers)</h3>
+                      <div className="grid grid-cols-1 md:grid-cols-2 gap-4">
+                        <div className="space-y-2">
+                          <Label htmlFor="projectName">Project Name</Label>
+                          <Input
+                            id="projectName"
+                            value={profile.project?.name || ''}
+                            onChange={(e) => setProfile({ ...profile, project: { ...(profile.project || {}), name: e.target.value } })}
+                            placeholder="e.g. Student Portal"
+                          />
+                        </div>
+                        <div className="space-y-2">
+                          <Label htmlFor="projectDuration">Project Duration</Label>
+                          <Input
+                            id="projectDuration"
+                            value={profile.project?.duration || ''}
+                            onChange={(e) => setProfile({ ...profile, project: { ...(profile.project || {}), duration: e.target.value } })}
+                            placeholder="e.g. 6 months"
+                          />
+                        </div>
+                      </div>
+                      <div className="space-y-2">
+                        <Label htmlFor="projectDomains">Domains (comma separated)</Label>
+                        <Input
+                          id="projectDomains"
+                          value={(profile.project?.domains && Array.isArray(profile.project.domains)) ? profile.project.domains.join(',') : (profile.project?.domains || '')}
+                          onChange={(e) => setProfile({ ...profile, project: { ...(profile.project || {}), domains: e.target.value } })}
+                          placeholder="e.g. Education, Payments"
+                        />
+                        <p className="text-xs text-gray-500">Enter domains separated by commas (e.g. Finance, E-commerce)</p>
+                      </div>
+                    </div>
+                  )}
+
+                  <div className="flex justify-end">
+                    <Button onClick={handleSave} className="rounded-full bg-gradient-to-r from-blue-600 to-teal-500 hover:from-blue-700 hover:to-teal-600">
+                      <Save className="w-4 h-4 mr-2" />
+                      Save Professional
+                    </Button>
+                  </div>
+
+                </CardContent>
+              </Card>
+
               <Card>
                 <CardHeader>
                   <CardTitle>Work Experience</CardTitle>
@@ -399,28 +940,37 @@ export function ProfileSettings({ userType, onNavigate }: ProfileSettingsProps) 
                           </p>
                           <p className="text-sm text-gray-500">{exp.location}</p>
                         </div>
-                        <Button
-                          variant="ghost"
-                          size="sm"
-                          className="rounded-full"
-                          onClick={() => openEditExp(exp)}
-                        >
-                          <Edit className="w-4 h-4 mr-1" />
-                          Edit
-                        </Button>
+                        <div className="flex items-center gap-2">
+                          <Button
+                            variant="ghost"
+                            size="sm"
+                            className="rounded-full"
+                            onClick={() => openEditExp(exp)}
+                          >
+                            <Edit className="w-4 h-4 mr-1" />
+                            Edit
+                          </Button>
+                          <Button variant="ghost" size="sm" className="rounded-full" onClick={() => handleRemoveExperience(exp.id)}>
+                            <X className="w-4 h-4 text-red-500" />
+                          </Button>
+                        </div>
                       </div>
                       <p className="text-gray-700">{exp.description}</p>
                     </div>
                   ))}
 
+                  {/* duplicate project block removed (project inputs live in Professional tab) */}
+
                   {/* Add Experience Dialog */}
                   <Dialog open={isAddExpOpen} onOpenChange={setIsAddExpOpen}>
-                    <DialogTrigger asChild>
-                      <Button variant="outline" className="rounded-full">
-                        <Plus className="w-4 h-4 mr-2" />
-                        Add Experience
-                      </Button>
-                    </DialogTrigger>
+                    {profile.employmentStatus !== 'fresher' && (
+                      <DialogTrigger asChild>
+                        <Button variant="outline" className="rounded-full">
+                          <Plus className="w-4 h-4 mr-2" />
+                          Add Experience
+                        </Button>
+                      </DialogTrigger>
+                    )}
                     <DialogContent className="max-w-2xl max-h-[90vh] overflow-y-auto">
                       <DialogHeader>
                         <DialogTitle>Add Work Experience</DialogTitle>
@@ -478,12 +1028,16 @@ export function ProfileSettings({ userType, onNavigate }: ProfileSettingsProps) 
                         </div>
                         <div className="space-y-2">
                           <Label htmlFor="add-location">Location</Label>
-                          <Input
-                            id="add-location"
-                            placeholder="e.g. Bangalore, Karnataka"
-                            value={expForm.location || ''}
-                            onChange={(e) => setExpForm({ ...expForm, location: e.target.value })}
-                          />
+                          <Select value={expForm.location || ''} onValueChange={(val: string) => setExpForm({ ...expForm, location: val })}>
+                            <SelectTrigger id="add-location">
+                              <SelectValue placeholder="Select state" />
+                            </SelectTrigger>
+                            <SelectContent>
+                              {LOCATIONS.map((loc) => (
+                                <SelectItem key={loc} value={loc}>{loc}</SelectItem>
+                              ))}
+                            </SelectContent>
+                          </Select>
                         </div>
                         <div className="space-y-2">
                           <Label htmlFor="add-description">Description</Label>
@@ -569,12 +1123,16 @@ export function ProfileSettings({ userType, onNavigate }: ProfileSettingsProps) 
                         </div>
                         <div className="space-y-2">
                           <Label htmlFor="edit-location">Location</Label>
-                          <Input
-                            id="edit-location"
-                            placeholder="e.g. Bangalore, Karnataka"
-                            value={expForm.location || ''}
-                            onChange={(e) => setExpForm({ ...expForm, location: e.target.value })}
-                          />
+                          <Select value={expForm.location || ''} onValueChange={(val: string) => setExpForm({ ...expForm, location: val })}>
+                            <SelectTrigger id="edit-location">
+                              <SelectValue placeholder="Select state" />
+                            </SelectTrigger>
+                            <SelectContent>
+                              {LOCATIONS.map((loc) => (
+                                <SelectItem key={loc} value={loc}>{loc}</SelectItem>
+                              ))}
+                            </SelectContent>
+                          </Select>
                         </div>
                         <div className="space-y-2">
                           <Label htmlFor="edit-description">Description</Label>
@@ -604,8 +1162,103 @@ export function ProfileSettings({ userType, onNavigate }: ProfileSettingsProps) 
               </Card>
             </TabsContent>
 
-            {/* Education Tab */}
-            <TabsContent value="education" className="space-y-6">
+            {/* Skills & Education Tab */}
+            <TabsContent value="skills" className="space-y-6">
+              <Card>
+                <CardHeader>
+                  <CardTitle>Technical Skills</CardTitle>
+                  <CardDescription>Search and select your skills, or type to add a custom one</CardDescription>
+                </CardHeader>
+                <CardContent className="space-y-4">
+                  <div className="space-y-2">
+                    <Label>Technical Skills</Label>
+                    <div
+                      className="relative"
+                      tabIndex={0}
+                      onBlur={(e) => {
+                        if (!e.currentTarget.contains(e.relatedTarget as Node)) {
+                          setShowSkillsDropdown(false);
+                        }
+                      }}
+                    >
+                      <Input
+                        placeholder="Search or type a skill..."
+                        value={newSkill}
+                        onChange={(e) => { setNewSkill(e.target.value); setShowSkillsDropdown(true); }}
+                        onFocus={() => setShowSkillsDropdown(true)}
+                        onKeyDown={(e) => {
+                          if (e.key === 'Enter' && newSkill.trim()) {
+                            if (!skills.includes(newSkill.trim())) setSkills(prev => [...prev, newSkill.trim()]);
+                            setNewSkill('');
+                            setShowSkillsDropdown(false);
+                          }
+                          if (e.key === 'Escape') setShowSkillsDropdown(false);
+                        }}
+                        className="w-full"
+                      />
+                      {showSkillsDropdown && (
+                        <div className="absolute z-50 mt-1 w-full max-h-52 overflow-auto rounded-md bg-white border shadow-md">
+                          {SKILLS_OPTIONS
+                            .filter(s => s.toLowerCase().includes(newSkill.toLowerCase()) && !skills.includes(s))
+                            .map((s) => (
+                              <div
+                                key={s}
+                                className="px-3 py-2 hover:bg-gray-100 cursor-pointer text-sm"
+                                onMouseDown={(e) => {
+                                  e.preventDefault();
+                                  setSkills(prev => [...prev, s]);
+                                  setNewSkill('');
+                                  setShowSkillsDropdown(false);
+                                }}
+                              >
+                                {s}
+                              </div>
+                            ))}
+                          {newSkill.trim() && !SKILLS_OPTIONS.some(s => s.toLowerCase() === newSkill.trim().toLowerCase()) && (
+                            <div
+                              className="px-3 py-2 hover:bg-blue-50 cursor-pointer text-sm text-blue-600 font-medium flex items-center gap-2 border-t"
+                              onMouseDown={(e) => {
+                                e.preventDefault();
+                                if (!skills.includes(newSkill.trim())) setSkills(prev => [...prev, newSkill.trim()]);
+                                setNewSkill('');
+                                setShowSkillsDropdown(false);
+                              }}
+                            >
+                              <Plus className="w-3 h-3" /> Add "{newSkill.trim()}"
+                            </div>
+                          )}
+                          {!newSkill.trim() && SKILLS_OPTIONS.filter(s => !skills.includes(s)).length === 0 && (
+                            <div className="px-3 py-2 text-sm text-gray-400">All skills selected</div>
+                          )}
+                        </div>
+                      )}
+                    </div>
+                    {skills.length > 0 && (
+                      <div className="flex flex-wrap gap-2 pt-2">
+                        {skills.map((skill) => (
+                          <div key={skill} className="flex items-center gap-1 bg-blue-50 text-blue-700 text-sm rounded-full px-3 py-1 border border-blue-200">
+                            <span>{skill}</span>
+                            <button
+                              type="button"
+                              onClick={() => setSkills(prev => prev.filter(s => s !== skill))}
+                              className="ml-1 hover:text-red-500 transition-colors focus:outline-none"
+                            >
+                              <X className="w-3 h-3" />
+                            </button>
+                          </div>
+                        ))}
+                      </div>
+                    )}
+                  </div>
+                  <div className="flex justify-end pt-2">
+                    <Button onClick={handleSave} className="rounded-full bg-gradient-to-r from-blue-600 to-teal-500 hover:from-blue-700 hover:to-teal-600">
+                      <Save className="w-4 h-4 mr-2" />
+                      Save Skills
+                    </Button>
+                  </div>
+                </CardContent>
+              </Card>
+
               <Card>
                 <CardHeader>
                   <CardTitle>Education</CardTitle>
@@ -621,15 +1274,20 @@ export function ProfileSettings({ userType, onNavigate }: ProfileSettingsProps) 
                           <p className="text-gray-600">{edu.college}</p>
                           <p className="text-sm text-gray-500">{edu.startYear} - {edu.endYear}</p>
                         </div>
-                        <Button
-                          variant="ghost"
-                          size="sm"
-                          className="rounded-full"
-                          onClick={() => openEditEdu(edu)}
-                        >
-                          <Edit className="w-4 h-4 mr-1" />
-                          Edit
-                        </Button>
+                        <div className="flex items-center gap-2">
+                          <Button
+                            variant="ghost"
+                            size="sm"
+                            className="rounded-full"
+                            onClick={() => openEditEdu(edu)}
+                          >
+                            <Edit className="w-4 h-4 mr-1" />
+                            Edit
+                          </Button>
+                          <Button variant="ghost" size="sm" className="rounded-full" onClick={() => handleRemoveEducation(edu.id)}>
+                            <X className="w-4 h-4 text-red-500" />
+                          </Button>
+                        </div>
                       </div>
                     </div>
                   ))}
@@ -895,7 +1553,7 @@ export function ProfileSettings({ userType, onNavigate }: ProfileSettingsProps) 
                 <CardContent className="space-y-6">
                   <div className="space-y-2">
                     <Label htmlFor="jobType">Preferred Job Type</Label>
-                    <Select defaultValue="full-time">
+                    <Select value={profile.preferredJobType || ''} onValueChange={(val: string) => setProfile({ ...profile, preferredJobType: val })}>
                       <SelectTrigger id="jobType">
                         <SelectValue />
                       </SelectTrigger>
@@ -913,7 +1571,14 @@ export function ProfileSettings({ userType, onNavigate }: ProfileSettingsProps) 
                       <Label htmlFor="currentSalary">Current Salary (INR)</Label>
                       <div className="relative">
                         <DollarSign className="absolute left-3 top-1/2 -translate-y-1/2 w-5 h-5 text-gray-400" />
-                        <Input id="currentSalary" type="number" placeholder="e.g. 1200000" className="pl-10" />
+                        <Input
+                          id="currentSalary"
+                          type="number"
+                          placeholder="e.g. 1200000"
+                          className="pl-10"
+                          value={profile.currentCTC || ''}
+                          onChange={(e) => setProfile({ ...profile, currentCTC: e.target.value })}
+                        />
                       </div>
                       <p className="text-xs text-gray-500">Enter annual salary in rupees</p>
                     </div>
@@ -921,7 +1586,14 @@ export function ProfileSettings({ userType, onNavigate }: ProfileSettingsProps) 
                       <Label htmlFor="expectedSalary">Expected Salary (INR)</Label>
                       <div className="relative">
                         <DollarSign className="absolute left-3 top-1/2 -translate-y-1/2 w-5 h-5 text-gray-400" />
-                        <Input id="expectedSalary" type="number" placeholder="e.g. 1500000" className="pl-10" />
+                        <Input
+                          id="expectedSalary"
+                          type="number"
+                          placeholder="e.g. 1500000"
+                          className="pl-10"
+                          value={profile.expectedCTC || ''}
+                          onChange={(e) => setProfile({ ...profile, expectedCTC: e.target.value })}
+                        />
                       </div>
                       <p className="text-xs text-gray-500">Enter annual salary in rupees</p>
                     </div>
@@ -929,13 +1601,70 @@ export function ProfileSettings({ userType, onNavigate }: ProfileSettingsProps) 
 
                   <div className="space-y-2">
                     <Label htmlFor="preferredLocations">Preferred Locations</Label>
-                    <Input id="preferredLocations" defaultValue="Bangalore, Mumbai, Remote" />
+                    {preferredLocations.length > 0 && (
+                      <div className="flex gap-2 flex-wrap mb-2">
+                        {preferredLocations.map((pl) => (
+                          <div key={pl} className="flex items-center bg-blue-50 border border-blue-200 text-sm rounded-full px-3 py-1">
+                            <MapPin className="w-3 h-3 mr-1 text-blue-500" />
+                            <span className="mr-2 text-blue-700">{pl}</span>
+                            <Button variant="ghost" size="sm" className="h-4 w-4 p-0 hover:bg-blue-100" onClick={() => setPreferredLocations((prev) => prev.filter(p => p !== pl))}>
+                              <X className="w-3 h-3 text-blue-500" />
+                            </Button>
+                          </div>
+                        ))}
+                      </div>
+                    )}
+                    {preferredLocations.length < 3 && (
+                      <div className="relative" tabIndex={0} onBlur={() => setShowPreferredDropdown(false)}>
+                        <Input
+                          id="preferredLocations"
+                          placeholder="Type to search and add locations"
+                          value={preferredFilter}
+                          onChange={(e) => { setPreferredFilter(e.target.value); setShowPreferredDropdown(true); }}
+                          onFocus={() => setShowPreferredDropdown(true)}
+                          className="min-w-[220px]"
+                        />
+                        {showPreferredDropdown && (
+                          <div className="absolute z-50 mt-1 w-full max-h-48 overflow-auto rounded-md bg-white border shadow-sm">
+                            {LOCATIONS.filter(l => l.toLowerCase().includes(preferredFilter.toLowerCase()) && !preferredLocations.includes(l)).map((loc) => (
+                              <div key={loc} className="px-3 py-2 hover:bg-gray-100 cursor-pointer" onMouseDown={(e) => {
+                                e.preventDefault();
+                                setPreferredLocations(prev => [...prev, loc]); setPreferredFilter(''); setShowPreferredDropdown(false);
+                              }}>{loc}</div>
+                            ))}
+                            {LOCATIONS.filter(l => l.toLowerCase().includes(preferredFilter.toLowerCase()) && !preferredLocations.includes(l)).length === 0 && (
+                              <div className="px-3 py-2 text-sm text-gray-500">No matches</div>
+                            )}
+                          </div>
+                        )}
+                      </div>
+                    )}
+                    <p className="text-xs text-gray-500">
+                      {preferredLocations.length < 3
+                        ? `Select up to 3 preferred states (${3 - preferredLocations.length} remaining)`
+                        : 'Maximum 3 locations selected. Remove one to change.'}
+                    </p>
+                  </div>
+
+                  <div className="space-y-2">
+                    <Label htmlFor="workMode">Work Mode</Label>
+                    <Select value={profile.workMode || ''} onValueChange={(val: string) => setProfile({ ...profile, workMode: val })}>
+                      <SelectTrigger id="workMode">
+                        <SelectValue />
+                      </SelectTrigger>
+                      <SelectContent>
+                        <SelectItem value="remote">Remote</SelectItem>
+                        <SelectItem value="hybrid">Hybrid</SelectItem>
+                        <SelectItem value="onsite">Onsite</SelectItem>
+                      </SelectContent>
+                    </Select>
                   </div>
 
                   <div className="space-y-2">
                     <Label htmlFor="resume">Resume</Label>
                     <div className="flex items-center gap-3">
-                      <Button variant="outline" className="rounded-full">
+                      <input ref={resumeInputRef} type="file" accept=".pdf,.doc,.docx" className="hidden" onChange={handleResumeChange} />
+                      <Button variant="outline" className="rounded-full" onClick={() => resumeInputRef.current?.click()}>
                         <Upload className="w-4 h-4 mr-2" />
                         Upload Resume
                       </Button>
@@ -945,11 +1674,36 @@ export function ProfileSettings({ userType, onNavigate }: ProfileSettingsProps) 
                       <div className="flex items-center gap-2">
                         <FileText className="w-5 h-5 text-blue-600" />
                         <div>
-                          <p className="text-sm text-gray-900">Rahul_Kumar_Resume.pdf</p>
-                          <p className="text-xs text-gray-500">Uploaded on Jan 15, 2025</p>
+                          {profile?.resume ? (
+                            <>
+                              <a href={`http://localhost:5000${profile.resume}`} target="_blank" rel="noreferrer" className="text-sm text-gray-900 underline">{profile.resume.split('/').pop()}</a>
+                              <p className="text-xs text-gray-500">Uploaded</p>
+                            </>
+                          ) : (
+                            <>
+                              <p className="text-sm text-gray-900">No resume uploaded</p>
+                              <p className="text-xs text-gray-500">Upload a PDF, DOC, or DOCX</p>
+                            </>
+                          )}
                         </div>
                       </div>
-                      <Button variant="ghost" size="sm">
+                      <Button variant="ghost" size="sm" onClick={async () => {
+                        if (!profile?.resume) return;
+                        // remove resume locally
+                        try {
+                          const token = localStorage.getItem('token');
+                          await fetch('http://localhost:5000/api/auth/update-profile', {
+                            method: 'PUT',
+                            headers: { 'Content-Type': 'application/json', Authorization: `Bearer ${token}` },
+                            body: JSON.stringify({ resume: null }),
+                          });
+                          setProfile({ ...profile, resume: null });
+                          alert('Resume removed');
+                        } catch (err) {
+                          console.error(err);
+                          alert('Failed to remove resume');
+                        }
+                      }}>
                         <X className="w-4 h-4" />
                       </Button>
                     </div>
@@ -963,14 +1717,14 @@ export function ProfileSettings({ userType, onNavigate }: ProfileSettingsProps) 
                           <p className="text-gray-900">Email Notifications</p>
                           <p className="text-sm text-gray-600">Receive job alerts via email</p>
                         </div>
-                        <Switch defaultChecked />
+                        <Switch checked={!!profile.notificationsEnabled} onCheckedChange={(val: boolean) => setProfile({ ...profile, notificationsEnabled: val })} />
                       </div>
                       <div className="flex items-center justify-between">
                         <div>
                           <p className="text-gray-900">Profile Visibility</p>
                           <p className="text-sm text-gray-600">Allow recruiters to view your profile</p>
                         </div>
-                        <Switch defaultChecked />
+                        <Switch checked={!!profile.profileVisible} onCheckedChange={(val: boolean) => setProfile({ ...profile, profileVisible: val })} />
                       </div>
                       <div className="flex items-center justify-between">
                         <div>
@@ -983,7 +1737,7 @@ export function ProfileSettings({ userType, onNavigate }: ProfileSettingsProps) 
                   </div>
 
                   <div className="flex justify-end">
-                    <Button className="rounded-full bg-gradient-to-r from-blue-600 to-teal-500 hover:from-blue-700 hover:to-teal-600">
+                    <Button onClick={handleSave} className="rounded-full bg-gradient-to-r from-blue-600 to-teal-500 hover:from-blue-700 hover:to-teal-600">
                       <Save className="w-4 h-4 mr-2" />
                       Save Preferences
                     </Button>
@@ -1151,21 +1905,6 @@ export function ProfileSettings({ userType, onNavigate }: ProfileSettingsProps) 
                 </CardHeader>
                 <CardContent className="space-y-6">
                   <div className="p-6 bg-gradient-to-br from-blue-50 to-teal-50 rounded-lg border border-blue-200">
-                    <div className="flex items-center justify-between mb-4">
-                      <div>
-                        <h3 className="text-lg text-gray-900">Professional Plan</h3>
-                        <p className="text-gray-600">Active until Dec 31, 2025</p>
-                      </div>
-                      <Badge className="bg-green-100 text-green-800">Active</Badge>
-                    </div>
-                    <div className="text-3xl text-gray-900 mb-2">₹49,999/year</div>
-                    <p className="text-gray-600 mb-4">Unlimited job postings and advanced features</p>
-                    <Button variant="outline" className="rounded-full">
-                      Upgrade Plan
-                    </Button>
-                  </div>
-
-                  <div>
                     <h3 className="text-lg text-gray-900 mb-4">Billing History</h3>
                     <div className="space-y-2">
                       {[

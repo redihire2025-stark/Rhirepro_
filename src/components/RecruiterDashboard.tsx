@@ -1,11 +1,11 @@
-import { useState } from 'react';
+import { useState, useEffect } from 'react';
 import { Header } from './Header';
 import { Button } from './ui/button';
 import { Card, CardContent, CardHeader, CardTitle } from './ui/card';
 import { Badge } from './ui/badge';
 import { Input } from './ui/input';
 import { Tabs, TabsContent, TabsList, TabsTrigger } from './ui/tabs';
-import { 
+import {
   Plus, Users, Eye, TrendingUp, Filter, Search, MoreVertical,
   FileText, CheckCircle2, Clock, XCircle, Briefcase, MapPin,
   Calendar, DollarSign, Star
@@ -97,6 +97,14 @@ const candidates = [
 
 export function RecruiterDashboard({ onNavigate, onLogout }: RecruiterDashboardProps) {
   const [isPostJobOpen, setIsPostJobOpen] = useState(false);
+  const [user, setUser] = useState<any>(null);
+
+  useEffect(() => {
+    const storedUser = localStorage.getItem('user');
+    if (storedUser) {
+      setUser(JSON.parse(storedUser));
+    }
+  }, []);
 
   return (
     <div className="min-h-screen bg-gray-50">
@@ -107,6 +115,7 @@ export function RecruiterDashboard({ onNavigate, onLogout }: RecruiterDashboardP
         <div className="flex flex-col sm:flex-row items-start sm:items-center justify-between gap-4 mb-6">
           <div>
             <h1 className="text-2xl text-gray-900 mb-1">Recruiter Dashboard</h1>
+            <h2 className="text-lg font-semibold">Welcome, {user?.name}</h2>
             <p className="text-gray-600">Manage your job postings and candidates</p>
           </div>
           <Dialog open={isPostJobOpen} onOpenChange={setIsPostJobOpen}>
@@ -170,8 +179,8 @@ export function RecruiterDashboard({ onNavigate, onLogout }: RecruiterDashboardP
                 </div>
                 <div className="space-y-2">
                   <Label htmlFor="description">Job Description *</Label>
-                  <Textarea 
-                    id="description" 
+                  <Textarea
+                    id="description"
                     placeholder="Describe the role, responsibilities, and requirements..."
                     rows={5}
                   />
@@ -184,7 +193,7 @@ export function RecruiterDashboard({ onNavigate, onLogout }: RecruiterDashboardP
                   <Button variant="outline" onClick={() => setIsPostJobOpen(false)}>
                     Cancel
                   </Button>
-                  <Button 
+                  <Button
                     className="rounded-full bg-gradient-to-r from-blue-600 to-teal-500 hover:from-blue-700 hover:to-teal-600"
                     onClick={() => setIsPostJobOpen(false)}
                   >
@@ -266,7 +275,7 @@ export function RecruiterDashboard({ onNavigate, onLogout }: RecruiterDashboardP
                 <div className="flex flex-col sm:flex-row gap-2">
                   <div className="flex-1 flex items-center gap-2 px-3 py-2 bg-gray-50 rounded-lg">
                     <Search className="w-5 h-5 text-gray-400" />
-                    <Input 
+                    <Input
                       placeholder="Search candidates..."
                       className="border-0 bg-transparent focus-visible:ring-0 focus-visible:ring-offset-0 p-0"
                     />
@@ -306,12 +315,11 @@ export function RecruiterDashboard({ onNavigate, onLogout }: RecruiterDashboardP
                         <div className="flex-1">
                           <div className="flex items-center gap-2 mb-1">
                             <h3 className="text-lg text-gray-900">{candidate.name}</h3>
-                            <Badge 
-                              className={`rounded-full ${
-                                candidate.status === 'Shortlisted' ? 'bg-green-100 text-green-800' :
-                                candidate.status === 'New' ? 'bg-blue-100 text-blue-800' :
-                                'bg-gray-100 text-gray-800'
-                              }`}
+                            <Badge
+                              className={`rounded-full ${candidate.status === 'Shortlisted' ? 'bg-green-100 text-green-800' :
+                                  candidate.status === 'New' ? 'bg-blue-100 text-blue-800' :
+                                    'bg-gray-100 text-gray-800'
+                                }`}
                             >
                               {candidate.status}
                             </Badge>
@@ -376,10 +384,9 @@ export function RecruiterDashboard({ onNavigate, onLogout }: RecruiterDashboardP
                     <div className="flex-1">
                       <div className="flex items-center gap-2 mb-2">
                         <h3 className="text-lg text-gray-900">{job.title}</h3>
-                        <Badge 
-                          className={`rounded-full ${
-                            job.status === 'Active' ? 'bg-green-100 text-green-800' : 'bg-gray-100 text-gray-800'
-                          }`}
+                        <Badge
+                          className={`rounded-full ${job.status === 'Active' ? 'bg-green-100 text-green-800' : 'bg-gray-100 text-gray-800'
+                            }`}
                         >
                           {job.status}
                         </Badge>

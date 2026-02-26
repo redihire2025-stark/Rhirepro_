@@ -1,4 +1,5 @@
 import { Bell, User, Menu, ChevronDown, Briefcase, LogOut, Settings } from 'lucide-react';
+import { useEffect, useState } from 'react';
 import { Button } from './ui/button';
 import {
   DropdownMenu,
@@ -18,18 +19,28 @@ interface HeaderProps {
 }
 
 export function Header({ userType, onNavigate, onLogout, variant = 'default' }: HeaderProps) {
-  const navLinks = userType === 'jobseeker' 
+  const [currentUser, setCurrentUser] = useState<any>(null);
+
+  useEffect(() => {
+    try {
+      const u = localStorage.getItem('user');
+      if (u) setCurrentUser(JSON.parse(u));
+    } catch (e) {
+      setCurrentUser(null);
+    }
+  }, []);
+  const navLinks = userType === 'jobseeker'
     ? ['Jobs', 'Companies', 'Services', 'Resources']
     : userType === 'recruiter'
-    ? ['Dashboard', 'Post Job', 'Candidates', 'Plans']
-    : ['Jobs', 'Companies', 'Services'];
+      ? ['Dashboard', 'Post Job', 'Candidates', 'Plans']
+      : ['Jobs', 'Companies', 'Services'];
 
   return (
     <header className="bg-white border-b border-gray-200 sticky top-0 z-50">
       <div className="max-w-7xl mx-auto px-4 sm:px-6 lg:px-8">
         <div className="flex items-center justify-between h-16">
           {/* Logo */}
-          <div 
+          <div
             className="flex items-center gap-2 cursor-pointer"
             onClick={() => onNavigate('landing')}
           >
@@ -42,7 +53,7 @@ export function Header({ userType, onNavigate, onLogout, variant = 'default' }: 
           {/* Desktop Navigation */}
           <nav className="hidden md:flex items-center gap-8">
             {navLinks.map((link) => (
-              <button 
+              <button
                 key={link}
                 className="text-gray-700 hover:text-blue-600 transition-colors"
               >
@@ -65,8 +76,14 @@ export function Header({ userType, onNavigate, onLogout, variant = 'default' }: 
                 <DropdownMenu>
                   <DropdownMenuTrigger asChild>
                     <button className="hidden sm:flex items-center gap-2 p-2 rounded-lg hover:bg-gray-100 transition-colors">
-                      <div className="w-8 h-8 bg-gradient-to-br from-blue-500 to-teal-400 rounded-full flex items-center justify-center">
-                        <User className="w-5 h-5 text-white" />
+                      <div className="w-8 h-8 rounded-full overflow-hidden">
+                        {currentUser?.profilePhoto ? (
+                          <img src={`http://localhost:5000${currentUser.profilePhoto}`} alt="avatar" className="w-8 h-8 object-cover rounded-full" />
+                        ) : (
+                          <div className="w-8 h-8 bg-gradient-to-br from-blue-500 to-teal-400 rounded-full flex items-center justify-center">
+                            <User className="w-5 h-5 text-white" />
+                          </div>
+                        )}
                       </div>
                       <ChevronDown className="w-4 h-4 text-gray-600" />
                     </button>
@@ -98,7 +115,7 @@ export function Header({ userType, onNavigate, onLogout, variant = 'default' }: 
                   <SheetContent>
                     <nav className="flex flex-col gap-4 mt-8">
                       {navLinks.map((link) => (
-                        <button 
+                        <button
                           key={link}
                           className="text-left py-2 text-gray-700 hover:text-blue-600 transition-colors"
                         >
@@ -106,13 +123,13 @@ export function Header({ userType, onNavigate, onLogout, variant = 'default' }: 
                         </button>
                       ))}
                       <div className="border-t border-gray-200 pt-4 mt-4">
-                        <button 
+                        <button
                           onClick={() => onNavigate('profile-settings')}
                           className="w-full text-left py-2 text-gray-700 hover:text-blue-600 transition-colors"
                         >
                           Settings
                         </button>
-                        <button 
+                        <button
                           onClick={onLogout}
                           className="w-full text-left py-2 text-red-600 hover:text-red-700 transition-colors"
                         >
@@ -125,14 +142,14 @@ export function Header({ userType, onNavigate, onLogout, variant = 'default' }: 
               </>
             ) : (
               <>
-                <Button 
-                  variant="ghost" 
+                <Button
+                  variant="ghost"
                   className="hidden sm:flex rounded-full"
                   onClick={() => onNavigate('auth')}
                 >
                   Login
                 </Button>
-                <Button 
+                <Button
                   className="rounded-full bg-gradient-to-r from-blue-600 to-teal-500 hover:from-blue-700 hover:to-teal-600"
                   onClick={() => onNavigate('auth')}
                 >
@@ -149,7 +166,7 @@ export function Header({ userType, onNavigate, onLogout, variant = 'default' }: 
                   <SheetContent>
                     <nav className="flex flex-col gap-4 mt-8">
                       {navLinks.map((link) => (
-                        <button 
+                        <button
                           key={link}
                           className="text-left py-2 text-gray-700 hover:text-blue-600 transition-colors"
                         >
