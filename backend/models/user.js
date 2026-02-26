@@ -25,8 +25,15 @@ const certificationSchema = new mongoose.Schema({
 const userSchema = new mongoose.Schema(
   {
     name: String,
-    email: String,
+    email: {
+      type: String,
+      required: true,
+      unique: true,
+      trim: true,
+      lowercase: true,
+    },
     password: String,
+    googleId: String,
     role: String,
 
     // 🔹 Basic Info

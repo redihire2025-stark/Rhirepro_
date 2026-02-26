@@ -11,7 +11,7 @@ oAuth2Client.setCredentials({
     refresh_token: process.env.EMAIL_REFRESH_TOKEN,
 });
 
-const sendEmail = async (to, otp) => {
+const sendEmail = async (to, otp, context = "password_reset") => {
     try {
         const accessToken = await oAuth2Client.getAccessToken();
 
@@ -27,14 +27,25 @@ const sendEmail = async (to, otp) => {
             },
         });
 
+        const isSignin = context === "signin";
+        const subject = isSignin
+            ? "RhirePro - OTP for Sign In Verification"
+            : "RhirePro - OTP for Password Reset";
+        const heading = isSignin
+            ? "RhirePro Sign In Verification"
+            : "RhirePro Password Reset";
+        const intro = isSignin
+            ? "Use this OTP to complete your sign in:"
+            : "Your OTP is:";
+
         const info = await transporter.sendMail({
             from: `"RhirePro Support" <${process.env.EMAIL_USER}>`,
             to,
-            subject: "RhirePro - OTP for Password Reset",
+            subject,
             html: `
                 <div style="font-family:Arial;padding:20px">
-                    <h2>RhirePro Password Reset</h2>
-                    <p>Your OTP is:</p>
+                    <h2>${heading}</h2>
+                    <p>${intro}</p>
                     <h1 style="letter-spacing:5px">${otp}</h1>
                     <p>This OTP expires in 5 minutes.</p>
                 </div>

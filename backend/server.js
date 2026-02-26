@@ -2,15 +2,18 @@ require('dotenv').config();
 const express = require("express");
 const cors = require("cors");
 const dotenv = require("dotenv");
+const passport = require("passport");
 const connectDB = require("./config/db");
 
 dotenv.config();
 connectDB();
+require("./config/passport");
 
 const app = express();
 
 app.use(cors());
 app.use(express.json());
+app.use(passport.initialize());
 
 const path = require('path');
 const fs = require('fs');

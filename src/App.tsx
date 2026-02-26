@@ -23,7 +23,52 @@ export default function App() {
 
 
   useEffect(() => {
+    const params = new URLSearchParams(window.location.search);
+    const token = params.get('token');
+
+    // Handle Google OAuth callback token from backend redirect.
+    if (token) {
+      localStorage.setItem('token', token);
+      params.delete('token');
+      const query = params.toString();
+      const cleanUrl = `${window.location.pathname}${query ? `?${query}` : ''}`;
+      window.history.replaceState({}, document.title, cleanUrl);
+    }
+
     const storedUser = localStorage.getItem('user');
+    const storedToken = localStorage.getItem('token');
+
+    if (storedToken && !storedUser) {
+      fetch(`${(import.meta as any).env?.VITE_API_BASE_URL || 'http://localhost:5000'}/api/auth/me`, {
+        headers: { Authorization: `Bearer ${storedToken}` },
+      })
+        .then(async (res) => {
+          const user = await res.json();
+          if (!res.ok) throw new Error(user?.message || 'Failed to fetch user');
+
+          localStorage.setItem(
+            'user',
+            JSON.stringify({
+              name: user.name,
+              firstName: user.firstName,
+              lastName: user.lastName,
+              phone: user.phone || '',
+              email: user.email,
+              employmentStatus: user.employmentStatus || 'experienced',
+              role: user.role || 'jobseeker',
+            })
+          );
+
+          setUserType(user.role);
+          setCurrentScreen(user.role === 'recruiter' ? 'recruiter-dashboard' : 'jobseeker-dashboard');
+        })
+        .catch(() => {
+          localStorage.removeItem('token');
+          localStorage.removeItem('user');
+        });
+      return;
+    }
+
     if (storedUser) {
       const parsedUser = JSON.parse(storedUser);
       setUserType(parsedUser.role);

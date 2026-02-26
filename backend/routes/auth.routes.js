@@ -2,6 +2,7 @@ const express = require("express");
 const router = express.Router();
 const bcrypt = require("bcrypt");
 const jwt = require("jsonwebtoken");
+const passport = require("passport");
 const User = require("../models/user");
 const Otp = require("../models/Otp");
 const sendEmail = require("../utils/sendEmail");
@@ -25,6 +26,7 @@ const storage = multer.diskStorage({
   }
 });
 const upload = multer({ storage });
+const normalizeRole = (role) => (role === "recruiter" ? "recruiter" : "jobseeker");
 
 // Middleware to protect routes
 const protect = async (req, res, next) => {
@@ -40,6 +42,44 @@ const protect = async (req, res, next) => {
     return res.status(401).json({ message: "Not authorized" });
   }
 };
+
+// GOOGLE AUTH START
+router.get(
+  "/google",
+  (req, res, next) => {
+    const role = normalizeRole(req.query.role);
+    passport.authenticate("google", {
+      scope: ["profile", "email"],
+      prompt: "select_account",
+      session: false,
+      state: role,
+    })(req, res, next);
+  }
+);
+
+// GOOGLE AUTH CALLBACK
+router.get(
+  "/google/callback",
+  passport.authenticate("google", { session: false, failureRedirect: "/api/auth/google/failure" }),
+  async (req, res) => {
+    try {
+      const token = jwt.sign(
+        { id: req.user._id, role: req.user.role },
+        process.env.JWT_SECRET,
+        { expiresIn: "1d" }
+      );
+
+      const frontendUrl = process.env.FRONTEND_URL || "http://localhost:3000";
+return res.redirect(`${frontendUrl}?token=${encodeURIComponent(token)}`);
+    } catch (err) {
+      return res.redirect("/api/auth/google/failure");
+    }
+  }
+);
+
+router.get("/google/failure", (req, res) => {
+  return res.status(401).json({ message: "Google authentication failed" });
+});
 
 // SIGNUP
 router.post("/signup", async (req, res) => {
@@ -81,6 +121,9 @@ router.post("/signin", async (req, res) => {
     if (!user) {
       return res.status(400).json({ message: "Invalid credentials" });
     }
+    if (!user.password) {
+      return res.status(400).json({ message: "Use Google sign-in for this account" });
+    }
 
     const isMatch = await bcrypt.compare(password, user.password);
     if (!isMatch) {
@@ -108,10 +151,84 @@ router.post("/signin", async (req, res) => {
   }
 });
 
+// SIGNIN INIT (validate credentials and send OTP for signin)
+router.post('/signin-init', async (req, res) => {
+  try {
+    const { email, password } = req.body;
+
+    const user = await User.findOne({ email });
+    if (!user) {
+      return res.status(400).json({ message: 'Invalid credentials' });
+    }
+    if (!user.password) {
+      return res.status(400).json({ message: "Use Google sign-in for this account" });
+    }
+
+    const isMatch = await bcrypt.compare(password, user.password);
+    if (!isMatch) {
+      return res.status(400).json({ message: 'Invalid credentials' });
+    }
+
+    // Generate OTP and store, reuse /send-otp logic
+    const otp = crypto.randomInt(100000, 999999).toString();
+    await Otp.deleteMany({ email });
+    await Otp.create({ email, otp, expiresAt: new Date(Date.now() + 5 * 60 * 1000) });
+
+    const emailSent = await sendEmail(email, otp, 'signin');
+    if (!emailSent) {
+      console.error('Signin-init: email sending failed for', email);
+      return res.status(500).json({ message: 'Failed to send OTP' });
+    }
+
+    return res.json({ message: 'OTP sent for signin' });
+  } catch (err) {
+    console.error('Signin-init error:', err);
+    return res.status(500).json({ message: 'Signin failed' });
+  }
+});
+
+// SIGNIN VERIFY (verify OTP then issue token)
+router.post('/signin-verify', async (req, res) => {
+  try {
+    const { email, otp } = req.body;
+
+    const record = await Otp.findOne({ email, otp });
+    if (!record) return res.status(400).json({ message: 'Invalid OTP' });
+    if (record.expiresAt < new Date()) return res.status(400).json({ message: 'OTP Expired' });
+
+    // remove used OTPs
+    await Otp.deleteMany({ email });
+
+    const user = await User.findOne({ email });
+    if (!user) return res.status(404).json({ message: 'User not found' });
+
+    const token = jwt.sign(
+      { id: user._id, role: user.role },
+      process.env.JWT_SECRET,
+      { expiresIn: '1d' }
+    );
+
+    return res.json({
+      token,
+      role: user.role,
+      name: user.name,
+      firstName: user.firstName,
+      lastName: user.lastName,
+      phone: user.phone,
+      email: user.email,
+      employmentStatus: user.employmentStatus,
+    });
+  } catch (err) {
+    console.error('Signin-verify error:', err);
+    return res.status(500).json({ message: 'Server error' });
+  }
+});
+
 // SEND OTP - stores OTP in Otp collection and emails it
 router.post('/send-otp', async (req, res) => {
   try {
-    const { email } = req.body;
+    const { email, context = 'password_reset' } = req.body;
+    const emailContext = context === 'signin' ? 'signin' : 'password_reset';
 
     const otp = crypto.randomInt(100000, 999999).toString();
 
@@ -125,7 +242,7 @@ router.post('/send-otp', async (req, res) => {
       expiresAt: new Date(Date.now() + 5 * 60 * 1000), // 5 minutes
     });
 
-    const emailSent = await sendEmail(email, otp);
+    const emailSent = await sendEmail(email, otp, emailContext);
     if (!emailSent) {
       console.error('Send OTP: email sending failed for', email);
       return res.status(500).json({ message: 'Failed to send OTP' });

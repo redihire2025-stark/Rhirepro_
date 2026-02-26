@@ -9,6 +9,7 @@ import { Briefcase, ArrowLeft, Mail, Lock, User, Phone, Building2 } from 'lucide
 import { UserType } from '../App';
 // import { auth, signInWithGoogle } from '../Firebase';
 
+const API_BASE = (import.meta as any).env?.VITE_API_BASE_URL || 'http://localhost:5000';
 
 
 
@@ -23,8 +24,7 @@ export function AuthScreen({ onLogin, onNavigate }: AuthScreenProps) {
   const [showForgot, setShowForgot] = useState(false);
   const [otp, setOtp] = useState('');
   const [step, setStep] = useState<'email' | 'otp' | 'reset'>('email');
-  const [newPassword, setNewPassword] = useState('');
-  const [otpSent, setOtpSent] = useState(false);
+  const [loginOtpFlow, setLoginOtpFlow] = useState(false);
   const [timer, setTimer] = useState(30);
   const timerRef = useRef<number | null>(null);
   const [firstName, setFirstName] = useState('');
@@ -33,44 +33,72 @@ export function AuthScreen({ onLogin, onNavigate }: AuthScreenProps) {
   const [employmentStatus, setEmploymentStatus] = useState<'fresher' | 'experienced'>('experienced');
   const [email, setEmail] = useState('');
   const [password, setPassword] = useState('');
+
+  useEffect(() => {
+    const completeGoogleLogin = async () => {
+      const params = new URLSearchParams(window.location.search);
+      const token = params.get('token');
+      if (!token) return;
+
+      try {
+        const res = await fetch(`${API_BASE}/api/auth/me`, {
+          headers: { Authorization: `Bearer ${token}` },
+        });
+
+        const user = await res.json();
+        if (!res.ok) throw new Error(user?.message || 'Google sign-in failed');
+
+        localStorage.setItem('token', token);
+        localStorage.setItem(
+          'user',
+          JSON.stringify({
+            name: user.name,
+            firstName: user.firstName,
+            lastName: user.lastName,
+            phone: user.phone || '',
+            email: user.email,
+            employmentStatus: user.employmentStatus || 'experienced',
+            role: user.role || 'jobseeker',
+          })
+        );
+
+        onLogin(user.role || 'jobseeker');
+        onNavigate((user.role || 'jobseeker') === 'jobseeker' ? 'jobseeker-dashboard' : 'recruiter-dashboard');
+      } catch (error) {
+        console.error('Google callback handling failed:', error);
+        localStorage.removeItem('token');
+        alert('Google login failed. Please try again.');
+      } finally {
+        params.delete('token');
+        const query = params.toString();
+        const cleanUrl = `${window.location.pathname}${query ? `?${query}` : ''}`;
+        window.history.replaceState({}, '', cleanUrl);
+      }
+    };
+
+    completeGoogleLogin();
+  }, [onLogin, onNavigate]);
+
   const backendLogin = async () => {
     try {
-      const res = await fetch("http://localhost:5000/api/auth/signin", {
+      // Use signin-init to validate credentials and send OTP for signin
+      const res = await fetch(`${API_BASE}/api/auth/signin-init`, {
         method: "POST",
         headers: { "Content-Type": "application/json" },
         body: JSON.stringify({ email, password }),
       });
 
+      const data = await res.json();
       if (!res.ok) {
-        const text = await res.text();
-        alert(text || "Login failed");
+        alert(data.message || "Login failed");
         return;
       }
 
-      const data = await res.json();
-
-
-
-      localStorage.setItem("token", data.token);
-      localStorage.setItem(
-        "user",
-        JSON.stringify({
-          name: data.name,
-          firstName: data.firstName,
-          lastName: data.lastName,
-          phone: data.phone || '',
-          email: data.email,
-          employmentStatus: data.employmentStatus || 'experienced',
-          role: data.role,
-        })
-      );
-
-      onLogin(data.role);
-      onNavigate(
-        data.role === "jobseeker"
-          ? "jobseeker-dashboard"
-          : "recruiter-dashboard"
-      );
+      // Enter OTP flow for signin
+      setLoginOtpFlow(true);
+      setStep('otp');
+      startTimer();
+      alert(data.message || 'OTP sent to your email for signin');
     } catch (err) {
       console.error(err);
       alert("Backend not reachable. Is server running?");
@@ -79,7 +107,7 @@ export function AuthScreen({ onLogin, onNavigate }: AuthScreenProps) {
 
   const backendSignup = async () => {
     try {
-      const res = await fetch("http://localhost:5000/api/auth/signup", {
+      const res = await fetch(`${API_BASE}/api/auth/signup`, {
         method: "POST",
         headers: { "Content-Type": "application/json" },
         body: JSON.stringify({
@@ -109,7 +137,7 @@ export function AuthScreen({ onLogin, onNavigate }: AuthScreenProps) {
   };
 
   const sendOtp = async () => {
-    const res = await fetch('http://localhost:5000/api/auth/send-otp', {
+    const res = await fetch(`${API_BASE}/api/auth/send-otp`, {
       method: 'POST',
       headers: { 'Content-Type': 'application/json' },
       body: JSON.stringify({ email }),
@@ -126,10 +154,13 @@ export function AuthScreen({ onLogin, onNavigate }: AuthScreenProps) {
   };
 
   const resendOtp = async () => {
-    const res = await fetch('http://localhost:5000/api/auth/send-otp', {
+    const res = await fetch(`${API_BASE}/api/auth/send-otp`, {
       method: 'POST',
       headers: { 'Content-Type': 'application/json' },
-      body: JSON.stringify({ email }),
+      body: JSON.stringify({
+        email,
+        context: loginOtpFlow ? 'signin' : 'password_reset',
+      }),
     });
     const data = await res.json();
     if (!res.ok) {
@@ -170,7 +201,7 @@ export function AuthScreen({ onLogin, onNavigate }: AuthScreenProps) {
     };
   }, []);
   const resetPassword = async () => {
-    const res = await fetch('http://localhost:5000/api/auth/reset-password', {
+    const res = await fetch(`${API_BASE}/api/auth/reset-password`, {
       method: 'POST',
       headers: { 'Content-Type': 'application/json' },
       body: JSON.stringify({ email, newPassword: password }),
@@ -185,15 +216,45 @@ export function AuthScreen({ onLogin, onNavigate }: AuthScreenProps) {
   };
 
   const verifyOtp = async () => {
-    const res = await fetch('http://localhost:5000/api/auth/verify-otp', {
-      method: 'POST',
-      headers: { 'Content-Type': 'application/json' },
-      body: JSON.stringify({ email, otp }),
-    });
+    if (loginOtpFlow) {
+      // verify signin OTP and obtain token
+      const res = await fetch(`${API_BASE}/api/auth/signin-verify`, {
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify({ email, otp }),
+      });
+      const data = await res.json();
+      if (!res.ok) {
+        alert(data.message || 'OTP verification failed');
+        return;
+      }
 
-    const data = await res.json();
-    alert(data.message);
-    if (res.ok) setStep('reset');
+      // store token and user, navigate
+      localStorage.setItem('token', data.token);
+      localStorage.setItem('user', JSON.stringify({
+        name: data.name,
+        firstName: data.firstName,
+        lastName: data.lastName,
+        phone: data.phone || '',
+        email: data.email,
+        employmentStatus: data.employmentStatus || 'experienced',
+        role: data.role,
+      }));
+
+      onLogin(data.role);
+      onNavigate(data.role === 'jobseeker' ? 'jobseeker-dashboard' : 'recruiter-dashboard');
+    } else {
+      // existing reset-password verify flow
+      const res = await fetch(`${API_BASE}/api/auth/verify-otp`, {
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify({ email, otp }),
+      });
+
+      const data = await res.json();
+      alert(data.message);
+      if (res.ok) setStep('reset');
+    }
   };
 
 
@@ -347,7 +408,7 @@ export function AuthScreen({ onLogin, onNavigate }: AuthScreenProps) {
                 </TabsList>
               </Tabs>
 
-              {!showForgot && (
+              {!(showForgot || loginOtpFlow) && (
                 <form onSubmit={handleSubmit} className="space-y-4">
                   {!isLogin && (
                     <div className="grid grid-cols-2 gap-2">
@@ -538,17 +599,8 @@ export function AuthScreen({ onLogin, onNavigate }: AuthScreenProps) {
                       variant="outline"
                       type="button"
                       className="rounded-full px-6"
-                      onClick={async () => {
-                        try {
-                          // const { user } = await signInWithGoogle();
-
-                          // Update app state & navigate
-                          onLogin(userType);
-                          onNavigate(userType === "jobseeker" ? "jobseeker-dashboard" : "recruiter-dashboard");
-                        } catch (error) {
-                          console.log("Google auth failed", error);
-                          alert("Google login failed. Check console for details.");
-                        }
+                      onClick={() => {
+                        window.location.href = `${API_BASE}/api/auth/google?role=${encodeURIComponent(userType)}`;
                       }}
                     >
                       <svg className="w-5 h-5 mr-2" viewBox="0 0 533.5 544.3">
@@ -577,7 +629,7 @@ export function AuthScreen({ onLogin, onNavigate }: AuthScreenProps) {
                 </form>
               )}
 
-              {!showForgot ? null : (
+              {(showForgot || loginOtpFlow) ? (
                 <div className="space-y-4 mt-4">
                   {step === 'email' && (
                     <>
@@ -614,6 +666,27 @@ export function AuthScreen({ onLogin, onNavigate }: AuthScreenProps) {
                         </Button>
 
                         <div className="flex items-center justify-between">
+                          <Button
+                            variant="ghost"
+                            className="text-sm"
+                            onClick={() => {
+                              // cancel OTP flow and go back to login
+                              setLoginOtpFlow(false);
+                              setShowForgot(false);
+                              setStep('email');
+                              setOtp('');
+                              setTimer(0);
+                              if (timerRef.current) {
+                                clearInterval(timerRef.current);
+                                timerRef.current = null;
+                              }
+                            }}
+                          >
+                            Cancel
+                          </Button>
+                        </div>
+
+                        <div className="flex items-center justify-between">
                           <span className="text-sm text-gray-500">Resend available in {timer}s</span>
                           <Button
                             className="text-sm"
@@ -644,7 +717,7 @@ export function AuthScreen({ onLogin, onNavigate }: AuthScreenProps) {
                     </>
                   )}
                 </div>
-              )}
+              ) : null}
             </CardContent>
           </Card>
         </div>
