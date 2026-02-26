@@ -83,16 +83,10 @@ export function ProfileSettings({ userType, onNavigate }: ProfileSettingsProps) 
 
   const [preferredLocations, setPreferredLocations] = useState<string[]>([]);
   const [skills, setSkills] = useState(['React', 'TypeScript', 'Next.js', 'Node.js']);
-  // primary and secondary selected skills (multi-select)
-  const [primarySkillsSel, setPrimarySkillsSel] = useState<string[]>([]);
-  const [secondarySkillsSel, setSecondarySkillsSel] = useState<string[]>([]);
   const [preferredFilter, setPreferredFilter] = useState('');
   const [showPreferredDropdown, setShowPreferredDropdown] = useState(false);
-  const [primaryFilter, setPrimaryFilter] = useState('');
-  const [showPrimaryDropdown, setShowPrimaryDropdown] = useState(false);
-  const [secondaryFilter, setSecondaryFilter] = useState('');
-  const [showSecondaryDropdown, setShowSecondaryDropdown] = useState(false);
   const [newSkill, setNewSkill] = useState('');
+  const [showSkillsDropdown, setShowSkillsDropdown] = useState(false);
   const [profile, setProfile] = useState<any>({});
   const photoInputRef = useRef<HTMLInputElement | null>(null);
   const resumeInputRef = useRef<HTMLInputElement | null>(null);
@@ -118,9 +112,11 @@ export function ProfileSettings({ userType, onNavigate }: ProfileSettingsProps) 
         if (data?.education) setEducations((data.education || []).map((ed: any) => ({ ...(ed || {}), id: ed._id || ed.id || (Date.now().toString() + Math.random()) })));
         if (data?.certifications) setCertifications((data.certifications || []).map((c: any) => ({ id: c._id || c.id || (Date.now().toString() + Math.random()), name: c.name || c.title || '', year: c.year })));
         if (data?.project) setProfile((p: any) => ({ ...p, project: data.project }));
-        if (data?.primarySkills) setSkills(data.primarySkills);
-        if (data?.primarySkills) setPrimarySkillsSel(Array.isArray(data.primarySkills) ? data.primarySkills : String(data.primarySkills).split(/,\s*/).filter(Boolean));
-        if (data?.secondarySkills) setSecondarySkillsSel(Array.isArray(data.secondarySkills) ? data.secondarySkills : String(data.secondarySkills).split(/,\s*/).filter(Boolean));
+        if (data?.primarySkills || data?.secondarySkills) {
+          const primary = Array.isArray(data.primarySkills) ? data.primarySkills : String(data.primarySkills || '').split(/,\s*/).filter(Boolean);
+          const secondary = Array.isArray(data.secondarySkills) ? data.secondarySkills : String(data.secondarySkills || '').split(/,\s*/).filter(Boolean);
+          setSkills([...new Set([...primary, ...secondary])]);
+        }
         // preferred locations may be stored as comma separated string — normalize to array
         if (data?.preferredLocation) {
           const arr = Array.isArray(data.preferredLocation)
@@ -200,9 +196,9 @@ export function ProfileSettings({ userType, onNavigate }: ProfileSettingsProps) 
       payload.experiences = experiences;
       payload.education = educations;
       // send certifications as { name, year }
-      payload.certifications = certifications.map((c) => ({ name: c.name || c.title, year: c.year }));
-      payload.primarySkills = (primarySkillsSel && primarySkillsSel.length) ? primarySkillsSel : (Array.isArray(profile.primarySkills) ? profile.primarySkills : (skills || []));
-      payload.secondarySkills = (secondarySkillsSel && secondarySkillsSel.length) ? secondarySkillsSel : (Array.isArray(profile.secondarySkills) ? profile.secondarySkills : []);
+      payload.certifications = certifications.map((c) => ({ name: c.name, year: c.year }));
+      payload.primarySkills = skills;
+      payload.secondarySkills = [];
       // preferredLocations: save as comma separated string for backend compatibility
       if (preferredLocations && preferredLocations.length) payload.preferredLocation = preferredLocations.join(', ');
       // include project (for freshers) - store structured object
@@ -1170,79 +1166,91 @@ export function ProfileSettings({ userType, onNavigate }: ProfileSettingsProps) 
             <TabsContent value="skills" className="space-y-6">
               <Card>
                 <CardHeader>
-                  <CardTitle>Skills</CardTitle>
-                  <CardDescription>Primary and secondary skills</CardDescription>
+                  <CardTitle>Technical Skills</CardTitle>
+                  <CardDescription>Search and select your skills, or type to add a custom one</CardDescription>
                 </CardHeader>
-                <CardContent className="space-y-6">
+                <CardContent className="space-y-4">
                   <div className="space-y-2">
-                    <Label>Primary Skills</Label>
-                    <div className="flex items-start gap-3 flex-wrap">
-                      <div className="relative" tabIndex={0} onBlur={() => setShowPrimaryDropdown(false)}>
-                        <Input
-                          placeholder="Type to search skills"
-                          value={primaryFilter}
-                          onChange={(e) => { setPrimaryFilter(e.target.value); setShowPrimaryDropdown(true); }}
-                          onFocus={() => setShowPrimaryDropdown(true)}
-                          className="min-w-[220px]"
-                        />
-                        {showPrimaryDropdown && (
-                          <div className="absolute z-50 mt-1 w-full max-h-48 overflow-auto rounded-md bg-white border shadow-sm">
-                            {SKILLS_OPTIONS.filter(s => s.toLowerCase().includes(primaryFilter.toLowerCase()) && !primarySkillsSel.includes(s)).map((s) => (
-                              <div key={s} className="px-3 py-2 hover:bg-gray-100 cursor-pointer" onMouseDown={(e) => { e.preventDefault(); setPrimarySkillsSel(prev => [...prev, s]); setPrimaryFilter(''); setShowPrimaryDropdown(false); }}>{s}</div>
+                    <Label>Technical Skills</Label>
+                    <div
+                      className="relative"
+                      tabIndex={0}
+                      onBlur={(e) => {
+                        if (!e.currentTarget.contains(e.relatedTarget as Node)) {
+                          setShowSkillsDropdown(false);
+                        }
+                      }}
+                    >
+                      <Input
+                        placeholder="Search or type a skill..."
+                        value={newSkill}
+                        onChange={(e) => { setNewSkill(e.target.value); setShowSkillsDropdown(true); }}
+                        onFocus={() => setShowSkillsDropdown(true)}
+                        onKeyDown={(e) => {
+                          if (e.key === 'Enter' && newSkill.trim()) {
+                            if (!skills.includes(newSkill.trim())) setSkills(prev => [...prev, newSkill.trim()]);
+                            setNewSkill('');
+                            setShowSkillsDropdown(false);
+                          }
+                          if (e.key === 'Escape') setShowSkillsDropdown(false);
+                        }}
+                        className="w-full"
+                      />
+                      {showSkillsDropdown && (
+                        <div className="absolute z-50 mt-1 w-full max-h-52 overflow-auto rounded-md bg-white border shadow-md">
+                          {SKILLS_OPTIONS
+                            .filter(s => s.toLowerCase().includes(newSkill.toLowerCase()) && !skills.includes(s))
+                            .map((s) => (
+                              <div
+                                key={s}
+                                className="px-3 py-2 hover:bg-gray-100 cursor-pointer text-sm"
+                                onMouseDown={(e) => {
+                                  e.preventDefault();
+                                  setSkills(prev => [...prev, s]);
+                                  setNewSkill('');
+                                  setShowSkillsDropdown(false);
+                                }}
+                              >
+                                {s}
+                              </div>
                             ))}
-                            {SKILLS_OPTIONS.filter(s => s.toLowerCase().includes(primaryFilter.toLowerCase()) && !primarySkillsSel.includes(s)).length === 0 && (
-                              <div className="px-3 py-2 text-sm text-gray-500">No matches</div>
-                            )}
-                          </div>
-                        )}
-                      </div>
-                      <div className="flex gap-2 flex-wrap">
-                        {primarySkillsSel.map((p) => (
-                          <div key={p} className="flex items-center bg-gray-100 text-sm rounded-full px-3 py-1">
-                            <span className="mr-2">{p}</span>
-                            <Button variant="ghost" size="sm" onClick={() => setPrimarySkillsSel((prev) => prev.filter(x => x !== p))}>
+                          {newSkill.trim() && !SKILLS_OPTIONS.some(s => s.toLowerCase() === newSkill.trim().toLowerCase()) && (
+                            <div
+                              className="px-3 py-2 hover:bg-blue-50 cursor-pointer text-sm text-blue-600 font-medium flex items-center gap-2 border-t"
+                              onMouseDown={(e) => {
+                                e.preventDefault();
+                                if (!skills.includes(newSkill.trim())) setSkills(prev => [...prev, newSkill.trim()]);
+                                setNewSkill('');
+                                setShowSkillsDropdown(false);
+                              }}
+                            >
+                              <Plus className="w-3 h-3" /> Add "{newSkill.trim()}"
+                            </div>
+                          )}
+                          {!newSkill.trim() && SKILLS_OPTIONS.filter(s => !skills.includes(s)).length === 0 && (
+                            <div className="px-3 py-2 text-sm text-gray-400">All skills selected</div>
+                          )}
+                        </div>
+                      )}
+                    </div>
+                    {skills.length > 0 && (
+                      <div className="flex flex-wrap gap-2 pt-2">
+                        {skills.map((skill) => (
+                          <div key={skill} className="flex items-center gap-1 bg-blue-50 text-blue-700 text-sm rounded-full px-3 py-1 border border-blue-200">
+                            <span>{skill}</span>
+                            <button
+                              type="button"
+                              onClick={() => setSkills(prev => prev.filter(s => s !== skill))}
+                              className="ml-1 hover:text-red-500 transition-colors focus:outline-none"
+                            >
                               <X className="w-3 h-3" />
-                            </Button>
+                            </button>
                           </div>
                         ))}
                       </div>
-                    </div>
+                    )}
                   </div>
-                  <div className="space-y-2">
-                    <Label>Secondary Skills</Label>
-                    <div className="flex items-start gap-3 flex-wrap">
-                      <div className="relative" tabIndex={0} onBlur={() => setShowSecondaryDropdown(false)}>
-                        <Input
-                          placeholder="Type to search skills"
-                          value={secondaryFilter}
-                          onChange={(e) => { setSecondaryFilter(e.target.value); setShowSecondaryDropdown(true); }}
-                          onFocus={() => setShowSecondaryDropdown(true)}
-                          className="min-w-[220px]"
-                        />
-                        {showSecondaryDropdown && (
-                          <div className="absolute z-50 mt-1 w-full max-h-48 overflow-auto rounded-md bg-white border shadow-sm">
-                            {SKILLS_OPTIONS.filter(s => s.toLowerCase().includes(secondaryFilter.toLowerCase()) && !secondarySkillsSel.includes(s)).map((s) => (
-                              <div key={s} className="px-3 py-2 hover:bg-gray-100 cursor-pointer" onMouseDown={(e) => { e.preventDefault(); setSecondarySkillsSel(prev => [...prev, s]); setSecondaryFilter(''); setShowSecondaryDropdown(false); }}>{s}</div>
-                            ))}
-                            {SKILLS_OPTIONS.filter(s => s.toLowerCase().includes(secondaryFilter.toLowerCase()) && !secondarySkillsSel.includes(s)).length === 0 && (
-                              <div className="px-3 py-2 text-sm text-gray-500">No matches</div>
-                            )}
-                          </div>
-                        )}
-                      </div>
-                      <div className="flex gap-2 flex-wrap">
-                        {secondarySkillsSel.map((p) => (
-                          <div key={p} className="flex items-center bg-gray-100 text-sm rounded-full px-3 py-1">
-                            <span className="mr-2">{p}</span>
-                            <Button variant="ghost" size="sm" onClick={() => setSecondarySkillsSel((prev) => prev.filter(x => x !== p))}>
-                              <X className="w-3 h-3" />
-                            </Button>
-                          </div>
-                        ))}
-                      </div>
-                    </div>
-                  </div>
-                  <div className="flex justify-end">
+                  <div className="flex justify-end pt-2">
                     <Button onClick={handleSave} className="rounded-full bg-gradient-to-r from-blue-600 to-teal-500 hover:from-blue-700 hover:to-teal-600">
                       <Save className="w-4 h-4 mr-2" />
                       Save Skills
@@ -1593,11 +1601,24 @@ export function ProfileSettings({ userType, onNavigate }: ProfileSettingsProps) 
 
                   <div className="space-y-2">
                     <Label htmlFor="preferredLocations">Preferred Locations</Label>
-                    <div className="flex items-start gap-3 flex-wrap">
+                    {preferredLocations.length > 0 && (
+                      <div className="flex gap-2 flex-wrap mb-2">
+                        {preferredLocations.map((pl) => (
+                          <div key={pl} className="flex items-center bg-blue-50 border border-blue-200 text-sm rounded-full px-3 py-1">
+                            <MapPin className="w-3 h-3 mr-1 text-blue-500" />
+                            <span className="mr-2 text-blue-700">{pl}</span>
+                            <Button variant="ghost" size="sm" className="h-4 w-4 p-0 hover:bg-blue-100" onClick={() => setPreferredLocations((prev) => prev.filter(p => p !== pl))}>
+                              <X className="w-3 h-3 text-blue-500" />
+                            </Button>
+                          </div>
+                        ))}
+                      </div>
+                    )}
+                    {preferredLocations.length < 3 && (
                       <div className="relative" tabIndex={0} onBlur={() => setShowPreferredDropdown(false)}>
                         <Input
                           id="preferredLocations"
-                          placeholder="Type to search states"
+                          placeholder="Type to search and add locations"
                           value={preferredFilter}
                           onChange={(e) => { setPreferredFilter(e.target.value); setShowPreferredDropdown(true); }}
                           onFocus={() => setShowPreferredDropdown(true)}
@@ -1608,7 +1629,6 @@ export function ProfileSettings({ userType, onNavigate }: ProfileSettingsProps) 
                             {LOCATIONS.filter(l => l.toLowerCase().includes(preferredFilter.toLowerCase()) && !preferredLocations.includes(l)).map((loc) => (
                               <div key={loc} className="px-3 py-2 hover:bg-gray-100 cursor-pointer" onMouseDown={(e) => {
                                 e.preventDefault();
-                                if (preferredLocations.length >= 3) { alert('You can select up to 3 preferred states'); return; }
                                 setPreferredLocations(prev => [...prev, loc]); setPreferredFilter(''); setShowPreferredDropdown(false);
                               }}>{loc}</div>
                             ))}
@@ -1618,18 +1638,12 @@ export function ProfileSettings({ userType, onNavigate }: ProfileSettingsProps) 
                           </div>
                         )}
                       </div>
-                      <div className="flex gap-2 flex-wrap">
-                        {preferredLocations.map((pl) => (
-                          <div key={pl} className="flex items-center bg-gray-100 text-sm rounded-full px-3 py-1">
-                            <span className="mr-2">{pl}</span>
-                            <Button variant="ghost" size="sm" onClick={() => setPreferredLocations((prev) => prev.filter(p => p !== pl))}>
-                              <X className="w-3 h-3" />
-                            </Button>
-                          </div>
-                        ))}
-                      </div>
-                    </div>
-                    <p className="text-xs text-gray-500">Select up to 3 preferred states</p>
+                    )}
+                    <p className="text-xs text-gray-500">
+                      {preferredLocations.length < 3
+                        ? `Select up to 3 preferred states (${3 - preferredLocations.length} remaining)`
+                        : 'Maximum 3 locations selected. Remove one to change.'}
+                    </p>
                   </div>
 
                   <div className="space-y-2">
@@ -1891,26 +1905,6 @@ export function ProfileSettings({ userType, onNavigate }: ProfileSettingsProps) 
                 </CardHeader>
                 <CardContent className="space-y-6">
                   <div className="p-6 bg-gradient-to-br from-blue-50 to-teal-50 rounded-lg border border-blue-200">
-                    <div className="flex items-start justify-between mb-4">
-                      <div>
-                        <h3 className="text-lg text-gray-900">{cert.name}</h3>
-                        <p className="text-gray-600">{cert.year}</p>
-                      </div>
-                      <div className="flex items-center gap-2">
-                        <Button
-                          variant="ghost"
-                          size="sm"
-                          className="rounded-full"
-                          onClick={() => openEditCert(cert)}
-                        >
-                          <Edit className="w-4 h-4 mr-1" />
-                          Edit
-                        </Button>
-                        <Button variant="ghost" size="sm" className="rounded-full" onClick={() => handleRemoveCertification(cert.id)}>
-                          <X className="w-4 h-4 text-red-500" />
-                        </Button>
-                      </div>
-                    </div>
                     <h3 className="text-lg text-gray-900 mb-4">Billing History</h3>
                     <div className="space-y-2">
                       {[
