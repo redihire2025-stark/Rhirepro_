@@ -1,0 +1,13 @@
+{
+  "permissions": {
+    "allow": [
+      "Bash(\"c:\\\\Users\\\\adiru\\\\Downloads\\\\Rhirepro_Updated version\\\\supabase\\\\schema.sql\")",
+      "Bash(npm install:*)",
+      "Bash(npm run:*)",
+      "Bash(node scripts/generateTestReport.mjs)",
+      "Bash(find 'c:/Users/adiru/Downloads/Rhirepro_Updated version' -type f \\\\\\(-name *.svg -o -name *.png -o -name *.ico -o -name *.jpg -o -name *.jpeg \\\\\\))",
+      "Bash(xargs grep:*)",
+      "Bash(grep -r \"redhire\\\\|RedHire\\\\|red-hire\\\\|redihire\" 'c:/Users/adiru/Downloads/Rhirepro_Updated version' --include=*.md)"
+    ]
+  }
+}

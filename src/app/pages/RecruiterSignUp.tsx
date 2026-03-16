@@ -1,0 +1,191 @@
+import { useState } from "react";
+import { useNavigate, Link } from "react-router";
+import { Eye, EyeOff, Loader2, CheckCircle, Building2 } from "lucide-react";
+import { Button } from "../components/ui/button";
+import { Input } from "../components/ui/input";
+import { Select, SelectContent, SelectItem, SelectTrigger, SelectValue } from "../components/ui/select";
+import { supabase } from "../../lib/supabase";
+
+export default function RecruiterSignUp() {
+  const [formData, setFormData] = useState({
+    recruiterName: "",
+    companyName: "",
+    industry: "",
+    companySize: "",
+    email: "",
+    phone: "",
+    password: "",
+    confirmPassword: "",
+  });
+  const [showPassword, setShowPassword] = useState(false);
+  const [loading, setLoading] = useState(false);
+  const [error, setError] = useState("");
+  const [success, setSuccess] = useState(false);
+  const navigate = useNavigate();
+
+  const handleSubmit = async (e: React.FormEvent) => {
+    e.preventDefault();
+    setError("");
+
+    if (formData.password !== formData.confirmPassword) {
+      setError("Passwords do not match.");
+      return;
+    }
+    if (formData.password.length < 8) {
+      setError("Password must be at least 8 characters.");
+      return;
+    }
+
+    setLoading(true);
+    try {
+      const { data: authData, error: signUpError } = await supabase.auth.signUp({
+        email: formData.email,
+        password: formData.password,
+        options: {
+          data: {
+            role: "recruiter",
+            company_name: formData.companyName,
+            recruiter_name: formData.recruiterName,
+            industry: formData.industry,
+            company_size: formData.companySize,
+            phone: formData.phone,
+          },
+        },
+      });
+
+      if (signUpError) throw signUpError;
+      if (!authData.user) throw new Error("Failed to create account.");
+
+      const { error: profileError } = await supabase.from("recruiter_profiles").insert({
+        id: authData.user.id,
+        email: formData.email,
+        recruiter_name: formData.recruiterName,
+        company_name: formData.companyName,
+        industry: formData.industry,
+        company_size: formData.companySize,
+        phone: formData.phone,
+      });
+
+      if (profileError && profileError.code !== "23505") {
+        throw profileError;
+      }
+
+      setSuccess(true);
+      setTimeout(() => navigate("/recruiter/signin"), 3000);
+    } catch (err: unknown) {
+      const message = err instanceof Error ? err.message : "Sign up failed.";
+      setError(message.includes("already registered") ? "An account with this email already exists." : message);
+    } finally {
+      setLoading(false);
+    }
+  };
+
+  if (success) {
+    return (
+      <div className="min-h-screen bg-gradient-to-br from-[#3A1F1F] to-[#6B3A3A] flex items-center justify-center p-4">
+        <div className="bg-white rounded-2xl p-10 shadow-2xl text-center max-w-md w-full">
+          <div className="w-20 h-20 bg-green-50 rounded-full flex items-center justify-center mx-auto mb-4">
+            <CheckCircle className="h-10 w-10 text-green-500" />
+          </div>
+          <h2 className="text-2xl font-bold text-[#3A1F1F] mb-2">Account Created!</h2>
+          <p className="text-[#5A5A5A] mb-1">Welcome, <strong>{formData.companyName}</strong>!</p>
+          <p className="text-[#8A8A8A] text-sm mb-6">
+            Your recruiter account has been created successfully.<br />
+            Please sign in to access your dashboard.
+          </p>
+          <div className="w-full bg-gray-100 rounded-full h-1 mb-4 overflow-hidden">
+            <div className="bg-[#FF2B2B] h-full rounded-full animate-pulse w-full" />
+          </div>
+          <p className="text-xs text-[#8A8A8A]">Redirecting to Sign In...</p>
+        </div>
+      </div>
+    );
+  }
+
+  return (
+    <div className="min-h-screen bg-gradient-to-br from-[#3A1F1F] to-[#6B3A3A] flex items-center justify-center p-4">
+      <div className="w-full max-w-md">
+        <div className="text-center mb-8">
+          <Link to="/" className="inline-block">
+            <div className="text-3xl font-bold text-white">Rhire<span className="text-[#FF2B2B]">Pro</span></div>
+            <p className="text-sm text-red-200 mt-1">Recruiter Portal</p>
+          </Link>
+        </div>
+
+        <div className="bg-white rounded-2xl p-8 shadow-2xl">
+          <div className="flex items-center gap-3 mb-1">
+            <div className="w-10 h-10 bg-[#FF2B2B] rounded-xl flex items-center justify-center">
+              <Building2 className="h-5 w-5 text-white" />
+            </div>
+            <h2 className="text-2xl font-bold text-[#3A1F1F]">Recruiter Sign Up</h2>
+          </div>
+          <p className="text-[#8A8A8A] mb-6 text-sm">Start hiring top talent today</p>
+
+          {error && (
+            <div className="bg-red-50 border border-red-200 text-red-700 rounded-xl p-3 mb-4 text-sm">{error}</div>
+          )}
+
+          <form onSubmit={handleSubmit} className="space-y-4">
+            <div>
+              <label className="block mb-1.5 text-sm font-medium text-[#3A1F1F]">Your Name *</label>
+              <Input value={formData.recruiterName} onChange={e => setFormData({ ...formData, recruiterName: e.target.value })} className="bg-[#F6F6F6] border-gray-200 rounded-xl" placeholder="Anita Rao" required />
+            </div>
+            <div>
+              <label className="block mb-1.5 text-sm font-medium text-[#3A1F1F]">Company Name *</label>
+              <Input value={formData.companyName} onChange={e => setFormData({ ...formData, companyName: e.target.value })} className="bg-[#F6F6F6] border-gray-200 rounded-xl" placeholder="TechCorp Inc." required />
+            </div>
+            <div className="grid grid-cols-2 gap-3">
+              <div>
+                <label className="block mb-1.5 text-sm font-medium text-[#3A1F1F]">Industry</label>
+                <Select value={formData.industry} onValueChange={v => setFormData({ ...formData, industry: v })}>
+                  <SelectTrigger className="bg-[#F6F6F6] border-gray-200 rounded-xl"><SelectValue placeholder="Select" /></SelectTrigger>
+                  <SelectContent>
+                    {["IT / Software","BFSI","Manufacturing","Healthcare","Education","E-commerce","Consulting","Media"].map(i => <SelectItem key={i} value={i}>{i}</SelectItem>)}
+                  </SelectContent>
+                </Select>
+              </div>
+              <div>
+                <label className="block mb-1.5 text-sm font-medium text-[#3A1F1F]">Company Size</label>
+                <Select value={formData.companySize} onValueChange={v => setFormData({ ...formData, companySize: v })}>
+                  <SelectTrigger className="bg-[#F6F6F6] border-gray-200 rounded-xl"><SelectValue placeholder="Employees" /></SelectTrigger>
+                  <SelectContent>
+                    {["1-10","11-50","51-200","201-500","501-1000","1001-5000","5001+"].map(s => <SelectItem key={s} value={s}>{s}</SelectItem>)}
+                  </SelectContent>
+                </Select>
+              </div>
+            </div>
+            <div>
+              <label className="block mb-1.5 text-sm font-medium text-[#3A1F1F]">Work Email *</label>
+              <Input type="email" value={formData.email} onChange={e => setFormData({ ...formData, email: e.target.value })} className="bg-[#F6F6F6] border-gray-200 rounded-xl" placeholder="hr@company.com" required autoComplete="email" />
+            </div>
+            <div>
+              <label className="block mb-1.5 text-sm font-medium text-[#3A1F1F]">Phone</label>
+              <Input type="tel" value={formData.phone} onChange={e => setFormData({ ...formData, phone: e.target.value })} className="bg-[#F6F6F6] border-gray-200 rounded-xl" placeholder="+91 22 6789 0123" />
+            </div>
+            <div>
+              <label className="block mb-1.5 text-sm font-medium text-[#3A1F1F]">Password *</label>
+              <div className="relative">
+                <Input type={showPassword ? "text" : "password"} value={formData.password} onChange={e => setFormData({ ...formData, password: e.target.value })} className="bg-[#F6F6F6] border-gray-200 rounded-xl pr-10" placeholder="Min 8 characters" required autoComplete="new-password" />
+                <button type="button" onClick={() => setShowPassword(!showPassword)} className="absolute right-3 top-1/2 -translate-y-1/2 text-[#8A8A8A]">
+                  {showPassword ? <EyeOff className="h-4 w-4" /> : <Eye className="h-4 w-4" />}
+                </button>
+              </div>
+            </div>
+            <div>
+              <label className="block mb-1.5 text-sm font-medium text-[#3A1F1F]">Confirm Password *</label>
+              <Input type="password" value={formData.confirmPassword} onChange={e => setFormData({ ...formData, confirmPassword: e.target.value })} className="bg-[#F6F6F6] border-gray-200 rounded-xl" placeholder="Re-enter password" required autoComplete="new-password" />
+            </div>
+            <Button type="submit" disabled={loading} className="w-full bg-[#FF2B2B] hover:bg-[#e02525] text-white rounded-full py-6">
+              {loading ? <><Loader2 className="mr-2 h-4 w-4 animate-spin" /> Creating Account...</> : "Create Recruiter Account"}
+            </Button>
+          </form>
+
+          <p className="text-center mt-6 text-sm text-[#8A8A8A]">
+            Already have an account?{" "}
+            <Link to="/recruiter/signin" className="text-[#FF2B2B] font-semibold hover:underline">Sign In</Link>
+          </p>
+        </div>
+      </div>
+    </div>
+  );
+}
