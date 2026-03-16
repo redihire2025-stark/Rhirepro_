@@ -11,6 +11,8 @@
     "test:report": "vitest run --coverage && node scripts/generateTestReport.mjs"
   },
   "dependencies": {
+    "react": "18.3.1",
+    "react-dom": "18.3.1",
     "@emailjs/browser": "^4.4.1",
     "@emotion/react": "11.14.0",
     "@emotion/styled": "11.14.1",
@@ -81,17 +83,8 @@
     "vite": "6.3.5",
     "vitest": "^4.1.0"
   },
-  "peerDependencies": {
-    "react": "18.3.1",
-    "react-dom": "18.3.1"
-  },
-  "peerDependenciesMeta": {
-    "react": {
-      "optional": true
-    },
-    "react-dom": {
-      "optional": true
-    }
+  "engines": {
+    "node": ">=18"
   },
   "pnpm": {
     "overrides": {
