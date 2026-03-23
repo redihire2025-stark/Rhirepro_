@@ -7,7 +7,11 @@
       "Bash(node scripts/generateTestReport.mjs)",
       "Bash(find 'c:/Users/adiru/Downloads/Rhirepro_Updated version' -type f \\\\\\(-name *.svg -o -name *.png -o -name *.ico -o -name *.jpg -o -name *.jpeg \\\\\\))",
       "Bash(xargs grep:*)",
-      "Bash(grep -r \"redhire\\\\|RedHire\\\\|red-hire\\\\|redihire\" 'c:/Users/adiru/Downloads/Rhirepro_Updated version' --include=*.md)"
+      "Bash(grep -r \"redhire\\\\|RedHire\\\\|red-hire\\\\|redihire\" 'c:/Users/adiru/Downloads/Rhirepro_Updated version' --include=*.md)",
+      "Bash(\"c:/Users/adiru/Downloads/Rhirepro_Updated version/src/app/pages/RecruiterDashboard.tsx\")"
+    ],
+    "additionalDirectories": [
+      "c:\\Users\\adiru\\Downloads\\Rhirepro_Updated version\\src\\logo"
     ]
   }
 }
