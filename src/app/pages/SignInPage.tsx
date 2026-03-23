@@ -1,5 +1,5 @@
 import { useState } from "react";
-import { useNavigate } from "react-router";
+import { useNavigate, useSearchParams } from "react-router";
 import { Button } from "../components/ui/button";
 import { Input } from "../components/ui/input";
 import { User, Briefcase, Mail, Lock, Eye, EyeOff, Loader2, ShieldCheck, RefreshCw } from "lucide-react";
@@ -68,6 +68,8 @@ export default function SignInPage() {
   const [forgotSent, setForgotSent] = useState(false);
   const [forgotLoading, setForgotLoading] = useState(false);
   const navigate = useNavigate();
+  const [searchParams] = useSearchParams();
+  const planRedirect = searchParams.get("redirect") === "plan" ? searchParams.get("plan") : null;
 
   const handleForgotPassword = async (e: React.FormEvent) => {
     e.preventDefault();
@@ -187,7 +189,7 @@ export default function SignInPage() {
         navigate("/jobseeker/dashboard");
       } else {
         await supabase.from("recruiter_profiles").update({ otp_code: null, otp_expires_at: null }).eq("id", userId);
-        navigate("/recruiter/dashboard");
+        navigate(planRedirect ? `/recruiter/plan-details?plan=${planRedirect}` : "/recruiter/dashboard");
       }
     } catch (err: unknown) {
       setError(err instanceof Error ? err.message : "OTP verification failed.");

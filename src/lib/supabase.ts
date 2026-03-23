@@ -148,3 +148,42 @@ export interface Education {
   end_year: string | null;
   score: string | null;
 }
+
+export interface PaymentTransaction {
+  id: string;
+  recruiter_id: string;
+  plan_id: string;
+  amount: number;
+  promo_code: string | null;
+  discount_amount: number;
+  final_amount: number;
+  status: "pending" | "success" | "failed" | "expired";
+  payment_method: string | null;
+  transaction_ref: string | null;
+  created_at: string;
+  completed_at: string | null;
+}
+
+export interface RecruiterSubscription {
+  id: string;
+  recruiter_id: string;
+  plan_id: string;
+  status: "active" | "expired" | "cancelled";
+  started_at: string;
+  expires_at: string;
+  daily_job_posts: number | null;
+  payment_id: string | null;
+  created_at: string;
+}
+
+export interface PromoCode {
+  id: string;
+  code: string;
+  discount_type: "percentage" | "fixed";
+  discount_value: number;
+  valid_until: string | null;
+  max_uses: number | null;
+  used_count: number;
+  is_active: boolean;
+  created_at: string;
+}

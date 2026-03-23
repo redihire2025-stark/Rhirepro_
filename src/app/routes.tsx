@@ -8,6 +8,9 @@ import RecruiterSignIn from "./pages/RecruiterSignIn";
 import RecruiterSignUp from "./pages/RecruiterSignUp";
 import JobSeekerDashboard from "./pages/JobSeekerDashboard";
 import RecruiterDashboard from "./pages/RecruiterDashboard";
+import PlanDetailsPage from "./pages/PlanDetailsPage";
+import PaymentGatewayPage from "./pages/PaymentGatewayPage";
+import PaymentStatusPage from "./pages/PaymentStatusPage";
 import JobListingsPage from "./pages/JobListingsPage";
 import JobDetailPage from "./pages/JobDetailPage";
 import ServicesPage from "./pages/ServicesPage";
@@ -77,6 +80,21 @@ export const router = createBrowserRouter([
   {
     path: "/jobseeker/signup",
     Component: JobSeekerSignUp,
+    errorElement: <ErrorPage />,
+  },
+  {
+    path: "/recruiter/plan-details",
+    Component: PlanDetailsPage,
+    errorElement: <ErrorPage />,
+  },
+  {
+    path: "/recruiter/payment",
+    Component: PaymentGatewayPage,
+    errorElement: <ErrorPage />,
+  },
+  {
+    path: "/recruiter/payment/status",
+    Component: PaymentStatusPage,
     errorElement: <ErrorPage />,
   },
   {

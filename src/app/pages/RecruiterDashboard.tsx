@@ -1,6 +1,7 @@
 import { useState, useEffect, useCallback, useRef } from "react";
 import { useNavigate, Routes, Route, Link, useLocation } from "react-router";
-import { supabase, Job, Application, Notification, Profile, WorkExperience, Education as EduType } from "../../lib/supabase";
+import { supabase, Job, Application, Notification, Profile, WorkExperience, Education as EduType, RecruiterSubscription } from "../../lib/supabase";
+import { PLANS, FREE_DAILY_POST_LIMIT, getPlanById, validatePromo, applyPromo } from "../../lib/plans";
 import logoImage from "../../logo/logo.png";
 import { useAuth } from "../../lib/auth-context";
 import {
@@ -9,7 +10,8 @@ import {
   Briefcase, GraduationCap, Star, ChevronDown, ChevronRight, Eye,
   BarChart2, TrendingUp, Users, FileText, CheckCircle, XCircle,
   MessageSquare, Video, Award, BookOpen, Globe, Linkedin, Share2,
-  ArrowRight, Target, Zap, RefreshCw, MoreVertical, ThumbsUp, ThumbsDown, ExternalLink, Loader2
+  ArrowRight, Target, Zap, RefreshCw, MoreVertical, ThumbsUp, ThumbsDown, ExternalLink, Loader2,
+  CreditCard, Tag, ShieldCheck, Crown,
 } from "lucide-react";
 import { Button } from "../components/ui/button";
 import { Input } from "../components/ui/input";
@@ -666,6 +668,7 @@ export default function RecruiterDashboard() {
     if (path.includes("search-candidates")) return "search-candidates";
     if (path.includes("analytics")) return "analytics";
     if (path.includes("post-job")) return "post-job";
+    if (path.includes("plans")) return "plans";
     return "dashboard";
   };
 
@@ -677,6 +680,7 @@ export default function RecruiterDashboard() {
     { id: "applicants", label: "Applicants", path: "/recruiter/dashboard/applicants" },
     { id: "analytics", label: "Analytics", path: "/recruiter/dashboard/analytics" },
     { id: "company-profile", label: "Company Profile", path: "/recruiter/dashboard/company-profile" },
+    { id: "plans", label: "Plans", path: "/recruiter/dashboard/plans" },
   ];
 
   if (authLoading) {
@@ -795,6 +799,7 @@ export default function RecruiterDashboard() {
         <Route path="applicants" element={<ApplicantsPage />} />
         <Route path="analytics" element={<AnalyticsPage />} />
         <Route path="company-profile" element={<CompanyProfilePage />} />
+        <Route path="plans" element={<PlansPage />} />
       </Routes>
     </div>
   );
@@ -972,6 +977,9 @@ function PostJobPage() {
   const [postError, setPostError] = useState("");
   const [postSuccess, setPostSuccess] = useState(false);
   const [showPreview, setShowPreview] = useState(false);
+  const [activeSub, setActiveSub] = useState<RecruiterSubscription | null>(null);
+  const [todayPostCount, setTodayPostCount] = useState(0);
+  const [subLoading, setSubLoading] = useState(true);
   const [formData, setFormData] = useState({
     jobTitle: "", jobDescription: "", rolesResponsibilities: "", requirements: "",
     location: "", workMode: "",
@@ -981,6 +989,42 @@ function PostJobPage() {
     openings: "1", education: "", perks: [] as string[], department: "",
     interviewMode: "", applicationDeadline: "",
   });
+
+  // Fetch active subscription and today's post count
+  useEffect(() => {
+    if (!recruiterProfile?.id) return;
+    const load = async () => {
+      const now = new Date().toISOString();
+      const todayStart = new Date(); todayStart.setHours(0, 0, 0, 0);
+
+      const [{ data: sub }, { count }] = await Promise.all([
+        supabase
+          .from("recruiter_subscriptions")
+          .select("*")
+          .eq("recruiter_id", recruiterProfile.id)
+          .eq("status", "active")
+          .gte("expires_at", now)
+          .order("created_at", { ascending: false })
+          .limit(1)
+          .maybeSingle(),
+        supabase
+          .from("jobs")
+          .select("id", { count: "exact", head: true })
+          .eq("recruiter_id", recruiterProfile.id)
+          .gte("created_at", todayStart.toISOString()),
+      ]);
+      setActiveSub(sub ?? null);
+      setTodayPostCount(count ?? 0);
+      setSubLoading(false);
+    };
+    load();
+  }, [recruiterProfile?.id]);
+
+  const dailyLimit = activeSub
+    ? (activeSub.daily_job_posts ?? Infinity)
+    : FREE_DAILY_POST_LIMIT;
+
+  const isLimitReached = todayPostCount >= dailyLimit;
 
   const perkOptions = ["Health Insurance", "Work from Home", "Flexible Hours", "5 Days a Week", "Free Meals", "Stock Options", "Annual Bonus", "Paid Sick Leave"];
   const togglePerk = (p: string) => {
@@ -994,6 +1038,14 @@ function PostJobPage() {
     if (e) e.preventDefault();
     setPostError("");
     if (!recruiterProfile?.id) { setPostError("Please sign in as a recruiter."); return; }
+    if (isLimitReached) {
+      setPostError(
+        activeSub
+          ? `You've reached your plan's limit of ${dailyLimit} job post${dailyLimit === 1 ? "" : "s"} today.`
+          : `Free accounts can post only ${FREE_DAILY_POST_LIMIT} job per day. Upgrade to post more.`
+      );
+      return;
+    }
     setPosting(true);
     try {
       const skillsArr = formData.skills.split(",").map(s => s.trim()).filter(Boolean);
@@ -1132,7 +1184,52 @@ function PostJobPage() {
 
   return (
     <div className="container mx-auto px-4 py-8 max-w-4xl">
-      <h1 className="text-3xl font-bold text-[#3A1F1F] mb-6">Post a New Job</h1>
+      <h1 className="text-3xl font-bold text-[#3A1F1F] mb-4">Post a New Job</h1>
+
+      {/* Plan usage banner */}
+      {!subLoading && (
+        <div className={`mb-6 rounded-xl p-4 flex items-center justify-between gap-4 ${isLimitReached ? "bg-red-50 border border-red-200" : "bg-[#FF2B2B]/5 border border-[#FF2B2B]/20"}`}>
+          <div className="flex items-center gap-3">
+            {activeSub ? (
+              <Crown className="h-5 w-5 text-[#FF2B2B] flex-shrink-0" />
+            ) : (
+              <CreditCard className="h-5 w-5 text-[#8A8A8A] flex-shrink-0" />
+            )}
+            <div>
+              {activeSub ? (
+                <p className="text-sm font-medium text-[#3A1F1F]">
+                  {getPlanById(activeSub.plan_id)?.name ?? "Active Plan"} &nbsp;·&nbsp;
+                  <span className={isLimitReached ? "text-red-600" : "text-[#FF2B2B]"}>
+                    {todayPostCount} / {dailyLimit === Infinity ? "∞" : dailyLimit} posts today
+                  </span>
+                </p>
+              ) : (
+                <p className="text-sm font-medium text-[#3A1F1F]">
+                  Free plan &nbsp;·&nbsp;
+                  <span className={isLimitReached ? "text-red-600" : "text-[#FF2B2B]"}>
+                    {todayPostCount} / {FREE_DAILY_POST_LIMIT} post today
+                  </span>
+                </p>
+              )}
+              {isLimitReached && (
+                <p className="text-xs text-red-600 mt-0.5">
+                  Daily limit reached. {activeSub ? "Upgrade your plan for more posts." : "Purchase a plan to post more jobs."}
+                </p>
+              )}
+            </div>
+          </div>
+          {isLimitReached && (
+            <Button
+              size="sm"
+              onClick={() => navigate("/recruiter/dashboard/plans")}
+              className="bg-[#FF2B2B] hover:bg-[#e02525] text-white rounded-full whitespace-nowrap flex-shrink-0"
+            >
+              <Zap className="mr-1.5 h-3.5 w-3.5" /> Upgrade Plan
+            </Button>
+          )}
+        </div>
+      )}
+
       <div className="bg-white rounded-2xl p-8 shadow-md">
         {postSuccess && <div className="bg-green-50 border border-green-200 text-green-700 rounded-xl p-4 mb-4 text-sm font-medium">✓ Job posted successfully! Redirecting to Manage Jobs...</div>}
         {postError && <div className="bg-red-50 border border-red-200 text-red-700 rounded-xl p-4 mb-4 text-sm">{postError}</div>}
@@ -3254,3 +3351,249 @@ function CompanyProfilePage() {
     </div>
   );
 }
+
+// ─── Plans Page ───────────────────────────────────────────────────────────────
+
+function PlansPage() {
+  const navigate = useNavigate();
+  const { recruiterProfile } = useAuth();
+  const [activeSub, setActiveSub] = useState<RecruiterSubscription | null>(null);
+  const [loading, setLoading] = useState(true);
+  const [promoInput, setPromoInput] = useState("");
+  const [promoError, setPromoError] = useState("");
+  const [appliedPromo, setAppliedPromo] = useState<ReturnType<typeof validatePromo>>(null);
+  const [promoSuccess, setPromoSuccess] = useState("");
+
+  useEffect(() => {
+    if (!recruiterProfile?.id) return;
+    const load = async () => {
+      const now = new Date().toISOString();
+      const { data } = await supabase
+        .from("recruiter_subscriptions")
+        .select("*")
+        .eq("recruiter_id", recruiterProfile.id)
+        .eq("status", "active")
+        .gte("expires_at", now)
+        .order("created_at", { ascending: false })
+        .limit(1)
+        .maybeSingle();
+      setActiveSub(data ?? null);
+      setLoading(false);
+    };
+    load();
+  }, [recruiterProfile?.id]);
+
+  const handleApplyPromo = () => {
+    const found = validatePromo(promoInput);
+    if (!found) {
+      setPromoError("Invalid promo code. Try RHIRE20, HIRE50, or NEWJOIN.");
+      setAppliedPromo(null);
+      setPromoSuccess("");
+      return;
+    }
+    setAppliedPromo(found);
+    setPromoError("");
+    setPromoSuccess(`${found.label} applied!`);
+  };
+
+  const handlePurchase = (planId: string) => {
+    const plan = getPlanById(planId)!;
+    const finalPrice = appliedPromo ? applyPromo(plan.price, appliedPromo) : plan.price;
+    const discount = plan.price - finalPrice;
+    const params = new URLSearchParams({
+      plan: planId,
+      amount: String(plan.price),
+      final: String(finalPrice),
+      discount: String(discount),
+      promo: appliedPromo?.code ?? "",
+    });
+    navigate(`/recruiter/payment?${params.toString()}`);
+  };
+
+  const activePlan = activeSub ? getPlanById(activeSub.plan_id) : null;
+  const daysLeft = activeSub
+    ? Math.max(0, Math.ceil((new Date(activeSub.expires_at).getTime() - Date.now()) / 86400000))
+    : 0;
+
+  if (loading) {
+    return (
+      <div className="container mx-auto px-4 py-12 flex items-center justify-center">
+        <div className="w-8 h-8 border-4 border-[#FF2B2B] border-t-transparent rounded-full animate-spin" />
+      </div>
+    );
+  }
+
+  return (
+    <div className="container mx-auto px-4 py-8 max-w-5xl">
+      <h1 className="text-3xl font-bold text-[#3A1F1F] mb-2">Recruiter Plans</h1>
+      <p className="text-[#8A8A8A] mb-8">Manage your subscription and unlock more hiring power.</p>
+
+      {/* Current Plan Card */}
+      {activeSub && activePlan ? (
+        <div className="bg-gradient-to-r from-[#FF2B2B] to-[#c41e1e] rounded-2xl p-6 text-white mb-8 flex items-center justify-between flex-wrap gap-4">
+          <div className="flex items-center gap-4">
+            <div className="w-12 h-12 bg-white/20 rounded-xl flex items-center justify-center">
+              <Crown className="h-6 w-6 text-white" />
+            </div>
+            <div>
+              <p className="text-white/70 text-sm">Current Plan</p>
+              <h2 className="text-2xl font-bold">{activePlan.name}</h2>
+              <p className="text-white/80 text-sm">
+                {activePlan.dailyJobPosts === null ? "Unlimited" : activePlan.dailyJobPosts} daily job posts
+                &nbsp;·&nbsp; {daysLeft} days remaining
+              </p>
+            </div>
+          </div>
+          <div className="text-right">
+            <p className="text-white/70 text-sm">Expires</p>
+            <p className="font-semibold">{new Date(activeSub.expires_at).toLocaleDateString("en-IN", { day: "numeric", month: "short", year: "numeric" })}</p>
+          </div>
+        </div>
+      ) : (
+        <div className="bg-[#3A1F1F] rounded-2xl p-5 mb-8 flex items-center justify-between flex-wrap gap-3">
+          <div className="flex items-center gap-3">
+            <CreditCard className="h-6 w-6 text-[#FF2B2B]" />
+            <div>
+              <p className="text-white font-medium">No active plan</p>
+              <p className="text-white/60 text-sm">Free plan: {FREE_DAILY_POST_LIMIT} job post per day. Upgrade to post more.</p>
+            </div>
+          </div>
+        </div>
+      )}
+
+      {/* Promo Code Bar */}
+      <div className="bg-white rounded-2xl p-5 shadow-md mb-8">
+        <h3 className="text-sm font-semibold text-[#3A1F1F] mb-3 flex items-center gap-2">
+          <Tag className="h-4 w-4 text-[#FF2B2B]" /> Have a promo code?
+        </h3>
+        {appliedPromo ? (
+          <div className="flex items-center justify-between bg-green-50 border border-green-200 rounded-xl px-4 py-2.5">
+            <div className="flex items-center gap-2">
+              <CheckCircle className="h-4 w-4 text-green-600" />
+              <span className="text-sm font-semibold text-green-700">{appliedPromo.code}</span>
+              <span className="text-xs text-green-600">({promoSuccess})</span>
+            </div>
+            <button
+              onClick={() => { setAppliedPromo(null); setPromoInput(""); setPromoSuccess(""); setPromoError(""); }}
+              className="text-xs text-red-500 hover:underline"
+            >
+              Remove
+            </button>
+          </div>
+        ) : (
+          <div className="flex gap-2">
+            <Input
+              value={promoInput}
+              onChange={e => { setPromoInput(e.target.value.toUpperCase()); setPromoError(""); }}
+              placeholder="Enter promo code (e.g. RHIRE20)"
+              className="rounded-xl border-gray-200 uppercase font-mono"
+              onKeyDown={e => e.key === "Enter" && handleApplyPromo()}
+            />
+            <Button
+              onClick={handleApplyPromo}
+              variant="outline"
+              className="border-[#FF2B2B] text-[#FF2B2B] hover:bg-[#FF2B2B] hover:text-white rounded-xl"
+            >
+              Apply
+            </Button>
+          </div>
+        )}
+        {promoError && <p className="text-xs text-red-500 mt-1.5">{promoError}</p>}
+      </div>
+
+      {/* Plan Cards */}
+      <div className="grid md:grid-cols-3 gap-6">
+        {PLANS.map(plan => {
+          const isCurrentPlan = activeSub?.plan_id === plan.id;
+          const finalPrice = appliedPromo ? applyPromo(plan.price, appliedPromo) : plan.price;
+          const discount = plan.price - finalPrice;
+
+          return (
+            <div
+              key={plan.id}
+              className={`bg-white rounded-2xl p-6 shadow-md border-2 transition-all ${
+                isCurrentPlan
+                  ? "border-[#FF2B2B]"
+                  : plan.popular
+                  ? "border-[#FF2B2B]/40"
+                  : "border-gray-100"
+              }`}
+            >
+              {/* Header */}
+              <div className="flex items-start justify-between mb-2">
+                <h3 className="text-xl font-bold text-[#3A1F1F]">{plan.name}</h3>
+                {isCurrentPlan && (
+                  <span className="bg-[#FF2B2B] text-white text-xs px-2.5 py-1 rounded-full font-semibold flex items-center gap-1">
+                    <ShieldCheck className="h-3 w-3" /> Active
+                  </span>
+                )}
+                {!isCurrentPlan && plan.popular && (
+                  <span className="bg-[#ECECF4] text-[#3A1F1F] text-xs px-2.5 py-1 rounded-full font-semibold">
+                    Popular
+                  </span>
+                )}
+              </div>
+
+              {/* Pricing */}
+              <div className="mb-1">
+                <div className="flex items-baseline gap-1">
+                  {discount > 0 && (
+                    <span className="text-lg text-[#8A8A8A] line-through">₹{plan.price}</span>
+                  )}
+                  <span className="text-4xl font-bold text-[#3A1F1F]">₹{finalPrice}</span>
+                  <span className="text-[#8A8A8A] text-sm">/{plan.period}</span>
+                </div>
+                {discount > 0 && (
+                  <p className="text-xs text-green-600 font-medium">You save ₹{discount}</p>
+                )}
+              </div>
+              <p className="text-xs text-[#FF2B2B] font-medium mb-5">
+                {plan.dailyJobPosts === null ? "Unlimited" : plan.dailyJobPosts} daily job posts
+              </p>
+
+              {/* Features */}
+              <ul className="space-y-2 mb-6">
+                {plan.features.map((f, i) => (
+                  <li key={i} className="flex items-center gap-2 text-sm">
+                    <CheckCircle className="h-4 w-4 text-[#FF2B2B] flex-shrink-0" />
+                    <span className="text-[#8A8A8A]">{f}</span>
+                  </li>
+                ))}
+              </ul>
+
+              {/* CTA */}
+              {isCurrentPlan ? (
+                <Button disabled className="w-full rounded-full bg-green-100 text-green-700 cursor-default">
+                  <CheckCircle className="mr-2 h-4 w-4" /> Current Plan
+                </Button>
+              ) : (
+                <Button
+                  onClick={() => handlePurchase(plan.id)}
+                  className={`w-full rounded-full ${
+                    plan.popular
+                      ? "bg-[#FF2B2B] hover:bg-[#e02525] text-white"
+                      : "bg-white border-2 border-[#FF2B2B] text-[#FF2B2B] hover:bg-[#FF2B2B] hover:text-white"
+                  }`}
+                >
+                  {activeSub ? "Upgrade to this Plan" : "Purchase Plan"} <ArrowRight className="ml-2 h-4 w-4" />
+                </Button>
+              )}
+            </div>
+          );
+        })}
+      </div>
+
+      {/* FAQ / note */}
+      <div className="mt-8 bg-white rounded-2xl p-5 shadow-sm">
+        <h3 className="font-semibold text-[#3A1F1F] mb-3">Plan Notes</h3>
+        <ul className="space-y-2 text-sm text-[#8A8A8A]">
+          <li className="flex items-start gap-2"><ShieldCheck className="h-4 w-4 text-green-500 flex-shrink-0 mt-0.5" /> Each plan is valid for 30 days from purchase date.</li>
+          <li className="flex items-start gap-2"><ShieldCheck className="h-4 w-4 text-green-500 flex-shrink-0 mt-0.5" /> Upgrading replaces your current plan immediately.</li>
+          <li className="flex items-start gap-2"><ShieldCheck className="h-4 w-4 text-green-500 flex-shrink-0 mt-0.5" /> Free accounts can post 1 job per day without any plan.</li>
+          <li className="flex items-start gap-2"><ShieldCheck className="h-4 w-4 text-green-500 flex-shrink-0 mt-0.5" /> Payment is processed securely via PhonePe UPI.</li>
+        </ul>
+      </div>
+    </div>
+  );
+}
+
