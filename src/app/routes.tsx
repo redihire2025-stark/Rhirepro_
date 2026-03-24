@@ -16,6 +16,12 @@ import JobDetailPage from "./pages/JobDetailPage";
 import ServicesPage from "./pages/ServicesPage";
 import BlogPage from "./pages/BlogPage";
 import BlogDetailPage from "./pages/BlogDetailPage";
+import TalentSourcingPage from "./pages/services/TalentSourcingPage";
+import ExecutiveSearchPage from "./pages/services/ExecutiveSearchPage";
+import ProjectBasedHiringPage from "./pages/services/ProjectBasedHiringPage";
+import CareerCoachingPage from "./pages/services/CareerCoachingPage";
+import JobMatchingPage from "./pages/services/JobMatchingPage";
+import BrandingSupportPage from "./pages/services/BrandingSupportPage";
 import NotFound from "./pages/NotFound";
 import ErrorPage from "./pages/ErrorPage";
 
@@ -60,6 +66,36 @@ export const router = createBrowserRouter([
   {
     path: "/services",
     Component: ServicesPage,
+    errorElement: <ErrorPage />,
+  },
+  {
+    path: "/services/talent-sourcing",
+    Component: TalentSourcingPage,
+    errorElement: <ErrorPage />,
+  },
+  {
+    path: "/services/executive-search",
+    Component: ExecutiveSearchPage,
+    errorElement: <ErrorPage />,
+  },
+  {
+    path: "/services/project-based-hiring",
+    Component: ProjectBasedHiringPage,
+    errorElement: <ErrorPage />,
+  },
+  {
+    path: "/services/career-coaching",
+    Component: CareerCoachingPage,
+    errorElement: <ErrorPage />,
+  },
+  {
+    path: "/services/job-matching",
+    Component: JobMatchingPage,
+    errorElement: <ErrorPage />,
+  },
+  {
+    path: "/services/branding-support",
+    Component: BrandingSupportPage,
     errorElement: <ErrorPage />,
   },
   {

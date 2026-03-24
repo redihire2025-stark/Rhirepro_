@@ -1266,7 +1266,7 @@ export default function LandingPage() {
               <ul className="space-y-1.5 text-white/80 text-sm">
                 <li>
                   <a
-                    href="#"
+                    href="#home"
                     className="hover:text-white transition-colors"
                   >
                     Home
@@ -1274,7 +1274,7 @@ export default function LandingPage() {
                 </li>
                 <li>
                   <a
-                    href="#"
+                    href="#about"
                     className="hover:text-white transition-colors"
                   >
                     About Us
@@ -1282,7 +1282,7 @@ export default function LandingPage() {
                 </li>
                 <li>
                   <a
-                    href="#"
+                    href="/services"
                     className="hover:text-white transition-colors"
                   >
                     Services
@@ -1290,7 +1290,7 @@ export default function LandingPage() {
                 </li>
                 <li>
                   <a
-                    href="#"
+                    href="#contact"
                     className="hover:text-white transition-colors"
                   >
                     Contact Us
@@ -1305,7 +1305,7 @@ export default function LandingPage() {
               <ul className="space-y-1.5 text-white/80 text-sm">
                 <li>
                   <a
-                    href="#"
+                    href="/services#talent-sourcing"
                     className="hover:text-white transition-colors"
                   >
                     Talent Sourcing
@@ -1313,7 +1313,7 @@ export default function LandingPage() {
                 </li>
                 <li>
                   <a
-                    href="#"
+                    href="/services#executive-search"
                     className="hover:text-white transition-colors"
                   >
                     Executive Search
@@ -1321,7 +1321,7 @@ export default function LandingPage() {
                 </li>
                 <li>
                   <a
-                    href="#"
+                    href="/services#contract-hiring"
                     className="hover:text-white transition-colors"
                   >
                     Project-Based Hiring
@@ -1329,7 +1329,7 @@ export default function LandingPage() {
                 </li>
                 <li>
                   <a
-                    href="#"
+                    href="/services#career-coaching"
                     className="hover:text-white transition-colors"
                   >
                     Career Coaching
@@ -1337,7 +1337,7 @@ export default function LandingPage() {
                 </li>
                 <li>
                   <a
-                    href="#"
+                    href="/services#job-matching"
                     className="hover:text-white transition-colors"
                   >
                     Job Matching
@@ -1345,7 +1345,7 @@ export default function LandingPage() {
                 </li>
                 <li>
                   <a
-                    href="#"
+                    href="/services#employer-branding"
                     className="hover:text-white transition-colors"
                   >
                     Branding Support
