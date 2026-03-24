@@ -807,11 +807,25 @@ export default function LandingPage() {
                     <h3 className="text-2xl font-bold text-[#3A1F1F]">
                       {plan.name}
                     </h3>
-                    {plan.popular && (
-                      <span className="bg-[#FF2B2B] text-white text-xs px-3 py-1 rounded-full font-semibold">
-                        Popular
+                    {isSelected && plan.name !== "Premium Plan" && (
+                      <span className="bg-[#FF2B2B] text-white p-2 rounded-full font-semibold">
+                        <CheckCircle2 className="h-4 w-4" />
                       </span>
                     )}
+                 {/* {isSelected && plan.name === "Premium Plan" && (
+                      <span className="bg-[#FF2B2B] text-white text-xs px-3 py-1 rounded-full font-semibold">
+                        Selected
+                      </span>
+                    )} */}
+                   
+                    
+                    {isSelected && plan.name === "Premium Plan" && (
+                      <span className="bg-[#FF2B2B] text-white p-2 rounded-full font-semibold">
+                        <CheckCircle2 className="h-4 w-4" />
+                      </span>
+                    )}
+                  
+                    
                   </div>
                   <div className="mb-6">
                     <span className="text-5xl font-bold text-[#3A1F1F]">
@@ -822,10 +836,20 @@ export default function LandingPage() {
                     </span>
                   </div>
                   <Button
-                    onClick={(e) => { e.stopPropagation(); handlePurchasePlan(plan.name); }}
-                    className="w-full rounded-full py-6 mb-6 bg-[#FF2B2B] hover:bg-[#e02525] text-white"
+                    onClick={(e) => { e.stopPropagation(); setSelectedPlan(plan.name); }}
+                    className={`w-full rounded-full py-6 mb-6 ${
+                      isSelected
+                        ? "bg-[#FF2B2B] hover:bg-[#e02525] text-white"
+                        : "bg-white border-2 border-[#FF2B2B] text-[#FF2B2B] hover:bg-[#FF2B2B] hover:text-white"
+                    }`}
                   >
-                    Purchase Plan <ArrowRight className="ml-2 h-5 w-5" />
+                    {isSelected ? (
+                      <>
+                        <CheckCircle2 className="mr-2 h-5 w-5" /> Plan Selected
+                      </>
+                    ) : (
+                      <>Choose Plan <ArrowRight className="ml-2 h-5 w-5" /></>
+                    )}
                   </Button>
                   <ul className="space-y-3">
                     {plan.features.map((feature, idx) => (
