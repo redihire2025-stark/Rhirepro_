@@ -807,18 +807,6 @@ export default function LandingPage() {
                         Popular
                       </span>
                     )}
-                 {/* {isSelected && plan.name === "Premium Plan" && (
-                      <span className="bg-[#FF2B2B] text-white text-xs px-3 py-1 rounded-full font-semibold">
-                        Selected
-                      </span>
-                    )} */}
-                   
-                    
-                    {isSelected && plan.name === "Premium Plan" && (
-                      <BadgeCheck className="h-5 w-5 text-[#FF2B2B]" />
-                    )}
-                  
-                    
                   </div>
                   <div className="mb-6">
                     <span className="text-5xl font-bold text-[#3A1F1F]">
@@ -829,14 +817,10 @@ export default function LandingPage() {
                     </span>
                   </div>
                   <Button
-                    onClick={(e) => { e.stopPropagation(); setSelectedPlan(plan.name); }}
-                    className={`w-full rounded-full py-6 mb-6 ${
-                      isSelected
-                        ? "bg-[#FF2B2B] hover:bg-[#e02525] text-white"
-                        : "bg-white border-2 border-[#FF2B2B] text-[#FF2B2B] hover:bg-[#FF2B2B] hover:text-white"
-                    }`}
+                    onClick={(e) => { e.stopPropagation(); handlePurchasePlan(plan.name); }}
+                    className="w-full rounded-full py-6 mb-6 bg-[#FF2B2B] hover:bg-[#e02525] text-white"
                   >
-                    <>Choose Plan <ArrowRight className="ml-2 h-5 w-5" /></>
+                    Purchase Plan <ArrowRight className="ml-2 h-5 w-5" />
                   </Button>
                   <ul className="space-y-3">
                     {plan.features.map((feature, idx) => (
