@@ -393,51 +393,46 @@ export default function LandingPage() {
           <nav className="hidden md:flex items-center gap-4">
             <button
               onClick={() => scrollToSection("home")}
-              className={`px-4 py-2 rounded-full transition-all ${
-                activeSection === "home"
-                  ? "bg-[#FF2B2B] text-white"
-                  : "text-[#3A1F1F] hover:bg-[#ECECF4]"
-              }`}
+              className={`px-4 py-2 rounded-full transition-all ${activeSection === "home"
+                ? "bg-[#FF2B2B] text-white"
+                : "text-[#3A1F1F] hover:bg-[#ECECF4]"
+                }`}
             >
               Home
             </button>
             <button
               onClick={() => scrollToSection("about")}
-              className={`px-4 py-2 rounded-full transition-all ${
-                activeSection === "about"
-                  ? "bg-[#FF2B2B] text-white"
-                  : "text-[#3A1F1F] hover:bg-[#ECECF4]"
-              }`}
+              className={`px-4 py-2 rounded-full transition-all ${activeSection === "about"
+                ? "bg-[#FF2B2B] text-white"
+                : "text-[#3A1F1F] hover:bg-[#ECECF4]"
+                }`}
             >
               About Us
             </button>
             <button
               onClick={() => scrollToSection("services")}
-              className={`px-4 py-2 rounded-full transition-all ${
-                activeSection === "services"
-                  ? "bg-[#FF2B2B] text-white"
-                  : "text-[#3A1F1F] hover:bg-[#ECECF4]"
-              }`}
+              className={`px-4 py-2 rounded-full transition-all ${activeSection === "services"
+                ? "bg-[#FF2B2B] text-white"
+                : "text-[#3A1F1F] hover:bg-[#ECECF4]"
+                }`}
             >
               Services
             </button>
             <button
               onClick={() => scrollToSection("jobs")}
-              className={`px-4 py-2 rounded-full transition-all ${
-                activeSection === "jobs"
-                  ? "bg-[#FF2B2B] text-white"
-                  : "text-[#3A1F1F] hover:bg-[#ECECF4]"
-              }`}
+              className={`px-4 py-2 rounded-full transition-all ${activeSection === "jobs"
+                ? "bg-[#FF2B2B] text-white"
+                : "text-[#3A1F1F] hover:bg-[#ECECF4]"
+                }`}
             >
               Jobs
             </button>
             <button
               onClick={() => scrollToSection("contact")}
-              className={`px-4 py-2 rounded-full transition-all ${
-                activeSection === "contact"
-                  ? "bg-[#FF2B2B] text-white"
-                  : "text-[#3A1F1F] hover:bg-[#ECECF4]"
-              }`}
+              className={`px-4 py-2 rounded-full transition-all ${activeSection === "contact"
+                ? "bg-[#FF2B2B] text-white"
+                : "text-[#3A1F1F] hover:bg-[#ECECF4]"
+                }`}
             >
               Contact Us
             </button>
@@ -797,18 +792,20 @@ export default function LandingPage() {
                 <div
                   key={index}
                   onClick={() => setSelectedPlan(plan.name)}
-                  className={`bg-white rounded-2xl p-8 shadow-md hover:shadow-xl transition-all cursor-pointer border-2 ${
-                    isSelected
-                      ? "border-[#FF2B2B] scale-105"
-                      : "border-gray-200 hover:border-[#FF2B2B]/40"
-                  }`}
+                  className={`bg-white rounded-2xl p-8 shadow-md hover:shadow-xl transition-all cursor-pointer border-2 ${isSelected
+                    ? "border-[#FF2B2B] scale-105"
+                    : "border-gray-200 hover:border-[#FF2B2B]/40"
+                    }`}
                 >
                   <div className="flex items-center justify-between mb-2">
-                    <h3 className="text-2xl font-bold text-[#3A1F1F]">
+                    <h3 className="text-2xl font-bold text-[#3A1F1F] flex items-center gap-2">
                       {plan.name}
+                      {isSelected && <BadgeCheck className="h-6 w-6 text-[#FF2B2B]" />}
                     </h3>
-                    {isSelected && plan.name !== "Premium Plan" && (
-                      <BadgeCheck className="h-5 w-5 text-[#FF2B2B]" />
+                    {plan.popular && (
+                      <span className="bg-[#FF2B2B] text-white text-xs px-3 py-1 rounded-full font-semibold">
+                        Popular
+                      </span>
                     )}
                  {/* {isSelected && plan.name === "Premium Plan" && (
                       <span className="bg-[#FF2B2B] text-white text-xs px-3 py-1 rounded-full font-semibold">
@@ -942,11 +939,10 @@ export default function LandingPage() {
               <Button
                 key={cat}
                 onClick={() => setSelectedCategory(cat)}
-                className={`rounded-full px-6 ${
-                  selectedCategory === cat
-                    ? "bg-[#FF2B2B] hover:bg-[#e02525] text-white"
-                    : "bg-white border-2 border-gray-300 text-[#3A1F1F] hover:bg-[#FF2B2B] hover:text-white hover:border-[#FF2B2B]"
-                }`}
+                className={`rounded-full px-6 ${selectedCategory === cat
+                  ? "bg-[#FF2B2B] hover:bg-[#e02525] text-white"
+                  : "bg-white border-2 border-gray-300 text-[#3A1F1F] hover:bg-[#FF2B2B] hover:text-white hover:border-[#FF2B2B]"
+                  }`}
               >
                 {cat}
               </Button>
@@ -1221,7 +1217,7 @@ export default function LandingPage() {
                 <p className="text-[#8A8A8A] mb-6">
                   Send us an email and we'll get back to you as soon as possible
                 </p>
-                <a 
+                <a
                   href="mailto:support@rhirepro.com"
                   className="inline-flex items-center gap-2 text-[#FF2B2B] hover:text-[#e02525] text-lg font-semibold transition-colors"
                 >
@@ -1236,7 +1232,7 @@ export default function LandingPage() {
                 <p className="text-sm text-[#8A8A8A] text-center mb-4">
                   Or click the button below to compose a message in your email client
                 </p>
-                <Button 
+                <Button
                   onClick={() => window.location.href = 'mailto:support@rhirepro.com?subject=Inquiry from RhirePro&body=Hello RhirePro Team,%0D%0A%0D%0AI would like to inquire about...'}
                   className="w-full bg-[#FF2B2B] hover:bg-[#e02525] text-white rounded-full py-6 text-base"
                 >
@@ -1280,7 +1276,7 @@ export default function LandingPage() {
               <ul className="space-y-1.5 text-white/80 text-sm">
                 <li>
                   <a
-                    href="#home"
+                    href="#"
                     className="hover:text-white transition-colors"
                   >
                     Home
@@ -1288,7 +1284,7 @@ export default function LandingPage() {
                 </li>
                 <li>
                   <a
-                    href="#about"
+                    href="#"
                     className="hover:text-white transition-colors"
                   >
                     About Us
@@ -1296,7 +1292,7 @@ export default function LandingPage() {
                 </li>
                 <li>
                   <a
-                    href="/services"
+                    href="#"
                     className="hover:text-white transition-colors"
                   >
                     Services
@@ -1304,7 +1300,7 @@ export default function LandingPage() {
                 </li>
                 <li>
                   <a
-                    href="#contact"
+                    href="#"
                     className="hover:text-white transition-colors"
                   >
                     Contact Us
@@ -1319,7 +1315,7 @@ export default function LandingPage() {
               <ul className="space-y-1.5 text-white/80 text-sm">
                 <li>
                   <a
-                    href="/services#talent-sourcing"
+                    href="#"
                     className="hover:text-white transition-colors"
                   >
                     Talent Sourcing
@@ -1327,7 +1323,7 @@ export default function LandingPage() {
                 </li>
                 <li>
                   <a
-                    href="/services#executive-search"
+                    href="#"
                     className="hover:text-white transition-colors"
                   >
                     Executive Search
@@ -1335,7 +1331,7 @@ export default function LandingPage() {
                 </li>
                 <li>
                   <a
-                    href="/services#contract-hiring"
+                    href="#"
                     className="hover:text-white transition-colors"
                   >
                     Project-Based Hiring
@@ -1343,7 +1339,7 @@ export default function LandingPage() {
                 </li>
                 <li>
                   <a
-                    href="/services#career-coaching"
+                    href="#"
                     className="hover:text-white transition-colors"
                   >
                     Career Coaching
@@ -1351,7 +1347,7 @@ export default function LandingPage() {
                 </li>
                 <li>
                   <a
-                    href="/services#job-matching"
+                    href="#"
                     className="hover:text-white transition-colors"
                   >
                     Job Matching
@@ -1359,7 +1355,7 @@ export default function LandingPage() {
                 </li>
                 <li>
                   <a
-                    href="/services#employer-branding"
+                    href="#"
                     className="hover:text-white transition-colors"
                   >
                     Branding Support
