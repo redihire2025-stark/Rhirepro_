@@ -808,9 +808,7 @@ export default function LandingPage() {
                       {plan.name}
                     </h3>
                     {isSelected && plan.name !== "Premium Plan" && (
-                      <span className="bg-[#FF2B2B] text-white p-2 rounded-full font-semibold">
-                        <CheckCircle2 className="h-4 w-4" />
-                      </span>
+                      <BadgeCheck className="h-5 w-5 text-[#FF2B2B]" />
                     )}
                  {/* {isSelected && plan.name === "Premium Plan" && (
                       <span className="bg-[#FF2B2B] text-white text-xs px-3 py-1 rounded-full font-semibold">
@@ -820,9 +818,7 @@ export default function LandingPage() {
                    
                     
                     {isSelected && plan.name === "Premium Plan" && (
-                      <span className="bg-[#FF2B2B] text-white p-2 rounded-full font-semibold">
-                        <CheckCircle2 className="h-4 w-4" />
-                      </span>
+                      <BadgeCheck className="h-5 w-5 text-[#FF2B2B]" />
                     )}
                   
                     
@@ -843,13 +839,7 @@ export default function LandingPage() {
                         : "bg-white border-2 border-[#FF2B2B] text-[#FF2B2B] hover:bg-[#FF2B2B] hover:text-white"
                     }`}
                   >
-                    {isSelected ? (
-                      <>
-                        <CheckCircle2 className="mr-2 h-5 w-5" /> Plan Selected
-                      </>
-                    ) : (
-                      <>Choose Plan <ArrowRight className="ml-2 h-5 w-5" /></>
-                    )}
+                    <>Choose Plan <ArrowRight className="ml-2 h-5 w-5" /></>
                   </Button>
                   <ul className="space-y-3">
                     {plan.features.map((feature, idx) => (
@@ -857,7 +847,7 @@ export default function LandingPage() {
                         key={idx}
                         className="flex items-start gap-3"
                       >
-                        <CheckCircle2 className="h-5 w-5 text-[#FF2B2B] flex-shrink-0 mt-0.5" />
+                        <BadgeCheck className="h-5 w-5 text-[#FF2B2B] flex-shrink-0 mt-0.5" />
                         <span className="text-[#8A8A8A]">
                           {feature}
                         </span>
