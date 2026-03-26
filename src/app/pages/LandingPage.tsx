@@ -232,22 +232,36 @@ export default function LandingPage() {
 
   const testimonials = [
     {
-      name: "Sarah Johnson",
+      name: "Sneha Iyer",
       role: "Software Engineer",
       rating: 5,
       text: "RhirePro helped me land my dream job in just 2 weeks. The process was seamless and the support team was incredible!",
+      image:
+        "https://plus.unsplash.com/premium_photo-1682089806994-abcccbaa953a?q=80&w=687&auto=format&fit=crop&ixlib=rb-4.1.0&ixid=M3wxMjA3fDB8MHxwaG90by1wYWdlfHx8fGVufDB8fHx8fA%3D%3D",
     },
     {
-      name: "Michael Chen",
-      role: "Marketing Manager",
+      name: "Rahul Sharma",
+      role: "Full Stack Developer",
       rating: 5,
       text: "The best recruitment platform I've ever used. The job matching algorithm is spot-on. Highly recommended!",
+      image:
+        "https://images.unsplash.com/photo-1612681051163-6c1ad652d143?q=80&w=687&auto=format&fit=crop&ixlib=rb-4.1.0&ixid=M3wxMjA3fDB8MHxwaG90by1wYWdlfHx8fGVufDB8fHx8fA%3D%3D",
     },
     {
-      name: "Emma Davis",
-      role: "Product Designer",
+      name: "Priya Reddy",
+      role: "Frontend Developer",
+      rating: 5,
+      text: "An amazing recruitment platform! The job recommendations are incredibly accurate and saved me so much time. Definitely worth using",
+      image:
+        "https://images.pexels.com/photos/7648312/pexels-photo-7648312.jpeg?_gl=1*oy4rdb*_ga*MTg0OTEwNDE3NC4xNzY3MDc1ODM4*_ga_8JE65Q40S6*czE3NzQ1MTQwNDQkbzIkZzEkdDE3NzQ1MTQzOTUkajQ5JGwwJGgw",
+    },
+    {
+      name: "Karthik Kumar",
+      role: "React Developer",
       rating: 5,
       text: "Professional, efficient, and results-driven. RhirePro connected me with opportunities I wouldn't have found elsewhere!",
+      image:
+        "https://images.unsplash.com/photo-1729157661483-ed21901ed892?q=80&w=687&auto=format&fit=crop&ixlib=rb-4.1.0&ixid=M3wxMjA3fDB8MHxwaG90by1wYWdlfHx8fGVufDB8fHx8fA%3D%3D",
     },
   ];
 
@@ -393,46 +407,51 @@ export default function LandingPage() {
           <nav className="hidden md:flex items-center gap-4">
             <button
               onClick={() => scrollToSection("home")}
-              className={`px-4 py-2 rounded-full transition-all ${activeSection === "home"
-                ? "bg-[#FF2B2B] text-white"
-                : "text-[#3A1F1F] hover:bg-[#ECECF4]"
-                }`}
+              className={`px-4 py-2 rounded-full transition-all ${
+                activeSection === "home"
+                  ? "bg-[#FF2B2B] text-white"
+                  : "text-[#3A1F1F] hover:bg-[#ECECF4]"
+              }`}
             >
               Home
             </button>
             <button
               onClick={() => scrollToSection("about")}
-              className={`px-4 py-2 rounded-full transition-all ${activeSection === "about"
-                ? "bg-[#FF2B2B] text-white"
-                : "text-[#3A1F1F] hover:bg-[#ECECF4]"
-                }`}
+              className={`px-4 py-2 rounded-full transition-all ${
+                activeSection === "about"
+                  ? "bg-[#FF2B2B] text-white"
+                  : "text-[#3A1F1F] hover:bg-[#ECECF4]"
+              }`}
             >
               About Us
             </button>
             <button
               onClick={() => scrollToSection("services")}
-              className={`px-4 py-2 rounded-full transition-all ${activeSection === "services"
-                ? "bg-[#FF2B2B] text-white"
-                : "text-[#3A1F1F] hover:bg-[#ECECF4]"
-                }`}
+              className={`px-4 py-2 rounded-full transition-all ${
+                activeSection === "services"
+                  ? "bg-[#FF2B2B] text-white"
+                  : "text-[#3A1F1F] hover:bg-[#ECECF4]"
+              }`}
             >
               Services
             </button>
             <button
               onClick={() => scrollToSection("jobs")}
-              className={`px-4 py-2 rounded-full transition-all ${activeSection === "jobs"
-                ? "bg-[#FF2B2B] text-white"
-                : "text-[#3A1F1F] hover:bg-[#ECECF4]"
-                }`}
+              className={`px-4 py-2 rounded-full transition-all ${
+                activeSection === "jobs"
+                  ? "bg-[#FF2B2B] text-white"
+                  : "text-[#3A1F1F] hover:bg-[#ECECF4]"
+              }`}
             >
               Jobs
             </button>
             <button
               onClick={() => scrollToSection("contact")}
-              className={`px-4 py-2 rounded-full transition-all ${activeSection === "contact"
-                ? "bg-[#FF2B2B] text-white"
-                : "text-[#3A1F1F] hover:bg-[#ECECF4]"
-                }`}
+              className={`px-4 py-2 rounded-full transition-all ${
+                activeSection === "contact"
+                  ? "bg-[#FF2B2B] text-white"
+                  : "text-[#3A1F1F] hover:bg-[#ECECF4]"
+              }`}
             >
               Contact Us
             </button>
@@ -792,21 +811,31 @@ export default function LandingPage() {
                 <div
                   key={index}
                   onClick={() => setSelectedPlan(plan.name)}
-                  className={`bg-white rounded-2xl p-8 shadow-md hover:shadow-xl transition-all cursor-pointer border-2 ${isSelected
-                    ? "border-[#FF2B2B] scale-105"
-                    : "border-gray-200 hover:border-[#FF2B2B]/40"
-                    }`}
+                  className={`bg-white rounded-2xl p-8 shadow-md hover:shadow-xl transition-all cursor-pointer border-2 ${
+                    isSelected
+                      ? "border-[#FF2B2B] scale-105"
+                      : "border-gray-200 hover:border-[#FF2B2B]/40"
+                  }`}
                 >
                   <div className="flex items-center justify-between mb-2">
-                    <h3 className="text-2xl font-bold text-[#3A1F1F] flex items-center gap-2">
+                    <h3 className="text-2xl font-bold text-[#3A1F1F]">
                       {plan.name}
-                      {isSelected && <BadgeCheck className="h-6 w-6 text-[#FF2B2B]" />}
                     </h3>
-                    {plan.popular && (
-                      <span className="bg-[#FF2B2B] text-white text-xs px-3 py-1 rounded-full font-semibold">
-                        Popular
-                      </span>
+                    {isSelected && plan.name !== "Premium Plan" && (
+                      <BadgeCheck className="h-5 w-5 text-[#FF2B2B]" />
                     )}
+                 {/* {isSelected && plan.name === "Premium Plan" && (
+                      <span className="bg-[#FF2B2B] text-white text-xs px-3 py-1 rounded-full font-semibold">
+                        Selected
+                      </span>
+                    )} */}
+                   
+                    
+                    {isSelected && plan.name === "Premium Plan" && (
+                      <BadgeCheck className="h-5 w-5 text-[#FF2B2B]" />
+                    )}
+                  
+                    
                   </div>
                   <div className="mb-6">
                     <span className="text-5xl font-bold text-[#3A1F1F]">
@@ -817,10 +846,14 @@ export default function LandingPage() {
                     </span>
                   </div>
                   <Button
-                    onClick={(e) => { e.stopPropagation(); handlePurchasePlan(plan.name); }}
-                    className="w-full rounded-full py-6 mb-6 bg-[#FF2B2B] hover:bg-[#e02525] text-white"
+                    onClick={(e) => { e.stopPropagation(); setSelectedPlan(plan.name); }}
+                    className={`w-full rounded-full py-6 mb-6 ${
+                      isSelected
+                        ? "bg-[#FF2B2B] hover:bg-[#e02525] text-white"
+                        : "bg-white border-2 border-[#FF2B2B] text-[#FF2B2B] hover:bg-[#FF2B2B] hover:text-white"
+                    }`}
                   >
-                    Purchase Plan <ArrowRight className="ml-2 h-5 w-5" />
+                    <>Choose Plan <ArrowRight className="ml-2 h-5 w-5" /></>
                   </Button>
                   <ul className="space-y-3">
                     {plan.features.map((feature, idx) => (
@@ -856,7 +889,7 @@ export default function LandingPage() {
 
           <div className="grid md:grid-cols-2 gap-8 max-w-6xl mx-auto">
             <ImageWithFallback
-              src="https://images.unsplash.com/photo-1770364019741-3518f4f05513?crop=entropy&cs=tinysrgb&fit=max&fm=jpg&ixid=M3w3Nzg4Nzd8MHwxfHNlYXJjaHwxfHxjYXJlZXIlMjBzdWNjZXNzJTIwcHJvZmVzc2lvbmFsJTIwd29tYW58ZW58MXx8fHwxNzcyODEzOTY0fDA&ixlib=rb-4.1.0&q=80&w=1080"
+              src="https://images.pexels.com/photos/4965012/pexels-photo-4965012.jpeg?_gl=1*z0o6rt*_ga*MTg0OTEwNDE3NC4xNzY3MDc1ODM4*_ga_8JE65Q40S6*czE3NzQ1MTQwNDQkbzIkZzEkdDE3NzQ1MTQxMDIkajIkbDAkaDA."
               alt="Career success professional"
               className="rounded-2xl h-96 w-full object-cover"
             />
@@ -881,7 +914,7 @@ export default function LandingPage() {
                   </p>
                   <div className="flex items-center gap-3">
                     <ImageWithFallback
-                      src="https://images.unsplash.com/photo-1655249493799-9cee4fe983bb?crop=entropy&cs=tinysrgb&fit=max&fm=jpg&ixid=M3w3Nzg4Nzd8MHwxfHNlYXJjaHwxfHxwcm9mZXNzaW9uYWwlMjBoZWFkc2hvdCUyMGJ1c2luZXNzJTIwcGVyc29ufGVufDF8fHx8MTc3MjcxODcxNHww&ixlib=rb-4.1.0&q=80&w=1080"
+                      src={testimonial.image}
                       alt={testimonial.name}
                       className="w-10 h-10 rounded-full object-cover"
                     />
@@ -923,10 +956,11 @@ export default function LandingPage() {
               <Button
                 key={cat}
                 onClick={() => setSelectedCategory(cat)}
-                className={`rounded-full px-6 ${selectedCategory === cat
-                  ? "bg-[#FF2B2B] hover:bg-[#e02525] text-white"
-                  : "bg-white border-2 border-gray-300 text-[#3A1F1F] hover:bg-[#FF2B2B] hover:text-white hover:border-[#FF2B2B]"
-                  }`}
+                className={`rounded-full px-6 ${
+                  selectedCategory === cat
+                    ? "bg-[#FF2B2B] hover:bg-[#e02525] text-white"
+                    : "bg-white border-2 border-gray-300 text-[#3A1F1F] hover:bg-[#FF2B2B] hover:text-white hover:border-[#FF2B2B]"
+                }`}
               >
                 {cat}
               </Button>
@@ -1201,7 +1235,7 @@ export default function LandingPage() {
                 <p className="text-[#8A8A8A] mb-6">
                   Send us an email and we'll get back to you as soon as possible
                 </p>
-                <a
+                <a 
                   href="mailto:support@rhirepro.com"
                   className="inline-flex items-center gap-2 text-[#FF2B2B] hover:text-[#e02525] text-lg font-semibold transition-colors"
                 >
@@ -1216,7 +1250,7 @@ export default function LandingPage() {
                 <p className="text-sm text-[#8A8A8A] text-center mb-4">
                   Or click the button below to compose a message in your email client
                 </p>
-                <Button
+                <Button 
                   onClick={() => window.location.href = 'mailto:support@rhirepro.com?subject=Inquiry from RhirePro&body=Hello RhirePro Team,%0D%0A%0D%0AI would like to inquire about...'}
                   className="w-full bg-[#FF2B2B] hover:bg-[#e02525] text-white rounded-full py-6 text-base"
                 >
@@ -1260,7 +1294,7 @@ export default function LandingPage() {
               <ul className="space-y-1.5 text-white/80 text-sm">
                 <li>
                   <a
-                    href="#"
+                    href="#home"
                     className="hover:text-white transition-colors"
                   >
                     Home
@@ -1268,7 +1302,7 @@ export default function LandingPage() {
                 </li>
                 <li>
                   <a
-                    href="#"
+                    href="#about"
                     className="hover:text-white transition-colors"
                   >
                     About Us
@@ -1276,7 +1310,7 @@ export default function LandingPage() {
                 </li>
                 <li>
                   <a
-                    href="#"
+                    href="/services"
                     className="hover:text-white transition-colors"
                   >
                     Services
@@ -1284,7 +1318,7 @@ export default function LandingPage() {
                 </li>
                 <li>
                   <a
-                    href="#"
+                    href="#contact"
                     className="hover:text-white transition-colors"
                   >
                     Contact Us
@@ -1299,7 +1333,7 @@ export default function LandingPage() {
               <ul className="space-y-1.5 text-white/80 text-sm">
                 <li>
                   <a
-                    href="#"
+                    href="/services#talent-sourcing"
                     className="hover:text-white transition-colors"
                   >
                     Talent Sourcing
@@ -1307,7 +1341,7 @@ export default function LandingPage() {
                 </li>
                 <li>
                   <a
-                    href="#"
+                    href="/services#executive-search"
                     className="hover:text-white transition-colors"
                   >
                     Executive Search
@@ -1315,7 +1349,7 @@ export default function LandingPage() {
                 </li>
                 <li>
                   <a
-                    href="#"
+                    href="/services#contract-hiring"
                     className="hover:text-white transition-colors"
                   >
                     Project-Based Hiring
@@ -1323,7 +1357,7 @@ export default function LandingPage() {
                 </li>
                 <li>
                   <a
-                    href="#"
+                    href="/services#career-coaching"
                     className="hover:text-white transition-colors"
                   >
                     Career Coaching
@@ -1331,7 +1365,7 @@ export default function LandingPage() {
                 </li>
                 <li>
                   <a
-                    href="#"
+                    href="/services#job-matching"
                     className="hover:text-white transition-colors"
                   >
                     Job Matching
@@ -1339,7 +1373,7 @@ export default function LandingPage() {
                 </li>
                 <li>
                   <a
-                    href="#"
+                    href="/services#employer-branding"
                     className="hover:text-white transition-colors"
                   >
                     Branding Support
