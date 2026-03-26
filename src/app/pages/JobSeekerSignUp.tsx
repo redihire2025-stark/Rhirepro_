@@ -1,5 +1,7 @@
 import { useState } from "react";
 import { useNavigate, Link } from "react-router";
+
+const logoImage = new URL("../../logo/logo.png", import.meta.url).href;
 import { Eye, EyeOff, Loader2, CheckCircle } from "lucide-react";
 import { Button } from "../components/ui/button";
 import { Input } from "../components/ui/input";
@@ -148,11 +150,14 @@ export default function JobSeekerSignUp() {
     <div className="min-h-screen bg-gradient-to-br from-[#F6F6F6] to-[#FFE8E8] flex items-center justify-center p-4">
       <div className="w-full max-w-md">
         <div className="text-center mb-8">
-          <Link to="/" className="inline-block">
-            <div className="text-3xl font-bold text-[#3A1F1F]">
-              Rhire<span className="text-[#FF2B2B]">Pro</span>
+          <Link to="/" className="inline-flex flex-col items-center gap-1">
+            <div className="flex items-center gap-2">
+              <img src={logoImage} alt="RhirePro" className="w-10 h-10" />
+              <div className="text-3xl font-bold text-[#3A1F1F]">
+                Rhire<span className="text-[#FF2B2B]">Pro</span>
+              </div>
             </div>
-            <p className="text-sm text-[#8A8A8A] mt-1">Find your dream job</p>
+            <p className="text-sm text-[#8A8A8A]">Find your dream job</p>
           </Link>
         </div>
 
