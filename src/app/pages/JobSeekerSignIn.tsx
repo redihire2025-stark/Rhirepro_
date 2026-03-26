@@ -1,10 +1,12 @@
 import { useState } from "react";
 import { useNavigate, Link } from "react-router";
+
+const logoImage = new URL("../../logo/logo.png", import.meta.url).href;
 import { Eye, EyeOff, Loader2, ShieldCheck, RefreshCw, Mail } from "lucide-react";
 import { Button } from "../components/ui/button";
 import { Input } from "../components/ui/input";
 import { supabase } from "../../lib/supabase";
-import { sendOTPEmail, isEmailConfigured } from "../../lib/email";
+import { sendOTPEmail, sendPasswordResetOTP, resetPasswordWithOTP } from "../../lib/email";
 
 // ─── OTP helpers ─────────────────────────────────────────────────────────────
 
@@ -45,18 +47,21 @@ const GoogleIcon = () => (
 // ─── Main Component ───────────────────────────────────────────────────────────
 
 export default function JobSeekerSignIn() {
-  const [step, setStep] = useState<"credentials" | "otp" | "forgot">("credentials");
+  const [step, setStep] = useState<"credentials" | "otp" | "forgot" | "forgot-otp">("credentials");
   const [email, setEmail] = useState("");
   const [password, setPassword] = useState("");
   const [showPassword, setShowPassword] = useState(false);
   const [otp, setOtp] = useState("");
   const [loading, setLoading] = useState(false);
   const [error, setError] = useState("");
-  const [devOtp, setDevOtp] = useState(""); // only shown when EmailJS is NOT configured
   const [userId, setUserId] = useState("");
   const [forgotEmail, setForgotEmail] = useState("");
-  const [forgotSent, setForgotSent] = useState(false);
   const [forgotLoading, setForgotLoading] = useState(false);
+  const [forgotOtp, setForgotOtp] = useState("");
+  const [newPassword, setNewPassword] = useState("");
+  const [confirmPassword, setConfirmPassword] = useState("");
+  const [showNewPassword, setShowNewPassword] = useState(false);
+  const [resetSuccess, setResetSuccess] = useState(false);
   const navigate = useNavigate();
 
   const handleForgotPassword = async (e: React.FormEvent) => {
@@ -64,13 +69,26 @@ export default function JobSeekerSignIn() {
     setForgotLoading(true);
     setError("");
     try {
-      const { error } = await supabase.auth.resetPasswordForEmail(forgotEmail, {
-        redirectTo: `${window.location.origin}/reset-password`,
-      });
-      if (error) throw error;
-      setForgotSent(true);
+      await sendPasswordResetOTP(forgotEmail, "jobseeker");
+      setStep("forgot-otp");
     } catch (err: unknown) {
-      setError(err instanceof Error ? err.message : "Failed to send reset email.");
+      setError(err instanceof Error ? err.message : "Failed to send reset OTP.");
+    } finally {
+      setForgotLoading(false);
+    }
+  };
+
+  const handleResetPassword = async (e: React.FormEvent) => {
+    e.preventDefault();
+    if (newPassword !== confirmPassword) return setError("Passwords don't match.");
+    if (newPassword.length < 8) return setError("Password must be at least 8 characters.");
+    setForgotLoading(true);
+    setError("");
+    try {
+      await resetPasswordWithOTP(forgotEmail, forgotOtp, newPassword, "jobseeker");
+      setResetSuccess(true);
+    } catch (err: unknown) {
+      setError(err instanceof Error ? err.message : "Failed to reset password.");
     } finally {
       setForgotLoading(false);
     }
@@ -125,13 +143,8 @@ export default function JobSeekerSignIn() {
       await storeOTP(data.user.id, generatedOTP);
       setUserId(data.user.id);
 
-      // 5. Send OTP — via email if configured, else show on screen (dev mode)
       const fullName = [firstName, lastName].filter(Boolean).join(" ");
-      if (isEmailConfigured()) {
-        await sendOTPEmail(email, generatedOTP, fullName);
-      } else {
-        setDevOtp(generatedOTP);
-      }
+      await sendOTPEmail(email, generatedOTP, fullName);
 
       setStep("otp");
     } catch (err: unknown) {
@@ -165,11 +178,7 @@ export default function JobSeekerSignIn() {
     try {
       const newOTP = generateOTP();
       await storeOTP(userId, newOTP);
-      if (isEmailConfigured()) {
-        await sendOTPEmail(email, newOTP);
-      } else {
-        setDevOtp(newOTP);
-      }
+      await sendOTPEmail(email, newOTP);
       setOtp("");
     } catch {
       setError("Failed to resend OTP. Please try again.");
@@ -201,11 +210,14 @@ export default function JobSeekerSignIn() {
       <div className="w-full max-w-md">
         {/* Logo */}
         <div className="text-center mb-8">
-          <Link to="/" className="inline-block">
-            <div className="text-3xl font-bold text-[#3A1F1F]">
-              Rhire<span className="text-[#FF2B2B]">Pro</span>
+          <Link to="/" className="inline-flex flex-col items-center gap-1">
+            <div className="flex items-center gap-2">
+              <img src={logoImage} alt="RhirePro" className="w-10 h-10" />
+              <div className="text-3xl font-bold text-[#3A1F1F]">
+                Rhire<span className="text-[#FF2B2B]">Pro</span>
+              </div>
             </div>
-            <p className="text-sm text-[#8A8A8A] mt-1">Find your dream job</p>
+            <p className="text-sm text-[#8A8A8A]">Find your dream job</p>
           </Link>
         </div>
 
@@ -217,31 +229,88 @@ export default function JobSeekerSignIn() {
                   <Mail className="h-8 w-8 text-[#FF2B2B]" />
                 </div>
                 <h2 className="text-2xl font-bold text-[#3A1F1F] mb-1">Reset Password</h2>
-                <p className="text-[#8A8A8A] text-sm">Enter your email and we'll send a reset link</p>
+                <p className="text-[#8A8A8A] text-sm">Enter your email and we'll send a password reset OTP</p>
               </div>
-              {forgotSent ? (
+              {error && <div className="bg-red-50 border border-red-200 text-red-700 rounded-xl p-3 mb-4 text-sm">{error}</div>}
+              <form onSubmit={handleForgotPassword} className="space-y-4">
+                <div>
+                  <label className="block mb-1.5 text-sm font-medium text-[#3A1F1F]">Email Address</label>
+                  <Input type="email" value={forgotEmail} onChange={e => setForgotEmail(e.target.value)}
+                    className="bg-[#F6F6F6] border-gray-200 rounded-xl" placeholder="you@email.com" required autoFocus />
+                </div>
+                <Button type="submit" disabled={forgotLoading} className="w-full bg-[#FF2B2B] hover:bg-[#e02525] text-white rounded-full py-6 mt-2">
+                  {forgotLoading ? <><Loader2 className="mr-2 h-4 w-4 animate-spin" /> Sending OTP...</> : "Send Reset OTP"}
+                </Button>
+              </form>
+              <button onClick={() => { setStep("credentials"); setError(""); }} className="mt-4 text-sm text-[#8A8A8A] hover:text-[#3A1F1F] block">
+                ← Back to Sign In
+              </button>
+            </>
+          ) : step === "forgot-otp" ? (
+            <>
+              <div className="text-center mb-6">
+                <div className="w-16 h-16 bg-green-50 rounded-full flex items-center justify-center mx-auto mb-4">
+                  <ShieldCheck className="h-8 w-8 text-green-500" />
+                </div>
+                <h2 className="text-2xl font-bold text-[#3A1F1F] mb-1">Reset Password</h2>
+                <p className="text-[#8A8A8A] text-sm">Enter the OTP sent to <strong>{forgotEmail}</strong> and set your new password</p>
+              </div>
+              {resetSuccess ? (
                 <div className="bg-green-50 border border-green-200 rounded-xl p-4 mb-4 text-center">
-                  <p className="text-sm font-medium text-green-700">✓ Reset link sent!</p>
-                  <p className="text-xs text-green-600 mt-1">Check your inbox at <strong>{forgotEmail}</strong></p>
+                  <p className="text-sm font-medium text-green-700">✓ Password reset successfully!</p>
+                  <p className="text-xs text-green-600 mt-1">You can now sign in with your new password.</p>
+                  <button onClick={() => { setStep("credentials"); setResetSuccess(false); setForgotOtp(""); setNewPassword(""); setConfirmPassword(""); }} className="mt-3 text-sm text-[#FF2B2B] font-semibold hover:underline">Go to Sign In →</button>
                 </div>
               ) : (
                 <>
+                  <div className="bg-blue-50 border border-blue-200 rounded-xl p-3 mb-4 flex items-center gap-2">
+                    <Mail className="h-4 w-4 text-blue-500 shrink-0" />
+                    <p className="text-xs text-blue-700">Password reset OTP sent to <strong>{forgotEmail}</strong>. Valid for 10 minutes.</p>
+                  </div>
                   {error && <div className="bg-red-50 border border-red-200 text-red-700 rounded-xl p-3 mb-4 text-sm">{error}</div>}
-                  <form onSubmit={handleForgotPassword} className="space-y-4">
+                  <form onSubmit={handleResetPassword} className="space-y-4">
                     <div>
-                      <label className="block mb-1.5 text-sm font-medium text-[#3A1F1F]">Email Address</label>
-                      <Input type="email" value={forgotEmail} onChange={e => setForgotEmail(e.target.value)}
-                        className="bg-[#F6F6F6] border-gray-200 rounded-xl" placeholder="you@email.com" required autoFocus />
+                      <label className="block mb-1.5 text-sm font-medium text-[#3A1F1F] text-center">Enter Reset OTP</label>
+                      <Input type="text" value={forgotOtp}
+                        onChange={e => setForgotOtp(e.target.value.replace(/\D/g, "").slice(0, 6))}
+                        className="bg-[#F6F6F6] border-gray-200 rounded-xl text-center text-2xl tracking-widest font-bold py-5"
+                        placeholder="------" maxLength={6} required autoFocus />
                     </div>
-                    <Button type="submit" disabled={forgotLoading} className="w-full bg-[#FF2B2B] hover:bg-[#e02525] text-white rounded-full py-6 mt-2">
-                      {forgotLoading ? <><Loader2 className="mr-2 h-4 w-4 animate-spin" /> Sending...</> : "Send Reset Link"}
+                    <div>
+                      <label className="block mb-1.5 text-sm font-medium text-[#3A1F1F]">New Password</label>
+                      <div className="relative">
+                        <Input type={showNewPassword ? "text" : "password"} value={newPassword}
+                          onChange={e => setNewPassword(e.target.value)}
+                          className="bg-[#F6F6F6] border-gray-200 rounded-xl pr-10"
+                          placeholder="Min. 8 characters" required minLength={8} />
+                        <button type="button" onClick={() => setShowNewPassword(!showNewPassword)}
+                          className="absolute right-3 top-1/2 -translate-y-1/2 text-[#8A8A8A]">
+                          {showNewPassword ? <EyeOff className="h-4 w-4" /> : <Eye className="h-4 w-4" />}
+                        </button>
+                      </div>
+                    </div>
+                    <div>
+                      <label className="block mb-1.5 text-sm font-medium text-[#3A1F1F]">Confirm New Password</label>
+                      <Input type="password" value={confirmPassword}
+                        onChange={e => setConfirmPassword(e.target.value)}
+                        className="bg-[#F6F6F6] border-gray-200 rounded-xl"
+                        placeholder="Re-enter new password" required />
+                    </div>
+                    <Button type="submit" disabled={forgotLoading || forgotOtp.length < 6 || !newPassword || !confirmPassword}
+                      className="w-full bg-[#FF2B2B] hover:bg-[#e02525] text-white rounded-full py-6 mt-2">
+                      {forgotLoading ? <><Loader2 className="mr-2 h-4 w-4 animate-spin" /> Resetting...</> : "Reset Password"}
                     </Button>
                   </form>
+                  <div className="flex items-center justify-between mt-4">
+                    <button onClick={() => { setStep("forgot"); setError(""); setForgotOtp(""); }}
+                      className="text-sm text-[#8A8A8A] hover:text-[#3A1F1F]">← Back</button>
+                    <button type="button" onClick={() => { setError(""); handleForgotPassword({ preventDefault: () => {} } as React.FormEvent); }}
+                      className="text-sm text-[#FF2B2B] hover:underline flex items-center gap-1">
+                      <RefreshCw className="h-3 w-3" /> Resend OTP
+                    </button>
+                  </div>
                 </>
               )}
-              <button onClick={() => { setStep("credentials"); setError(""); setForgotSent(false); }} className="mt-4 text-sm text-[#8A8A8A] hover:text-[#3A1F1F] block">
-                ← Back to Sign In
-              </button>
             </>
           ) : step === "credentials" ? (
             <>
@@ -269,7 +338,7 @@ export default function JobSeekerSignIn() {
                 <div>
                   <div className="flex justify-between items-center mb-1.5">
                     <label className="text-sm font-medium text-[#3A1F1F]">Password</label>
-                    <button type="button" className="text-xs text-[#FF2B2B] hover:underline" onClick={() => { setForgotEmail(email); setForgotSent(false); setError(""); setStep("forgot"); }}>Forgot password?</button>
+                    <button type="button" className="text-xs text-[#FF2B2B] hover:underline" onClick={() => { setForgotEmail(email); setError(""); setStep("forgot"); }}>Forgot password?</button>
                   </div>
                   <div className="relative">
                     <Input
@@ -336,30 +405,15 @@ export default function JobSeekerSignIn() {
                 </div>
                 <h2 className="text-2xl font-bold text-[#3A1F1F] mb-1">OTP Verification</h2>
                 <p className="text-[#8A8A8A] text-sm">
-                  {isEmailConfigured() ? (
-                    <>A 6-digit code has been sent to<br /></>
-                  ) : (
-                    <>Enter the 6-digit code sent to<br /></>
-                  )}
+                  A 6-digit code has been sent to<br />
                   <span className="font-medium text-[#3A1F1F]">{email}</span>
                 </p>
               </div>
 
-              {/* Email sent confirmation (when EmailJS is configured) */}
-              {isEmailConfigured() && (
-                <div className="bg-blue-50 border border-blue-200 rounded-xl p-3 mb-4 flex items-center gap-2">
-                  <Mail className="h-4 w-4 text-blue-500 shrink-0" />
-                  <p className="text-xs text-blue-700">Check your inbox — OTP sent to <strong>{email}</strong>. Valid for 10 minutes.</p>
-                </div>
-              )}
-
-              {/* Dev mode OTP display — only when EmailJS is NOT configured */}
-              {!isEmailConfigured() && devOtp && (
-                <div className="bg-yellow-50 border border-yellow-200 rounded-xl p-3 mb-4 text-center">
-                  <p className="text-xs text-yellow-700 font-medium">Development Mode — configure EmailJS to send real emails</p>
-                  <p className="text-2xl font-bold text-yellow-800 tracking-widest mt-1">{devOtp}</p>
-                </div>
-              )}
+              <div className="bg-blue-50 border border-blue-200 rounded-xl p-3 mb-4 flex items-center gap-2">
+                <Mail className="h-4 w-4 text-blue-500 shrink-0" />
+                <p className="text-xs text-blue-700">Check your inbox — OTP sent to <strong>{email}</strong>. Valid for 10 minutes.</p>
+              </div>
 
               {error && (
                 <div className="bg-red-50 border border-red-200 text-red-700 rounded-xl p-3 mb-4 text-sm">{error}</div>
@@ -391,7 +445,7 @@ export default function JobSeekerSignIn() {
 
               <div className="flex items-center justify-between mt-4">
                 <button
-                  onClick={() => { setStep("credentials"); setOtp(""); setError(""); setDevOtp(""); }}
+                  onClick={() => { setStep("credentials"); setOtp(""); setError(""); }}
                   className="text-sm text-[#8A8A8A] hover:text-[#3A1F1F]"
                 >
                   ← Back

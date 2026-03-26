@@ -4,7 +4,7 @@ import { Button } from "../components/ui/button";
 import { Input } from "../components/ui/input";
 import { Checkbox } from "../components/ui/checkbox";
 import { User, Briefcase, Mail, Lock, UserCircle, Building2, Phone, Eye, EyeOff, Loader2, CheckCircle } from "lucide-react";
-import logoImage from "../../logo/logo.png";
+const logoImage = new URL("../../logo/logo.png", import.meta.url).href;
 import { supabase } from "../../lib/supabase";
 
 export default function SignUpPage() {
@@ -165,13 +165,15 @@ export default function SignUpPage() {
                 ← Back to Home
               </button>
               <div className="flex items-center gap-3 mb-8">
-                <img src={logoImage} alt="RhirePro Logo" className="w-14 h-14" />
-                <div className="text-3xl font-bold">Rhire<span className="text-white">Pro</span></div>
+                <div className="bg-white rounded-2xl p-2 flex-shrink-0">
+                  <img src={logoImage} alt="RhirePro Logo" className="w-10 h-10" />
+                </div>
+                <div className="text-2xl font-semibold">Rhire<span className="text-white">Pro</span></div>
               </div>
-              <h1 className="text-4xl md:text-5xl font-bold mb-4 leading-tight">Join the Future of Recruitment</h1>
-              <p className="text-lg text-white/90 mb-8">Connect with opportunities that match your skills and ambitions</p>
+              <h1 className="text-2xl font-semibold mb-4 leading-snug">Join RhirePro Today</h1>
+              <p className="text-base text-white/90 mb-8">Whether you're finding your next role or your next hire — we've got you covered.</p>
               <div className="space-y-4">
-                {["Free account with unlimited access", "Personalized job recommendations", "Connect with top companies"].map(text => (
+                {["Free account for job seekers & recruiters", "Personalized job & candidate recommendations", "Connect with top companies hiring now"].map(text => (
                   <div key={text} className="flex items-center gap-3">
                     <div className="w-10 h-10 bg-white/20 rounded-full flex items-center justify-center flex-shrink-0">
                       <svg className="w-5 h-5" fill="none" viewBox="0 0 24 24" stroke="currentColor">
@@ -203,9 +205,8 @@ export default function SignUpPage() {
                   <button
                     key={type}
                     onClick={() => { setUserType(type); setError(""); }}
-                    className={`flex-1 flex items-center justify-center gap-2 py-2.5 px-4 rounded-full transition-all text-sm font-medium ${
-                      userType === type ? "bg-white text-[#FF2B2B] shadow-md" : "text-[#8A8A8A]"
-                    }`}
+                    className={`flex-1 flex items-center justify-center gap-2 py-2.5 px-4 rounded-full transition-all text-sm font-medium ${userType === type ? "bg-white text-[#FF2B2B] shadow-md" : "text-[#8A8A8A]"
+                      }`}
                   >
                     {type === "jobseeker" ? <User className="h-4 w-4" /> : <Briefcase className="h-4 w-4" />}
                     {type === "jobseeker" ? "Job Seeker" : "Recruiter"}

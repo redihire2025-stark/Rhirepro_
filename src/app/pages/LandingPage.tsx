@@ -39,7 +39,8 @@ import { useNavigate } from "react-router";
 import { ImageWithFallback } from "../components/figma/ImageWithFallback";
 import { useAuth } from "../../lib/auth-context";
 import { PLANS } from "../../lib/plans";
-import logoImage from "../../logo/logo.png";
+
+const logoImage = new URL("../../logo/logo.png", import.meta.url).href;
 
 export default function LandingPage() {
   const [activeSection, setActiveSection] = useState("home");

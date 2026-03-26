@@ -1,5 +1,7 @@
 import { useState } from "react";
 import { useNavigate, Link } from "react-router";
+
+const logoImage = new URL("../../logo/logo.png", import.meta.url).href;
 import { Eye, EyeOff, Loader2, CheckCircle, Building2 } from "lucide-react";
 import { Button } from "../components/ui/button";
 import { Input } from "../components/ui/input";
@@ -106,9 +108,16 @@ export default function RecruiterSignUp() {
     <div className="min-h-screen bg-gradient-to-br from-[#3A1F1F] to-[#6B3A3A] flex items-center justify-center p-4">
       <div className="w-full max-w-md">
         <div className="text-center mb-8">
-          <Link to="/" className="inline-block">
-            <div className="text-3xl font-bold text-white">Rhire<span className="text-[#FF2B2B]">Pro</span></div>
-            <p className="text-sm text-red-200 mt-1">Recruiter Portal</p>
+          <Link to="/" className="inline-flex flex-col items-center gap-1">
+            <div className="flex items-center gap-2">
+              <div className="bg-white rounded-xl p-1.5">
+                <img src={logoImage} alt="RhirePro" className="w-8 h-8" />
+              </div>
+              <div className="text-3xl font-bold text-white">
+                Rhire<span className="text-[#FF6B6B]">Pro</span>
+              </div>
+            </div>
+            <p className="text-sm text-red-200">Recruiter Portal</p>
           </Link>
         </div>
 

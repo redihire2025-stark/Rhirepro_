@@ -3,9 +3,9 @@ import { useNavigate, useSearchParams } from "react-router";
 import { Button } from "../components/ui/button";
 import { Input } from "../components/ui/input";
 import { User, Briefcase, Mail, Lock, Eye, EyeOff, Loader2, ShieldCheck, RefreshCw } from "lucide-react";
-import logoImage from "../../logo/logo.png";
+const logoImage = new URL("../../logo/logo.png", import.meta.url).href;
 import { supabase } from "../../lib/supabase";
-import { sendOTPEmail, isEmailConfigured } from "../../lib/email";
+import { sendOTPEmail, sendPasswordResetOTP, resetPasswordWithOTP } from "../../lib/email";
 
 // ── OTP helpers ──────────────────────────────────────────────────────────────
 
@@ -43,10 +43,10 @@ async function verifyRecruiterOTP(userId: string, otp: string): Promise<boolean>
 
 const GoogleIcon = () => (
   <svg className="h-5 w-5 mr-2" viewBox="0 0 24 24">
-    <path fill="#4285F4" d="M22.56 12.25c0-.78-.07-1.53-.2-2.25H12v4.26h5.92c-.26 1.37-1.04 2.53-2.21 3.31v2.77h3.57c2.08-1.92 3.28-4.74 3.28-8.09z"/>
-    <path fill="#34A853" d="M12 23c2.97 0 5.46-.98 7.28-2.66l-3.57-2.77c-.98.66-2.23 1.06-3.71 1.06-2.86 0-5.29-1.93-6.16-4.53H2.18v2.84C3.99 20.53 7.7 23 12 23z"/>
-    <path fill="#FBBC05" d="M5.84 14.09c-.22-.66-.35-1.36-.35-2.09s.13-1.43.35-2.09V7.07H2.18C1.43 8.55 1 10.22 1 12s.43 3.45 1.18 4.93l2.85-2.22.81-.62z"/>
-    <path fill="#EA4335" d="M12 5.38c1.62 0 3.06.56 4.21 1.64l3.15-3.15C17.45 2.09 14.97 1 12 1 7.7 1 3.99 3.47 2.18 7.07l3.66 2.84c.87-2.6 3.3-4.53 6.16-4.53z"/>
+    <path fill="#4285F4" d="M22.56 12.25c0-.78-.07-1.53-.2-2.25H12v4.26h5.92c-.26 1.37-1.04 2.53-2.21 3.31v2.77h3.57c2.08-1.92 3.28-4.74 3.28-8.09z" />
+    <path fill="#34A853" d="M12 23c2.97 0 5.46-.98 7.28-2.66l-3.57-2.77c-.98.66-2.23 1.06-3.71 1.06-2.86 0-5.29-1.93-6.16-4.53H2.18v2.84C3.99 20.53 7.7 23 12 23z" />
+    <path fill="#FBBC05" d="M5.84 14.09c-.22-.66-.35-1.36-.35-2.09s.13-1.43.35-2.09V7.07H2.18C1.43 8.55 1 10.22 1 12s.43 3.45 1.18 4.93l2.85-2.22.81-.62z" />
+    <path fill="#EA4335" d="M12 5.38c1.62 0 3.06.56 4.21 1.64l3.15-3.15C17.45 2.09 14.97 1 12 1 7.7 1 3.99 3.47 2.18 7.07l3.66 2.84c.87-2.6 3.3-4.53 6.16-4.53z" />
   </svg>
 );
 
@@ -54,19 +54,22 @@ const GoogleIcon = () => (
 
 export default function SignInPage() {
   const [userType, setUserType] = useState<"jobseeker" | "recruiter">("jobseeker");
-  const [step, setStep] = useState<"credentials" | "otp" | "forgot">("credentials");
+  const [step, setStep] = useState<"credentials" | "otp" | "forgot" | "forgot-otp">("credentials");
   const [email, setEmail] = useState("");
   const [password, setPassword] = useState("");
   const [showPassword, setShowPassword] = useState(false);
   const [otp, setOtp] = useState("");
   const [loading, setLoading] = useState(false);
   const [error, setError] = useState("");
-  const [devOtp, setDevOtp] = useState("");
   const [userId, setUserId] = useState("");
   const [displayName, setDisplayName] = useState("");
   const [forgotEmail, setForgotEmail] = useState("");
-  const [forgotSent, setForgotSent] = useState(false);
   const [forgotLoading, setForgotLoading] = useState(false);
+  const [forgotOtp, setForgotOtp] = useState("");
+  const [newPassword, setNewPassword] = useState("");
+  const [confirmPassword, setConfirmPassword] = useState("");
+  const [showNewPassword, setShowNewPassword] = useState(false);
+  const [resetSuccess, setResetSuccess] = useState(false);
   const navigate = useNavigate();
   const [searchParams] = useSearchParams();
   const planRedirect = searchParams.get("redirect") === "plan" ? searchParams.get("plan") : null;
@@ -76,13 +79,26 @@ export default function SignInPage() {
     setForgotLoading(true);
     setError("");
     try {
-      const { error } = await supabase.auth.resetPasswordForEmail(forgotEmail, {
-        redirectTo: `${window.location.origin}/reset-password`,
-      });
-      if (error) throw error;
-      setForgotSent(true);
+      await sendPasswordResetOTP(forgotEmail, userType);
+      setStep("forgot-otp");
     } catch (err: unknown) {
-      setError(err instanceof Error ? err.message : "Failed to send reset email.");
+      setError(err instanceof Error ? err.message : "Failed to send reset OTP.");
+    } finally {
+      setForgotLoading(false);
+    }
+  };
+
+  const handleResetPassword = async (e: React.FormEvent) => {
+    e.preventDefault();
+    if (newPassword !== confirmPassword) return setError("Passwords don't match.");
+    if (newPassword.length < 8) return setError("Password must be at least 8 characters.");
+    setForgotLoading(true);
+    setError("");
+    try {
+      await resetPasswordWithOTP(forgotEmail, forgotOtp, newPassword, userType);
+      setResetSuccess(true);
+    } catch (err: unknown) {
+      setError(err instanceof Error ? err.message : "Failed to reset password.");
     } finally {
       setForgotLoading(false);
     }
@@ -132,11 +148,7 @@ export default function SignInPage() {
         setUserId(data.user.id);
         setDisplayName([firstName, lastName].filter(Boolean).join(" "));
 
-        if (isEmailConfigured()) {
-          await sendOTPEmail(email, generatedOTP, [firstName, lastName].filter(Boolean).join(" "));
-        } else {
-          setDevOtp(generatedOTP);
-        }
+        await sendOTPEmail(email, generatedOTP, [firstName, lastName].filter(Boolean).join(" "));
 
       } else {
         // Recruiter
@@ -158,11 +170,7 @@ export default function SignInPage() {
         setUserId(data.user.id);
         setDisplayName(rp.recruiter_name || "");
 
-        if (isEmailConfigured()) {
-          await sendOTPEmail(email, generatedOTP, rp.recruiter_name || "");
-        } else {
-          setDevOtp(generatedOTP);
-        }
+        await sendOTPEmail(email, generatedOTP, rp.recruiter_name || "");
       }
 
       setStep("otp");
@@ -208,11 +216,7 @@ export default function SignInPage() {
       } else {
         await storeRecruiterOTP(userId, newOTP);
       }
-      if (isEmailConfigured()) {
-        await sendOTPEmail(email, newOTP, displayName);
-      } else {
-        setDevOtp(newOTP);
-      }
+      await sendOTPEmail(email, newOTP, displayName);
       setOtp("");
     } catch {
       setError("Failed to resend OTP. Please try again.");
@@ -242,7 +246,6 @@ export default function SignInPage() {
     setStep("credentials");
     setOtp("");
     setError("");
-    setDevOtp("");
   };
 
   return (
@@ -256,13 +259,15 @@ export default function SignInPage() {
                 ← Back to Home
               </button>
               <div className="flex items-center gap-3 mb-8">
-                <img src={logoImage} alt="RhirePro Logo" className="w-14 h-14" />
-                <div className="text-3xl font-bold">Rhire<span className="text-white">Pro</span></div>
+                <div className="bg-white rounded-2xl p-2 flex-shrink-0">
+                  <img src={logoImage} alt="RhirePro Logo" className="w-10 h-10" />
+                </div>
+                <div className="text-2xl font-semibold">Rhire<span className="text-white">Pro</span></div>
               </div>
-              <h1 className="text-4xl md:text-5xl font-bold mb-4 leading-tight">Welcome Back to RhirePro</h1>
-              <p className="text-lg text-white/90 mb-8">Sign in to continue your journey and find opportunities that match your goals</p>
+              <h1 className="text-2xl font-semibold mb-4 leading-snug">Welcome back!</h1>
+              <p className="text-base text-white/90 mb-8">Your all-in-one platform for job seekers and recruiters — sign in to continue.</p>
               <div className="space-y-4">
-                {["10,000+ verified job listings", "AI-powered job matching", "Connect with top employers"].map(text => (
+                {["10,000+ verified job listings for seekers", "Smart candidate search for recruiters", "AI-powered job & talent matching"].map(text => (
                   <div key={text} className="flex items-center gap-3">
                     <div className="w-10 h-10 bg-white/20 rounded-full flex items-center justify-center flex-shrink-0">
                       <svg className="w-5 h-5" fill="none" viewBox="0 0 24 24" stroke="currentColor">
@@ -297,9 +302,8 @@ export default function SignInPage() {
                       <button
                         key={type}
                         onClick={() => { setUserType(type); setError(""); }}
-                        className={`flex-1 flex items-center justify-center gap-2 py-2.5 px-4 rounded-full transition-all text-sm font-medium ${
-                          userType === type ? "bg-white text-[#FF2B2B] shadow-md" : "text-[#8A8A8A]"
-                        }`}
+                        className={`flex-1 flex items-center justify-center gap-2 py-2.5 px-4 rounded-full transition-all text-sm font-medium ${userType === type ? "bg-white text-[#FF2B2B] shadow-md" : "text-[#8A8A8A]"
+                          }`}
                       >
                         {type === "jobseeker" ? <User className="h-4 w-4" /> : <Briefcase className="h-4 w-4" />}
                         {type === "jobseeker" ? "Job Seeker" : "Recruiter"}
@@ -324,7 +328,7 @@ export default function SignInPage() {
                     <div>
                       <div className="flex justify-between items-center mb-1.5">
                         <label className="text-[#3A1F1F] font-medium text-sm">Password</label>
-                        <button type="button" className="text-xs text-[#FF2B2B] hover:underline" onClick={() => { setForgotEmail(email); setForgotSent(false); setError(""); setStep("forgot"); }}>Forgot password?</button>
+                        <button type="button" className="text-xs text-[#FF2B2B] hover:underline" onClick={() => { setForgotEmail(email); setError(""); setStep("forgot"); }}>Forgot password?</button>
                       </div>
                       <div className="relative">
                         <Lock className="absolute left-3 top-1/2 -translate-y-1/2 h-5 w-5 text-[#8A8A8A]" />
@@ -359,42 +363,98 @@ export default function SignInPage() {
                 </>
               ) : step === "forgot" ? (
                 <>
-                  {/* Forgot Password Step */}
                   <div className="text-center mb-6">
                     <div className="w-16 h-16 bg-red-50 rounded-full flex items-center justify-center mx-auto mb-4">
                       <Mail className="h-8 w-8 text-[#FF2B2B]" />
                     </div>
                     <h2 className="text-2xl font-bold text-[#3A1F1F] mb-1">Reset Password</h2>
-                    <p className="text-[#8A8A8A] text-sm">Enter your email and we'll send a reset link</p>
+                    <p className="text-[#8A8A8A] text-sm">Enter your email and we'll send a password reset OTP</p>
                   </div>
-                  {forgotSent ? (
+                  {error && <div className="bg-red-50 border border-red-200 text-red-700 rounded-xl p-3 mb-4 text-sm">{error}</div>}
+                  <form onSubmit={handleForgotPassword} className="space-y-4">
+                    <div>
+                      <label className="block text-[#3A1F1F] font-medium mb-1.5 text-sm">Email</label>
+                      <div className="relative">
+                        <Mail className="absolute left-3 top-1/2 -translate-y-1/2 h-5 w-5 text-[#8A8A8A]" />
+                        <Input type="email" value={forgotEmail} onChange={e => setForgotEmail(e.target.value)}
+                          className="pl-10 bg-[#ECECF4] border-0 rounded-xl py-5 focus-visible:ring-2 focus-visible:ring-[#FF2B2B]"
+                          placeholder="Enter your email" required autoFocus />
+                      </div>
+                    </div>
+                    <Button type="submit" disabled={forgotLoading}
+                      className="w-full bg-gradient-to-r from-[#FF2B2B] to-[#e02525] text-white rounded-full py-5 text-base font-semibold">
+                      {forgotLoading ? <><Loader2 className="mr-2 h-4 w-4 animate-spin" /> Sending OTP...</> : "Send Reset OTP"}
+                    </Button>
+                  </form>
+                  <button onClick={() => { setStep("credentials"); setError(""); }} className="mt-4 text-sm text-[#8A8A8A] hover:text-[#3A1F1F]">
+                    ← Back to Sign In
+                  </button>
+                </>
+              ) : step === "forgot-otp" ? (
+                <>
+                  <div className="text-center mb-6">
+                    <div className="w-16 h-16 bg-green-50 rounded-full flex items-center justify-center mx-auto mb-4">
+                      <ShieldCheck className="h-8 w-8 text-green-500" />
+                    </div>
+                    <h2 className="text-2xl font-bold text-[#3A1F1F] mb-1">Reset Password</h2>
+                    <p className="text-[#8A8A8A] text-sm">Enter the OTP sent to <strong>{forgotEmail}</strong> and set your new password</p>
+                  </div>
+                  {resetSuccess ? (
                     <div className="bg-green-50 border border-green-200 rounded-xl p-4 mb-4 text-center">
-                      <p className="text-sm font-medium text-green-700">✓ Reset link sent!</p>
-                      <p className="text-xs text-green-600 mt-1">Check your inbox at <strong>{forgotEmail}</strong></p>
+                      <p className="text-sm font-medium text-green-700">✓ Password reset successfully!</p>
+                      <p className="text-xs text-green-600 mt-1">You can now sign in with your new password.</p>
+                      <button onClick={() => { setStep("credentials"); setResetSuccess(false); setForgotOtp(""); setNewPassword(""); setConfirmPassword(""); }} className="mt-3 text-sm text-[#FF2B2B] font-semibold hover:underline">Go to Sign In →</button>
                     </div>
                   ) : (
                     <>
+                      <div className="bg-blue-50 border border-blue-200 rounded-xl p-3 mb-4 flex items-center gap-2">
+                        <Mail className="h-4 w-4 text-blue-500 shrink-0" />
+                        <p className="text-xs text-blue-700">Password reset OTP sent to <strong>{forgotEmail}</strong>. Valid for 10 minutes.</p>
+                      </div>
                       {error && <div className="bg-red-50 border border-red-200 text-red-700 rounded-xl p-3 mb-4 text-sm">{error}</div>}
-                      <form onSubmit={handleForgotPassword} className="space-y-4">
+                      <form onSubmit={handleResetPassword} className="space-y-4">
                         <div>
-                          <label className="block text-[#3A1F1F] font-medium mb-1.5 text-sm">Email</label>
+                          <label className="block mb-1.5 text-sm font-medium text-[#3A1F1F] text-center">Enter Reset OTP</label>
+                          <Input type="text" value={forgotOtp}
+                            onChange={e => setForgotOtp(e.target.value.replace(/\D/g, "").slice(0, 6))}
+                            className="bg-[#ECECF4] border-0 rounded-xl text-center text-2xl tracking-widest font-bold py-5"
+                            placeholder="------" maxLength={6} required autoFocus />
+                        </div>
+                        <div>
+                          <label className="block mb-1.5 text-sm font-medium text-[#3A1F1F]">New Password</label>
                           <div className="relative">
-                            <Mail className="absolute left-3 top-1/2 -translate-y-1/2 h-5 w-5 text-[#8A8A8A]" />
-                            <Input type="email" value={forgotEmail} onChange={e => setForgotEmail(e.target.value)}
-                              className="pl-10 bg-[#ECECF4] border-0 rounded-xl py-5 focus-visible:ring-2 focus-visible:ring-[#FF2B2B]"
-                              placeholder="Enter your email" required autoFocus />
+                            <Input type={showNewPassword ? "text" : "password"} value={newPassword}
+                              onChange={e => setNewPassword(e.target.value)}
+                              className="bg-[#ECECF4] border-0 rounded-xl pr-10 py-5 focus-visible:ring-2 focus-visible:ring-[#FF2B2B]"
+                              placeholder="Min. 8 characters" required minLength={8} />
+                            <button type="button" onClick={() => setShowNewPassword(!showNewPassword)}
+                              className="absolute right-3 top-1/2 -translate-y-1/2 text-[#8A8A8A]">
+                              {showNewPassword ? <EyeOff className="h-4 w-4" /> : <Eye className="h-4 w-4" />}
+                            </button>
                           </div>
                         </div>
-                        <Button type="submit" disabled={forgotLoading}
+                        <div>
+                          <label className="block mb-1.5 text-sm font-medium text-[#3A1F1F]">Confirm New Password</label>
+                          <Input type="password" value={confirmPassword}
+                            onChange={e => setConfirmPassword(e.target.value)}
+                            className="bg-[#ECECF4] border-0 rounded-xl py-5 focus-visible:ring-2 focus-visible:ring-[#FF2B2B]"
+                            placeholder="Re-enter new password" required />
+                        </div>
+                        <Button type="submit" disabled={forgotLoading || forgotOtp.length < 6 || !newPassword || !confirmPassword}
                           className="w-full bg-gradient-to-r from-[#FF2B2B] to-[#e02525] text-white rounded-full py-5 text-base font-semibold">
-                          {forgotLoading ? <><Loader2 className="mr-2 h-4 w-4 animate-spin" /> Sending...</> : "Send Reset Link"}
+                          {forgotLoading ? <><Loader2 className="mr-2 h-4 w-4 animate-spin" /> Resetting...</> : "Reset Password"}
                         </Button>
                       </form>
+                      <div className="flex items-center justify-between mt-4">
+                        <button onClick={() => { setStep("forgot"); setError(""); setForgotOtp(""); }}
+                          className="text-sm text-[#8A8A8A] hover:text-[#3A1F1F]">← Back</button>
+                        <button type="button" onClick={() => { setError(""); handleForgotPassword({ preventDefault: () => {} } as React.FormEvent); }}
+                          className="text-sm text-[#FF2B2B] hover:underline flex items-center gap-1">
+                          <RefreshCw className="h-3 w-3" /> Resend OTP
+                        </button>
+                      </div>
                     </>
                   )}
-                  <button onClick={() => { setStep("credentials"); setError(""); setForgotSent(false); }} className="mt-4 text-sm text-[#8A8A8A] hover:text-[#3A1F1F]">
-                    ← Back to Sign In
-                  </button>
                 </>
               ) : (
                 <>
@@ -410,12 +470,10 @@ export default function SignInPage() {
                     </p>
                   </div>
 
-                  {!isEmailConfigured() && devOtp && (
-                    <div className="bg-yellow-50 border border-yellow-200 rounded-xl p-3 mb-4 text-center">
-                      <p className="text-xs text-yellow-700 font-medium">Development Mode — your OTP:</p>
-                      <p className="text-2xl font-bold text-yellow-800 tracking-widest mt-1">{devOtp}</p>
-                    </div>
-                  )}
+                  <div className="bg-blue-50 border border-blue-200 rounded-xl p-3 mb-4 flex items-center gap-2">
+                    <svg className="h-4 w-4 text-blue-500 shrink-0" fill="none" viewBox="0 0 24 24" stroke="currentColor"><path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M3 8l7.89 5.26a2 2 0 002.22 0L21 8M5 19h14a2 2 0 002-2V7a2 2 0 00-2-2H5a2 2 0 00-2 2v10a2 2 0 002 2z" /></svg>
+                    <p className="text-xs text-blue-700">OTP sent to <strong>{email}</strong>. Check your inbox — valid for 10 minutes.</p>
+                  </div>
 
                   {error && (
                     <div className="bg-red-50 border border-red-200 text-red-700 rounded-xl p-3 mb-4 text-sm">{error}</div>

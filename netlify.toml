@@ -5,6 +5,9 @@
 [build.environment]
   NODE_VERSION = "20"
 
+[functions]
+  directory = "netlify/functions"
+
 # SPA fallback — all routes served from index.html
 [[redirects]]
   from = "/*"
