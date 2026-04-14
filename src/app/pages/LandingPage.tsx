@@ -1,4 +1,4 @@
-import { useState, useEffect } from "react";
+import { useState, useEffect, useMemo } from "react";
 import {
   Menu,
   X,
@@ -39,8 +39,95 @@ import { useNavigate } from "react-router";
 import { ImageWithFallback } from "../components/figma/ImageWithFallback";
 import { useAuth } from "../../lib/auth-context";
 import { PLANS } from "../../lib/plans";
+import { supabase, type Job as DBJob } from "../../lib/supabase";
+import { isJobVisibleToSeekers } from "../../lib/jobs";
+import { getRecommendedJobs, recordJobInteraction } from "../../lib/jobRecommendations";
+import {
+  assignBalancedCategories,
+  getAvailableJobCategories,
+  getRandomJobCategories,
+  type JobCategory,
+} from "../../lib/jobCategorization";
 
 const logoImage = new URL("../../logo/logo.png", import.meta.url).href;
+
+type DisplayJob = {
+  id: string;
+  title: string;
+  company: string;
+  location: string;
+  salary: string;
+  type: string;
+  featured: boolean;
+  category: JobCategory | null;
+  description: string;
+  dbJob?: DBJob;
+};
+
+const INDIAN_LOCATION_MARKERS = [
+  "india", "bharat", "andhra pradesh", "arunachal pradesh", "assam", "bihar",
+  "chhattisgarh", "goa", "gujarat", "haryana", "himachal pradesh", "jharkhand",
+  "karnataka", "kerala", "madhya pradesh", "maharashtra", "manipur", "meghalaya",
+  "mizoram", "nagaland", "odisha", "punjab", "rajasthan", "sikkim", "tamil nadu",
+  "telangana", "tripura", "uttar pradesh", "uttarakhand", "west bengal", "delhi",
+  "new delhi", "ncr", "jammu", "kashmir", "ladakh", "lakshadweep",
+  "andaman", "nicobar", "bengaluru", "bangalore", "mumbai", "pune", "hyderabad",
+  "chennai", "kolkata", "noida", "gurugram", "gurgaon", "faridabad", "ghaziabad",
+  "jaipur", "ahmedabad", "surat", "vadodara", "indore", "bhopal", "kochi",
+  "coimbatore", "madurai", "trivandrum", "thiruvananthapuram", "visakhapatnam",
+  "vijayawada", "nagpur", "nashik", "lucknow", "kanpur", "patna", "ranchi",
+  "bhubaneswar", "guwahati", "mohali", "chandigarh"
+];
+
+function isIndianJobLocation(location: string | null): boolean {
+  if (!location) return false;
+  const normalized = location.toLowerCase();
+  return INDIAN_LOCATION_MARKERS.some((marker) => normalized.includes(marker));
+}
+
+function formatSalary(job: DBJob): string {
+  if (job.salary_min && job.salary_max && job.salary_type) {
+    return `${job.salary_min}-${job.salary_max} ${job.salary_type}`;
+  }
+  if (job.salary_min && job.salary_type) {
+    return `${job.salary_min}+ ${job.salary_type}`;
+  }
+  if (job.salary_type) {
+    return `${job.salary_type} compensation`;
+  }
+  return "Compensation as per company standards";
+}
+
+function formatLocation(job: DBJob): string {
+  if (job.location?.trim()) return job.location;
+  if (job.work_mode?.trim()) return job.work_mode;
+  return "India";
+}
+
+function formatType(job: DBJob): string {
+  if (job.employment_type?.trim()) return job.employment_type;
+  if (job.work_mode?.trim()) return job.work_mode;
+  if (job.department?.trim()) return job.department;
+  return "Full-time";
+}
+
+function formatDescription(job: DBJob): string {
+  if (job.description?.trim()) return job.description;
+  if (job.roles_responsibilities?.trim()) return job.roles_responsibilities;
+  if (job.requirements?.trim()) return job.requirements;
+
+  const parts = [
+    job.department?.trim(),
+    job.industry?.trim(),
+    job.skills?.length ? `Skills: ${job.skills.slice(0, 3).join(", ")}` : "",
+  ].filter(Boolean);
+
+  if (parts.length > 0) {
+    return parts.join(" | ");
+  }
+
+  return "Explore this opportunity and apply now.";
+}
 
 export default function LandingPage() {
   const [activeSection, setActiveSection] = useState("home");
@@ -49,8 +136,10 @@ export default function LandingPage() {
   const [isScrolled, setIsScrolled] = useState(false);
   const [selectedPlan, setSelectedPlan] = useState("Standard Plan");
   const [selectedCategory, setSelectedCategory] = useState("ALL");
+  const [jobs, setJobs] = useState<DisplayJob[]>([]);
+  const [visibleCategories, setVisibleCategories] = useState<JobCategory[]>([]);
   const navigate = useNavigate();
-  const { user, role } = useAuth();
+  const { user, role, profile } = useAuth();
 
   const handlePurchasePlan = (planName: string) => {
     const plan = PLANS.find(p => p.name === planName);
@@ -99,98 +188,110 @@ export default function LandingPage() {
     }
   };
 
-  const jobs = [
-    {
-      id: 1,
-      title: "Data Analyst",
-      company: "TechCorp Inc.",
-      location: "New York, NY",
-      salary: "$70,000 - $90,000",
-      type: "Full-time",
-      featured: true,
-      category: "ADMIN/BPO",
-    },
-    {
-      id: 2,
-      title: "Graphic Designer",
-      company: "Creative Studios",
-      location: "Los Angeles, CA",
-      salary: "$60,000 - $80,000",
-      type: "Full-time",
-      featured: true,
-      category: "DESIGN & CREATIVE",
-    },
-    {
-      id: 3,
-      title: "Digital Marketing",
-      company: "Marketing Pro",
-      location: "Chicago, IL",
-      salary: "$65,000 - $85,000",
-      type: "Full-time",
-      featured: false,
-      category: "ADMIN/BPO",
-    },
-    {
-      id: 4,
-      title: "Content Strategist",
-      company: "Media Group",
-      location: "Austin, TX",
-      salary: "$70,000 - $95,000",
-      type: "Full-time",
-      featured: false,
-      category: "DESIGN & CREATIVE",
-    },
-    {
-      id: 5,
-      title: "Financial Analyst",
-      company: "Finance Corp",
-      location: "Boston, MA",
-      salary: "$75,000 - $100,000",
-      type: "Full-time",
-      featured: false,
-      category: "FINANCE & LEGAL",
-    },
-    {
-      id: 6,
-      title: "Legal Officer",
-      company: "Law Firm LLC",
-      location: "Washington, DC",
-      salary: "$80,000 - $120,000",
-      type: "Full-time",
-      featured: false,
-      category: "FINANCE & LEGAL",
-    },
-    {
-      id: 7,
-      title: "Product Designer",
-      company: "Design Hub",
-      location: "San Francisco, CA",
-      salary: "$90,000 - $130,000",
-      type: "Full-time",
-      featured: false,
-      category: "DESIGN & CREATIVE",
-    },
-    {
-      id: 8,
-      title: "SEO Specialist",
-      company: "SEO Masters",
-      location: "Seattle, WA",
-      salary: "$65,000 - $90,000",
-      type: "Full-time",
-      featured: false,
-      category: "ADMIN/BPO",
-    },
-    {
-      id: 9,
-      title: "Accountant",
-      company: "Accounting Plus",
-      location: "Miami, FL",
-      salary: "$60,000 - $85,000",
-      type: "Full-time",
-      featured: false,
-      category: "FINANCE & LEGAL",
-    },
-  ];
+  useEffect(() => {
+    let mounted = true;
+
+    async function fetchLandingJobs() {
+      const [{ data: jobsData }, applicationsRes, savedRes] = await Promise.all([
+        supabase
+          .from("jobs")
+          .select("*")
+          .eq("status", "Active")
+          .order("created_at", { ascending: false }),
+        profile?.id
+          ? supabase.from("applications").select("job_id").eq("profile_id", profile.id)
+          : Promise.resolve({ data: [] as { job_id: string }[] }),
+        profile?.id
+          ? supabase.from("saved_jobs").select("job_id").eq("profile_id", profile.id)
+          : Promise.resolve({ data: [] as { job_id: string }[] }),
+      ]);
+
+      if (!mounted) return;
+
+      const applicationIds = (applicationsRes.data || []).map((item) => item.job_id);
+      const savedIds = (savedRes.data || []).map((item) => item.job_id);
+
+      const visibleIndianJobs = assignBalancedCategories((jobsData || [])
+        .filter((job) => isJobVisibleToSeekers(job) && isIndianJobLocation(job.location))
+        .map((job) => ({
+          id: job.id,
+          title: job.title,
+          company: job.company_name,
+          location: formatLocation(job),
+          salary: formatSalary(job),
+          type: formatType(job),
+          category: null,
+          description: formatDescription(job),
+          featured: false,
+          dbJob: job,
+        })));
+
+      const recommended = getRecommendedJobs(visibleIndianJobs, {
+        userId: role === "jobseeker" ? profile?.id : null,
+        profile: role === "jobseeker" ? profile : null,
+        appliedJobIds: applicationIds,
+        savedJobIds: savedIds,
+      });
+
+      const preparedJobs = recommended.map((job, index) => ({ ...job, featured: index < 3 }));
+      const availableCategories = getAvailableJobCategories(preparedJobs);
+
+      setJobs(preparedJobs);
+      setVisibleCategories(getRandomJobCategories(availableCategories, 3));
+    }
+
+    fetchLandingJobs();
+    return () => {
+      mounted = false;
+    };
+  }, [profile, role]);
+
+  useEffect(() => {
+    if (selectedCategory !== "ALL" && !visibleCategories.includes(selectedCategory as JobCategory)) {
+      setSelectedCategory("ALL");
+    }
+  }, [selectedCategory, visibleCategories]);
+
+  const categoryTabs = useMemo(() => ["ALL", ...visibleCategories], [visibleCategories]);
+
+  const categoryJobs = useMemo(
+    () =>
+      jobs.filter((job) =>
+        selectedCategory === "ALL"
+          ? visibleCategories.length === 0 || (job.category !== null && visibleCategories.includes(job.category))
+          : job.category === selectedCategory
+      ),
+    [jobs, selectedCategory, visibleCategories]
+  );
+
+  const visibleCategoryJobs = useMemo(() => {
+    if (selectedCategory !== "ALL") return categoryJobs.slice(0, 9);
+
+    const grouped = new Map<JobCategory, DisplayJob[]>();
+    visibleCategories.forEach((category) => grouped.set(category, []));
+
+    categoryJobs.forEach((job) => {
+      if (job.category && grouped.has(job.category)) {
+        grouped.get(job.category)?.push(job);
+      }
+    });
+
+    const mixed: DisplayJob[] = [];
+    while (mixed.length < 9) {
+      let addedInRound = false;
+      for (const key of visibleCategories) {
+        const nextJob = grouped.get(key)?.shift();
+        if (nextJob) {
+          mixed.push(nextJob);
+          addedInRound = true;
+          if (mixed.length >= 9) break;
+        }
+      }
+      if (!addedInRound) break;
+    }
+
+    return mixed;
+  }, [categoryJobs, selectedCategory, visibleCategories]);
 
   const services = [
     {
@@ -943,7 +1044,7 @@ export default function LandingPage() {
 
           {/* Job Filter Tags */}
           <div className="flex flex-wrap gap-3 justify-center mb-12">
-            {["ALL", "DESIGN & CREATIVE", "ADMIN/BPO", "FINANCE & LEGAL"].map((cat) => (
+            {categoryTabs.map((cat) => (
               <Button
                 key={cat}
                 onClick={() => setSelectedCategory(cat)}
@@ -959,9 +1060,9 @@ export default function LandingPage() {
           </div>
 
           <div className="grid md:grid-cols-3 gap-6">
-            {jobs.filter(job => selectedCategory === "ALL" || job.category === selectedCategory).map((job, index) => (
+            {visibleCategoryJobs.map((job) => (
               <div
-                key={index}
+                key={job.id}
                 className="bg-white rounded-2xl p-6 shadow-md hover:shadow-lg transition-shadow relative"
               >
                 <div className="mb-4 flex items-start justify-between">
@@ -981,9 +1082,7 @@ export default function LandingPage() {
                   )}
                 </div>
                 <p className="text-[#8A8A8A] text-sm mb-4">
-                  Analyze large datasets to extract insights,
-                  build reports, and dashboards to support
-                  business decisions.
+                  {job.description}
                 </p>
                 <div className="space-y-2 mb-6">
                   <div className="flex items-center text-sm text-[#8A8A8A]">
@@ -994,9 +1093,18 @@ export default function LandingPage() {
                     <DollarSign className="h-4 w-4 mr-2 text-[#FF2B2B]" />
                     {job.salary}
                   </div>
+                  <div className="flex items-center text-sm text-[#8A8A8A]">
+                    <Clock className="h-4 w-4 mr-2 text-[#FF2B2B]" />
+                    {job.type}
+                  </div>
                 </div>
                 <Button
-                  onClick={() => navigate(`/job/${job.id}`)}
+                  onClick={() => {
+                    if (job.dbJob) {
+                      recordJobInteraction(job.dbJob, role === "jobseeker" ? profile?.id : null);
+                    }
+                    navigate(`/job/${job.id}`);
+                  }}
                   className="w-full bg-white border-2 border-[#FF2B2B] text-[#FF2B2B] hover:bg-[#FF2B2B] hover:text-white rounded-full"
                 >
                   Apply Now
@@ -1004,6 +1112,16 @@ export default function LandingPage() {
               </div>
             ))}
           </div>
+          {selectedCategory !== "ALL" && categoryJobs.length === 0 && jobs.length > 0 && (
+            <div className="text-center py-10">
+              <p className="text-[#8A8A8A] text-base">No posted jobs found in this category yet.</p>
+            </div>
+          )}
+          {jobs.length === 0 && (
+            <div className="text-center py-10">
+              <p className="text-[#8A8A8A] text-lg">No Indian jobs posted yet.</p>
+            </div>
+          )}
         </div>
       </section>
 

@@ -1,6 +1,7 @@
 import { useState, useEffect, useCallback, useRef } from "react";
 import { useNavigate, Routes, Route, Link, useLocation } from "react-router";
 import { supabase, Job, Application, Notification, Profile, WorkExperience, Education as EduType, RecruiterSubscription } from "../../lib/supabase";
+import { buildJobDeadlineTimestamp, formatJobDeadline, getEffectiveJobStatus, getJobDeadlineDateValue, isJobExpired } from "../../lib/jobs";
 import { PLANS, FREE_DAILY_POST_LIMIT, getPlanById, validatePromo, applyPromo } from "../../lib/plans";
 import logoImage from "../../logo/logo.png";
 import { useAuth } from "../../lib/auth-context";
@@ -817,7 +818,7 @@ function DashboardOverview() {
     if (!recruiterProfile?.id) return;
     const load = async () => {
       const { data: jobs } = await supabase.from("jobs").select("*").eq("recruiter_id", recruiterProfile.id).order("created_at", { ascending: false });
-      if (jobs) setDbJobs(jobs);
+      if (jobs) setDbJobs(jobs.filter(job => !isJobExpired(job)));
       const { data: apps } = await supabase.from("applications").select("*, profile:profiles(first_name,last_name,current_title,current_company), job:jobs(title)").eq("recruiter_id", recruiterProfile.id).order("applied_at", { ascending: false }).limit(5);
       if (apps) setDbApplications(apps as Application[]);
     };
@@ -987,7 +988,7 @@ function PostJobPage() {
     experienceMin: "", experienceMax: "",
     skills: "", employmentType: "", industry: "",
     openings: "1", education: "", perks: [] as string[], department: "",
-    interviewMode: "", applicationDeadline: "",
+    interviewMode: "", applicationDeadline: "", applicationDeadlineTime: "",
   });
 
   // Fetch active subscription and today's post count
@@ -1048,6 +1049,8 @@ function PostJobPage() {
     }
     setPosting(true);
     try {
+      const deadline = buildJobDeadlineTimestamp(formData.applicationDeadline, formData.applicationDeadlineTime);
+      const deadlineTime = deadline ? (formData.applicationDeadlineTime || null) : null;
       const skillsArr = formData.skills.split(",").map(s => s.trim()).filter(Boolean);
       const { error } = await supabase.from("jobs").insert({
         recruiter_id: recruiterProfile.id,
@@ -1071,14 +1074,15 @@ function PostJobPage() {
         education: formData.education,
         interview_mode: formData.interviewMode,
         openings: Number(formData.openings) || 1,
-        deadline: formData.applicationDeadline || null,
+        deadline,
+        deadline_time: deadlineTime,
         status: "Active",
       });
       if (error) throw error;
       setPostSuccess(true);
       setShowPreview(false);
       setTimeout(() => { setPostSuccess(false); navigate("/recruiter/dashboard/manage-jobs"); }, 2000);
-      setFormData({ jobTitle:"",jobDescription:"",rolesResponsibilities:"",requirements:"",location:"",workMode:"",salaryMin:"",salaryMax:"",salaryType:"LPA",experienceMin:"",experienceMax:"",skills:"",employmentType:"",industry:"",openings:"1",education:"",perks:[],department:"",interviewMode:"",applicationDeadline:"" });
+      setFormData({ jobTitle:"",jobDescription:"",rolesResponsibilities:"",requirements:"",location:"",workMode:"",salaryMin:"",salaryMax:"",salaryType:"LPA",experienceMin:"",experienceMax:"",skills:"",employmentType:"",industry:"",openings:"1",education:"",perks:[],department:"",interviewMode:"",applicationDeadline:"",applicationDeadlineTime:"" });
     } catch (err: unknown) {
       setPostError(err instanceof Error ? err.message : "Failed to post job.");
     } finally {
@@ -1165,7 +1169,17 @@ function PostJobPage() {
               {formData.department && <div><p className="text-xs text-[#8A8A8A]">Department</p><p className="text-sm font-medium text-[#3A1F1F]">{formData.department}</p></div>}
               {formData.industry && <div><p className="text-xs text-[#8A8A8A]">Industry</p><p className="text-sm font-medium text-[#3A1F1F]">{formData.industry}</p></div>}
               {formData.interviewMode && <div><p className="text-xs text-[#8A8A8A]">Interview Mode</p><p className="text-sm font-medium text-[#3A1F1F]">{formData.interviewMode}</p></div>}
-              {formData.applicationDeadline && <div><p className="text-xs text-[#8A8A8A]">Apply By</p><p className="text-sm font-medium text-[#3A1F1F]">{new Date(formData.applicationDeadline).toLocaleDateString("en-IN", { day: "numeric", month: "short", year: "numeric" })}</p></div>}
+              {formData.applicationDeadline && (
+                <div>
+                  <p className="text-xs text-[#8A8A8A]">Apply By</p>
+                  <p className="text-sm font-medium text-[#3A1F1F]">
+                    {formatJobDeadline({
+                      deadline: buildJobDeadlineTimestamp(formData.applicationDeadline, formData.applicationDeadlineTime),
+                      deadline_time: formData.applicationDeadlineTime || null,
+                    })}
+                  </p>
+                </div>
+              )}
             </div>
           </div>
         </div>
@@ -1383,7 +1397,11 @@ function PostJobPage() {
           {/* Application Deadline */}
           <div>
             <label className="block mb-1.5 text-sm font-medium text-[#3A1F1F]">Application Deadline</label>
-            <Input type="date" value={formData.applicationDeadline} onChange={e => setFormData({ ...formData, applicationDeadline: e.target.value })} className="bg-[#F6F6F6] border-gray-200 rounded-xl w-auto" />
+            <div className="flex flex-wrap gap-3">
+              <Input type="date" value={formData.applicationDeadline} onChange={e => setFormData({ ...formData, applicationDeadline: e.target.value })} className="bg-[#F6F6F6] border-gray-200 rounded-xl w-auto" />
+              <Input type="time" value={formData.applicationDeadlineTime} onChange={e => setFormData({ ...formData, applicationDeadlineTime: e.target.value })} className="bg-[#F6F6F6] border-gray-200 rounded-xl w-auto" />
+            </div>
+            <p className="text-xs text-[#8A8A8A] mt-1">Leave time empty to keep the current date-only expiry behavior.</p>
           </div>
 
           <Button type="submit" className="w-full bg-[#FF2B2B] hover:bg-[#e02525] text-white rounded-full py-6 text-base font-semibold">
@@ -1404,8 +1422,9 @@ function ManageJobsPage() {
   const [filter, setFilter] = useState("All");
   const [loading, setLoading] = useState(true);
   const [editingJob, setEditingJob] = useState<Job | null>(null);
-  const [editForm, setEditForm] = useState({ title: "", location: "", salaryMin: "", salaryMax: "", salaryType: "LPA", employmentType: "", workMode: "", openings: "1", skills: "" });
+  const [editForm, setEditForm] = useState({ title: "", location: "", salaryMin: "", salaryMax: "", salaryType: "LPA", employmentType: "", workMode: "", openings: "1", skills: "", deadlineDate: "", deadlineTime: "" });
   const [saving, setSaving] = useState(false);
+  const isExpired = useCallback((job: Job) => isJobExpired(job), []);
 
   const openEdit = (job: Job) => {
     setEditingJob(job);
@@ -1419,6 +1438,8 @@ function ManageJobsPage() {
       workMode: job.work_mode || "",
       openings: String(job.openings),
       skills: (job.skills || []).join(", "),
+      deadlineDate: getJobDeadlineDateValue(job),
+      deadlineTime: job.deadline_time || "",
     });
   };
 
@@ -1426,6 +1447,8 @@ function ManageJobsPage() {
     if (!editingJob) return;
     setSaving(true);
     const skillsArr = editForm.skills.split(",").map(s => s.trim()).filter(Boolean);
+    const deadline = buildJobDeadlineTimestamp(editForm.deadlineDate, editForm.deadlineTime);
+    const deadlineTime = deadline ? (editForm.deadlineTime || null) : null;
     await supabase.from("jobs").update({
       title: editForm.title,
       location: editForm.location,
@@ -1436,6 +1459,8 @@ function ManageJobsPage() {
       work_mode: editForm.workMode,
       openings: Number(editForm.openings) || 1,
       skills: skillsArr,
+      deadline,
+      deadline_time: deadlineTime,
     }).eq("id", editingJob.id);
     setJobs(prev => prev.map(j => j.id === editingJob.id ? {
       ...j, title: editForm.title, location: editForm.location,
@@ -1444,6 +1469,8 @@ function ManageJobsPage() {
       salary_type: editForm.salaryType, employment_type: editForm.employmentType,
       work_mode: editForm.workMode, openings: Number(editForm.openings) || 1,
       skills: skillsArr,
+      deadline,
+      deadline_time: deadlineTime,
     } : j));
     setSaving(false);
     setEditingJob(null);
@@ -1463,19 +1490,35 @@ function ManageJobsPage() {
         const { count } = await supabase.from("applications").select("*", { count: "exact", head: true }).eq("job_id", job.id);
         return { ...job, applicant_count: count || 0 };
       }));
-      setJobs(withCounts);
+      const repairedJobs = withCounts.map(job => ({
+        ...job,
+        status: getEffectiveJobStatus(job),
+      }));
+      const staleExpiredIds = withCounts
+        .filter(job => job.status === "Expired" && getEffectiveJobStatus(job) === "Active")
+        .map(job => job.id);
+
+      if (staleExpiredIds.length > 0) {
+        await supabase
+          .from("jobs")
+          .update({ status: "Active" })
+          .in("id", staleExpiredIds);
+      }
+
+      setJobs(repairedJobs);
     }
     setLoading(false);
   }, [recruiterProfile?.id]);
 
   useEffect(() => { fetchJobs(); }, [fetchJobs]);
 
-  const filtered = filter === "All" ? jobs : jobs.filter(j => j.status === filter);
+  const visibleJobs = jobs.filter(j => getEffectiveJobStatus(j) !== "Expired" && !isExpired(j));
+  const filtered = filter === "All" ? visibleJobs : visibleJobs.filter(j => getEffectiveJobStatus(j) === filter);
 
   const toggleStatus = async (id: string, currentStatus: string) => {
     const newStatus = currentStatus === "Active" ? "Paused" : "Active";
     await supabase.from("jobs").update({ status: newStatus }).eq("id", id);
-    setJobs(prev => prev.map(j => j.id === id ? { ...j, status: newStatus as "Active" | "Paused" | "Closed" } : j));
+    setJobs(prev => prev.map(j => j.id === id ? { ...j, status: newStatus as "Active" | "Paused" | "Closed" | "Expired" } : j));
   };
 
   const deleteJob = async (id: string) => {
@@ -1512,24 +1555,36 @@ function ManageJobsPage() {
         </div>
       ) : (
       <div className="space-y-4">
-        {filtered.map(job => (
+        {filtered.map(job => {
+          const effectiveStatus = getEffectiveJobStatus(job);
+          const badgeClass = effectiveStatus === "Active"
+            ? "bg-green-100 text-green-700"
+            : "bg-gray-100 text-gray-600";
+
+          return (
           <div key={job.id} className="bg-white rounded-2xl p-6 shadow-sm">
             <div className="flex justify-between items-start flex-wrap gap-3">
               <div className="flex-1">
                 <div className="flex items-center gap-2 mb-1">
                   <h3 className="text-xl font-semibold text-[#3A1F1F]">{job.title}</h3>
-                  <Badge className={job.status === "Active" ? "bg-green-100 text-green-700" : "bg-gray-100 text-gray-600"}>{job.status}</Badge>
+                  <Badge className={badgeClass}>{effectiveStatus}</Badge>
                 </div>
                 <div className="flex items-center gap-4 text-sm text-[#8A8A8A] flex-wrap">
                   <span className="flex items-center gap-1"><MapPin className="h-3.5 w-3.5" />{job.location}</span>
                   <span className="flex items-center gap-1"><Briefcase className="h-3.5 w-3.5" />{job.employment_type}</span>
                   {job.salary_min && <span className="flex items-center gap-1"><TrendingUp className="h-3.5 w-3.5" />{job.salary_min}–{job.salary_max} {job.salary_type}</span>}
                   <span className="flex items-center gap-1"><Clock className="h-3.5 w-3.5" />Posted {new Date(job.created_at).toLocaleDateString()}</span>
+                  {job.deadline && (
+                    <span className="flex items-center gap-1">
+                      <Calendar className="h-3.5 w-3.5" />
+                      Apply by {formatJobDeadline(job)}
+                    </span>
+                  )}
                 </div>
               </div>
               <div className="flex gap-2">
-                <Button variant="outline" size="icon" className="border-gray-200 rounded-full" onClick={() => toggleStatus(job.id, job.status)} title={job.status === "Active" ? "Pause" : "Activate"}>
-                  {job.status === "Active" ? <Pause className="h-4 w-4 text-[#8A8A8A]" /> : <RefreshCw className="h-4 w-4 text-green-500" />}
+                <Button variant="outline" size="icon" className="border-gray-200 rounded-full" onClick={() => toggleStatus(job.id, effectiveStatus)} title={effectiveStatus === "Active" ? "Pause" : "Activate"}>
+                  {effectiveStatus === "Active" ? <Pause className="h-4 w-4 text-[#8A8A8A]" /> : <RefreshCw className="h-4 w-4 text-green-500" />}
                 </Button>
                 <Button variant="outline" size="icon" className="border-gray-200 rounded-full" onClick={() => openEdit(job)} title="Edit Job"><Edit className="h-4 w-4 text-[#3A1F1F]" /></Button>
                 <Button variant="outline" size="icon" className="border-gray-200 rounded-full" onClick={() => deleteJob(job.id)}><Trash2 className="h-4 w-4 text-[#FF2B2B]" /></Button>
@@ -1546,7 +1601,8 @@ function ManageJobsPage() {
               </div>
             )}
           </div>
-        ))}
+          );
+        })}
       </div>
       )}
 
@@ -1598,6 +1654,14 @@ function ManageJobsPage() {
             <div>
               <label className="block text-sm font-medium text-[#3A1F1F] mb-1">Key Skills (comma separated)</label>
               <Input value={editForm.skills} onChange={e => setEditForm(f => ({ ...f, skills: e.target.value }))} className="bg-[#F6F6F6] border-gray-200 rounded-xl" placeholder="Python, SQL, React" />
+            </div>
+            <div>
+              <label className="block text-sm font-medium text-[#3A1F1F] mb-1">Application Deadline</label>
+              <div className="flex flex-wrap gap-3">
+                <Input type="date" value={editForm.deadlineDate} onChange={e => setEditForm(f => ({ ...f, deadlineDate: e.target.value }))} className="bg-[#F6F6F6] border-gray-200 rounded-xl w-auto" />
+                <Input type="time" value={editForm.deadlineTime} onChange={e => setEditForm(f => ({ ...f, deadlineTime: e.target.value }))} className="bg-[#F6F6F6] border-gray-200 rounded-xl w-auto" />
+              </div>
+              <p className="text-xs text-[#8A8A8A] mt-1">Leave time empty to keep date-only expiry.</p>
             </div>
             <div className="flex gap-3 pt-2">
               <Button className="flex-1 bg-[#FF2B2B] hover:bg-[#e02525] text-white rounded-full" onClick={saveEdit} disabled={saving || !editForm.title}>

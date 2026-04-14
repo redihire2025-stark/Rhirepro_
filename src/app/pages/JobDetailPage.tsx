@@ -1,65 +1,165 @@
-import { useState } from "react";
-import { Menu, MapPin, DollarSign, Clock, ChevronRight, Facebook, Instagram, Twitter, Bell, Star, ArrowRight, Briefcase, Users } from "lucide-react";
+import { useEffect, useMemo, useState } from "react";
+import { Menu, MapPin, DollarSign, Clock, ChevronRight, Facebook, Instagram, Twitter, Bell, Star, ArrowRight } from "lucide-react";
 import { Button } from "../components/ui/button";
 import { Input } from "../components/ui/input";
 import { Sheet, SheetContent, SheetTrigger, SheetTitle, SheetDescription } from "../components/ui/sheet";
 import { useNavigate, useParams } from "react-router";
 import logoImage from "../../logo/logo.png";
+import { supabase, type Job as DBJob } from "../../lib/supabase";
+import { isJobVisibleToSeekers } from "../../lib/jobs";
+
+const INDIAN_LOCATION_MARKERS = [
+  "india", "bharat", "andhra pradesh", "arunachal pradesh", "assam", "bihar",
+  "chhattisgarh", "goa", "gujarat", "haryana", "himachal pradesh", "jharkhand",
+  "karnataka", "kerala", "madhya pradesh", "maharashtra", "manipur", "meghalaya",
+  "mizoram", "nagaland", "odisha", "punjab", "rajasthan", "sikkim", "tamil nadu",
+  "telangana", "tripura", "uttar pradesh", "uttarakhand", "west bengal", "delhi",
+  "new delhi", "ncr", "jammu", "kashmir", "ladakh", "lakshadweep",
+  "andaman", "nicobar", "bengaluru", "bangalore", "mumbai", "pune", "hyderabad",
+  "chennai", "kolkata", "noida", "gurugram", "gurgaon", "faridabad", "ghaziabad",
+  "jaipur", "ahmedabad", "surat", "vadodara", "indore", "bhopal", "kochi",
+  "coimbatore", "madurai", "trivandrum", "thiruvananthapuram", "visakhapatnam",
+  "vijayawada", "nagpur", "nashik", "lucknow", "kanpur", "patna", "ranchi",
+  "bhubaneswar", "guwahati", "mohali", "chandigarh"
+];
+
+function isIndianJobLocation(location: string | null): boolean {
+  if (!location) return false;
+  const normalized = location.toLowerCase();
+  return INDIAN_LOCATION_MARKERS.some((marker) => normalized.includes(marker));
+}
+
+function formatSalary(job: DBJob): string {
+  if (job.salary_min && job.salary_max && job.salary_type) {
+    return `${job.salary_min}-${job.salary_max} ${job.salary_type}`;
+  }
+  if (job.salary_min && job.salary_type) {
+    return `${job.salary_min}+ ${job.salary_type}`;
+  }
+  return "Salary not disclosed";
+}
+
+function splitBulletContent(value: string | null, fallback: string): string[] {
+  if (!value) return [fallback];
+
+  return value
+    .split(/\r?\n|[•]/)
+    .map((item) => item.trim().replace(/^[-*]\s*/, ""))
+    .filter(Boolean);
+}
 
 export default function JobDetailPage() {
   const [isMenuOpen, setIsMenuOpen] = useState(false);
   const [email, setEmail] = useState("");
+  const [job, setJob] = useState<DBJob | null>(null);
+  const [relatedJobs, setRelatedJobs] = useState<DBJob[]>([]);
+  const [loading, setLoading] = useState(true);
+  const [loadError, setLoadError] = useState("");
   const navigate = useNavigate();
   const { id } = useParams();
 
-  // Sample job data (would come from API/database in real app)
-  const currentJob = {
-    id: 1,
-    title: "Graphic Designer",
-    company: "Verified Company",
-    location: "Austin, TX",
-    salary: "$85,000 - $95,000",
-    type: "Full-time",
-    experience: "2 years Min",
-    description: "We are seeking a creative and detail-oriented Graphic Designer to join our team in Austin. As a Graphic Designer, you will play a key role in shaping the visual identity of our company. You'll be responsible for designing impactful print media, creating engaging digital content and ensuring brand consistency. The ideal candidate is passionate about design, highly collaborative, and capable of turning concepts into compelling visual narratives that inspire and engage.",
-    responsibilities: [
-      "Design visual content for social media, websites, marketing materials, and print campaigns.",
-      "Collaborate with the marketing, product, and content teams to develop cohesive branding.",
-      "Translate ideas about brand tone, look, and feel into impactful ideas to bring them to life.",
-      "Maintain consistency in style, fonts, color schemes, and messaging across all materials.",
-      "Prepare and package final designs for digital and print publication."
-    ],
-    qualifications: [
-      "Proven experience as a Graphic Designer or in a similar creative role.",
-      "Proficiency in Adobe Creative Suite (Photoshop, Illustrator, InDesign).",
-      "Strong understanding of typography, color theory, and layout design.",
-      "Excellent communication skills and the ability to meet deadlines.",
-      "Attention to detail and commitment to producing polished, professional work.",
-      "A portfolio showcasing relevant design projects."
-    ],
-    additionalInfo: "Let me know if you want this job description tailored to a specific industry (such as tech, fashion, or marketing), or if you need a version using a different layout or presentation."
-  };
+  useEffect(() => {
+    let mounted = true;
 
-  const relatedJobs = [
-    {
-      id: 2,
-      title: "Data Analyst",
-      company: "Verified Company",
-      location: "New York, NY",
-      salary: "$70,000 - $90,000",
-      type: "Full-time",
-      description: "Analyze large datasets to extract insights, build reports and dashboards to support business decisions."
-    },
-    {
-      id: 3,
-      title: "Digital Marketing",
-      company: "Content Solutions",
-      location: "Remote",
-      salary: "$70,000 - $85,000",
-      type: "Full-time",
-      description: "Plan and execute digital marketing strategies. Manage SEO/SEM, social media, and content campaigns."
+    async function fetchJobData() {
+      if (!id) {
+        setLoadError("Job not found.");
+        setLoading(false);
+        return;
+      }
+
+      setLoading(true);
+      setLoadError("");
+
+      const { data: currentJob, error: jobError } = await supabase
+        .from("jobs")
+        .select("*")
+        .eq("id", id)
+        .maybeSingle();
+
+      if (!mounted) return;
+
+      if (jobError || !currentJob || !isJobVisibleToSeekers(currentJob) || !isIndianJobLocation(currentJob.location)) {
+        setJob(null);
+        setRelatedJobs([]);
+        setLoadError("This job is unavailable or no longer active.");
+        setLoading(false);
+        return;
+      }
+
+      setJob(currentJob);
+
+      const { data: related } = await supabase
+        .from("jobs")
+        .select("*")
+        .eq("status", "Active")
+        .neq("id", currentJob.id)
+        .order("created_at", { ascending: false })
+        .limit(6);
+
+      if (!mounted) return;
+
+      setRelatedJobs(
+        (related || [])
+          .filter((item) => isJobVisibleToSeekers(item) && isIndianJobLocation(item.location))
+          .slice(0, 3)
+      );
+      setLoading(false);
     }
-  ];
+
+    fetchJobData();
+    return () => {
+      mounted = false;
+    };
+  }, [id]);
+
+  const currentJob = useMemo(() => {
+    if (!job) return null;
+
+    return {
+      id: job.id,
+      title: job.title,
+      company: job.company_name,
+      location: job.location || "India",
+      salary: formatSalary(job),
+      type: job.employment_type || job.work_mode || "Full-time",
+      experience:
+        job.experience_min || job.experience_max
+          ? `${job.experience_min || 0}-${job.experience_max || job.experience_min || 0} years`
+          : "Experience not specified",
+      description: job.description || "Detailed description will be shared by the recruiter.",
+      responsibilities: splitBulletContent(job.roles_responsibilities, "Role responsibilities will be shared by the recruiter."),
+      qualifications: splitBulletContent(job.requirements, "Job requirements will be shared by the recruiter."),
+      additionalInfo: [
+        job.work_mode ? `Work mode: ${job.work_mode}` : "",
+        job.education ? `Education: ${job.education}` : "",
+        job.openings ? `Openings: ${job.openings}` : "",
+      ]
+        .filter(Boolean)
+        .join(" | "),
+    };
+  }, [job]);
+
+  if (loading) {
+    return (
+      <div className="min-h-screen bg-[#F6F6F6] flex items-center justify-center">
+        <p className="text-[#8A8A8A] text-lg">Loading job details...</p>
+      </div>
+    );
+  }
+
+  if (!currentJob) {
+    return (
+      <div className="min-h-screen bg-[#F6F6F6] flex items-center justify-center px-4">
+        <div className="text-center">
+          <p className="text-[#3A1F1F] text-xl font-semibold mb-3">{loadError || "Job not found."}</p>
+          <Button className="bg-[#FF2B2B] hover:bg-[#e02525] text-white rounded-full" onClick={() => navigate("/jobs")}>
+            Back to Jobs
+          </Button>
+        </div>
+      </div>
+    );
+  }
 
   return (
     <div className="min-h-screen bg-[#F6F6F6]">
@@ -169,18 +269,18 @@ export default function JobDetailPage() {
                       <div className="flex items-start justify-between mb-2">
                         <div>
                           <h4 className="font-bold text-[#3A1F1F] mb-1">{job.title}</h4>
-                          <p className="text-sm text-[#8A8A8A] mb-2">{job.description.substring(0, 60)}...</p>
+                          <p className="text-sm text-[#8A8A8A] mb-2">{(job.description || "Explore this opportunity.").substring(0, 60)}...</p>
                         </div>
                         <div className="w-3 h-3 bg-[#FF2B2B] rounded-full flex-shrink-0"></div>
                       </div>
                       <div className="space-y-1 text-xs text-[#8A8A8A] mb-3">
                         <div className="flex items-center gap-1">
                           <MapPin className="h-3 w-3 text-[#FF2B2B]" />
-                          {job.location}
+                          {job.location || "India"}
                         </div>
                         <div className="flex items-center gap-1">
                           <DollarSign className="h-3 w-3 text-[#FF2B2B]" />
-                          {job.salary}
+                          {formatSalary(job)}
                         </div>
                       </div>
                       <Button className="w-full bg-white border border-[#FF2B2B] text-[#FF2B2B] hover:bg-[#FF2B2B] hover:text-white rounded-full text-sm py-2">
@@ -192,23 +292,23 @@ export default function JobDetailPage() {
               </div>
 
               <div className="bg-white rounded-2xl p-6 shadow-md">
-                <h3 className="text-xl font-bold text-[#3A1F1F] mb-4">Content Solutions</h3>
-                <h4 className="font-bold text-[#3A1F1F] mb-2">Digital Marketing</h4>
+                <h3 className="text-xl font-bold text-[#3A1F1F] mb-4">{currentJob.company}</h3>
+                <h4 className="font-bold text-[#3A1F1F] mb-2">{currentJob.title}</h4>
                 <p className="text-sm text-[#8A8A8A] mb-4">
-                  Plan and execute digital marketing strategies. Manage SEO/SEM, social media, and content campaigns.
+                  {currentJob.description.substring(0, 140)}...
                 </p>
                 <div className="space-y-2 text-sm text-[#8A8A8A] mb-4">
                   <div className="flex items-center gap-2">
                     <MapPin className="h-4 w-4 text-[#FF2B2B]" />
-                    $70,000 - $85,000
+                    {currentJob.location}
                   </div>
                   <div className="flex items-center gap-2">
                     <DollarSign className="h-4 w-4 text-[#FF2B2B]" />
-                    8 years Min
+                    {currentJob.salary}
                   </div>
                 </div>
-                <Button className="w-full bg-[#FF2B2B] hover:bg-[#e02525] text-white rounded-full">
-                  Apply Now
+                <Button className="w-full bg-[#FF2B2B] hover:bg-[#e02525] text-white rounded-full" onClick={() => navigate("/jobs")}>
+                  Explore More Jobs
                 </Button>
               </div>
             </div>
@@ -285,9 +385,11 @@ export default function JobDetailPage() {
                   ))}
                 </ul>
 
-                <p className="text-[#8A8A8A] text-sm italic mt-8">
-                  {currentJob.additionalInfo}
-                </p>
+                {currentJob.additionalInfo && (
+                  <p className="text-[#8A8A8A] text-sm italic mt-8">
+                    {currentJob.additionalInfo}
+                  </p>
+                )}
 
                 <Button className="mt-8 bg-[#FF2B2B] hover:bg-[#e02525] text-white rounded-full px-12 py-6">
                   Apply Now

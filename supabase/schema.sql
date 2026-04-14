@@ -103,8 +103,9 @@ create table if not exists jobs (
   roles_responsibilities text,
   requirements    text,
   openings        integer default 1,
-  status          text default 'Active' check (status in ('Active','Paused','Closed')),
+  status          text default 'Active' check (status in ('Active','Paused','Closed','Expired')),
   deadline        timestamptz,
+  deadline_time   text constraint jobs_deadline_time_check check (deadline_time is null or deadline_time ~ '^([01][0-9]|2[0-3]):[0-5][0-9]$'),
   views           integer default 0,
   created_at      timestamptz default now()
 );
@@ -112,6 +113,11 @@ create table if not exists jobs (
 -- Run if the jobs table already exists (migration):
 -- alter table jobs add column if not exists roles_responsibilities text;
 -- alter table jobs add column if not exists requirements text;
+-- alter table jobs add column if not exists deadline_time text;
+-- alter table jobs drop constraint if exists jobs_deadline_time_check;
+-- alter table jobs add constraint jobs_deadline_time_check check (deadline_time is null or deadline_time ~ '^([01][0-9]|2[0-3]):[0-5][0-9]$');
+-- alter table jobs drop constraint if exists jobs_status_check;
+-- alter table jobs add constraint jobs_status_check check (status in ('Active','Paused','Closed','Expired'));
 
 -- ── 6. APPLICATIONS ──────────────────────────────────────────
 create table if not exists applications (
@@ -224,7 +230,18 @@ drop policy if exists "Anyone can read active jobs" on jobs;
 create policy "Recruiters manage own jobs"
   on jobs for all using (recruiter_id = auth.uid());
 create policy "Anyone can read active jobs"
-  on jobs for select using (status = 'Active');
+  on jobs for select using (
+    status = 'Active'
+    and (
+      deadline is null
+      or (deadline at time zone 'Asia/Kolkata')::date > (now() at time zone 'Asia/Kolkata')::date
+      or (
+        (deadline at time zone 'Asia/Kolkata')::date = (now() at time zone 'Asia/Kolkata')::date
+        and deadline_time is not null
+        and deadline_time > to_char(now() at time zone 'Asia/Kolkata', 'HH24:MI')
+      )
+    )
+  );
 
 -- applications
 drop policy if exists "Job seekers see own applications" on applications;

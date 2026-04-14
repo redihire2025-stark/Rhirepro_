@@ -1,161 +1,235 @@
-import { useState } from "react";
-import { Menu, Search, MapPin, DollarSign, Clock, Briefcase, ChevronRight, Facebook, Instagram, Twitter, Bell, Star, ArrowRight } from "lucide-react";
+import { useEffect, useMemo, useState } from "react";
+import { Menu, Search, MapPin, DollarSign, Clock, ChevronRight, Facebook, Instagram, Twitter, Bell, Star, ArrowRight } from "lucide-react";
 import { Button } from "../components/ui/button";
 import { Input } from "../components/ui/input";
 import { Sheet, SheetContent, SheetTrigger, SheetTitle, SheetDescription } from "../components/ui/sheet";
 import { useNavigate } from "react-router";
 import logoImage from "../../logo/logo.png";
+import { supabase, type Job as DBJob } from "../../lib/supabase";
+import { isJobVisibleToSeekers } from "../../lib/jobs";
+import { useAuth } from "../../lib/auth-context";
+import { getRecommendedJobs, recordJobInteraction, recordJobSearch } from "../../lib/jobRecommendations";
+import {
+  assignBalancedCategories,
+  getAvailableJobCategories,
+  getRandomJobCategories,
+  type JobCategory,
+} from "../../lib/jobCategorization";
+
+type DisplayJob = {
+  id: string;
+  title: string;
+  company: string;
+  location: string;
+  salary: string;
+  type: string;
+  description: string;
+  featured: boolean;
+  category: JobCategory | null;
+  dbJob?: DBJob;
+};
+
+const INDIAN_LOCATION_MARKERS = [
+  "india", "bharat", "andhra pradesh", "arunachal pradesh", "assam", "bihar",
+  "chhattisgarh", "goa", "gujarat", "haryana", "himachal pradesh", "jharkhand",
+  "karnataka", "kerala", "madhya pradesh", "maharashtra", "manipur", "meghalaya",
+  "mizoram", "nagaland", "odisha", "punjab", "rajasthan", "sikkim", "tamil nadu",
+  "telangana", "tripura", "uttar pradesh", "uttarakhand", "west bengal", "delhi",
+  "new delhi", "ncr", "jammu", "kashmir", "ladakh", "lakshadweep",
+  "andaman", "nicobar", "bengaluru", "bangalore", "mumbai", "pune", "hyderabad",
+  "chennai", "kolkata", "noida", "gurugram", "gurgaon", "faridabad", "ghaziabad",
+  "jaipur", "ahmedabad", "surat", "vadodara", "indore", "bhopal", "kochi",
+  "coimbatore", "madurai", "trivandrum", "thiruvananthapuram", "visakhapatnam",
+  "vijayawada", "nagpur", "nashik", "lucknow", "kanpur", "patna", "ranchi",
+  "bhubaneswar", "guwahati", "mohali", "chandigarh"
+];
+
+function isIndianJobLocation(location: string | null): boolean {
+  if (!location) return false;
+  const normalized = location.toLowerCase();
+  return INDIAN_LOCATION_MARKERS.some((marker) => normalized.includes(marker));
+}
+
+function formatSalary(job: DBJob): string {
+  if (job.salary_min && job.salary_max && job.salary_type) {
+    return `${job.salary_min}-${job.salary_max} ${job.salary_type}`;
+  }
+  if (job.salary_min && job.salary_type) {
+    return `${job.salary_min}+ ${job.salary_type}`;
+  }
+  if (job.salary_type) {
+    return `${job.salary_type} compensation`;
+  }
+  return "Compensation as per company standards";
+}
+
+function formatLocation(job: DBJob): string {
+  if (job.location?.trim()) return job.location;
+  if (job.work_mode?.trim()) return job.work_mode;
+  return "India";
+}
+
+function formatType(job: DBJob): string {
+  if (job.employment_type?.trim()) return job.employment_type;
+  if (job.work_mode?.trim()) return job.work_mode;
+  if (job.department?.trim()) return job.department;
+  return "Full-time";
+}
+
+function formatDescription(job: DBJob): string {
+  if (job.description?.trim()) return job.description;
+  if (job.roles_responsibilities?.trim()) return job.roles_responsibilities;
+  if (job.requirements?.trim()) return job.requirements;
+
+  const parts = [
+    job.department?.trim(),
+    job.industry?.trim(),
+    job.skills?.length ? `Skills: ${job.skills.slice(0, 3).join(", ")}` : "",
+  ].filter(Boolean);
+
+  if (parts.length > 0) {
+    return parts.join(" | ");
+  }
+
+  return "Explore this opportunity and apply now.";
+}
 
 export default function JobListingsPage() {
   const [isMenuOpen, setIsMenuOpen] = useState(false);
   const [searchTerm, setSearchTerm] = useState("");
   const [selectedCategory, setSelectedCategory] = useState("ALL");
   const [email, setEmail] = useState("");
+  const [jobs, setJobs] = useState<DisplayJob[]>([]);
+  const [visibleCategories, setVisibleCategories] = useState<JobCategory[]>([]);
+  const [loading, setLoading] = useState(true);
+  const [loadError, setLoadError] = useState("");
   const navigate = useNavigate();
+  const { profile, role } = useAuth();
 
-  const categories = ["ALL", "DESIGN & CREATIVE", "ADMIN/BPO", "FINANCE & LEGAL"];
+  useEffect(() => {
+    let mounted = true;
 
-  const jobs = [
-    { 
-      id: 1, 
-      title: "Data Analyst", 
-      company: "TechCorp Inc.", 
-      location: "New York, NY", 
-      salary: "$70,000 - $90,000",
-      type: "Full-time",
-      description: "Analyze large datasets to extract insights, build reports and dashboards to support business decisions.",
-      featured: true,
-      category: "ADMIN/BPO"
-    },
-    { 
-      id: 2, 
-      title: "Graphic Designer", 
-      company: "Creative Studios", 
-      location: "Los Angeles, CA", 
-      salary: "$60,000 - $80,000",
-      type: "Full-time",
-      description: "Create stunning visual designs for print media, digital platforms, and brand campaigns.",
-      featured: true,
-      category: "DESIGN & CREATIVE"
-    },
-    { 
-      id: 3, 
-      title: "Digital Marketing", 
-      company: "Marketing Pro", 
-      location: "Chicago, IL", 
-      salary: "$65,000 - $85,000",
-      type: "Full-time",
-      description: "Plan and execute digital marketing strategies. Manage SEO/SEM, social media and content campaigns.",
-      featured: false,
-      category: "ADMIN/BPO"
-    },
-    { 
-      id: 4, 
-      title: "Content Strategist", 
-      company: "Media Group", 
-      location: "Austin, TX", 
-      salary: "$70,000 - $95,000",
-      type: "Full-time",
-      description: "Develop content strategies that align with business goals and engage target audiences.",
-      featured: false,
-      category: "DESIGN & CREATIVE"
-    },
-    { 
-      id: 5, 
-      title: "Financial Analyst", 
-      company: "Finance Corp", 
-      location: "Boston, MA", 
-      salary: "$75,000 - $100,000",
-      type: "Full-time",
-      description: "Analyze financial data and assist with forecasting and budgeting for improved efficiency.",
-      featured: false,
-      category: "FINANCE & LEGAL"
-    },
-    { 
-      id: 6, 
-      title: "Legal Officer", 
-      company: "Law Firm LLC", 
-      location: "Washington, DC", 
-      salary: "$80,000 - $120,000",
-      type: "Full-time",
-      description: "Handle legal documents, ensure corporate compliance and advise on legal procedures.",
-      featured: false,
-      category: "FINANCE & LEGAL"
-    },
-    { 
-      id: 7, 
-      title: "Product Designer", 
-      company: "Design Hub", 
-      location: "San Francisco, CA", 
-      salary: "$90,000 - $130,000",
-      type: "Full-time",
-      description: "Design state-of-the-art user-friendly products by combining user experience and visual design.",
-      featured: false,
-      category: "DESIGN & CREATIVE"
-    },
-    { 
-      id: 8, 
-      title: "SEO Specialist", 
-      company: "SEO Masters", 
-      location: "Seattle, WA", 
-      salary: "$65,000 - $90,000",
-      type: "Full-time",
-      description: "Optimize website content and structure to improve search engine rankings and organic visibility.",
-      featured: false,
-      category: "ADMIN/BPO"
-    },
-    { 
-      id: 9, 
-      title: "Accountant", 
-      company: "Accounting Plus", 
-      location: "Miami, FL", 
-      salary: "$60,000 - $85,000",
-      type: "Full-time",
-      description: "Manage day-to-day accounting tasks including AP/AR and assist with month-end recording.",
-      featured: false,
-      category: "FINANCE & LEGAL"
-    },
-    { 
-      id: 10, 
-      title: "Tax Specialist", 
-      company: "Tax Solutions", 
-      location: "Denver, CO", 
-      salary: "$70,000 - $95,000",
-      type: "Full-time",
-      description: "Handle complex tax planning for individuals and corporations, ensuring efficient tax strategies.",
-      featured: false,
-      category: "FINANCE & LEGAL"
-    },
-    { 
-      id: 11, 
-      title: "Corporate Lawyer", 
-      company: "Legal Experts", 
-      location: "Chicago, IL", 
-      salary: "$100,000 - $150,000",
-      type: "Full-time",
-      description: "Provide legal counsel on mergers, acquisitions, and complex corporate legal issues.",
-      featured: false,
-      category: "FINANCE & LEGAL"
-    },
-    { 
-      id: 12, 
-      title: "Email Marketing", 
-      company: "Digital Agency", 
-      location: "Portland, OR", 
-      salary: "$60,000 - $80,000",
-      type: "Full-time",
-      description: "Design and execute email campaigns to drive customer engagement and increase ROI.",
-      featured: false,
-      category: "ADMIN/BPO"
-    },
-  ];
+    async function fetchJobs() {
+      setLoading(true);
+      setLoadError("");
 
-  const filteredJobs = jobs.filter(job => {
-    const matchesSearch = job.title.toLowerCase().includes(searchTerm.toLowerCase()) || 
-                         job.company.toLowerCase().includes(searchTerm.toLowerCase());
-    const matchesCategory = selectedCategory === "ALL" || job.category === selectedCategory;
-    return matchesSearch && matchesCategory;
-  });
+      const [{ data, error }, applicationsRes, savedRes] = await Promise.all([
+        supabase
+          .from("jobs")
+          .select("*")
+          .eq("status", "Active")
+          .order("created_at", { ascending: false }),
+        profile?.id
+          ? supabase.from("applications").select("job_id").eq("profile_id", profile.id)
+          : Promise.resolve({ data: [] as { job_id: string }[] }),
+        profile?.id
+          ? supabase.from("saved_jobs").select("job_id").eq("profile_id", profile.id)
+          : Promise.resolve({ data: [] as { job_id: string }[] }),
+      ]);
+
+      if (!mounted) return;
+
+      if (error) {
+        setLoadError("Unable to load jobs right now.");
+        setJobs([]);
+        setLoading(false);
+        return;
+      }
+
+      const appliedJobIds = (applicationsRes.data || []).map((item) => item.job_id);
+      const savedJobIds = (savedRes.data || []).map((item) => item.job_id);
+
+      const visibleIndianJobs = assignBalancedCategories((data || [])
+        .filter((job) => isJobVisibleToSeekers(job) && isIndianJobLocation(job.location))
+        .map((job) => ({
+          id: job.id,
+          title: job.title,
+          company: job.company_name,
+          location: formatLocation(job),
+          salary: formatSalary(job),
+          type: formatType(job),
+          description: formatDescription(job),
+          category: null,
+          featured: false,
+          dbJob: job,
+        })));
+
+      const recommended = getRecommendedJobs(visibleIndianJobs, {
+        userId: role === "jobseeker" ? profile?.id : null,
+        profile: role === "jobseeker" ? profile : null,
+        appliedJobIds,
+        savedJobIds,
+      });
+
+      const preparedJobs = recommended.map((job, index) => ({ ...job, featured: index < 3 }));
+      const availableCategories = getAvailableJobCategories(preparedJobs);
+
+      setJobs(preparedJobs);
+      setVisibleCategories(getRandomJobCategories(availableCategories, 3));
+      setLoading(false);
+    }
+
+    fetchJobs();
+    return () => {
+      mounted = false;
+    };
+  }, [profile, role]);
+
+  function handleSearchSubmit() {
+    recordJobSearch(searchTerm, role === "jobseeker" ? profile?.id : null);
+  }
+
+  useEffect(() => {
+    if (selectedCategory !== "ALL" && !visibleCategories.includes(selectedCategory as JobCategory)) {
+      setSelectedCategory("ALL");
+    }
+  }, [selectedCategory, visibleCategories]);
+
+  const categories = useMemo(() => ["ALL", ...visibleCategories], [visibleCategories]);
+
+  const filteredJobs = useMemo(() => {
+    return jobs.filter((job) => {
+      const term = searchTerm.trim().toLowerCase();
+      const matchesSearch =
+        !term ||
+        job.title.toLowerCase().includes(term) ||
+        job.company.toLowerCase().includes(term) ||
+        job.location.toLowerCase().includes(term);
+      const matchesCategory =
+        selectedCategory === "ALL"
+          ? visibleCategories.length === 0 || (job.category !== null && visibleCategories.includes(job.category))
+          : job.category === selectedCategory;
+      return matchesSearch && matchesCategory;
+    });
+  }, [jobs, searchTerm, selectedCategory, visibleCategories]);
+
+  const displayJobs = useMemo(() => {
+    if (selectedCategory !== "ALL") return filteredJobs;
+
+    const grouped = new Map<JobCategory, DisplayJob[]>();
+    visibleCategories.forEach((category) => grouped.set(category, []));
+
+    filteredJobs.forEach((job) => {
+      if (job.category && grouped.has(job.category)) {
+        grouped.get(job.category)?.push(job);
+      }
+    });
+
+    const mixed: DisplayJob[] = [];
+    while (mixed.length < filteredJobs.length) {
+      let addedInRound = false;
+      for (const key of visibleCategories) {
+        const nextJob = grouped.get(key)?.shift();
+        if (nextJob) {
+          mixed.push(nextJob);
+          addedInRound = true;
+        }
+      }
+      if (!addedInRound) break;
+    }
+
+    return mixed;
+  }, [filteredJobs, selectedCategory, visibleCategories]);
 
   return (
     <div className="min-h-screen bg-[#F6F6F6]">
@@ -285,22 +359,37 @@ export default function JobListingsPage() {
                 type="text"
                 value={searchTerm}
                 onChange={(e) => setSearchTerm(e.target.value)}
+                onKeyDown={(e) => {
+                  if (e.key === "Enter") handleSearchSubmit();
+                }}
                 className="bg-transparent border-0 text-[#3A1F1F] placeholder:text-gray-400 flex-1 focus-visible:ring-0"
                 placeholder="Search jobs by title or company..."
               />
-              <Button className="bg-[#FF2B2B] hover:bg-[#e02525] text-white rounded-full px-8">
+              <Button className="bg-[#FF2B2B] hover:bg-[#e02525] text-white rounded-full px-8" onClick={handleSearchSubmit}>
                 <Search className="h-5 w-5" />
               </Button>
             </div>
           </div>
 
           {/* Job Cards Grid */}
+          {loading && (
+            <div className="text-center py-16">
+              <p className="text-[#8A8A8A] text-lg">Loading Indian jobs...</p>
+            </div>
+          )}
+
+          {!loading && (
           <div className="grid md:grid-cols-2 lg:grid-cols-3 gap-6">
-            {filteredJobs.map((job) => (
+            {displayJobs.map((job) => (
               <div
                 key={job.id}
                 className="bg-white rounded-2xl p-6 shadow-md hover:shadow-xl transition-all relative cursor-pointer"
-                onClick={() => navigate(`/job/${job.id}`)}
+                onClick={() => {
+                  if (job.dbJob) {
+                    recordJobInteraction(job.dbJob, role === "jobseeker" ? profile?.id : null);
+                  }
+                  navigate(`/job/${job.id}`);
+                }}
               >
                 {job.featured && (
                   <div className="absolute top-4 right-4 w-3 h-3 bg-[#FF2B2B] rounded-full"></div>
@@ -332,10 +421,21 @@ export default function JobListingsPage() {
               </div>
             ))}
           </div>
+          )}
 
-          {filteredJobs.length === 0 && (
+          {!loading && loadError && (
             <div className="text-center py-16">
-              <p className="text-[#8A8A8A] text-lg">No jobs found matching your criteria.</p>
+              <p className="text-[#8A8A8A] text-lg">{loadError}</p>
+            </div>
+          )}
+
+          {!loading && !loadError && filteredJobs.length === 0 && (
+            <div className="text-center py-16">
+              <p className="text-[#8A8A8A] text-lg">
+                {selectedCategory !== "ALL"
+                  ? "No posted jobs found in this category yet."
+                  : "No Indian jobs found matching your criteria."}
+              </p>
             </div>
           )}
         </div>

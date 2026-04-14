@@ -88,8 +88,9 @@ export interface Job {
   perks: string[] | null;
   education: string | null;
   openings: number;
-  status: "Active" | "Paused" | "Closed";
+  status: "Active" | "Paused" | "Closed" | "Expired";
   deadline: string | null;
+  deadline_time: string | null;
   created_at: string;
 }
 

@@ -38,6 +38,17 @@ Find these in: **Supabase Dashboard → Settings → API**
 1. Go to **Supabase Dashboard → SQL Editor**
 2. Paste the contents of `supabase/schema.sql`
 3. Click **Run**
+4. If the `jobs` table already exists in your project, also run:
+
+```sql
+alter table jobs add column if not exists deadline_time text;
+alter table jobs drop constraint if exists jobs_deadline_time_check;
+alter table jobs add constraint jobs_deadline_time_check
+  check (deadline_time is null or deadline_time ~ '^([01][0-9]|2[0-3]):[0-5][0-9]$');
+```
+
+5. Paste the contents of `supabase/job_expiry_scheduler.sql`
+6. Click **Run** to enable automatic daily expiry-status updates for jobs
 
 ---
 

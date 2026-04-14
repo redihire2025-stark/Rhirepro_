@@ -1,6 +1,8 @@
 import { useState, useMemo, useEffect, useCallback, useRef } from "react";
 import { useNavigate, Routes, Route, Link } from "react-router";
 import { supabase, Job as DBJob, Notification, Application } from "../../lib/supabase";
+import { isJobVisibleToSeekers } from "../../lib/jobs";
+import { getRecommendedJobs, recordJobInteraction, recordJobSearch } from "../../lib/jobRecommendations";
 import { useAuth } from "../../lib/auth-context";
 import {
   Bell, LogOut, Search, MapPin, DollarSign, Briefcase, Filter, Bookmark,
@@ -38,6 +40,47 @@ interface Certification {
   id: number; name: string; issuer: string; issueDate: string; credentialId: string;
 }
 interface Language { id: number; language: string; proficiency: string; }
+
+function formatDashboardSalary(job: DBJob): string {
+  if (job.salary_min && job.salary_max && job.salary_type) {
+    return `${job.salary_min}-${job.salary_max} ${job.salary_type}`;
+  }
+  if (job.salary_min && job.salary_type) {
+    return `${job.salary_min}+ ${job.salary_type}`;
+  }
+  if (job.salary_type) {
+    return `${job.salary_type} compensation`;
+  }
+  return "Compensation as per company standards";
+}
+
+function formatDashboardLocation(job: DBJob): string {
+  if (job.location?.trim()) return job.location;
+  if (job.work_mode?.trim()) return job.work_mode;
+  return "India";
+}
+
+function formatDashboardType(job: DBJob): string {
+  if (job.employment_type?.trim()) return job.employment_type;
+  if (job.work_mode?.trim()) return job.work_mode;
+  if (job.department?.trim()) return job.department;
+  return "Full-time";
+}
+
+function formatDashboardDescription(job: DBJob): string {
+  if (job.description?.trim()) return job.description;
+  if (job.roles_responsibilities?.trim()) return job.roles_responsibilities;
+  if (job.requirements?.trim()) return job.requirements;
+
+  const parts = [
+    job.department?.trim(),
+    job.industry?.trim(),
+    job.skills?.length ? `Skills: ${job.skills.slice(0, 3).join(", ")}` : "",
+  ].filter(Boolean);
+
+  if (parts.length > 0) return parts.join(" | ");
+  return "Explore this opportunity and apply now.";
+}
 
 // ── Job Data ───────────────────────────────────────────────────────────────────
 const ALL_JOBS: Job[] = [
@@ -247,7 +290,11 @@ function FindJobPage() {
 
   useEffect(() => {
     supabase.from("jobs").select("*").eq("status", "Active").order("created_at", { ascending: false })
-      .then(({ data }) => { if (data) setDbJobs(data); });
+      .then(({ data }) => {
+        if (data) {
+          setDbJobs(data.filter(job => isJobVisibleToSeekers(job)));
+        }
+      });
     if (profile?.id) {
       supabase.from("applications").select("job_id").eq("profile_id", profile.id).then(({ data }) => {
         if (data) setAppliedJobIds(data.map(a => a.job_id));
@@ -261,6 +308,7 @@ function FindJobPage() {
   const handleApply = async (job: DBJob) => {
     if (!profile?.id) return;
     if (appliedJobIds.includes(job.id)) return;
+    if (!isJobVisibleToSeekers(job)) return;
     setApplyingId(job.id);
     try {
       await supabase.from("applications").insert({
@@ -270,6 +318,7 @@ function FindJobPage() {
         status: "New",
         resume_url: profile.resume_url,
       });
+      recordJobInteraction(job, profile.id);
       setAppliedJobIds(prev => [...prev, job.id]);
     } finally {
       setApplyingId(null);
@@ -283,6 +332,7 @@ function FindJobPage() {
       setSavedJobIds(prev => prev.filter(id => id !== job.id));
     } else {
       await supabase.from("saved_jobs").insert({ profile_id: profile.id, job_id: job.id });
+      recordJobInteraction(job, profile.id);
       setSavedJobIds(prev => [...prev, job.id]);
     }
   };
@@ -292,11 +342,11 @@ function FindJobPage() {
     id: j.id,
     title: j.title,
     company: j.company_name,
-    location: j.location || "",
-    salary: j.salary_min ? `${j.salary_min}–${j.salary_max} ${j.salary_type}` : "Negotiable",
+    location: formatDashboardLocation(j),
+    salary: formatDashboardSalary(j),
     salaryMin: j.salary_min || 0,
-    type: (j.employment_type || "Full-time") as "Full-time" | "Part-time" | "Contract",
-    description: j.description || "",
+    type: formatDashboardType(j) as "Full-time" | "Part-time" | "Contract",
+    description: formatDashboardDescription(j),
     industry: j.industry || "",
     experience: "",
     isRemote: j.work_mode === "Work from Home",
@@ -304,8 +354,15 @@ function FindJobPage() {
     dbJob: j,
   })) : ALL_JOBS.map(j => ({ ...j, isDB: false, dbJob: null as null }));
 
+  const rankedDisplayJobs = getRecommendedJobs(allDisplayJobs, {
+    userId: profile?.id,
+    profile,
+    appliedJobIds,
+    savedJobIds,
+  });
+
   const filteredJobs = useMemo(() => {
-    return allDisplayJobs.filter((job) => {
+    return rankedDisplayJobs.filter((job) => {
       if (searchQuery) {
         const q = searchQuery.toLowerCase();
         const matches =
@@ -321,10 +378,11 @@ function FindJobPage() {
       if (selectedChip === "Contract" && job.type !== "Contract") return false;
 
       if (locationFilter === "remote" && !job.isRemote) return false;
-      if (locationFilter === "ny" && !job.location.includes("New York")) return false;
-      if (locationFilter === "sf" && !job.location.includes("San Francisco")) return false;
-      if (locationFilter === "chicago" && !job.location.includes("Chicago")) return false;
-      if (locationFilter === "austin" && !job.location.includes("Austin")) return false;
+      if (locationFilter === "bengaluru" && !job.location.toLowerCase().includes("bengaluru") && !job.location.toLowerCase().includes("bangalore")) return false;
+      if (locationFilter === "mumbai" && !job.location.toLowerCase().includes("mumbai")) return false;
+      if (locationFilter === "hyderabad" && !job.location.toLowerCase().includes("hyderabad")) return false;
+      if (locationFilter === "delhi" && !job.location.toLowerCase().includes("delhi") && !job.location.toLowerCase().includes("gurugram") && !job.location.toLowerCase().includes("gurgaon") && !job.location.toLowerCase().includes("noida")) return false;
+      if (locationFilter === "pune" && !job.location.toLowerCase().includes("pune")) return false;
 
       if (experienceFilter && job.experience !== experienceFilter) return false;
 
@@ -343,7 +401,7 @@ function FindJobPage() {
       }
       return true;
     });
-  }, [searchQuery, selectedChip, locationFilter, experienceFilter, salaryFilter, industryFilter, jobTypeFilter, remoteFilter]);
+  }, [rankedDisplayJobs, searchQuery, selectedChip, locationFilter, experienceFilter, salaryFilter, industryFilter, jobTypeFilter, remoteFilter]);
 
   const hasFilters = searchQuery || selectedChip || locationFilter || experienceFilter || salaryFilter || industryFilter || jobTypeFilter || remoteFilter;
 
@@ -371,7 +429,12 @@ function FindJobPage() {
               <Input
                 value={inputValue}
                 onChange={(e) => setInputValue(e.target.value)}
-                onKeyDown={(e) => { if (e.key === "Enter") setSearchQuery(inputValue); }}
+                onKeyDown={(e) => {
+                  if (e.key === "Enter") {
+                    setSearchQuery(inputValue);
+                    recordJobSearch(inputValue, profile?.id);
+                  }
+                }}
                 placeholder="Search by title, company, or keywords..."
                 className="flex-1 border-0 bg-transparent focus-visible:ring-0 focus-visible:ring-offset-0 text-base"
               />
@@ -382,7 +445,10 @@ function FindJobPage() {
               )}
               <Button
                 className="bg-[#FF2B2B] hover:bg-[#e02525] text-white rounded-full px-6 h-10 shrink-0"
-                onClick={() => setSearchQuery(inputValue)}
+                onClick={() => {
+                  setSearchQuery(inputValue);
+                  recordJobSearch(inputValue, profile?.id);
+                }}
               >
                 Search
               </Button>
@@ -422,7 +488,7 @@ function FindJobPage() {
             </div>
             {[
               { label: "Location", value: locationFilter, onChange: setLocationFilter,
-                options: [["remote","Remote"],["ny","New York"],["sf","San Francisco"],["chicago","Chicago"],["austin","Austin, TX"]] },
+                options: [["remote","Remote"],["bengaluru","Bengaluru"],["mumbai","Mumbai"],["hyderabad","Hyderabad"],["delhi","Delhi NCR"],["pune","Pune"]] },
               { label: "Experience", value: experienceFilter, onChange: setExperienceFilter,
                 options: [["entry","Entry Level"],["mid","Mid Level"],["senior","Senior"]] },
               { label: "Salary Range", value: salaryFilter, onChange: setSalaryFilter,
@@ -477,7 +543,12 @@ function FindJobPage() {
                   return (
                     <div
                       key={job.id}
-                      onClick={() => setSelectedJob(isSelected ? null : job)}
+                      onClick={() => {
+                        setSelectedJob(isSelected ? null : job);
+                        if (!isSelected && job.isDB && job.dbJob) {
+                          recordJobInteraction(job.dbJob, profile?.id);
+                        }
+                      }}
                       className={`bg-white rounded-2xl p-5 shadow-sm hover:shadow-md transition-all cursor-pointer relative flex flex-col ${isSelected ? "ring-2 ring-[#FF2B2B]" : ""}`}
                     >
                       {job.isDB && <div className="absolute top-4 right-4 w-2.5 h-2.5 bg-[#FF2B2B] rounded-full" />}
@@ -2374,15 +2445,16 @@ function InsightsPage() {
       setLoadingJobs(true);
       const { data } = await supabase
         .from("jobs")
-        .select("id, title, company_name, location, salary_min, salary_max, salary_type, skills, employment_type")
+        .select("id, title, company_name, location, salary_min, salary_max, salary_type, skills, employment_type, status, deadline, deadline_time")
         .eq("status", "Active")
         .limit(30);
 
       if (data) {
+        const visibleJobs = data.filter(job => isJobVisibleToSeekers(job));
         const userSkillsLower = skills.map(s => s.toLowerCase());
         const titleWords = titleStr.toLowerCase().split(/\s+/).filter(w => w.length > 3);
 
-        const scored = data.map(job => {
+        const scored = visibleJobs.map(job => {
           const jobSkills: string[] = job.skills || [];
           const jobSkillsLower = jobSkills.map((s: string) => s.toLowerCase());
 
