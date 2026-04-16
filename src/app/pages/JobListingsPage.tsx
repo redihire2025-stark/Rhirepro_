@@ -2,6 +2,14 @@ import { useEffect, useMemo, useState } from "react";
 import { Menu, Search, MapPin, DollarSign, Clock, ChevronRight, Facebook, Instagram, Twitter, Bell, Star, ArrowRight } from "lucide-react";
 import { Button } from "../components/ui/button";
 import { Input } from "../components/ui/input";
+import {
+  Pagination,
+  PaginationContent,
+  PaginationItem,
+  PaginationLink,
+  PaginationNext,
+  PaginationPrevious,
+} from "../components/ui/pagination";
 import { Sheet, SheetContent, SheetTrigger, SheetTitle, SheetDescription } from "../components/ui/sheet";
 import { useNavigate } from "react-router";
 import logoImage from "../../logo/logo.png";
@@ -9,6 +17,7 @@ import { supabase, type Job as DBJob } from "../../lib/supabase";
 import { isJobVisibleToSeekers } from "../../lib/jobs";
 import { useAuth } from "../../lib/auth-context";
 import { getRecommendedJobs, recordJobInteraction, recordJobSearch } from "../../lib/jobRecommendations";
+import { isIndianLocation } from "../../lib/locationData";
 import {
   assignBalancedCategories,
   getAvailableJobCategories,
@@ -29,26 +38,7 @@ type DisplayJob = {
   dbJob?: DBJob;
 };
 
-const INDIAN_LOCATION_MARKERS = [
-  "india", "bharat", "andhra pradesh", "arunachal pradesh", "assam", "bihar",
-  "chhattisgarh", "goa", "gujarat", "haryana", "himachal pradesh", "jharkhand",
-  "karnataka", "kerala", "madhya pradesh", "maharashtra", "manipur", "meghalaya",
-  "mizoram", "nagaland", "odisha", "punjab", "rajasthan", "sikkim", "tamil nadu",
-  "telangana", "tripura", "uttar pradesh", "uttarakhand", "west bengal", "delhi",
-  "new delhi", "ncr", "jammu", "kashmir", "ladakh", "lakshadweep",
-  "andaman", "nicobar", "bengaluru", "bangalore", "mumbai", "pune", "hyderabad",
-  "chennai", "kolkata", "noida", "gurugram", "gurgaon", "faridabad", "ghaziabad",
-  "jaipur", "ahmedabad", "surat", "vadodara", "indore", "bhopal", "kochi",
-  "coimbatore", "madurai", "trivandrum", "thiruvananthapuram", "visakhapatnam",
-  "vijayawada", "nagpur", "nashik", "lucknow", "kanpur", "patna", "ranchi",
-  "bhubaneswar", "guwahati", "mohali", "chandigarh"
-];
-
-function isIndianJobLocation(location: string | null): boolean {
-  if (!location) return false;
-  const normalized = location.toLowerCase();
-  return INDIAN_LOCATION_MARKERS.some((marker) => normalized.includes(marker));
-}
+const JOBS_PER_PAGE = 12;
 
 function formatSalary(job: DBJob): string {
   if (job.salary_min && job.salary_max && job.salary_type) {
@@ -98,6 +88,7 @@ export default function JobListingsPage() {
   const [isMenuOpen, setIsMenuOpen] = useState(false);
   const [searchTerm, setSearchTerm] = useState("");
   const [selectedCategory, setSelectedCategory] = useState("ALL");
+  const [currentPage, setCurrentPage] = useState(1);
   const [email, setEmail] = useState("");
   const [jobs, setJobs] = useState<DisplayJob[]>([]);
   const [visibleCategories, setVisibleCategories] = useState<JobCategory[]>([]);
@@ -140,7 +131,7 @@ export default function JobListingsPage() {
       const savedJobIds = (savedRes.data || []).map((item) => item.job_id);
 
       const visibleIndianJobs = assignBalancedCategories((data || [])
-        .filter((job) => isJobVisibleToSeekers(job) && isIndianJobLocation(job.location))
+        .filter((job) => isJobVisibleToSeekers(job) && isIndianLocation(job.location))
         .map((job) => ({
           id: job.id,
           title: job.title,
@@ -230,6 +221,33 @@ export default function JobListingsPage() {
 
     return mixed;
   }, [filteredJobs, selectedCategory, visibleCategories]);
+
+  useEffect(() => {
+    setCurrentPage(1);
+  }, [searchTerm, selectedCategory]);
+
+  const totalPages = Math.ceil(displayJobs.length / JOBS_PER_PAGE);
+
+  useEffect(() => {
+    if (totalPages === 0) {
+      setCurrentPage(1);
+      return;
+    }
+
+    if (currentPage > totalPages) {
+      setCurrentPage(totalPages);
+    }
+  }, [currentPage, totalPages]);
+
+  const paginatedJobs = useMemo(() => {
+    const startIndex = (currentPage - 1) * JOBS_PER_PAGE;
+    return displayJobs.slice(startIndex, startIndex + JOBS_PER_PAGE);
+  }, [currentPage, displayJobs]);
+
+  const pageNumbers = useMemo(
+    () => Array.from({ length: totalPages }, (_, index) => index + 1),
+    [totalPages],
+  );
 
   return (
     <div className="min-h-screen bg-[#F6F6F6]">
@@ -322,7 +340,7 @@ export default function JobListingsPage() {
 
       {/* Job Listings Section */}
       <section className="bg-[#ECECF4] py-16">
-        <div className="container mx-auto px-4">
+        <div id="jobs-pagination" className="container mx-auto px-4">
           <div className="text-center mb-12">
             <span className="inline-block bg-[#FF2B2B] text-white px-4 py-1 rounded-full text-sm mb-4">
               JOB LISTINGS
@@ -378,9 +396,9 @@ export default function JobListingsPage() {
             </div>
           )}
 
-          {!loading && (
+          {!loading && !loadError && filteredJobs.length > 0 && (
           <div className="grid md:grid-cols-2 lg:grid-cols-3 gap-6">
-            {displayJobs.map((job) => (
+            {paginatedJobs.map((job) => (
               <div
                 key={job.id}
                 className="bg-white rounded-2xl p-6 shadow-md hover:shadow-xl transition-all relative cursor-pointer"
@@ -421,6 +439,56 @@ export default function JobListingsPage() {
               </div>
             ))}
           </div>
+          )}
+
+          {!loading && !loadError && totalPages > 1 && (
+            <div className="mt-10 flex justify-center">
+              <Pagination>
+                <PaginationContent className="flex-wrap justify-center gap-2">
+                  <PaginationItem>
+                    <PaginationPrevious
+                      href="#jobs-pagination"
+                      onClick={(event) => {
+                        event.preventDefault();
+                        if (currentPage > 1) setCurrentPage((page) => page - 1);
+                      }}
+                      className={currentPage === 1 ? "pointer-events-none opacity-50" : ""}
+                    />
+                  </PaginationItem>
+
+                  {pageNumbers.map((pageNumber) => (
+                    <PaginationItem key={pageNumber}>
+                      <PaginationLink
+                        href="#jobs-pagination"
+                        isActive={currentPage === pageNumber}
+                        onClick={(event) => {
+                          event.preventDefault();
+                          setCurrentPage(pageNumber);
+                        }}
+                        className={
+                          currentPage === pageNumber
+                            ? "border-[#FF2B2B] bg-[#FF2B2B] text-white hover:bg-[#e02525] hover:text-white"
+                            : "text-[#3A1F1F]"
+                        }
+                      >
+                        {pageNumber}
+                      </PaginationLink>
+                    </PaginationItem>
+                  ))}
+
+                  <PaginationItem>
+                    <PaginationNext
+                      href="#jobs-pagination"
+                      onClick={(event) => {
+                        event.preventDefault();
+                        if (currentPage < totalPages) setCurrentPage((page) => page + 1);
+                      }}
+                      className={currentPage === totalPages ? "pointer-events-none opacity-50" : ""}
+                    />
+                  </PaginationItem>
+                </PaginationContent>
+              </Pagination>
+            </div>
           )}
 
           {!loading && loadError && (

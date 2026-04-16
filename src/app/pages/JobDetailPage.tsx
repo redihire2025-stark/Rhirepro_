@@ -7,27 +7,7 @@ import { useNavigate, useParams } from "react-router";
 import logoImage from "../../logo/logo.png";
 import { supabase, type Job as DBJob } from "../../lib/supabase";
 import { isJobVisibleToSeekers } from "../../lib/jobs";
-
-const INDIAN_LOCATION_MARKERS = [
-  "india", "bharat", "andhra pradesh", "arunachal pradesh", "assam", "bihar",
-  "chhattisgarh", "goa", "gujarat", "haryana", "himachal pradesh", "jharkhand",
-  "karnataka", "kerala", "madhya pradesh", "maharashtra", "manipur", "meghalaya",
-  "mizoram", "nagaland", "odisha", "punjab", "rajasthan", "sikkim", "tamil nadu",
-  "telangana", "tripura", "uttar pradesh", "uttarakhand", "west bengal", "delhi",
-  "new delhi", "ncr", "jammu", "kashmir", "ladakh", "lakshadweep",
-  "andaman", "nicobar", "bengaluru", "bangalore", "mumbai", "pune", "hyderabad",
-  "chennai", "kolkata", "noida", "gurugram", "gurgaon", "faridabad", "ghaziabad",
-  "jaipur", "ahmedabad", "surat", "vadodara", "indore", "bhopal", "kochi",
-  "coimbatore", "madurai", "trivandrum", "thiruvananthapuram", "visakhapatnam",
-  "vijayawada", "nagpur", "nashik", "lucknow", "kanpur", "patna", "ranchi",
-  "bhubaneswar", "guwahati", "mohali", "chandigarh"
-];
-
-function isIndianJobLocation(location: string | null): boolean {
-  if (!location) return false;
-  const normalized = location.toLowerCase();
-  return INDIAN_LOCATION_MARKERS.some((marker) => normalized.includes(marker));
-}
+import { isIndianLocation } from "../../lib/locationData";
 
 function formatSalary(job: DBJob): string {
   if (job.salary_min && job.salary_max && job.salary_type) {
@@ -79,7 +59,7 @@ export default function JobDetailPage() {
 
       if (!mounted) return;
 
-      if (jobError || !currentJob || !isJobVisibleToSeekers(currentJob) || !isIndianJobLocation(currentJob.location)) {
+      if (jobError || !currentJob || !isJobVisibleToSeekers(currentJob) || !isIndianLocation(currentJob.location)) {
         setJob(null);
         setRelatedJobs([]);
         setLoadError("This job is unavailable or no longer active.");
@@ -101,7 +81,7 @@ export default function JobDetailPage() {
 
       setRelatedJobs(
         (related || [])
-          .filter((item) => isJobVisibleToSeekers(item) && isIndianJobLocation(item.location))
+          .filter((item) => isJobVisibleToSeekers(item) && isIndianLocation(item.location))
           .slice(0, 3)
       );
       setLoading(false);

@@ -42,6 +42,7 @@ import { PLANS } from "../../lib/plans";
 import { supabase, type Job as DBJob } from "../../lib/supabase";
 import { isJobVisibleToSeekers } from "../../lib/jobs";
 import { getRecommendedJobs, recordJobInteraction } from "../../lib/jobRecommendations";
+import { isIndianLocation } from "../../lib/locationData";
 import {
   assignBalancedCategories,
   getAvailableJobCategories,
@@ -63,27 +64,6 @@ type DisplayJob = {
   description: string;
   dbJob?: DBJob;
 };
-
-const INDIAN_LOCATION_MARKERS = [
-  "india", "bharat", "andhra pradesh", "arunachal pradesh", "assam", "bihar",
-  "chhattisgarh", "goa", "gujarat", "haryana", "himachal pradesh", "jharkhand",
-  "karnataka", "kerala", "madhya pradesh", "maharashtra", "manipur", "meghalaya",
-  "mizoram", "nagaland", "odisha", "punjab", "rajasthan", "sikkim", "tamil nadu",
-  "telangana", "tripura", "uttar pradesh", "uttarakhand", "west bengal", "delhi",
-  "new delhi", "ncr", "jammu", "kashmir", "ladakh", "lakshadweep",
-  "andaman", "nicobar", "bengaluru", "bangalore", "mumbai", "pune", "hyderabad",
-  "chennai", "kolkata", "noida", "gurugram", "gurgaon", "faridabad", "ghaziabad",
-  "jaipur", "ahmedabad", "surat", "vadodara", "indore", "bhopal", "kochi",
-  "coimbatore", "madurai", "trivandrum", "thiruvananthapuram", "visakhapatnam",
-  "vijayawada", "nagpur", "nashik", "lucknow", "kanpur", "patna", "ranchi",
-  "bhubaneswar", "guwahati", "mohali", "chandigarh"
-];
-
-function isIndianJobLocation(location: string | null): boolean {
-  if (!location) return false;
-  const normalized = location.toLowerCase();
-  return INDIAN_LOCATION_MARKERS.some((marker) => normalized.includes(marker));
-}
 
 function formatSalary(job: DBJob): string {
   if (job.salary_min && job.salary_max && job.salary_type) {
@@ -212,7 +192,7 @@ export default function LandingPage() {
       const savedIds = (savedRes.data || []).map((item) => item.job_id);
 
       const visibleIndianJobs = assignBalancedCategories((jobsData || [])
-        .filter((job) => isJobVisibleToSeekers(job) && isIndianJobLocation(job.location))
+        .filter((job) => isJobVisibleToSeekers(job) && isIndianLocation(job.location))
         .map((job) => ({
           id: job.id,
           title: job.title,

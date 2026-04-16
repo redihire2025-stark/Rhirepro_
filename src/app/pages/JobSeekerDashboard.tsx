@@ -2,7 +2,7 @@ import { useState, useMemo, useEffect, useCallback, useRef } from "react";
 import { useNavigate, Routes, Route, Link } from "react-router";
 import { supabase, Job as DBJob, Notification, Application } from "../../lib/supabase";
 import { isJobVisibleToSeekers } from "../../lib/jobs";
-import { getRecommendedJobs, recordJobInteraction, recordJobSearch } from "../../lib/jobRecommendations";
+import { recordJobInteraction, recordJobSearch } from "../../lib/jobRecommendations";
 import { useAuth } from "../../lib/auth-context";
 import {
   Bell, LogOut, Search, MapPin, DollarSign, Briefcase, Filter, Bookmark,
@@ -12,6 +12,14 @@ import {
 } from "lucide-react";
 import { Button } from "../components/ui/button";
 import { Input } from "../components/ui/input";
+import {
+  Pagination,
+  PaginationContent,
+  PaginationItem,
+  PaginationLink,
+  PaginationNext,
+  PaginationPrevious,
+} from "../components/ui/pagination";
 import { Textarea } from "../components/ui/textarea";
 import { Select, SelectContent, SelectItem, SelectTrigger, SelectValue } from "../components/ui/select";
 import { BarChart, Bar, XAxis, YAxis, CartesianGrid, Tooltip, ResponsiveContainer } from "recharts";
@@ -23,6 +31,21 @@ interface Job {
   id: number; title: string; company: string; location: string;
   salary: string; salaryMin: number; type: "Full-time" | "Part-time" | "Contract";
   description: string; industry: string; experience: string; isRemote: boolean;
+}
+interface DashboardDisplayJob {
+  id: string;
+  title: string;
+  company: string;
+  location: string;
+  salary: string;
+  salaryMin: number;
+  type: "Full-time" | "Part-time" | "Contract";
+  description: string;
+  industry: string;
+  experience: string;
+  isRemote: boolean;
+  isDB: true;
+  dbJob: DBJob;
 }
 interface WorkExp {
   id: string; title: string; company: string; location: string;
@@ -100,6 +123,29 @@ const ALL_JOBS: Job[] = [
 
 const MONTHS = ["Jan","Feb","Mar","Apr","May","Jun","Jul","Aug","Sep","Oct","Nov","Dec"];
 const YEARS = Array.from({ length: 17 }, (_, i) => String(2010 + i));
+const JOBS_PER_PAGE = 12;
+
+function escapeLikeValue(value: string): string {
+  return value.replace(/[%_,]/g, (match) => `\\${match}`);
+}
+
+function buildDashboardJob(job: DBJob): DashboardDisplayJob {
+  return {
+    id: job.id,
+    title: job.title,
+    company: job.company_name,
+    location: formatDashboardLocation(job),
+    salary: formatDashboardSalary(job),
+    salaryMin: job.salary_min || 0,
+    type: formatDashboardType(job) as "Full-time" | "Part-time" | "Contract",
+    description: formatDashboardDescription(job),
+    industry: job.industry || "",
+    experience: "",
+    isRemote: job.work_mode === "Work from Home",
+    isDB: true,
+    dbJob: job,
+  };
+}
 
 // ── Main Dashboard ─────────────────────────────────────────────────────────────
 export default function JobSeekerDashboard() {
@@ -275,26 +321,23 @@ function FindJobPage() {
   const [searchQuery, setSearchQuery] = useState("");
   const [inputValue, setInputValue] = useState("");
   const [selectedChip, setSelectedChip] = useState<string | null>(null);
+  const [currentPage, setCurrentPage] = useState(1);
   const [locationFilter, setLocationFilter] = useState("");
   const [experienceFilter, setExperienceFilter] = useState("");
   const [salaryFilter, setSalaryFilter] = useState("");
   const [industryFilter, setIndustryFilter] = useState("");
   const [jobTypeFilter, setJobTypeFilter] = useState("");
   const [remoteFilter, setRemoteFilter] = useState("");
-  // DB jobs
   const [dbJobs, setDbJobs] = useState<DBJob[]>([]);
+  const [totalJobsCount, setTotalJobsCount] = useState(0);
+  const [jobsLoading, setJobsLoading] = useState(true);
+  const [jobsError, setJobsError] = useState("");
   const [appliedJobIds, setAppliedJobIds] = useState<string[]>([]);
   const [savedJobIds, setSavedJobIds] = useState<string[]>([]);
   const [applyingId, setApplyingId] = useState<string | null>(null);
-  const [selectedJob, setSelectedJob] = useState<typeof allDisplayJobs[0] | null>(null);
+  const [selectedJob, setSelectedJob] = useState<DashboardDisplayJob | null>(null);
 
   useEffect(() => {
-    supabase.from("jobs").select("*").eq("status", "Active").order("created_at", { ascending: false })
-      .then(({ data }) => {
-        if (data) {
-          setDbJobs(data.filter(job => isJobVisibleToSeekers(job)));
-        }
-      });
     if (profile?.id) {
       supabase.from("applications").select("job_id").eq("profile_id", profile.id).then(({ data }) => {
         if (data) setAppliedJobIds(data.map(a => a.job_id));
@@ -304,6 +347,102 @@ function FindJobPage() {
       });
     }
   }, [profile?.id]);
+
+  useEffect(() => {
+    let cancelled = false;
+
+    async function fetchJobsPage() {
+      setJobsLoading(true);
+      setJobsError("");
+
+      let query = supabase
+        .from("jobs")
+        .select("*", { count: "exact" })
+        .eq("status", "Active");
+
+      const trimmedSearch = searchQuery.trim();
+      if (trimmedSearch) {
+        const escaped = escapeLikeValue(trimmedSearch);
+        query = query.or(
+          `title.ilike.%${escaped}%,company_name.ilike.%${escaped}%,description.ilike.%${escaped}%,location.ilike.%${escaped}%`
+        );
+      }
+
+      if (selectedChip === "Full-time" || selectedChip === "Part-time" || selectedChip === "Contract") {
+        query = query.eq("employment_type", selectedChip);
+      } else if (jobTypeFilter === "fulltime") {
+        query = query.eq("employment_type", "Full-time");
+      } else if (jobTypeFilter === "parttime") {
+        query = query.eq("employment_type", "Part-time");
+      } else if (jobTypeFilter === "contract") {
+        query = query.eq("employment_type", "Contract");
+      }
+
+      if (selectedChip === "Remote" || locationFilter === "remote" || remoteFilter === "yes") {
+        query = query.eq("work_mode", "Work from Home");
+      } else if (remoteFilter === "no") {
+        query = query.neq("work_mode", "Work from Home");
+      }
+
+      if (locationFilter === "bengaluru") query = query.ilike("location", "%Bengaluru%");
+      if (locationFilter === "mumbai") query = query.ilike("location", "%Mumbai%");
+      if (locationFilter === "hyderabad") query = query.ilike("location", "%Hyderabad%");
+      if (locationFilter === "delhi") query = query.ilike("location", "%Delhi%");
+      if (locationFilter === "pune") query = query.ilike("location", "%Pune%");
+
+      if (experienceFilter === "entry") query = query.lte("experience_min", 1);
+      if (experienceFilter === "mid") query = query.gte("experience_min", 2).lte("experience_min", 5);
+      if (experienceFilter === "senior") query = query.gte("experience_min", 5);
+
+      if (salaryFilter === "0-50") query = query.lt("salary_min", 50000);
+      if (salaryFilter === "50-100") query = query.gte("salary_min", 50000).lt("salary_min", 100000);
+      if (salaryFilter === "100+") query = query.gte("salary_min", 100000);
+
+      if (industryFilter === "healthcare") query = query.ilike("industry", "%Healthcare%");
+      if (industryFilter === "finance") query = query.ilike("industry", "%BFSI%");
+      if (industryFilter === "media") query = query.ilike("industry", "%Media%");
+      if (industryFilter === "tech") query = query.or("industry.ilike.%IT / Software%,industry.ilike.%E-commerce%,industry.ilike.%Consulting%");
+      if (industryFilter === "marketing") query = query.or("industry.ilike.%Consulting%,industry.ilike.%Media%");
+      if (industryFilter === "design") query = query.ilike("department", "%Design%");
+
+      const from = (currentPage - 1) * JOBS_PER_PAGE;
+      const to = from + JOBS_PER_PAGE - 1;
+
+      const { data, error, count } = await query
+        .order("created_at", { ascending: false })
+        .range(from, to);
+
+      if (cancelled) return;
+
+      if (error) {
+        setJobsError("Unable to load jobs right now.");
+        setDbJobs([]);
+        setTotalJobsCount(0);
+        setJobsLoading(false);
+        return;
+      }
+
+      const visibleJobs = (data || []).filter((job) => isJobVisibleToSeekers(job));
+      setDbJobs(visibleJobs);
+      setTotalJobsCount(count || 0);
+      setJobsLoading(false);
+    }
+
+    fetchJobsPage();
+    return () => {
+      cancelled = true;
+    };
+  }, [
+    currentPage,
+    experienceFilter,
+    industryFilter,
+    jobTypeFilter,
+    locationFilter,
+    remoteFilter,
+    searchQuery,
+    selectedChip,
+    salaryFilter,
+  ]);
 
   const handleApply = async (job: DBJob) => {
     if (!profile?.id) return;
@@ -337,71 +476,33 @@ function FindJobPage() {
     }
   };
 
-  // Merge static + DB jobs for display (DB jobs first, then static as fallback)
-  const allDisplayJobs = dbJobs.length > 0 ? dbJobs.map(j => ({
-    id: j.id,
-    title: j.title,
-    company: j.company_name,
-    location: formatDashboardLocation(j),
-    salary: formatDashboardSalary(j),
-    salaryMin: j.salary_min || 0,
-    type: formatDashboardType(j) as "Full-time" | "Part-time" | "Contract",
-    description: formatDashboardDescription(j),
-    industry: j.industry || "",
-    experience: "",
-    isRemote: j.work_mode === "Work from Home",
-    isDB: true,
-    dbJob: j,
-  })) : ALL_JOBS.map(j => ({ ...j, isDB: false, dbJob: null as null }));
+  const displayJobs = useMemo(() => dbJobs.map(buildDashboardJob), [dbJobs]);
 
-  const rankedDisplayJobs = getRecommendedJobs(allDisplayJobs, {
-    userId: profile?.id,
-    profile,
-    appliedJobIds,
-    savedJobIds,
-  });
+  useEffect(() => {
+    setCurrentPage(1);
+  }, [searchQuery, selectedChip, locationFilter, experienceFilter, salaryFilter, industryFilter, jobTypeFilter, remoteFilter]);
 
-  const filteredJobs = useMemo(() => {
-    return rankedDisplayJobs.filter((job) => {
-      if (searchQuery) {
-        const q = searchQuery.toLowerCase();
-        const matches =
-          job.title.toLowerCase().includes(q) ||
-          job.company.toLowerCase().includes(q) ||
-          job.description.toLowerCase().includes(q) ||
-          job.location.toLowerCase().includes(q);
-        if (!matches) return false;
-      }
-      if (selectedChip === "Remote" && !job.isRemote) return false;
-      if (selectedChip === "Full-time" && job.type !== "Full-time") return false;
-      if (selectedChip === "Part-time" && job.type !== "Part-time") return false;
-      if (selectedChip === "Contract" && job.type !== "Contract") return false;
+  useEffect(() => {
+    setSelectedJob(null);
+  }, [currentPage, searchQuery, selectedChip, locationFilter, experienceFilter, salaryFilter, industryFilter, jobTypeFilter, remoteFilter]);
 
-      if (locationFilter === "remote" && !job.isRemote) return false;
-      if (locationFilter === "bengaluru" && !job.location.toLowerCase().includes("bengaluru") && !job.location.toLowerCase().includes("bangalore")) return false;
-      if (locationFilter === "mumbai" && !job.location.toLowerCase().includes("mumbai")) return false;
-      if (locationFilter === "hyderabad" && !job.location.toLowerCase().includes("hyderabad")) return false;
-      if (locationFilter === "delhi" && !job.location.toLowerCase().includes("delhi") && !job.location.toLowerCase().includes("gurugram") && !job.location.toLowerCase().includes("gurgaon") && !job.location.toLowerCase().includes("noida")) return false;
-      if (locationFilter === "pune" && !job.location.toLowerCase().includes("pune")) return false;
+  const totalPages = Math.ceil(totalJobsCount / JOBS_PER_PAGE);
 
-      if (experienceFilter && job.experience !== experienceFilter) return false;
+  useEffect(() => {
+    if (totalPages === 0) {
+      setCurrentPage(1);
+      return;
+    }
 
-      if (salaryFilter === "0-50" && job.salaryMin >= 50000) return false;
-      if (salaryFilter === "50-100" && (job.salaryMin < 50000 || job.salaryMin >= 100000)) return false;
-      if (salaryFilter === "100+" && job.salaryMin < 100000) return false;
+    if (currentPage > totalPages) {
+      setCurrentPage(totalPages);
+    }
+  }, [currentPage, totalPages]);
 
-      if (industryFilter && job.industry !== industryFilter) return false;
-
-      if (!selectedChip) {
-        if (jobTypeFilter === "fulltime" && job.type !== "Full-time") return false;
-        if (jobTypeFilter === "parttime" && job.type !== "Part-time") return false;
-        if (jobTypeFilter === "contract" && job.type !== "Contract") return false;
-        if (remoteFilter === "yes" && !job.isRemote) return false;
-        if (remoteFilter === "no" && job.isRemote) return false;
-      }
-      return true;
-    });
-  }, [rankedDisplayJobs, searchQuery, selectedChip, locationFilter, experienceFilter, salaryFilter, industryFilter, jobTypeFilter, remoteFilter]);
+  const pageNumbers = useMemo(
+    () => Array.from({ length: totalPages }, (_, index) => index + 1),
+    [totalPages],
+  );
 
   const hasFilters = searchQuery || selectedChip || locationFilter || experienceFilter || salaryFilter || industryFilter || jobTypeFilter || remoteFilter;
 
@@ -523,11 +624,21 @@ function FindJobPage() {
           {/* Job Cards */}
           <div>
             <p className="text-[#8A8A8A] text-sm mb-3">
-              {filteredJobs.length} job{filteredJobs.length !== 1 ? "s" : ""} found
+              {totalJobsCount} job{totalJobsCount !== 1 ? "s" : ""} found
               {searchQuery && <> for "<strong className="text-[#3A1F1F]">{searchQuery}</strong>"</>}
             </p>
 
-            {filteredJobs.length === 0 ? (
+            {jobsLoading ? (
+              <div className="bg-white rounded-2xl p-12 shadow-sm text-center">
+                <Loader2 className="h-10 w-10 text-[#FF2B2B] animate-spin mx-auto mb-3" />
+                <p className="text-[#8A8A8A] text-sm">Loading jobs...</p>
+              </div>
+            ) : jobsError ? (
+              <div className="bg-white rounded-2xl p-12 shadow-sm text-center">
+                <h3 className="font-semibold text-[#3A1F1F] mb-2">Could not load jobs</h3>
+                <p className="text-[#8A8A8A] text-sm">{jobsError}</p>
+              </div>
+            ) : totalJobsCount === 0 ? (
               <div className="bg-white rounded-2xl p-12 shadow-sm text-center">
                 <Search className="h-12 w-12 text-gray-300 mx-auto mb-3" />
                 <h3 className="font-semibold text-[#3A1F1F] mb-2">No jobs found</h3>
@@ -535,8 +646,8 @@ function FindJobPage() {
                 <Button onClick={clearAll} className="bg-[#FF2B2B] hover:bg-[#e02525] text-white rounded-full">Clear Filters</Button>
               </div>
             ) : (
-              <div className={`grid gap-4 ${selectedJob ? "grid-cols-1" : "md:grid-cols-2 xl:grid-cols-3"}`}>
-                {filteredJobs.map((job) => {
+              <div id="job-results-pagination" className={`grid gap-4 ${selectedJob ? "grid-cols-1" : "md:grid-cols-2 xl:grid-cols-3"}`}>
+                {displayJobs.map((job) => {
                   const isApplied = appliedJobIds.includes(String(job.id));
                   const isSaved = savedJobIds.includes(String(job.id));
                   const isSelected = selectedJob?.id === job.id;
@@ -580,6 +691,56 @@ function FindJobPage() {
                     </div>
                   );
                 })}
+              </div>
+            )}
+
+            {!jobsLoading && !jobsError && totalJobsCount > 0 && totalPages > 1 && (
+              <div className="mt-8 flex justify-center">
+                <Pagination>
+                  <PaginationContent className="flex-wrap justify-center gap-2">
+                    <PaginationItem>
+                      <PaginationPrevious
+                        href="#job-results-pagination"
+                        onClick={(event) => {
+                          event.preventDefault();
+                          if (currentPage > 1) setCurrentPage((page) => page - 1);
+                        }}
+                        className={currentPage === 1 ? "pointer-events-none opacity-50" : ""}
+                      />
+                    </PaginationItem>
+
+                    {pageNumbers.map((pageNumber) => (
+                      <PaginationItem key={pageNumber}>
+                        <PaginationLink
+                          href="#job-results-pagination"
+                          isActive={currentPage === pageNumber}
+                          onClick={(event) => {
+                            event.preventDefault();
+                            setCurrentPage(pageNumber);
+                          }}
+                          className={
+                            currentPage === pageNumber
+                              ? "border-[#FF2B2B] bg-[#FF2B2B] text-white hover:bg-[#e02525] hover:text-white"
+                              : "text-[#3A1F1F]"
+                          }
+                        >
+                          {pageNumber}
+                        </PaginationLink>
+                      </PaginationItem>
+                    ))}
+
+                    <PaginationItem>
+                      <PaginationNext
+                        href="#job-results-pagination"
+                        onClick={(event) => {
+                          event.preventDefault();
+                          if (currentPage < totalPages) setCurrentPage((page) => page + 1);
+                        }}
+                        className={currentPage === totalPages ? "pointer-events-none opacity-50" : ""}
+                      />
+                    </PaginationItem>
+                  </PaginationContent>
+                </Pagination>
               </div>
             )}
           </div>
