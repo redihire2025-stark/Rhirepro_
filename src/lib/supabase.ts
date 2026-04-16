@@ -119,6 +119,16 @@ export interface Notification {
   created_at: string;
 }
 
+export interface Feedback {
+  id: string;
+  user_id: string;
+  user_type: "jobseeker" | "recruiter";
+  user_email: string | null;
+  rating: number;
+  comment: string | null;
+  created_at: string;
+}
+
 export interface SavedJob {
   id: string;
   profile_id: string;

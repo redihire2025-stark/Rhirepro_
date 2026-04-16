@@ -24,6 +24,7 @@ import { Textarea } from "../components/ui/textarea";
 import { Select, SelectContent, SelectItem, SelectTrigger, SelectValue } from "../components/ui/select";
 import { BarChart, Bar, XAxis, YAxis, CartesianGrid, Tooltip, ResponsiveContainer } from "recharts";
 import { Badge } from "../components/ui/badge";
+import FeedbackPopup from "../components/FeedbackPopup";
 import logoImage from "../../logo/logo.png";
 
 // ── Types ──────────────────────────────────────────────────────────────────────
@@ -228,6 +229,13 @@ export default function JobSeekerDashboard() {
 
   return (
     <div className="min-h-screen bg-[#F6F6F6]">
+      <FeedbackPopup
+        userId={user.id}
+        userType="jobseeker"
+        userEmail={user.email}
+        autoOpenKey="jobseeker-dashboard"
+      />
+
       <header className="bg-white shadow-sm sticky top-0 z-50">
         <div className="container mx-auto px-4 py-4">
           <div className="flex items-center justify-between">

@@ -28,6 +28,7 @@ import {
 } from "../components/ui/dropdown-menu";
 import { Dialog, DialogContent, DialogHeader, DialogTitle, DialogTrigger } from "../components/ui/dialog";
 import { Tabs, TabsContent, TabsList, TabsTrigger } from "../components/ui/tabs";
+import FeedbackPopup from "../components/FeedbackPopup";
 
 // ─── Types ──────────────────────────────────────────────────────────────────
 
@@ -698,6 +699,13 @@ export default function RecruiterDashboard() {
 
   return (
     <div className="min-h-screen bg-[#F6F6F6]">
+      <FeedbackPopup
+        userId={user.id}
+        userType="recruiter"
+        userEmail={user.email}
+        autoOpenKey="recruiter-dashboard"
+      />
+
       <header className="bg-white shadow-sm sticky top-0 z-50">
         <div className="container mx-auto px-4 py-3">
           <div className="flex items-center justify-between">
