@@ -38,6 +38,7 @@ import {
 import { useNavigate } from "react-router";
 import { ImageWithFallback } from "../components/figma/ImageWithFallback";
 import { useAuth } from "../../lib/auth-context";
+
 import { PLANS } from "../../lib/plans";
 import { supabase, type Job as DBJob } from "../../lib/supabase";
 import { isJobVisibleToSeekers } from "../../lib/jobs";
@@ -109,6 +110,123 @@ function formatDescription(job: DBJob): string {
   return "Explore this opportunity and apply now.";
 }
 
+type LandingTestimonial = {
+  id: string;
+  name: string;
+  role: string;
+  rating: number;
+  text: string;
+  image: string | null;
+};
+
+type SupabaseLandingTestimonial = {
+  feedback_id: string;
+  user_id: string;
+  user_type: "jobseeker" | "recruiter";
+  rating: number;
+  comment: string | null;
+  reviewer_name: string | null;
+  reviewer_role: string | null;
+  image_url: string | null;
+};
+
+type DirectFeedbackReview = {
+  id: string;
+  user_id: string;
+  user_type: "jobseeker" | "recruiter";
+  user_email: string | null;
+  rating: number;
+  comment: string | null;
+};
+
+const TESTIMONIAL_LIMIT = 4;
+
+const fallbackTestimonials: LandingTestimonial[] = [
+  {
+    id: "fallback-sneha-iyer",
+    name: "Sneha Iyer",
+    role: "Software Engineer",
+    rating: 5,
+    text: "RhirePro helped me land my dream job in just 2 weeks. The process was seamless and the support team was incredible!",
+    image:
+      "https://plus.unsplash.com/premium_photo-1682089806994-abcccbaa953a?q=80&w=687&auto=format&fit=crop&ixlib=rb-4.1.0&ixid=M3wxMjA3fDB8MHxwaG90by1wYWdlfHx8fGVufDB8fHx8fA%3D%3D",
+  },
+  {
+    id: "fallback-rahul-sharma",
+    name: "Rahul Sharma",
+    role: "Full Stack Developer",
+    rating: 5,
+    text: "The best recruitment platform I've ever used. The job matching algorithm is spot-on. Highly recommended!",
+    image:
+      "https://images.unsplash.com/photo-1612681051163-6c1ad652d143?q=80&w=687&auto=format&fit=crop&ixlib=rb-4.1.0&ixid=M3wxMjA3fDB8MHxwaG90by1wYWdlfHx8fGVufDB8fHx8fA%3D%3D",
+  },
+  {
+    id: "fallback-priya-reddy",
+    name: "Priya Reddy",
+    role: "Frontend Developer",
+    rating: 5,
+    text: "An amazing recruitment platform! The job recommendations are incredibly accurate and saved me so much time. Definitely worth using",
+    image:
+      "https://images.pexels.com/photos/7648312/pexels-photo-7648312.jpeg?_gl=1*oy4rdb*_ga*MTg0OTEwNDE3NC4xNzY3MDc1ODM4*_ga_8JE65Q40S6*czE3NzQ1MTQwNDQkbzIkZzEkdDE3NzQ1MTQzOTUkajQ5JGwwJGgw",
+  },
+  {
+    id: "fallback-karthik-kumar",
+    name: "Karthik Kumar",
+    role: "React Developer",
+    rating: 5,
+    text: "Professional, efficient, and results-driven. RhirePro connected me with opportunities I wouldn't have found elsewhere!",
+    image:
+      "https://images.unsplash.com/photo-1729157661483-ed21901ed892?q=80&w=687&auto=format&fit=crop&ixlib=rb-4.1.0&ixid=M3wxMjA3fDB8MHxwaG90by1wYWdlfHx8fGVufDB8fHx8fA%3D%3D",
+  },
+];
+
+const shuffleItems = <T,>(items: T[]) =>
+  [...items].sort(() => Math.random() - 0.5);
+
+const getInitials = (name: string) =>
+  name
+    .split(" ")
+    .filter(Boolean)
+    .slice(0, 2)
+    .map((part) => part[0])
+    .join("")
+    .toUpperCase();
+
+const getNameFromEmail = (email: string | null) => {
+  const emailName = email?.split("@")[0]?.replace(/[._-]+/g, " ").trim();
+  if (!emailName) return "RhirePro User";
+
+  return emailName
+    .split(" ")
+    .filter(Boolean)
+    .map((part) => part[0].toUpperCase() + part.slice(1))
+    .join(" ");
+};
+
+const getReviewText = (comment: string | null, rating: number) =>
+  comment?.trim() || `Rated RhirePro ${rating} out of 5 stars.`;
+
+const pickUniqueTestimonials = (
+  realTestimonials: LandingTestimonial[],
+): LandingTestimonial[] => {
+  const unique = new Map<string, LandingTestimonial>();
+
+  shuffleItems(realTestimonials).forEach((testimonial) => {
+    if (!unique.has(testimonial.id)) {
+      unique.set(testimonial.id, testimonial);
+    }
+  });
+
+  const selected = Array.from(unique.values()).slice(0, TESTIMONIAL_LIMIT);
+  const fallbackSlots = TESTIMONIAL_LIMIT - selected.length;
+
+  if (fallbackSlots > 0) {
+    selected.push(...shuffleItems(fallbackTestimonials).slice(0, fallbackSlots));
+  }
+
+  return shuffleItems(selected);
+};
+
 export default function LandingPage() {
   const [activeSection, setActiveSection] = useState("home");
   const [isMenuOpen, setIsMenuOpen] = useState(false);
@@ -118,6 +236,9 @@ export default function LandingPage() {
   const [selectedCategory, setSelectedCategory] = useState("ALL");
   const [jobs, setJobs] = useState<DisplayJob[]>([]);
   const [visibleCategories, setVisibleCategories] = useState<JobCategory[]>([]);
+  const [testimonials, setTestimonials] = useState<LandingTestimonial[]>(() =>
+    pickUniqueTestimonials([]),
+  );
   const navigate = useNavigate();
   const { user, role, profile } = useAuth();
 
@@ -130,6 +251,70 @@ export default function LandingPage() {
       navigate(`/signin?redirect=plan&plan=${plan.id}`);
     }
   };
+
+  useEffect(() => {
+    let isMounted = true;
+
+    const loadFeedbackTestimonials = async () => {
+      const { data, error } = await supabase.rpc("get_landing_testimonials", {
+        testimonial_limit: 24,
+      });
+
+      let realTestimonials: LandingTestimonial[] = [];
+
+      if (!error && data) {
+        realTestimonials = (data as SupabaseLandingTestimonial[])
+          .map((review) => {
+            const rating = Math.max(1, Math.min(5, Number(review.rating) || 5));
+
+            return {
+              id: review.user_id || review.feedback_id,
+              name: review.reviewer_name?.trim() || "RhirePro User",
+              role:
+                review.reviewer_role?.trim() ||
+                (review.user_type === "recruiter" ? "Recruiter" : "Job Seeker"),
+              rating,
+              text: getReviewText(review.comment, rating),
+              image: review.image_url?.trim() || null,
+            };
+          })
+          .filter((review) => review.name);
+      }
+
+      if (realTestimonials.length === 0) {
+        const { data: feedbackData } = await supabase
+          .from("feedback")
+          .select("id,user_id,user_type,user_email,rating,comment")
+          .order("created_at", { ascending: false })
+          .limit(24);
+
+        realTestimonials = ((feedbackData || []) as DirectFeedbackReview[])
+          .map((review) => {
+            const rating = Math.max(1, Math.min(5, Number(review.rating) || 5));
+
+            return {
+              id: review.user_id || review.id,
+              name: getNameFromEmail(review.user_email),
+              role: review.user_type === "recruiter" ? "Recruiter" : "Job Seeker",
+              rating,
+              text: getReviewText(review.comment, rating),
+              image: null,
+            };
+          })
+          .filter((review) => review.name);
+      }
+
+      if (!isMounted) return;
+
+      setTestimonials(pickUniqueTestimonials(realTestimonials));
+    };
+
+    loadFeedbackTestimonials();
+
+    return () => {
+      isMounted = false;
+    };
+  }, []);
 
   useEffect(() => {
     const handleScroll = () => {
@@ -312,41 +497,6 @@ export default function LandingPage() {
     },
   ];
 
-  const testimonials = [
-    {
-      name: "Sneha Iyer",
-      role: "Software Engineer",
-      rating: 5,
-      text: "RhirePro helped me land my dream job in just 2 weeks. The process was seamless and the support team was incredible!",
-      image:
-        "https://plus.unsplash.com/premium_photo-1682089806994-abcccbaa953a?q=80&w=687&auto=format&fit=crop&ixlib=rb-4.1.0&ixid=M3wxMjA3fDB8MHxwaG90by1wYWdlfHx8fGVufDB8fHx8fA%3D%3D",
-    },
-    {
-      name: "Rahul Sharma",
-      role: "Full Stack Developer",
-      rating: 5,
-      text: "The best recruitment platform I've ever used. The job matching algorithm is spot-on. Highly recommended!",
-      image:
-        "https://images.unsplash.com/photo-1612681051163-6c1ad652d143?q=80&w=687&auto=format&fit=crop&ixlib=rb-4.1.0&ixid=M3wxMjA3fDB8MHxwaG90by1wYWdlfHx8fGVufDB8fHx8fA%3D%3D",
-    },
-    {
-      name: "Priya Reddy",
-      role: "Frontend Developer",
-      rating: 5,
-      text: "An amazing recruitment platform! The job recommendations are incredibly accurate and saved me so much time. Definitely worth using",
-      image:
-        "https://images.pexels.com/photos/7648312/pexels-photo-7648312.jpeg?_gl=1*oy4rdb*_ga*MTg0OTEwNDE3NC4xNzY3MDc1ODM4*_ga_8JE65Q40S6*czE3NzQ1MTQwNDQkbzIkZzEkdDE3NzQ1MTQzOTUkajQ5JGwwJGgw",
-    },
-    {
-      name: "Karthik Kumar",
-      role: "React Developer",
-      rating: 5,
-      text: "Professional, efficient, and results-driven. RhirePro connected me with opportunities I wouldn't have found elsewhere!",
-      image:
-        "https://images.unsplash.com/photo-1729157661483-ed21901ed892?q=80&w=687&auto=format&fit=crop&ixlib=rb-4.1.0&ixid=M3wxMjA3fDB8MHxwaG90by1wYWdlfHx8fGVufDB8fHx8fA%3D%3D",
-    },
-  ];
-
   const blogs = [
     {
       title: "Why Soft Skills Matter More Than Ever",
@@ -489,51 +639,46 @@ export default function LandingPage() {
           <nav className="hidden md:flex items-center gap-4">
             <button
               onClick={() => scrollToSection("home")}
-              className={`px-4 py-2 rounded-full transition-all ${
-                activeSection === "home"
-                  ? "bg-[#FF2B2B] text-white"
-                  : "text-[#3A1F1F] hover:bg-[#ECECF4]"
-              }`}
+              className={`px-4 py-2 rounded-full transition-all ${activeSection === "home"
+                ? "bg-[#FF2B2B] text-white"
+                : "text-[#3A1F1F] hover:bg-[#ECECF4]"
+                }`}
             >
               Home
             </button>
             <button
               onClick={() => scrollToSection("about")}
-              className={`px-4 py-2 rounded-full transition-all ${
-                activeSection === "about"
-                  ? "bg-[#FF2B2B] text-white"
-                  : "text-[#3A1F1F] hover:bg-[#ECECF4]"
-              }`}
+              className={`px-4 py-2 rounded-full transition-all ${activeSection === "about"
+                ? "bg-[#FF2B2B] text-white"
+                : "text-[#3A1F1F] hover:bg-[#ECECF4]"
+                }`}
             >
               About Us
             </button>
             <button
               onClick={() => scrollToSection("services")}
-              className={`px-4 py-2 rounded-full transition-all ${
-                activeSection === "services"
-                  ? "bg-[#FF2B2B] text-white"
-                  : "text-[#3A1F1F] hover:bg-[#ECECF4]"
-              }`}
+              className={`px-4 py-2 rounded-full transition-all ${activeSection === "services"
+                ? "bg-[#FF2B2B] text-white"
+                : "text-[#3A1F1F] hover:bg-[#ECECF4]"
+                }`}
             >
               Services
             </button>
             <button
               onClick={() => scrollToSection("jobs")}
-              className={`px-4 py-2 rounded-full transition-all ${
-                activeSection === "jobs"
-                  ? "bg-[#FF2B2B] text-white"
-                  : "text-[#3A1F1F] hover:bg-[#ECECF4]"
-              }`}
+              className={`px-4 py-2 rounded-full transition-all ${activeSection === "jobs"
+                ? "bg-[#FF2B2B] text-white"
+                : "text-[#3A1F1F] hover:bg-[#ECECF4]"
+                }`}
             >
               Jobs
             </button>
             <button
               onClick={() => scrollToSection("contact")}
-              className={`px-4 py-2 rounded-full transition-all ${
-                activeSection === "contact"
-                  ? "bg-[#FF2B2B] text-white"
-                  : "text-[#3A1F1F] hover:bg-[#ECECF4]"
-              }`}
+              className={`px-4 py-2 rounded-full transition-all ${activeSection === "contact"
+                ? "bg-[#FF2B2B] text-white"
+                : "text-[#3A1F1F] hover:bg-[#ECECF4]"
+                }`}
             >
               Contact Us
             </button>
@@ -893,11 +1038,10 @@ export default function LandingPage() {
                 <div
                   key={index}
                   onClick={() => setSelectedPlan(plan.name)}
-                  className={`bg-white rounded-2xl p-8 shadow-md hover:shadow-xl transition-all cursor-pointer border-2 ${
-                    isSelected
-                      ? "border-[#FF2B2B] scale-105"
-                      : "border-gray-200 hover:border-[#FF2B2B]/40"
-                  }`}
+                  className={`bg-white rounded-2xl p-8 shadow-md hover:shadow-xl transition-all cursor-pointer border-2 ${isSelected
+                    ? "border-[#FF2B2B] scale-105"
+                    : "border-gray-200 hover:border-[#FF2B2B]/40"
+                    }`}
                 >
                   <div className="flex items-center justify-between mb-2">
                     <h3 className="text-2xl font-bold text-[#3A1F1F] flex items-center gap-2">
@@ -966,30 +1110,37 @@ export default function LandingPage() {
               className="rounded-2xl h-96 w-full object-cover"
             />
             <div className="space-y-6">
-              {testimonials.map((testimonial, index) => (
+              {testimonials.map((testimonial) => (
                 <div
-                  key={index}
+                  key={testimonial.id}
                   className="bg-white rounded-2xl p-6 shadow-md border border-gray-100"
                 >
                   <div className="flex mb-4">
-                    {[...Array(testimonial.rating)].map(
-                      (_, i) => (
-                        <Star
-                          key={i}
-                          className="h-5 w-5 fill-yellow-400 text-yellow-400"
-                        />
-                      ),
-                    )}
+                    {[1, 2, 3, 4, 5].map((value) => (
+                      <Star
+                        key={value}
+                        className={`h-5 w-5 ${value <= testimonial.rating
+                          ? "fill-yellow-400 text-yellow-400"
+                          : "text-gray-300"
+                          }`}
+                      />
+                    ))}
                   </div>
                   <p className="text-[#8A8A8A] mb-4">
                     "{testimonial.text}"
                   </p>
                   <div className="flex items-center gap-3">
-                    <ImageWithFallback
-                      src={testimonial.image}
-                      alt={testimonial.name}
-                      className="w-10 h-10 rounded-full object-cover"
-                    />
+                    {testimonial.image ? (
+                      <ImageWithFallback
+                        src={testimonial.image}
+                        alt={testimonial.name}
+                        className="w-10 h-10 rounded-full object-cover"
+                      />
+                    ) : (
+                      <div className="flex h-10 w-10 items-center justify-center rounded-full bg-[#3A1F1F] text-sm font-semibold text-white">
+                        {getInitials(testimonial.name)}
+                      </div>
+                    )}
                     <div>
                       <p className="font-semibold text-[#3A1F1F]">
                         {testimonial.name}
@@ -1028,11 +1179,10 @@ export default function LandingPage() {
               <Button
                 key={cat}
                 onClick={() => setSelectedCategory(cat)}
-                className={`rounded-full px-6 ${
-                  selectedCategory === cat
-                    ? "bg-[#FF2B2B] hover:bg-[#e02525] text-white"
-                    : "bg-white border-2 border-gray-300 text-[#3A1F1F] hover:bg-[#FF2B2B] hover:text-white hover:border-[#FF2B2B]"
-                }`}
+                className={`rounded-full px-6 ${selectedCategory === cat
+                  ? "bg-[#FF2B2B] hover:bg-[#e02525] text-white"
+                  : "bg-white border-2 border-gray-300 text-[#3A1F1F] hover:bg-[#FF2B2B] hover:text-white hover:border-[#FF2B2B]"
+                  }`}
               >
                 {cat}
               </Button>
@@ -1324,7 +1474,7 @@ export default function LandingPage() {
                 <p className="text-[#8A8A8A] mb-6">
                   Send us an email and we'll get back to you as soon as possible
                 </p>
-                <a 
+                <a
                   href="mailto:support@rhirepro.com"
                   className="inline-flex items-center gap-2 text-[#FF2B2B] hover:text-[#e02525] text-lg font-semibold transition-colors"
                 >
@@ -1339,7 +1489,7 @@ export default function LandingPage() {
                 <p className="text-sm text-[#8A8A8A] text-center mb-4">
                   Or click the button below to compose a message in your email client
                 </p>
-                <Button 
+                <Button
                   onClick={() => window.location.href = 'mailto:support@rhirepro.com?subject=Inquiry from RhirePro&body=Hello RhirePro Team,%0D%0A%0D%0AI would like to inquire about...'}
                   className="w-full bg-[#FF2B2B] hover:bg-[#e02525] text-white rounded-full py-6 text-base"
                 >
