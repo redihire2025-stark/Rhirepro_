@@ -1,4 +1,4 @@
-import { useState, useEffect } from "react";
+import { useState } from "react";
 import { useNavigate, useSearchParams } from "react-router";
 import { Button } from "../components/ui/button";
 import { Input } from "../components/ui/input";
@@ -6,8 +6,6 @@ import { User, Briefcase, Mail, Lock, Eye, EyeOff, Loader2, ShieldCheck, Refresh
 const logoImage = new URL("../../logo/logo.png", import.meta.url).href;
 import { supabase } from "../../lib/supabase";
 import { sendOTPEmail, sendPasswordResetOTP, resetPasswordWithOTP } from "../../lib/email";
-import { useAuth } from "../../lib/auth-context";
-import { ensureRecruiterGoogleProfile } from "../../lib/google-auth";
 
 // ── OTP helpers ──────────────────────────────────────────────────────────────
 
@@ -72,86 +70,9 @@ export default function SignInPage() {
   const [confirmPassword, setConfirmPassword] = useState("");
   const [showNewPassword, setShowNewPassword] = useState(false);
   const [resetSuccess, setResetSuccess] = useState(false);
-  const [googleReady, setGoogleReady] = useState(false);
   const navigate = useNavigate();
   const [searchParams] = useSearchParams();
   const planRedirect = searchParams.get("redirect") === "plan" ? searchParams.get("plan") : null;
-
-  // Handle navigation after Google sign-in
-  const { user, role, loading: authLoading } = useAuth();
-
-  useEffect(() => {
-    const initGoogle = () => {
-      const google = (window as any).google;
-      if (!google?.accounts?.id) return false;
-      google.accounts.id.initialize({
-        client_id: '598285311977-nkq81asj8olahuvl82jfrsi36flojo81.apps.googleusercontent.com',
-        callback: async (response: any) => {
-          try {
-            console.log('Google sign-in response received');
-            const { data, error } = await supabase.auth.signInWithIdToken({
-              provider: 'google',
-              token: response.credential
-            });
-            if (error) throw error;
-            if (!data.user) {
-              throw new Error("Google authentication failed. Please try again.");
-            }
-
-            if (userType === "recruiter") {
-              await ensureRecruiterGoogleProfile(data.user);
-              navigate(planRedirect ? `/recruiter/plan-details?plan=${planRedirect}` : "/recruiter/dashboard");
-              return;
-            }
-
-            if (data.user.user_metadata?.role === "recruiter") {
-              await supabase.auth.signOut();
-              throw new Error("This Google account is already registered as a Recruiter. Please select Recruiter and try again.");
-            }
-
-            console.log('Supabase auth successful', data);
-
-            const signedInRole = data.user?.user_metadata?.role as "jobseeker" | "recruiter" | undefined;
-            const nextPath = signedInRole === "recruiter"
-              ? "/recruiter/dashboard"
-              : signedInRole === "jobseeker"
-                ? "/jobseeker/dashboard"
-                : userType === "recruiter"
-                  ? "/recruiter/dashboard"
-                  : "/jobseeker/dashboard";
-
-            navigate(nextPath);
-          } catch (err: unknown) {
-            console.error('Google sign-in error:', err);
-            setError(err instanceof Error ? err.message : "Google sign in failed.");
-            setLoading(false);
-          }
-        }
-      });
-      setGoogleReady(true);
-      // Render the Google button
-      google.accounts.id.renderButton(
-        document.getElementById('google-signin-button'),
-        {
-          theme: 'outline',
-          size: 'large',
-          width: '100%',
-          text: 'continue_with'
-        }
-      );
-      console.log('Google button rendered');
-      return true;
-    };
-
-    if (!initGoogle()) {
-      const interval = window.setInterval(() => {
-        if (initGoogle()) {
-          window.clearInterval(interval);
-        }
-      }, 100);
-      return () => window.clearInterval(interval);
-    }
-  }, [navigate, planRedirect, userType]);
 
   const handleForgotPassword = async (e: React.FormEvent) => {
     e.preventDefault();
@@ -206,15 +127,8 @@ export default function SignInPage() {
           .from("profiles").select("id, first_name, last_name").eq("id", data.user.id).single();
 
         const meta = data.user.user_metadata || {};
-        let firstName = profile?.first_name || meta.first_name || "";
-        let lastName = profile?.last_name || meta.last_name || "";
-
-        // If no name found, extract from email (before @)
-        if (!firstName && !lastName && data.user.email) {
-          const emailParts = data.user.email.split("@")[0].split(".");
-          firstName = emailParts[0] || "User";
-          lastName = emailParts.slice(1).join(" ") || "";
-        }
+        const firstName = profile?.first_name || meta.first_name || "";
+        const lastName = profile?.last_name || meta.last_name || "";
 
         if (profileErr || !profile) {
           const { error: insertErr } = await supabase.from("profiles").insert({
@@ -313,18 +227,17 @@ export default function SignInPage() {
     setError("");
     setLoading(true);
     try {
-      if (!googleReady) {
-        throw new Error("Google sign-in is not ready yet. Please refresh the page.");
-      }
-      const google = (window as any).google;
-      google.accounts.id.prompt((notification: any) => {
-        if (notification.isNotDisplayed?.()) {
-          setError("Google sign-in prompt could not be displayed. Please refresh the page or try again later.");
-        }
+      const { error } = await supabase.auth.signInWithOAuth({
+        provider: "google",
+        options: {
+          redirectTo: `${window.location.origin}/jobseeker/dashboard`,
+          queryParams: { access_type: "offline", prompt: "consent" },
+          scopes: "email profile",
+        },
       });
+      if (error) throw error;
     } catch (err: unknown) {
       setError(err instanceof Error ? err.message : "Google sign in failed.");
-    } finally {
       setLoading(false);
     }
   };
@@ -334,18 +247,6 @@ export default function SignInPage() {
     setOtp("");
     setError("");
   };
-
-  // Redirect if already signed in
-  useEffect(() => {
-    if (!authLoading && user && role) {
-      const destination = role === "jobseeker"
-        ? "/jobseeker/dashboard"
-        : planRedirect
-          ? `/recruiter/plan-details?plan=${planRedirect}`
-          : "/recruiter/dashboard";
-      navigate(destination, { replace: true });
-    }
-  }, [authLoading, user, role, navigate, planRedirect]);
 
   return (
     <div className="min-h-screen bg-gradient-to-br from-[#F6F6F6] to-[#ECECF4] flex items-center justify-center p-4 md:p-8">
@@ -447,13 +348,18 @@ export default function SignInPage() {
                     </Button>
                   </form>
 
-                  <>
-                    <div className="relative my-5">
-                      <div className="absolute inset-0 flex items-center"><div className="w-full border-t border-gray-200" /></div>
-                      <div className="relative flex justify-center text-sm"><span className="px-4 bg-white text-[#8A8A8A]">Or continue with</span></div>
-                    </div>
-                    <div id="google-signin-button" className="w-full flex justify-center"></div>
-                  </>
+                  {userType === "jobseeker" && (
+                    <>
+                      <div className="relative my-5">
+                        <div className="absolute inset-0 flex items-center"><div className="w-full border-t border-gray-200" /></div>
+                        <div className="relative flex justify-center text-sm"><span className="px-4 bg-white text-[#8A8A8A]">Or continue with</span></div>
+                      </div>
+                      <Button type="button" variant="outline" onClick={handleGoogleSignIn} disabled={loading}
+                        className="w-full border-2 border-gray-200 rounded-xl py-5 hover:bg-gray-50">
+                        <GoogleIcon /> Google
+                      </Button>
+                    </>
+                  )}
                 </>
               ) : step === "forgot" ? (
                 <>
