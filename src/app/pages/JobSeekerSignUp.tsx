@@ -1,4 +1,4 @@
-import { useState } from "react";
+import { useState, useEffect } from "react";
 import { useNavigate, Link } from "react-router";
 
 const logoImage = new URL("../../logo/logo.png", import.meta.url).href;
@@ -33,6 +33,27 @@ export default function JobSeekerSignUp() {
   const [error, setError] = useState("");
   const [success, setSuccess] = useState(false);
   const navigate = useNavigate();
+
+  useEffect(() => {
+    if ((window as any).google) {
+      (window as any).google.accounts.id.initialize({
+        client_id: '598285311977-nkq81asj8olahuvl82jfrsi36flojo81.apps.googleusercontent.com',
+        callback: async (response: any) => {
+          try {
+            const { data, error } = await supabase.auth.signInWithIdToken({
+              provider: 'google',
+              token: response.credential
+            });
+            if (error) throw error;
+            // The auth state change will handle navigation
+          } catch (err: unknown) {
+            setError(err instanceof Error ? err.message : "Google sign up failed.");
+            setLoading(false);
+          }
+        }
+      });
+    }
+  }, []);
 
   const handleSubmit = async (e: React.FormEvent) => {
     e.preventDefault();
@@ -108,14 +129,7 @@ export default function JobSeekerSignUp() {
     setError("");
     setLoading(true);
     try {
-      const { error } = await supabase.auth.signInWithOAuth({
-        provider: "google",
-        options: {
-          redirectTo: `${window.location.origin}/jobseeker/dashboard`,
-          queryParams: { access_type: "offline", prompt: "consent" },
-        },
-      });
-      if (error) throw error;
+      (window as any).google.accounts.id.prompt();
     } catch (err: unknown) {
       setError(err instanceof Error ? err.message : "Google sign up failed.");
       setLoading(false);
