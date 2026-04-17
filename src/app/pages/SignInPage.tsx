@@ -7,6 +7,7 @@ const logoImage = new URL("../../logo/logo.png", import.meta.url).href;
 import { supabase } from "../../lib/supabase";
 import { sendOTPEmail, sendPasswordResetOTP, resetPasswordWithOTP } from "../../lib/email";
 import { useAuth } from "../../lib/auth-context";
+import { ensureRecruiterGoogleProfile } from "../../lib/google-auth";
 
 // ── OTP helpers ──────────────────────────────────────────────────────────────
 
@@ -93,6 +94,21 @@ export default function SignInPage() {
               token: response.credential
             });
             if (error) throw error;
+            if (!data.user) {
+              throw new Error("Google authentication failed. Please try again.");
+            }
+
+            if (userType === "recruiter") {
+              await ensureRecruiterGoogleProfile(data.user);
+              navigate(planRedirect ? `/recruiter/plan-details?plan=${planRedirect}` : "/recruiter/dashboard");
+              return;
+            }
+
+            if (data.user.user_metadata?.role === "recruiter") {
+              await supabase.auth.signOut();
+              throw new Error("This Google account is already registered as a Recruiter. Please select Recruiter and try again.");
+            }
+
             console.log('Supabase auth successful', data);
 
             const signedInRole = data.user?.user_metadata?.role as "jobseeker" | "recruiter" | undefined;
@@ -135,7 +151,7 @@ export default function SignInPage() {
       }, 100);
       return () => window.clearInterval(interval);
     }
-  }, []);
+  }, [navigate, planRedirect, userType]);
 
   const handleForgotPassword = async (e: React.FormEvent) => {
     e.preventDefault();

@@ -28,7 +28,12 @@ export function AuthProvider({ children }: { children: ReactNode }) {
 
   const fetchProfile = async (userId: string, userRole: string, retries = 3) => {
     if (userRole === "recruiter") {
-      const { data } = await supabase.from("recruiter_profiles").select("*").eq("id", userId).single();
+      const { data, error } = await supabase
+        .from("recruiter_profiles")
+        .select("*")
+        .eq("id", userId)
+        .maybeSingle();
+      if (error) throw error;
       if (!data && retries > 0) {
         await new Promise(r => setTimeout(r, 800));
         return fetchProfile(userId, userRole, retries - 1);
@@ -36,7 +41,12 @@ export function AuthProvider({ children }: { children: ReactNode }) {
       setRecruiterProfile(data);
       setProfile(null);
     } else {
-      const { data } = await supabase.from("profiles").select("*").eq("id", userId).single();
+      const { data, error } = await supabase
+        .from("profiles")
+        .select("*")
+        .eq("id", userId)
+        .maybeSingle();
+      if (error) throw error;
       if (!data && retries > 0) {
         await new Promise(r => setTimeout(r, 800));
         return fetchProfile(userId, userRole, retries - 1);
@@ -47,14 +57,24 @@ export function AuthProvider({ children }: { children: ReactNode }) {
   };
 
   const detectRoleForUser = async (user: User): Promise<"jobseeker" | "recruiter"> => {
-    const userMetadataRole = (user.user_metadata?.role as "jobseeker" | "recruiter" | undefined);
-    if (userMetadataRole) return userMetadataRole;
-
-    const { data: recruiter } = await supabase.from("recruiter_profiles").select("id").eq("id", user.id).single();
+    const { data: recruiter, error: recruiterError } = await supabase
+      .from("recruiter_profiles")
+      .select("id")
+      .eq("id", user.id)
+      .maybeSingle();
+    if (recruiterError) throw recruiterError;
     if (recruiter) return "recruiter";
 
-    const { data: jobseeker } = await supabase.from("profiles").select("id").eq("id", user.id).single();
+    const { data: jobseeker, error: jobseekerError } = await supabase
+      .from("profiles")
+      .select("id")
+      .eq("id", user.id)
+      .maybeSingle();
+    if (jobseekerError) throw jobseekerError;
     if (jobseeker) return "jobseeker";
+
+    const userMetadataRole = (user.user_metadata?.role as "jobseeker" | "recruiter" | undefined);
+    if (userMetadataRole) return userMetadataRole;
 
     return "jobseeker";
   };

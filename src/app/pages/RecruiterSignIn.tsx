@@ -8,6 +8,7 @@ import { Input } from "../components/ui/input";
 import { supabase } from "../../lib/supabase";
 import { sendOTPEmail, sendPasswordResetOTP, resetPasswordWithOTP } from "../../lib/email";
 import { useAuth } from "../../lib/auth-context";
+import { ensureRecruiterGoogleProfile } from "../../lib/google-auth";
 
 function generateOTP() {
   return Math.floor(100000 + Math.random() * 900000).toString();
@@ -84,15 +85,16 @@ export default function RecruiterSignIn() {
               token: response.credential
             });
             if (error) throw error;
+            if (!data.user) {
+              throw new Error("Google authentication failed. Please try again.");
+            }
+
+            await ensureRecruiterGoogleProfile(data.user);
+
             console.log('Supabase auth successful, navigating to dashboard');
             navigate('/recruiter/dashboard');
           } catch (err: unknown) {
             console.error('Google sign-in error:', err);
-            if (response?.credential) {
-              console.log('Credential present despite error, navigating anyway');
-              navigate('/recruiter/dashboard');
-              return;
-            }
             setError(err instanceof Error ? err.message : "Google sign in failed.");
             setLoading(false);
           }
