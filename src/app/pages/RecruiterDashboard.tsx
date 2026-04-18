@@ -654,13 +654,8 @@ export default function RecruiterDashboard() {
   }, [notificationsOpen]);
 
   const handleSignOut = async () => {
-    try {
-      await signOut();
-    } catch (error) {
-      console.error("Sign-out failed:", error);
-    } finally {
-      navigate("/");
-    }
+    await signOut();
+    navigate("/");
   };
 
   const companyInitials = recruiterProfile?.company_name
