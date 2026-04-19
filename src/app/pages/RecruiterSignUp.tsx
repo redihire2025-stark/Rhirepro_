@@ -135,63 +135,23 @@ export default function RecruiterSignUp() {
           )}
 
           <form onSubmit={handleSubmit} className="space-y-4">
-            <div>
-              <label className="block mb-1.5 text-sm font-medium text-[#3A1F1F]">Your Name *</label>
-              <Input value={formData.recruiterName} onChange={e => setFormData({ ...formData, recruiterName: e.target.value })} className="bg-[#F6F6F6] border-gray-200 rounded-xl" placeholder="Anita Rao" required />
-            </div>
-            <div>
-              <label className="block mb-1.5 text-sm font-medium text-[#3A1F1F]">Company Name *</label>
-              <Input value={formData.companyName} onChange={e => setFormData({ ...formData, companyName: e.target.value })} className="bg-[#F6F6F6] border-gray-200 rounded-xl" placeholder="TechCorp Inc." required />
-            </div>
-            <div className="grid grid-cols-2 gap-3">
-              <div>
-                <label className="block mb-1.5 text-sm font-medium text-[#3A1F1F]">Industry</label>
-                <Select value={formData.industry} onValueChange={v => setFormData({ ...formData, industry: v })}>
-                  <SelectTrigger className="bg-[#F6F6F6] border-gray-200 rounded-xl"><SelectValue placeholder="Select" /></SelectTrigger>
-                  <SelectContent>
-                    {["IT / Software","BFSI","Manufacturing","Healthcare","Education","E-commerce","Consulting","Media"].map(i => <SelectItem key={i} value={i}>{i}</SelectItem>)}
-                  </SelectContent>
-                </Select>
-              </div>
-              <div>
-                <label className="block mb-1.5 text-sm font-medium text-[#3A1F1F]">Company Size</label>
-                <Select value={formData.companySize} onValueChange={v => setFormData({ ...formData, companySize: v })}>
-                  <SelectTrigger className="bg-[#F6F6F6] border-gray-200 rounded-xl"><SelectValue placeholder="Employees" /></SelectTrigger>
-                  <SelectContent>
-                    {["1-10","11-50","51-200","201-500","501-1000","1001-5000","5001+"].map(s => <SelectItem key={s} value={s}>{s}</SelectItem>)}
-                  </SelectContent>
-                </Select>
-              </div>
-            </div>
-            <div>
-              <label className="block mb-1.5 text-sm font-medium text-[#3A1F1F]">Work Email *</label>
-              <Input type="email" value={formData.email} onChange={e => setFormData({ ...formData, email: e.target.value })} className="bg-[#F6F6F6] border-gray-200 rounded-xl" placeholder="hr@company.com" required autoComplete="email" />
-            </div>
-            <div>
-              <label className="block mb-1.5 text-sm font-medium text-[#3A1F1F]">Phone</label>
-              <Input type="tel" value={formData.phone} onChange={e => setFormData({ ...formData, phone: e.target.value })} className="bg-[#F6F6F6] border-gray-200 rounded-xl" placeholder="+91 22 6789 0123" />
-            </div>
-            <div>
-              <label className="block mb-1.5 text-sm font-medium text-[#3A1F1F]">Password *</label>
-              <div className="relative">
-                <Input type={showPassword ? "text" : "password"} value={formData.password} onChange={e => setFormData({ ...formData, password: e.target.value })} className="bg-[#F6F6F6] border-gray-200 rounded-xl pr-10" placeholder="Min 8 characters" required autoComplete="new-password" />
-                <button type="button" onClick={() => setShowPassword(!showPassword)} className="absolute right-3 top-1/2 -translate-y-1/2 text-[#8A8A8A]">
-                  {showPassword ? <EyeOff className="h-4 w-4" /> : <Eye className="h-4 w-4" />}
-                </button>
-              </div>
-            </div>
-            <div>
-              <label className="block mb-1.5 text-sm font-medium text-[#3A1F1F]">Confirm Password *</label>
-              <Input type="password" value={formData.confirmPassword} onChange={e => setFormData({ ...formData, confirmPassword: e.target.value })} className="bg-[#F6F6F6] border-gray-200 rounded-xl" placeholder="Re-enter password" required autoComplete="new-password" />
-            </div>
-            <Button type="submit" disabled={loading} className="w-full bg-[#FF2B2B] hover:bg-[#e02525] text-white rounded-full py-6">
-              {loading ? <><Loader2 className="mr-2 h-4 w-4 animate-spin" /> Creating Account...</> : "Create Recruiter Account"}
+            <Input placeholder="Your Name" value={formData.recruiterName} onChange={e => setFormData({ ...formData, recruiterName: e.target.value })} required />
+            <Input placeholder="Company Name" value={formData.companyName} onChange={e => setFormData({ ...formData, companyName: e.target.value })} required />
+            <Input type="email" placeholder="Email" value={formData.email} onChange={e => setFormData({ ...formData, email: e.target.value })} required />
+            <Input type="tel" placeholder="Phone" value={formData.phone} onChange={e => setFormData({ ...formData, phone: e.target.value })} />
+            <Input type={showPassword ? "text" : "password"} placeholder="Password" value={formData.password} onChange={e => setFormData({ ...formData, password: e.target.value })} required />
+            <Input type="password" placeholder="Confirm Password" value={formData.confirmPassword} onChange={e => setFormData({ ...formData, confirmPassword: e.target.value })} required />
+
+            <Button type="submit" disabled={loading} className="w-full">
+              {loading ? "Creating..." : "Create Account"}
             </Button>
           </form>
 
           <p className="text-center mt-6 text-sm text-[#8A8A8A]">
             Already have an account?{" "}
-            <Link to="/recruiter/signin" className="text-[#FF2B2B] font-semibold hover:underline">Sign In</Link>
+            <Link to="/recruiter/signin" className="text-[#FF2B2B] font-semibold hover:underline">
+              Sign In
+            </Link>
           </p>
         </div>
       </div>

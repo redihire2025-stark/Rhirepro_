@@ -1,6 +1,16 @@
 import { User } from "@supabase/supabase-js";
 import { supabase } from "./supabase";
 
+type AppRole = "jobseeker" | "recruiter";
+
+function roleLabel(role: AppRole): string {
+  return role === "jobseeker" ? "Job Seeker" : "Recruiter";
+}
+
+function normalizeEmail(email: string): string {
+  return email.trim().toLowerCase();
+}
+
 function deriveRecruiterName(user: User): string {
   const meta = user.user_metadata ?? {};
   const explicitName = [
@@ -38,6 +48,92 @@ async function hasJobseekerActivity(userId: string): Promise<boolean> {
   return [applications, savedJobs, workExperience, education].some(
     (result) => (result.count ?? 0) > 0
   );
+}
+
+export async function getRegisteredRoleByEmail(email: string): Promise<AppRole | null> {
+  const normalizedEmail = normalizeEmail(email);
+
+  const [{ data: recruiter, error: recruiterError }, { data: jobseeker, error: jobseekerError }] = await Promise.all([
+    supabase.from("recruiter_profiles").select("id").eq("email", normalizedEmail).maybeSingle(),
+    supabase.from("profiles").select("id").eq("email", normalizedEmail).maybeSingle(),
+  ]);
+
+  if (recruiterError || jobseekerError) {
+    throw new Error("Failed to verify email role. Please try again.");
+  }
+
+  if (recruiter) return "recruiter";
+  if (jobseeker) return "jobseeker";
+  return null;
+}
+
+export async function assertEmailAllowedForRole(email: string, targetRole: AppRole) {
+  const existingRole = await getRegisteredRoleByEmail(email);
+  if (existingRole && existingRole !== targetRole) {
+    throw new Error(`This email is already registered as a ${roleLabel(existingRole)}. Please use ${roleLabel(existingRole)} ${existingRole === "jobseeker" ? "Sign In" : "Portal"}.`);
+  }
+}
+
+export async function ensureJobseekerGoogleProfile(user: User) {
+  if (user.user_metadata?.role === "recruiter") {
+    await supabase.auth.signOut();
+    throw new Error("This Google account is already registered as a Recruiter. Please use Recruiter Sign In.");
+  }
+
+  const { data: recruiterProfile, error: recruiterError } = await supabase
+    .from("recruiter_profiles")
+    .select("id")
+    .eq("id", user.id)
+    .maybeSingle();
+
+  if (recruiterError) {
+    throw new Error("Failed to verify your account type. Please try again.");
+  }
+
+  if (recruiterProfile) {
+    await supabase.auth.signOut();
+    throw new Error("This Google account is already registered as a Recruiter. Please use Recruiter Sign In.");
+  }
+
+  const meta = user.user_metadata ?? {};
+  const firstName = typeof meta.first_name === "string" ? meta.first_name.trim() : "";
+  const lastName = typeof meta.last_name === "string" ? meta.last_name.trim() : "";
+
+  const { data: profile, error: profileError } = await supabase
+    .from("profiles")
+    .select("id, first_name, last_name")
+    .eq("id", user.id)
+    .maybeSingle();
+
+  if (profileError) {
+    throw new Error("Failed to verify job seeker profile. Please try again.");
+  }
+
+  if (!profile) {
+    const { error: insertError } = await supabase.from("profiles").insert({
+      id: user.id,
+      email: user.email,
+      first_name: firstName || null,
+      last_name: lastName || null,
+      phone: typeof meta.phone === "string" ? meta.phone : null,
+      experience_type: (meta.experience as "fresher" | "experienced") || "fresher",
+    });
+
+    if (insertError && insertError.code !== "23505") {
+      throw new Error("Failed to set up job seeker profile. Please try again.");
+    }
+  }
+
+  if (user.user_metadata?.role !== "jobseeker") {
+    await supabase.auth.updateUser({
+      data: {
+        ...user.user_metadata,
+        role: "jobseeker",
+        first_name: profile?.first_name || firstName,
+        last_name: profile?.last_name || lastName,
+      },
+    });
+  }
 }
 
 export async function ensureRecruiterGoogleProfile(user: User) {

@@ -26,6 +26,15 @@ export function AuthProvider({ children }: { children: ReactNode }) {
   const [role, setRole] = useState<"jobseeker" | "recruiter" | null>(null);
   const [loading, setLoading] = useState(true);
 
+  const withTimeout = async <T,>(promise: Promise<T>, label: string, timeoutMs = 5000): Promise<T> => {
+    return Promise.race([
+      promise,
+      new Promise<T>((_, reject) =>
+        window.setTimeout(() => reject(new Error(`${label} timeout`)), timeoutMs)
+      ),
+    ]);
+  };
+
   const fetchProfile = async (userId: string, userRole: string, retries = 3) => {
     if (userRole === "recruiter") {
       const { data, error } = await supabase
@@ -79,29 +88,36 @@ export function AuthProvider({ children }: { children: ReactNode }) {
     return "jobseeker";
   };
 
+  const hydrateUserState = async (sessionUser: User | null) => {
+    setUser(sessionUser);
+
+    if (!sessionUser) {
+      setRole(null);
+      setProfile(null);
+      setRecruiterProfile(null);
+      return;
+    }
+
+    const userRole = await withTimeout(detectRoleForUser(sessionUser), "Role detection");
+    setRole(userRole);
+
+    if (sessionUser.user_metadata?.role !== userRole) {
+      supabase.auth.updateUser({ data: { role: userRole } }).catch(() => {});
+    }
+
+    await withTimeout(fetchProfile(sessionUser.id, userRole), "Profile fetch").catch(() => {
+      if (userRole === "recruiter") setRecruiterProfile(null);
+      else setProfile(null);
+    });
+  };
+
 
   useEffect(() => {
     const initSession = async () => {
       try {
         const { data: { session } } = await supabase.auth.getSession();
         setSession(session);
-        setUser(session?.user ?? null);
-
-        if (session?.user) {
-          const userRole = await detectRoleForUser(session.user);
-          if (session.user.user_metadata?.role !== userRole) {
-            supabase.auth.updateUser({ data: { role: userRole } }).catch(() => {});
-          }
-          setRole(userRole);
-          await Promise.race([
-            fetchProfile(session.user.id, userRole),
-            new Promise((_, reject) => setTimeout(() => reject(new Error("Profile fetch timeout")), 5000))
-          ]).catch(() => {
-            // Profile fetch failed or timed out, but continue anyway
-            if (userRole === "recruiter") setRecruiterProfile(null);
-            else setProfile(null);
-          });
-        }
+        await hydrateUserState(session?.user ?? null);
       } catch (error) {
         console.error("Session init error:", error);
       } finally {
@@ -111,28 +127,13 @@ export function AuthProvider({ children }: { children: ReactNode }) {
 
     initSession();
 
-    const { data: { subscription } } = supabase.auth.onAuthStateChange(async (_event, session) => {
-      setSession(session);
-      setUser(session?.user ?? null);
-
-      if (session?.user) {
-        const userRole = await detectRoleForUser(session.user);
-        setRole(userRole);
-        if (session.user.user_metadata?.role !== userRole) {
-          supabase.auth.updateUser({ data: { role: userRole } }).catch(() => {});
-        }
-        await Promise.race([
-          fetchProfile(session.user.id, userRole),
-          new Promise((_, reject) => setTimeout(() => reject(new Error("Profile fetch timeout")), 5000))
-        ]).catch(() => {
-          if (userRole === "recruiter") setRecruiterProfile(null);
-          else setProfile(null);
-        });
-      } else {
-        setRole(null);
-        setProfile(null);
-        setRecruiterProfile(null);
+    const { data: { subscription } } = supabase.auth.onAuthStateChange(async (event, session) => {
+      if (event === "INITIAL_SESSION") {
+        return;
       }
+
+      setSession(session);
+      await hydrateUserState(session?.user ?? null);
     });
 
     return () => subscription.unsubscribe();
@@ -140,6 +141,28 @@ export function AuthProvider({ children }: { children: ReactNode }) {
 
   const signOut = async () => {
     try {
+      const google = (window as Window & {
+        google?: {
+          accounts?: {
+            id?: {
+              disableAutoSelect?: () => void;
+              revoke?: (email: string, done?: () => void) => void;
+            };
+          };
+        };
+      }).google;
+
+      const userEmail = user?.email;
+
+      google?.accounts?.id?.disableAutoSelect?.();
+
+      if (userEmail && google?.accounts?.id?.revoke) {
+        await new Promise<void>((resolve) => {
+          google.accounts.id.revoke?.(userEmail, () => resolve());
+          window.setTimeout(resolve, 1500);
+        });
+      }
+
       await supabase.auth.signOut();
     } catch (error) {
       console.error("Failed to sign out:", error);

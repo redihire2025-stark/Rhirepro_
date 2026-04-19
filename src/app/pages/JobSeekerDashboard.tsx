@@ -151,14 +151,18 @@ function buildDashboardJob(job: DBJob): DashboardDisplayJob {
 // ── Main Dashboard ─────────────────────────────────────────────────────────────
 export default function JobSeekerDashboard() {
   const navigate = useNavigate();
-  const { profile, user, loading: authLoading, signOut } = useAuth();
+  const { profile, user, role, loading: authLoading, signOut } = useAuth();
 
   // Auth guard — redirect to sign-in if not authenticated
   useEffect(() => {
     if (!authLoading && !user) {
       navigate("/signin", { replace: true });
+      return;
     }
-  }, [authLoading, user, navigate]);
+    if (!authLoading && user && role === "recruiter") {
+      navigate("/recruiter/dashboard", { replace: true });
+    }
+  }, [authLoading, user, role, navigate]);
 
   const [activeTab, setActiveTab] = useState("find-job");
   const [notificationsOpen, setNotificationsOpen] = useState(false);
@@ -239,6 +243,7 @@ export default function JobSeekerDashboard() {
       </div>
     );
   }
+  if (user && role === "recruiter") return null;
   if (!user) return null;
 
   return (

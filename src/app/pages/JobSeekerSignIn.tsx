@@ -8,6 +8,7 @@ import { Input } from "../components/ui/input";
 import { supabase } from "../../lib/supabase";
 import { sendOTPEmail, sendPasswordResetOTP, resetPasswordWithOTP } from "../../lib/email";
 import { useAuth } from "../../lib/auth-context";
+import { ensureJobseekerGoogleProfile } from "../../lib/google-auth";
 
 // ─── OTP helpers ─────────────────────────────────────────────────────────────
 
@@ -69,8 +70,8 @@ export default function JobSeekerSignIn() {
   // Handle navigation after Google sign-in
   const { user, role } = useAuth();
   useEffect(() => {
-    if (user && role === "jobseeker") {
-      navigate("/jobseeker/dashboard");
+    if (user && role) {
+      navigate(role === "jobseeker" ? "/jobseeker/dashboard" : "/recruiter/dashboard", { replace: true });
     }
   }, [user, role, navigate]);
 
@@ -93,6 +94,10 @@ export default function JobSeekerSignIn() {
                 console.error('Supabase auth error:', error);
                 throw error;
               }
+              if (!data.user) {
+                throw new Error("Google sign in failed.");
+              }
+              await ensureJobseekerGoogleProfile(data.user);
               console.log('Supabase auth success:', data);
             } catch (err: unknown) {
               console.error('Auth callback error:', err);
@@ -235,7 +240,7 @@ export default function JobSeekerSignIn() {
       const valid = await verifyOTPFromDB(userId, otp.trim());
       if (!valid) throw new Error("Invalid or expired OTP. Please try again.");
       await supabase.from("profiles").update({ otp_code: null, otp_expires_at: null }).eq("id", userId);
-      navigate("/jobseeker/dashboard");
+      navigate("/jobseeker/dashboard", { replace: true });
     } catch (err: unknown) {
       setError(err instanceof Error ? err.message : "OTP verification failed.");
     } finally {

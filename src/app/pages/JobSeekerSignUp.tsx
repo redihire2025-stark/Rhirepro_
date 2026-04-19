@@ -8,6 +8,7 @@ import { Input } from "../components/ui/input";
 import { RadioGroup, RadioGroupItem } from "../components/ui/radio-group";
 import { Label } from "../components/ui/label";
 import { supabase } from "../../lib/supabase";
+import { assertEmailAllowedForRole, ensureJobseekerGoogleProfile } from "../../lib/google-auth";
 
 const GoogleIcon = () => (
   <svg className="w-5 h-5 mr-2" viewBox="0 0 24 24">
@@ -45,6 +46,8 @@ export default function JobSeekerSignUp() {
               token: response.credential
             });
             if (error) throw error;
+            if (!data.user) throw new Error("Google sign up failed.");
+            await ensureJobseekerGoogleProfile(data.user);
             // The auth state change will handle navigation
           } catch (err: unknown) {
             setError(err instanceof Error ? err.message : "Google sign up failed.");
@@ -70,6 +73,7 @@ export default function JobSeekerSignUp() {
 
     setLoading(true);
     try {
+      await assertEmailAllowedForRole(formData.email, "jobseeker");
       // 1. Create auth user with role metadata
       const { data: authData, error: signUpError } = await supabase.auth.signUp({
         email: formData.email,

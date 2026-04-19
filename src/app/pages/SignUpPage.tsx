@@ -6,6 +6,7 @@ import { Checkbox } from "../components/ui/checkbox";
 import { User, Briefcase, Mail, Lock, UserCircle, Building2, Phone, Eye, EyeOff, Loader2, CheckCircle } from "lucide-react";
 const logoImage = new URL("../../logo/logo.png", import.meta.url).href;
 import { supabase } from "../../lib/supabase";
+import { assertEmailAllowedForRole } from "../../lib/google-auth";
 
 export default function SignUpPage() {
   const [userType, setUserType] = useState<"jobseeker" | "recruiter">("jobseeker");
@@ -43,6 +44,7 @@ export default function SignUpPage() {
     setLoading(true);
     try {
       if (userType === "jobseeker") {
+        await assertEmailAllowedForRole(formData.email, "jobseeker");
         // Split full name into first / last
         const parts = formData.name.trim().split(" ");
         const firstName = parts[0] || "";
@@ -86,6 +88,7 @@ export default function SignUpPage() {
 
       } else {
         // Recruiter
+        await assertEmailAllowedForRole(formData.email, "recruiter");
         const { data: authData, error: signUpError } = await supabase.auth.signUp({
           email: formData.email,
           password: formData.password,

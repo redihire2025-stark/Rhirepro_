@@ -592,14 +592,18 @@ function CandidateProfileModal({ candidate, open, onClose }: { candidate: Candid
 export default function RecruiterDashboard() {
   const navigate = useNavigate();
   const location = useLocation();
-  const { recruiterProfile, user, loading: authLoading, signOut } = useAuth();
+  const { recruiterProfile, user, role, loading: authLoading, signOut } = useAuth();
 
   // Auth guard — redirect to sign-in if not authenticated
   useEffect(() => {
     if (!authLoading && !user) {
       navigate("/signin", { replace: true });
+      return;
     }
-  }, [authLoading, user, navigate]);
+    if (!authLoading && user && role === "jobseeker") {
+      navigate("/jobseeker/dashboard", { replace: true });
+    }
+  }, [authLoading, user, role, navigate]);
 
   const [notificationsOpen, setNotificationsOpen] = useState(false);
   const [notifications, setNotifications] = useState<Notification[]>([]);
@@ -700,6 +704,7 @@ export default function RecruiterDashboard() {
       </div>
     );
   }
+  if (user && role === "jobseeker") return null;
   if (!user) return null;
 
   return (

@@ -7,7 +7,7 @@ const logoImage = new URL("../../logo/logo.png", import.meta.url).href;
 import { supabase } from "../../lib/supabase";
 import { sendOTPEmail, sendPasswordResetOTP, resetPasswordWithOTP } from "../../lib/email";
 import { useAuth } from "../../lib/auth-context";
-import { ensureRecruiterGoogleProfile } from "../../lib/google-auth";
+import { ensureJobseekerGoogleProfile, ensureRecruiterGoogleProfile } from "../../lib/google-auth";
 
 // ── OTP helpers ──────────────────────────────────────────────────────────────
 
@@ -100,14 +100,10 @@ export default function SignInPage() {
 
             if (userType === "recruiter") {
               await ensureRecruiterGoogleProfile(data.user);
-              navigate(planRedirect ? `/recruiter/plan-details?plan=${planRedirect}` : "/recruiter/dashboard");
+              navigate(planRedirect ? `/recruiter/plan-details?plan=${planRedirect}` : "/recruiter/dashboard", { replace: true });
               return;
             }
-
-            if (data.user.user_metadata?.role === "recruiter") {
-              await supabase.auth.signOut();
-              throw new Error("This Google account is already registered as a Recruiter. Please select Recruiter and try again.");
-            }
+            await ensureJobseekerGoogleProfile(data.user);
 
             console.log('Supabase auth successful', data);
 
@@ -120,7 +116,7 @@ export default function SignInPage() {
                   ? "/recruiter/dashboard"
                   : "/jobseeker/dashboard";
 
-            navigate(nextPath);
+            navigate(nextPath, { replace: true });
           } catch (err: unknown) {
             console.error('Google sign-in error:', err);
             setError(err instanceof Error ? err.message : "Google sign in failed.");
@@ -280,10 +276,10 @@ export default function SignInPage() {
 
       if (userType === "jobseeker") {
         await supabase.from("profiles").update({ otp_code: null, otp_expires_at: null }).eq("id", userId);
-        navigate("/jobseeker/dashboard");
+        navigate("/jobseeker/dashboard", { replace: true });
       } else {
         await supabase.from("recruiter_profiles").update({ otp_code: null, otp_expires_at: null }).eq("id", userId);
-        navigate(planRedirect ? `/recruiter/plan-details?plan=${planRedirect}` : "/recruiter/dashboard");
+        navigate(planRedirect ? `/recruiter/plan-details?plan=${planRedirect}` : "/recruiter/dashboard", { replace: true });
       }
     } catch (err: unknown) {
       setError(err instanceof Error ? err.message : "OTP verification failed.");
@@ -448,11 +444,20 @@ export default function SignInPage() {
                   </form>
 
                   <>
-                    <div className="relative my-5">
-                      <div className="absolute inset-0 flex items-center"><div className="w-full border-t border-gray-200" /></div>
-                      <div className="relative flex justify-center text-sm"><span className="px-4 bg-white text-[#8A8A8A]">Or continue with</span></div>
-                    </div>
-                    <div id="google-signin-button" className="w-full flex justify-center"></div>
+                    {userType === "jobseeker" && (
+                      <>
+                        <div className="relative my-5">
+                          <div className="absolute inset-0 flex items-center">
+                            <div className="w-full border-t border-gray-200" />
+                          </div>
+                          <div className="relative flex justify-center text-sm">
+                            <span className="px-4 bg-white text-[#8A8A8A]">Or continue with</span>
+                          </div>
+                        </div>
+
+                        <div id="google-signin-button" className="w-full flex justify-center"></div>
+                      </>
+                    )}
                   </>
                 </>
               ) : step === "forgot" ? (
@@ -542,7 +547,7 @@ export default function SignInPage() {
                       <div className="flex items-center justify-between mt-4">
                         <button onClick={() => { setStep("forgot"); setError(""); setForgotOtp(""); }}
                           className="text-sm text-[#8A8A8A] hover:text-[#3A1F1F]">← Back</button>
-                        <button type="button" onClick={() => { setError(""); handleForgotPassword({ preventDefault: () => {} } as React.FormEvent); }}
+                        <button type="button" onClick={() => { setError(""); handleForgotPassword({ preventDefault: () => { } } as React.FormEvent); }}
                           className="text-sm text-[#FF2B2B] hover:underline flex items-center gap-1">
                           <RefreshCw className="h-3 w-3" /> Resend OTP
                         </button>
