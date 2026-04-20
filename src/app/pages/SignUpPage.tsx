@@ -32,10 +32,12 @@ export default function SignUpPage() {
     setError("");
 
     if (formData.password !== formData.confirmPassword) {
+      console.log("Password mismatch:", formData.password, formData.confirmPassword);
       setError("Passwords do not match.");
       return;
     }
     if (formData.password.length < 8) {
+      console.log("Password too short:", formData.password);
       setError("Password must be at least 8 characters.");
       return;
     }
