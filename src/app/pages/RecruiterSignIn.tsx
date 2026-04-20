@@ -1,4 +1,4 @@
-import { useState, useEffect } from "react";
+import { useState } from "react";
 import { useNavigate, Link } from "react-router";
 
 const logoImage = new URL("../../logo/logo.png", import.meta.url).href;
@@ -7,7 +7,10 @@ import { Button } from "../components/ui/button";
 import { Input } from "../components/ui/input";
 import { supabase } from "../../lib/supabase";
 import { sendOTPEmail, sendPasswordResetOTP, resetPasswordWithOTP } from "../../lib/email";
+<<<<<<< HEAD
 import { useAuth } from "../../lib/auth-context";
+=======
+>>>>>>> origin/main
 
 function generateOTP() {
   return Math.floor(100000 + Math.random() * 900000).toString();
@@ -51,6 +54,7 @@ export default function RecruiterSignIn() {
   const [resetSuccess, setResetSuccess] = useState(false);
   const navigate = useNavigate();
 
+<<<<<<< HEAD
   const { user, role } = useAuth();
   useEffect(() => {
     if (user && role) {
@@ -58,6 +62,8 @@ export default function RecruiterSignIn() {
     }
   }, [user, role, navigate]);
 
+=======
+>>>>>>> origin/main
   const handleForgotPassword = async (e: React.FormEvent) => {
     e.preventDefault();
     setForgotLoading(true);
@@ -195,6 +201,77 @@ export default function RecruiterSignIn() {
                   {loading ? "Verifying..." : "Continue"}
                 </Button>
               </form>
+<<<<<<< HEAD
+=======
+
+              <p className="text-center mt-6 text-sm text-[#8A8A8A]">
+                Don't have an account?{" "}
+                <Link to="/recruiter/signup" className="text-[#FF2B2B] font-semibold hover:underline">
+                  Sign Up
+                </Link>
+              </p>
+            </>
+          ) : (
+            <>
+              <div className="text-center mb-6">
+                <div className="w-16 h-16 bg-green-50 rounded-full flex items-center justify-center mx-auto mb-4">
+                  <ShieldCheck className="h-8 w-8 text-green-500" />
+                </div>
+                <h2 className="text-2xl font-bold text-[#3A1F1F] mb-1">OTP Verification</h2>
+                <p className="text-[#8A8A8A] text-sm">
+                  A 6-digit code has been sent to<br />
+                  <span className="font-medium text-[#3A1F1F]">{email}</span>
+                </p>
+              </div>
+
+              <div className="bg-blue-50 border border-blue-200 rounded-xl p-3 mb-4 flex items-center gap-2">
+                <Mail className="h-4 w-4 text-blue-500 shrink-0" />
+                <p className="text-xs text-blue-700">Check your inbox — OTP sent to <strong>{email}</strong>. Valid for 10 minutes.</p>
+              </div>
+
+              {error && (
+                <div className="bg-red-50 border border-red-200 text-red-700 rounded-xl p-3 mb-4 text-sm">{error}</div>
+              )}
+
+              <form onSubmit={handleVerifyOTP} className="space-y-4">
+                <div>
+                  <label className="block mb-1.5 text-sm font-medium text-[#3A1F1F] text-center">Enter OTP</label>
+                  <Input
+                    type="text"
+                    value={otp}
+                    onChange={e => setOtp(e.target.value.replace(/\D/g, "").slice(0, 6))}
+                    className="bg-[#F6F6F6] border-gray-200 rounded-xl text-center text-2xl tracking-widest font-bold"
+                    placeholder="------"
+                    maxLength={6}
+                    required
+                    autoFocus
+                  />
+                </div>
+
+                <Button
+                  type="submit"
+                  disabled={loading || otp.length < 6}
+                  className="w-full bg-[#FF2B2B] hover:bg-[#e02525] text-white rounded-full py-6"
+                >
+                  {loading ? <><Loader2 className="mr-2 h-4 w-4 animate-spin" /> Verifying...</> : "Verify & Sign In"}
+                </Button>
+              </form>
+
+              <div className="flex items-center justify-between mt-4">
+                <button
+                  onClick={() => { setStep("credentials"); setOtp(""); setError(""); }}
+                  className="text-sm text-[#8A8A8A] hover:text-[#3A1F1F]"
+                >
+                  ← Back
+                </button>
+                <button
+                  onClick={handleResendOTP}
+                  className="text-sm text-[#FF2B2B] hover:underline flex items-center gap-1"
+                >
+                  <RefreshCw className="h-3 w-3" /> Resend OTP
+                </button>
+              </div>
+>>>>>>> origin/main
             </>
           )}
         </div>

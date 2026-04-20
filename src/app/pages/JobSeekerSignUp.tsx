@@ -1,4 +1,4 @@
-import { useState, useEffect } from "react";
+import { useState } from "react";
 import { useNavigate, Link } from "react-router";
 
 const logoImage = new URL("../../logo/logo.png", import.meta.url).href;
@@ -35,6 +35,7 @@ export default function JobSeekerSignUp() {
   const [success, setSuccess] = useState(false);
   const navigate = useNavigate();
 
+<<<<<<< HEAD
   useEffect(() => {
     if ((window as any).google) {
       (window as any).google.accounts.id.initialize({
@@ -58,6 +59,8 @@ export default function JobSeekerSignUp() {
     }
   }, []);
 
+=======
+>>>>>>> origin/main
   const handleSubmit = async (e: React.FormEvent) => {
     e.preventDefault();
     setError("");
@@ -133,7 +136,14 @@ export default function JobSeekerSignUp() {
     setError("");
     setLoading(true);
     try {
-      (window as any).google.accounts.id.prompt();
+      const { error } = await supabase.auth.signInWithOAuth({
+        provider: "google",
+        options: {
+          redirectTo: `${window.location.origin}/jobseeker/dashboard`,
+          queryParams: { access_type: "offline", prompt: "consent" },
+        },
+      });
+      if (error) throw error;
     } catch (err: unknown) {
       setError(err instanceof Error ? err.message : "Google sign up failed.");
       setLoading(false);

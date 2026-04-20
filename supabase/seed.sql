@@ -40,32 +40,32 @@ BEGIN
 
   -- ── Job Seeker Profiles ───────────────────────────────────
 
-  INSERT INTO profiles (id, email, display_name, first_name, last_name, phone, headline, location,
+  INSERT INTO profiles (id, email, first_name, last_name, phone, headline, location,
     experience_type, total_experience, current_company, current_title,
     current_salary, expected_salary, notice_period, skills, about)
   VALUES
-  (arjun_id, 'arjun.mehta@redhire.dev', 'Arjun Mehta', 'Arjun', 'Mehta', '+91 98765 43210',
+  (arjun_id, 'arjun.mehta@redhire.dev', 'Arjun', 'Mehta', '+91 98765 43210',
     'Senior Data Analyst | Python | SQL | Power BI',
     'Bengaluru, Karnataka', 'experienced', '5 years 3 months',
     'Infosys Ltd.', 'Data Analyst', '12 LPA', '18 LPA', '30 days',
     ARRAY['Python','SQL','Power BI','Tableau','Machine Learning','Pandas','NumPy'],
     'Passionate data analyst with 5+ years driving insights from large datasets.'),
 
-  (priya_id, 'priya.sharma@redhire.dev', 'Priya Sharma', 'Priya', 'Sharma', '+91 87654 32109',
+  (priya_id, 'priya.sharma@redhire.dev', 'Priya', 'Sharma', '+91 87654 32109',
     'ML Engineer | Deep Learning | TensorFlow | NLP',
     'Hyderabad, Telangana', 'experienced', '6 years 1 month',
     'Google India Pvt. Ltd.', 'Machine Learning Engineer', '28 LPA', '38 LPA', '60 days',
     ARRAY['Python','TensorFlow','PyTorch','NLP','Deep Learning','Kubernetes','MLOps'],
     'ML engineer specialized in large-scale NLP models serving millions of users.'),
 
-  (rohan_id, 'rohan.gupta@redhire.dev', 'Rohan Gupta', 'Rohan', 'Gupta', '+91 76543 21098',
+  (rohan_id, 'rohan.gupta@redhire.dev', 'Rohan', 'Gupta', '+91 76543 21098',
     'Marketing Manager | Growth Hacking | SEO | Performance Marketing',
     'New Delhi, NCR', 'experienced', '4 years 8 months',
     'Zomato', 'Marketing Manager', '15 LPA', '22 LPA', '45 days',
     ARRAY['SEO','Google Ads','Meta Ads','Content Strategy','Analytics','CRM','A/B Testing'],
     'Growth-focused marketing leader with track record of scaling digital campaigns.'),
 
-  (sneha_id, 'sneha.verma@redhire.dev', 'Sneha Verma', 'Sneha', 'Verma', '+91 65432 10987',
+  (sneha_id, 'sneha.verma@redhire.dev', 'Sneha', 'Verma', '+91 65432 10987',
     'UI/UX Designer | Figma | Design Systems | User Research',
     'Bengaluru, Karnataka', 'experienced', '3 years 5 months',
     'Flipkart', 'Product Designer', '14 LPA', '20 LPA', '30 days',

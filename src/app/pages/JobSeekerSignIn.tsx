@@ -1,4 +1,4 @@
-import { useState, useEffect } from "react";
+import { useState } from "react";
 import { useNavigate, Link } from "react-router";
 
 const logoImage = new URL("../../logo/logo.png", import.meta.url).href;
@@ -7,8 +7,11 @@ import { Button } from "../components/ui/button";
 import { Input } from "../components/ui/input";
 import { supabase } from "../../lib/supabase";
 import { sendOTPEmail, sendPasswordResetOTP, resetPasswordWithOTP } from "../../lib/email";
+<<<<<<< HEAD
 import { useAuth } from "../../lib/auth-context";
 import { ensureJobseekerGoogleProfile } from "../../lib/google-auth";
+=======
+>>>>>>> origin/main
 
 // ─── OTP helpers ─────────────────────────────────────────────────────────────
 
@@ -64,9 +67,9 @@ export default function JobSeekerSignIn() {
   const [confirmPassword, setConfirmPassword] = useState("");
   const [showNewPassword, setShowNewPassword] = useState(false);
   const [resetSuccess, setResetSuccess] = useState(false);
-  const [googleReady, setGoogleReady] = useState(false);
   const navigate = useNavigate();
 
+<<<<<<< HEAD
   // Handle navigation after Google sign-in
   const { user, role } = useAuth();
   useEffect(() => {
@@ -141,6 +144,8 @@ export default function JobSeekerSignIn() {
     }
   }, []);
 
+=======
+>>>>>>> origin/main
   const handleForgotPassword = async (e: React.FormEvent) => {
     e.preventDefault();
     setForgotLoading(true);
@@ -266,58 +271,18 @@ export default function JobSeekerSignIn() {
   const handleGoogleSignIn = async () => {
     setError("");
     setLoading(true);
-    console.log('Google sign-in button clicked, googleReady:', googleReady);
-
     try {
-      if (!googleReady) {
-        throw new Error("Google sign-in is not ready yet. Please refresh the page.");
-      }
-
-      const google = (window as any).google;
-      if (!google?.accounts?.id) {
-        throw new Error("Google Identity Services not loaded. Please refresh the page.");
-      }
-
-      console.log('Calling google.accounts.id.prompt()');
-      google.accounts.id.prompt((notification: any) => {
-        console.log('Prompt notification:', notification);
-        if (notification.isNotDisplayed && notification.isNotDisplayed()) {
-          console.error('Prompt not displayed, reason:', notification.getNotDisplayedReason?.());
-          const reason = notification.getNotDisplayedReason?.() || 'unknown';
-          let errorMessage = "Google sign-in prompt could not be displayed.";
-
-          switch (reason) {
-            case 'browser_not_supported':
-              errorMessage = "Your browser doesn't support Google Sign-In. Please try a different browser.";
-              break;
-            case 'invalid_client':
-              errorMessage = "Google Sign-In is not properly configured. Please contact support.";
-              break;
-            case 'missing_client_id':
-              errorMessage = "Google Sign-In client ID is missing. Please contact support.";
-              break;
-            case 'opt_out_or_no_session':
-              errorMessage = "Please sign in with your Google account first.";
-              break;
-            case 'secure_http_required':
-            case 'suppressed_by_user':
-            case 'unregistered_origin':
-            case 'unknown_reason':
-            default:
-              errorMessage = "Google sign-in prompt could not be displayed. Please refresh the page or try again later.";
-          }
-
-          setError(errorMessage);
-        } else if (notification.isSkippedMoment && notification.isSkippedMoment()) {
-          console.log('Prompt was skipped');
-        } else if (notification.isDismissedMoment && notification.isDismissedMoment()) {
-          console.log('Prompt was dismissed by user');
-        }
+      const { error } = await supabase.auth.signInWithOAuth({
+        provider: "google",
+        options: {
+          redirectTo: `${window.location.origin}/jobseeker/dashboard`,
+          queryParams: { access_type: "offline", prompt: "consent" },
+          scopes: "email profile",
+        },
       });
+      if (error) throw error;
     } catch (err: unknown) {
-      console.error('Google sign-in error:', err);
       setError(err instanceof Error ? err.message : "Google sign in failed.");
-    } finally {
       setLoading(false);
     }
   };
@@ -495,9 +460,16 @@ export default function JobSeekerSignIn() {
                 </div>
               </div>
 
-              <div id="google-signin-button" className="w-full">
-                {/* Google will render the button here */}
-              </div>
+              <Button
+                type="button"
+                variant="outline"
+                onClick={handleGoogleSignIn}
+                disabled={loading}
+                className="w-full border-gray-200 rounded-full py-6 hover:bg-gray-50"
+              >
+                <GoogleIcon />
+                Continue with Google
+              </Button>
 
               <p className="text-center mt-6 text-sm text-[#8A8A8A]">
                 Don't have an account?{" "}

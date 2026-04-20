@@ -37,12 +37,7 @@ export function AuthProvider({ children }: { children: ReactNode }) {
 
   const fetchProfile = async (userId: string, userRole: string, retries = 3) => {
     if (userRole === "recruiter") {
-      const { data, error } = await supabase
-        .from("recruiter_profiles")
-        .select("*")
-        .eq("id", userId)
-        .maybeSingle();
-      if (error) throw error;
+      const { data } = await supabase.from("recruiter_profiles").select("*").eq("id", userId).single();
       if (!data && retries > 0) {
         await new Promise(r => setTimeout(r, 800));
         return fetchProfile(userId, userRole, retries - 1);
@@ -50,12 +45,7 @@ export function AuthProvider({ children }: { children: ReactNode }) {
       setRecruiterProfile(data);
       setProfile(null);
     } else {
-      const { data, error } = await supabase
-        .from("profiles")
-        .select("*")
-        .eq("id", userId)
-        .maybeSingle();
-      if (error) throw error;
+      const { data } = await supabase.from("profiles").select("*").eq("id", userId).single();
       if (!data && retries > 0) {
         await new Promise(r => setTimeout(r, 800));
         return fetchProfile(userId, userRole, retries - 1);
@@ -65,6 +55,7 @@ export function AuthProvider({ children }: { children: ReactNode }) {
     }
   };
 
+<<<<<<< HEAD
   const detectRoleForUser = async (user: User): Promise<"jobseeker" | "recruiter"> => {
     const { data: recruiter, error: recruiterError } = await supabase
       .from("recruiter_profiles")
@@ -130,6 +121,32 @@ export function AuthProvider({ children }: { children: ReactNode }) {
     const { data: { subscription } } = supabase.auth.onAuthStateChange(async (event, session) => {
       if (event === "INITIAL_SESSION") {
         return;
+=======
+  useEffect(() => {
+    supabase.auth.getSession().then(({ data: { session } }) => {
+      setSession(session);
+      setUser(session?.user ?? null);
+      if (session?.user) {
+        const userRole = session.user.user_metadata?.role || "jobseeker";
+        setRole(userRole);
+        fetchProfile(session.user.id, userRole).finally(() => setLoading(false));
+      } else {
+        setLoading(false);
+      }
+    });
+
+    const { data: { subscription } } = supabase.auth.onAuthStateChange((_event, session) => {
+      setSession(session);
+      setUser(session?.user ?? null);
+      if (session?.user) {
+        const userRole = session.user.user_metadata?.role || "jobseeker";
+        setRole(userRole);
+        fetchProfile(session.user.id, userRole);
+      } else {
+        setRole(null);
+        setProfile(null);
+        setRecruiterProfile(null);
+>>>>>>> origin/main
       }
 
       setSession(session);
@@ -140,6 +157,7 @@ export function AuthProvider({ children }: { children: ReactNode }) {
   }, []);
 
   const signOut = async () => {
+<<<<<<< HEAD
     try {
       const google = (window as Window & {
         google?: {
@@ -173,6 +191,14 @@ export function AuthProvider({ children }: { children: ReactNode }) {
       setRecruiterProfile(null);
       setRole(null);
     }
+=======
+    await supabase.auth.signOut();
+    setUser(null);
+    setSession(null);
+    setProfile(null);
+    setRecruiterProfile(null);
+    setRole(null);
+>>>>>>> origin/main
   };
 
   const refreshProfile = async () => {
