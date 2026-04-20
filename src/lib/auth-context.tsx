@@ -28,7 +28,12 @@ export function AuthProvider({ children }: { children: ReactNode }) {
 
   const fetchProfile = async (userId: string, userRole: string, retries = 3) => {
     if (userRole === "recruiter") {
-      const { data } = await supabase.from("recruiter_profiles").select("*").eq("id", userId).single();
+      const { data, error } = await supabase
+        .from("recruiter_profiles")
+        .select("*")
+        .eq("id", userId)
+        .maybeSingle();
+      if (error) throw error;
       if (!data && retries > 0) {
         await new Promise(r => setTimeout(r, 800));
         return fetchProfile(userId, userRole, retries - 1);
@@ -36,7 +41,12 @@ export function AuthProvider({ children }: { children: ReactNode }) {
       setRecruiterProfile(data);
       setProfile(null);
     } else {
-      const { data } = await supabase.from("profiles").select("*").eq("id", userId).single();
+      const { data, error } = await supabase
+        .from("profiles")
+        .select("*")
+        .eq("id", userId)
+        .maybeSingle();
+      if (error) throw error;
       if (!data && retries > 0) {
         await new Promise(r => setTimeout(r, 800));
         return fetchProfile(userId, userRole, retries - 1);
@@ -46,26 +56,78 @@ export function AuthProvider({ children }: { children: ReactNode }) {
     }
   };
 
+  const detectRoleForUser = async (user: User): Promise<"jobseeker" | "recruiter"> => {
+    const { data: recruiter, error: recruiterError } = await supabase
+      .from("recruiter_profiles")
+      .select("id")
+      .eq("id", user.id)
+      .maybeSingle();
+    if (recruiterError) throw recruiterError;
+    if (recruiter) return "recruiter";
+
+    const { data: jobseeker, error: jobseekerError } = await supabase
+      .from("profiles")
+      .select("id")
+      .eq("id", user.id)
+      .maybeSingle();
+    if (jobseekerError) throw jobseekerError;
+    if (jobseeker) return "jobseeker";
+
+    const userMetadataRole = (user.user_metadata?.role as "jobseeker" | "recruiter" | undefined);
+    if (userMetadataRole) return userMetadataRole;
+
+    return "jobseeker";
+  };
+
+
   useEffect(() => {
-    supabase.auth.getSession().then(({ data: { session } }) => {
-      setSession(session);
-      setUser(session?.user ?? null);
-      if (session?.user) {
-        const userRole = session.user.user_metadata?.role || "jobseeker";
-        setRole(userRole);
-        fetchProfile(session.user.id, userRole).finally(() => setLoading(false));
-      } else {
+    const initSession = async () => {
+      try {
+        const { data: { session } } = await supabase.auth.getSession();
+        setSession(session);
+        setUser(session?.user ?? null);
+
+        if (session?.user) {
+          const userRole = await detectRoleForUser(session.user);
+          if (session.user.user_metadata?.role !== userRole) {
+            supabase.auth.updateUser({ data: { role: userRole } }).catch(() => {});
+          }
+          setRole(userRole);
+          await Promise.race([
+            fetchProfile(session.user.id, userRole),
+            new Promise((_, reject) => setTimeout(() => reject(new Error("Profile fetch timeout")), 5000))
+          ]).catch(() => {
+            // Profile fetch failed or timed out, but continue anyway
+            if (userRole === "recruiter") setRecruiterProfile(null);
+            else setProfile(null);
+          });
+        }
+      } catch (error) {
+        console.error("Session init error:", error);
+      } finally {
         setLoading(false);
       }
-    });
+    };
 
-    const { data: { subscription } } = supabase.auth.onAuthStateChange((_event, session) => {
+    initSession();
+
+    const { data: { subscription } } = supabase.auth.onAuthStateChange(async (_event, session) => {
       setSession(session);
       setUser(session?.user ?? null);
+
       if (session?.user) {
-        const userRole = session.user.user_metadata?.role || "jobseeker";
+        const userRole = await detectRoleForUser(session.user);
         setRole(userRole);
-        fetchProfile(session.user.id, userRole);
+        if (session.user.user_metadata?.role !== userRole) {
+          supabase.auth.updateUser({ data: { role: userRole } }).catch(() => {});
+        }
+        await Promise.race([
+          fetchProfile(session.user.id, userRole),
+          new Promise((_, reject) => setTimeout(() => reject(new Error("Profile fetch timeout")), 5000))
+        ]).catch(() => {
+          if (userRole === "recruiter") setRecruiterProfile(null);
+          else setProfile(null);
+        });
       } else {
         setRole(null);
         setProfile(null);
@@ -77,12 +139,17 @@ export function AuthProvider({ children }: { children: ReactNode }) {
   }, []);
 
   const signOut = async () => {
-    await supabase.auth.signOut();
-    setUser(null);
-    setSession(null);
-    setProfile(null);
-    setRecruiterProfile(null);
-    setRole(null);
+    try {
+      await supabase.auth.signOut();
+    } catch (error) {
+      console.error("Failed to sign out:", error);
+    } finally {
+      setUser(null);
+      setSession(null);
+      setProfile(null);
+      setRecruiterProfile(null);
+      setRole(null);
+    }
   };
 
   const refreshProfile = async () => {

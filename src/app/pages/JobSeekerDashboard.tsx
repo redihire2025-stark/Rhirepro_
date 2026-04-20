@@ -193,7 +193,7 @@ export default function JobSeekerDashboard() {
       }, () => fetchNotifications())
       .subscribe();
     return () => { supabase.removeChannel(channel); };
-  }, [profile?.id, fetchNotifications]);
+  }, [profile?.id]);
 
   const notifRef = useRef<HTMLDivElement>(null);
   useEffect(() => {
@@ -207,12 +207,26 @@ export default function JobSeekerDashboard() {
   }, [notificationsOpen]);
 
   const handleSignOut = async () => {
-    await signOut();
-    navigate("/");
+    try {
+      await signOut();
+    } catch (error) {
+      console.error("Sign-out failed:", error);
+    } finally {
+      navigate("/");
+    }
   };
 
-  const userInitials = profile
-    ? `${profile.first_name?.[0] || ""}${profile.last_name?.[0] || ""}`.toUpperCase()
+  const userInitials = profile && user
+    ? (() => {
+        const meta = user?.user_metadata || {};
+        const displayName = meta.display_name || meta.name || profile.display_name || (profile.first_name && profile.last_name 
+          ? `${profile.first_name} ${profile.last_name}` 
+          : profile.first_name || profile.email?.split("@")[0] || "U");
+        const parts = displayName.split(" ");
+        return parts.length >= 2 
+          ? `${parts[0][0]}${parts[1][0]}`.toUpperCase()
+          : displayName.substring(0, 2).toUpperCase();
+      })()
     : "U";
 
   if (authLoading) {
@@ -295,8 +309,8 @@ export default function JobSeekerDashboard() {
                 )}
               </div>
 
-              {profile && (
-                <div className="w-8 h-8 bg-[#FF2B2B] rounded-full flex items-center justify-center text-white text-xs font-bold cursor-pointer" title={`${profile.first_name} ${profile.last_name}`}>
+              {profile && user && (
+                <div className="w-8 h-8 bg-[#FF2B2B] rounded-full flex items-center justify-center text-white text-xs font-bold cursor-pointer" title={user?.user_metadata?.display_name || user?.user_metadata?.name || profile.display_name || `${profile.first_name || ""} ${profile.last_name || ""}`.trim() || profile.email || "User"}>
                   {userInitials}
                 </div>
               )}
@@ -845,6 +859,8 @@ function FindJobPage() {
 // ── Profile Page ───────────────────────────────────────────────────────────────
 function ProfilePage() {
   const { profile, user, loading: authLoading, refreshProfile } = useAuth();
+  const syncedProfileIdRef = useRef<string | null>(null);
+  
   // Basic Info — synced from DB via useEffect below
   const [basicInfo, setBasicInfo] = useState({
     name: "", headline: "", phone: "", email: "",
@@ -867,50 +883,75 @@ function ProfilePage() {
 
   // Sync profile data from DB when it loads, fallback to user metadata
   useEffect(() => {
-    const meta = user?.user_metadata || {};
-    // Use DB profile if available, otherwise fall back to user_metadata from sign-up
-    const firstName = profile?.first_name || meta.first_name || "";
-    const lastName = profile?.last_name || meta.last_name || "";
-    const info = {
-      name: `${firstName} ${lastName}`.trim(),
-      headline: profile?.headline || "",
-      phone: profile?.phone || meta.phone || "",
-      email: profile?.email || user?.email || "",
-      location: profile?.location || "",
-      dob: (profile as any)?.dob || "",
-      gender: (profile as any)?.gender || "",
-      maritalStatus: (profile as any)?.marital_status || "",
-      linkedin: profile?.linkedin_url || "",
-      portfolio: profile?.portfolio_url || "",
-    };
-    if (info.name || info.email || info.phone) {
+    // Only sync if profile ID changed and data is available
+    if (!profile?.id || syncedProfileIdRef.current === profile.id) return;
+    syncedProfileIdRef.current = profile.id;
+    
+    const fetchAndSync = async () => {
+      let profileData = profile;
+      
+      // If profile doesn't have data, fetch it from DB
+      if (!profile?.first_name && !profile?.last_name && !profile?.email) {
+        const { data } = await supabase.from("profiles").select("*").eq("id", profile.id).single();
+        if (data) profileData = data;
+      }
+      
+      const meta = user?.user_metadata || {};
+      
+      // Get display name: prioritize auth user's display_name, then profile data, then fallback to first+last
+      let displayName = meta.display_name || meta.name || profileData?.display_name || "";
+      if (!displayName) {
+        const firstName = profileData?.first_name || meta.first_name || "";
+        const lastName = profileData?.last_name || meta.last_name || "";
+        displayName = `${firstName} ${lastName}`.trim();
+      }
+      if (!displayName) {
+        // Fallback to email username if nothing else available
+        displayName = (profileData?.email || user?.email || "User").split("@")[0];
+      }
+      
+      const info = {
+        name: displayName,
+        headline: profileData?.headline || "",
+        phone: profileData?.phone || meta.phone || "",
+        email: profileData?.email || user?.email || "",
+        location: profileData?.location || "",
+        dob: (profileData as any)?.dob || "",
+        gender: (profileData as any)?.gender || "",
+        maritalStatus: (profileData as any)?.marital_status || "",
+        linkedin: profileData?.linkedin_url || "",
+        portfolio: profileData?.portfolio_url || "",
+      };
+      
       setBasicInfo(info);
       setBasicForm(info);
-    }
-    if (profile?.avatar_url) setProfilePic(profile.avatar_url);
-    if (profile?.resume_url) setResumeFile(profile.resume_url);
-    if (profile?.about) { setSummary(profile.about); setSummaryForm(profile.about); }
-    if (profile?.skills?.length) setSkills(profile.skills);
-    // Preferences
-    if (profile) {
-      const p = profile as any;
-      const prefs = {
-        desiredJobTitle: p.desired_job_title || "",
-        jobType: p.job_type_pref || "",
-        preferredLocation: p.preferred_location || "",
-        expectedSalary: p.expected_salary || "",
-        noticePeriod: p.notice_period || "",
-        workAuth: p.work_auth || "",
-        willingToRelocate: p.willing_to_relocate || "",
-      };
-      setPreferences(prefs);
-      setPrefsForm(prefs);
-    }
-    // Languages
-    if ((profile as any)?.languages?.length) {
-      setLanguages(((profile as any).languages as { language: string; proficiency: string }[]).map((l, i) => ({ ...l, id: i })));
-    }
-  }, [profile, user]);
+      if (profileData?.avatar_url) setProfilePic(profileData.avatar_url);
+      if (profileData?.resume_url) setResumeFile(profileData.resume_url);
+      if (profileData?.about) { setSummary(profileData.about); setSummaryForm(profileData.about); }
+      if (profileData?.skills?.length) setSkills(profileData.skills);
+      
+      if (profileData) {
+        const p = profileData as any;
+        const prefs = {
+          desiredJobTitle: p.desired_job_title || "",
+          jobType: p.job_type_pref || "",
+          preferredLocation: p.preferred_location || "",
+          expectedSalary: p.expected_salary || "",
+          noticePeriod: p.notice_period || "",
+          workAuth: p.work_auth || "",
+          willingToRelocate: p.willing_to_relocate || "",
+        };
+        setPreferences(prefs);
+        setPrefsForm(prefs);
+      }
+      
+      if ((profileData as any)?.languages?.length) {
+        setLanguages(((profileData as any).languages as { language: string; proficiency: string }[]).map((l, i) => ({ ...l, id: i })));
+      }
+    };
+    
+    fetchAndSync();
+  }, [profile?.id]);
 
   // Work Experience
   const emptyExp = { title: "", company: "", location: "", startMonth: "Jan", startYear: "2022", endMonth: "Jan", endYear: "2024", current: false, description: "" };
@@ -929,55 +970,59 @@ function ProfilePage() {
   // Load work experience and education from DB
   useEffect(() => {
     if (!profile?.id) return;
-    supabase.from("work_experience").select("*").eq("profile_id", profile.id).order("created_at", { ascending: false })
-      .then(({ data }) => {
-        if (data && data.length > 0) {
-          setExperiences(data.map(e => {
-            const startParts = (e.start_date || "").split(" ");
-            const endParts = (e.end_date || "").split(" ");
-            return {
-              id: e.id,
-              title: e.title,
-              company: e.company,
-              location: e.location || "",
-              startMonth: startParts[0] || "Jan",
-              startYear: startParts[1] || "2022",
-              endMonth: endParts[0] || "Jan",
-              endYear: endParts[1] || "2024",
-              current: e.is_current || false,
-              description: e.description || "",
-            };
-          }));
-        }
-      });
-    supabase.from("education").select("*").eq("profile_id", profile.id).order("created_at", { ascending: false })
-      .then(({ data }) => {
-        if (data && data.length > 0) {
-          setEducation(data.map(e => ({
-            id: e.id, degree: e.degree, field: e.field || "",
-            college: e.institution, startYear: e.start_year || "",
-            endYear: e.end_year || "", score: e.score || "",
-          })));
-        }
-      });
-    supabase.from("projects").select("*").eq("profile_id", profile.id).order("created_at", { ascending: false })
-      .then(({ data }) => {
-        if (data && data.length > 0) {
-          setProjects(data.map(p => ({
-            id: p.id, name: p.name, url: p.url || "",
-            startYear: p.start_year || "", endYear: p.end_year || "", description: p.description || "",
-          })));
-        }
-      });
-    supabase.from("certifications").select("*").eq("profile_id", profile.id).order("created_at", { ascending: false })
-      .then(({ data }) => {
-        if (data && data.length > 0) {
-          setCertifications(data.map(c => ({
-            id: c.id, name: c.name, issuer: c.issuer || "",
-            issueDate: c.issue_date || "", credentialId: c.credential_id || "",
-          })));
-        }
-      });
+    
+    // Batch all queries in parallel instead of sequential
+    Promise.all([
+      supabase.from("work_experience").select("*").eq("profile_id", profile.id).order("created_at", { ascending: false }),
+      supabase.from("education").select("*").eq("profile_id", profile.id).order("created_at", { ascending: false }),
+      supabase.from("projects").select("*").eq("profile_id", profile.id).order("created_at", { ascending: false }),
+      supabase.from("certifications").select("*").eq("profile_id", profile.id).order("created_at", { ascending: false }),
+    ]).then(([workExp, edu, projects, certs]) => {
+      // Process work experience
+      if (workExp.data && workExp.data.length > 0) {
+        setExperiences(workExp.data.map(e => {
+          const startParts = (e.start_date || "").split(" ");
+          const endParts = (e.end_date || "").split(" ");
+          return {
+            id: e.id,
+            title: e.title,
+            company: e.company,
+            location: e.location || "",
+            startMonth: startParts[0] || "Jan",
+            startYear: startParts[1] || "2022",
+            endMonth: endParts[0] || "Jan",
+            endYear: endParts[1] || "2024",
+            current: e.is_current || false,
+            description: e.description || "",
+          };
+        }));
+      }
+      
+      // Process education
+      if (edu.data && edu.data.length > 0) {
+        setEducation(edu.data.map(e => ({
+          id: e.id, degree: e.degree, field: e.field || "",
+          college: e.institution, startYear: e.start_year || "",
+          endYear: e.end_year || "", score: e.score || "",
+        })));
+      }
+      
+      // Process projects
+      if (projects.data && projects.data.length > 0) {
+        setProjects(projects.data.map(p => ({
+          id: p.id, name: p.name, url: p.url || "",
+          startYear: p.start_year || "", endYear: p.end_year || "", description: p.description || "",
+        })));
+      }
+      
+      // Process certifications
+      if (certs.data && certs.data.length > 0) {
+        setCertifications(certs.data.map(c => ({
+          id: c.id, name: c.name, issuer: c.issuer || "",
+          issueDate: c.issue_date || "", credentialId: c.credential_id || "",
+        })));
+      }
+    });
   }, [profile?.id]);
 
   // Projects
@@ -1359,9 +1404,9 @@ function ProfilePage() {
                   <h2 className="text-2xl font-bold text-[#3A1F1F]">{basicInfo.name}</h2>
                   <p className="text-[#8A8A8A] mb-2">{basicInfo.headline}</p>
                   <div className="flex flex-wrap gap-4 text-sm text-[#8A8A8A]">
+                    <span className="flex items-center gap-1"><User className="h-4 w-4" />{basicInfo.name}</span>
                     <span className="flex items-center gap-1"><MapPin className="h-4 w-4" />{basicInfo.location}</span>
                     <span className="flex items-center gap-1"><Phone className="h-4 w-4" />{basicInfo.phone}</span>
-                    <span className="flex items-center gap-1"><Mail className="h-4 w-4" />{basicInfo.email}</span>
                     {basicInfo.linkedin && <span className="flex items-center gap-1"><Globe className="h-4 w-4" />{basicInfo.linkedin}</span>}
                   </div>
                 </div>

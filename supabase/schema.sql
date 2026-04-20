@@ -7,6 +7,7 @@
 create table if not exists profiles (
   id           uuid references auth.users on delete cascade primary key,
   email        text unique not null,
+  display_name text,
   first_name   text,
   last_name    text,
   phone        text,
