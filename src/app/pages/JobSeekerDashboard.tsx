@@ -211,9 +211,14 @@ export default function JobSeekerDashboard() {
     navigate("/");
   };
 
-  const userInitials = profile
-    ? `${profile.first_name?.[0] || ""}${profile.last_name?.[0] || ""}`.toUpperCase()
-    : "U";
+  const googleMeta = user?.user_metadata || {};
+  const googleFullName = googleMeta.full_name || googleMeta.name || "";
+  const headerFirstName = profile?.first_name || googleMeta.first_name || googleFullName.split(" ")[0] || "";
+  const headerLastName = profile?.last_name || googleMeta.last_name || googleFullName.split(" ").slice(1).join(" ") || "";
+  const headerAvatar = profile?.avatar_url || googleMeta.avatar_url || googleMeta.picture || null;
+  const userInitials = (headerFirstName || headerLastName)
+    ? `${headerFirstName[0] || ""}${headerLastName[0] || ""}`.toUpperCase()
+    : (user?.email?.[0] || "U").toUpperCase();
 
   if (authLoading) {
     return (
@@ -295,9 +300,15 @@ export default function JobSeekerDashboard() {
                 )}
               </div>
 
-              {profile && (
-                <div className="w-8 h-8 bg-[#FF2B2B] rounded-full flex items-center justify-center text-white text-xs font-bold cursor-pointer" title={`${profile.first_name} ${profile.last_name}`}>
-                  {userInitials}
+              {(profile || user) && (
+                <div className="w-8 h-8 rounded-full overflow-hidden cursor-pointer flex-shrink-0" title={`${headerFirstName} ${headerLastName}`.trim()}>
+                  {headerAvatar ? (
+                    <img src={headerAvatar} alt="Profile" className="w-full h-full object-cover" referrerPolicy="no-referrer" />
+                  ) : (
+                    <div className="w-full h-full bg-[#FF2B2B] flex items-center justify-center text-white text-xs font-bold">
+                      {userInitials}
+                    </div>
+                  )}
                 </div>
               )}
 
@@ -868,9 +879,12 @@ function ProfilePage() {
   // Sync profile data from DB when it loads, fallback to user metadata
   useEffect(() => {
     const meta = user?.user_metadata || {};
-    // Use DB profile if available, otherwise fall back to user_metadata from sign-up
-    const firstName = profile?.first_name || meta.first_name || "";
-    const lastName = profile?.last_name || meta.last_name || "";
+    // Google OAuth provides full_name/name instead of split first_name/last_name
+    const googleFullName = meta.full_name || meta.name || "";
+    const googleFirstName = googleFullName ? googleFullName.split(" ")[0] : "";
+    const googleLastName = googleFullName ? googleFullName.split(" ").slice(1).join(" ") : "";
+    const firstName = profile?.first_name || meta.first_name || googleFirstName;
+    const lastName = profile?.last_name || meta.last_name || googleLastName;
     const info = {
       name: `${firstName} ${lastName}`.trim(),
       headline: profile?.headline || "",
@@ -887,7 +901,9 @@ function ProfilePage() {
       setBasicInfo(info);
       setBasicForm(info);
     }
+    const googleAvatar = meta.avatar_url || meta.picture || "";
     if (profile?.avatar_url) setProfilePic(profile.avatar_url);
+    else if (googleAvatar) setProfilePic(googleAvatar);
     if (profile?.resume_url) setResumeFile(profile.resume_url);
     if (profile?.about) { setSummary(profile.about); setSummaryForm(profile.about); }
     if (profile?.skills?.length) setSkills(profile.skills);
