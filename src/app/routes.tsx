@@ -24,6 +24,8 @@ import JobMatchingPage from "./pages/services/JobMatchingPage";
 import BrandingSupportPage from "./pages/services/BrandingSupportPage";
 import NotFound from "./pages/NotFound";
 import ErrorPage from "./pages/ErrorPage";
+import PrivacyPolicyPage from "./pages/PrivacyPolicyPage";
+import TermsOfServicePage from "./pages/TermsOfServicePage";
 
 function RootLayout() {
   return (
@@ -151,6 +153,16 @@ export const router = createBrowserRouter([
   {
     path: "/recruiter/dashboard/*",
     Component: RecruiterDashboard,
+    errorElement: <ErrorPage />,
+  },
+  {
+    path: "/privacy-policy",
+    Component: PrivacyPolicyPage,
+    errorElement: <ErrorPage />,
+  },
+  {
+    path: "/terms-of-service",
+    Component: TermsOfServicePage,
     errorElement: <ErrorPage />,
   },
   {

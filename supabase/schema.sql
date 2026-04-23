@@ -362,6 +362,11 @@ returns trigger
 language plpgsql
 security definer set search_path = public
 as $$
+declare
+  v_first_name text;
+  v_last_name  text;
+  v_full_name  text;
+  v_avatar_url text;
 begin
   if new.raw_user_meta_data->>'role' = 'recruiter' then
     insert into public.recruiter_profiles (id, email, recruiter_name, company_name, industry, company_size, phone)
@@ -375,13 +380,25 @@ begin
     )
     on conflict (id) do nothing;
   else
-    insert into public.profiles (id, email, first_name, last_name, phone, experience_type)
+    -- For Google OAuth, metadata has 'full_name'/'name' instead of split first/last
+    v_first_name := new.raw_user_meta_data->>'first_name';
+    v_last_name  := new.raw_user_meta_data->>'last_name';
+    v_full_name  := coalesce(new.raw_user_meta_data->>'full_name', new.raw_user_meta_data->>'name');
+    v_avatar_url := coalesce(new.raw_user_meta_data->>'avatar_url', new.raw_user_meta_data->>'picture');
+
+    if v_first_name is null and v_full_name is not null then
+      v_first_name := split_part(v_full_name, ' ', 1);
+      v_last_name  := nullif(trim(substr(v_full_name, length(split_part(v_full_name, ' ', 1)) + 2)), '');
+    end if;
+
+    insert into public.profiles (id, email, first_name, last_name, phone, experience_type, avatar_url)
     values (
       new.id, new.email,
-      new.raw_user_meta_data->>'first_name',
-      new.raw_user_meta_data->>'last_name',
+      v_first_name,
+      v_last_name,
       new.raw_user_meta_data->>'phone',
-      coalesce(new.raw_user_meta_data->>'experience', 'fresher')
+      coalesce(new.raw_user_meta_data->>'experience', 'fresher'),
+      v_avatar_url
     )
     on conflict (id) do nothing;
   end if;

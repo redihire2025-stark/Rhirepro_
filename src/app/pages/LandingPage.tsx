@@ -1623,10 +1623,11 @@ export default function LandingPage() {
           </div>
 
           <div className="border-t border-white/20 pt-6 flex flex-col md:flex-row justify-between items-center gap-3 text-white/80 text-xs">
-            <p>
-              Copyright © 2025 RhirePro. All Rights Reserved.
-            </p>
-            <p>Privacy and Policy</p>
+            <p>Copyright © 2025 RhirePro. All Rights Reserved.</p>
+            <div className="flex gap-4">
+              <a href="/privacy-policy" className="hover:text-white transition-colors">Privacy Policy</a>
+              <a href="/terms-of-service" className="hover:text-white transition-colors">Terms of Service</a>
+            </div>
           </div>
         </div>
       </footer>
