@@ -1,5 +1,5 @@
 import { useState, useMemo, useEffect, useCallback, useRef } from "react";
-import { useNavigate, Routes, Route, Link } from "react-router";
+import { useNavigate, Routes, Route, Link, useLocation } from "react-router";
 import { supabase, Job as DBJob, Notification, Application } from "../../lib/supabase";
 import { isJobVisibleToSeekers } from "../../lib/jobs";
 import { recordJobInteraction, recordJobSearch } from "../../lib/jobRecommendations";
@@ -160,7 +160,47 @@ export default function JobSeekerDashboard() {
     }
   }, [authLoading, user, navigate]);
 
-  const [activeTab, setActiveTab] = useState("find-job");
+  // Derive active tab from URL so it stays in sync with programmatic navigate()
+  const location = useLocation();
+  const activeTab = location.pathname.includes("/profile") ? "profile"
+    : location.pathname.includes("/analytics") ? "analytics"
+    : location.pathname.includes("/insights") ? "insights"
+    : "find-job";
+
+  // On root dashboard path: check profile completion and redirect to profile page if incomplete.
+  // Uses a loading gate so the user never sees a flash of the Find a Job page.
+  const completionCheckRef = useRef(false);
+  const isRootPath = location.pathname === "/jobseeker/dashboard" || location.pathname === "/jobseeker/dashboard/";
+  const [checkingCompletion, setCheckingCompletion] = useState(isRootPath);
+
+  useEffect(() => {
+    if (authLoading || !profile || !user || completionCheckRef.current) return;
+    completionCheckRef.current = true;
+    if (!isRootPath) { setCheckingCompletion(false); return; }
+    const pid = profile.id;
+    (async () => {
+      const [expRes, eduRes, projRes, certRes] = await Promise.all([
+        supabase.from("work_experience").select("id", { count: "exact", head: true }).eq("profile_id", pid),
+        supabase.from("education").select("id", { count: "exact", head: true }).eq("profile_id", pid),
+        supabase.from("projects").select("id", { count: "exact", head: true }).eq("profile_id", pid),
+        supabase.from("certifications").select("id", { count: "exact", head: true }).eq("profile_id", pid),
+      ]);
+      let score = 0;
+      const name = [profile.first_name, profile.last_name].filter(Boolean).join(" ");
+      score += Math.round(([name, profile.phone, profile.email, profile.location].filter(Boolean).length / 4) * 15);
+      if ((profile.about || "").trim().length > 20) score += 10;
+      score += Math.min(10, Math.round(((profile.skills?.length || 0) / 3) * 10));
+      if ((expRes.count || 0) > 0) score += 20;
+      if ((eduRes.count || 0) > 0) score += 15;
+      if ((projRes.count || 0) > 0) score += 5;
+      if ((certRes.count || 0) > 0) score += 5;
+      if (profile.resume_url) score += 10;
+      const p = profile as any;
+      score += Math.round(([p.expected_salary, p.notice_period].filter(Boolean).length / 2) * 10);
+      setCheckingCompletion(false);
+      if (Math.min(100, score) < 100) navigate("/jobseeker/dashboard/profile", { replace: true });
+    })();
+  }, [authLoading, profile, user, navigate, isRootPath]);
   const [notificationsOpen, setNotificationsOpen] = useState(false);
   const [notifications, setNotifications] = useState<Notification[]>([]);
   const [unreadCount, setUnreadCount] = useState(0);
@@ -232,6 +272,18 @@ export default function JobSeekerDashboard() {
   }
   if (!user) return null;
 
+  // Show spinner while checking profile completion (only on root path)
+  if (checkingCompletion) {
+    return (
+      <div className="min-h-screen bg-[#F6F6F6] flex items-center justify-center">
+        <div className="text-center">
+          <div className="w-10 h-10 border-4 border-[#FF2B2B] border-t-transparent rounded-full animate-spin mx-auto mb-3" />
+          <p className="text-[#8A8A8A] text-sm">Setting up your dashboard...</p>
+        </div>
+      </div>
+    );
+  }
+
   return (
     <div className="min-h-screen bg-[#F6F6F6]">
       <FeedbackPopup
@@ -259,7 +311,6 @@ export default function JobSeekerDashboard() {
                   <Button
                     variant={activeTab === tab ? "default" : "ghost"}
                     className={activeTab === tab ? "bg-[#FF2B2B] hover:bg-[#e02525] rounded-full" : "rounded-full"}
-                    onClick={() => setActiveTab(tab)}
                   >
                     {label}
                   </Button>
@@ -1206,38 +1257,40 @@ function ProfilePage() {
     <div className="container mx-auto px-4 py-8 max-w-4xl">
       <h1 className="text-3xl font-bold text-[#3A1F1F] mb-6">My Profile</h1>
 
-      {/* Completion Banner */}
-      <div className="bg-white rounded-2xl p-6 shadow-md mb-6">
-        <div className="flex items-center justify-between mb-3">
-          <div>
-            <h3 className="font-semibold text-[#3A1F1F]">Profile Completion</h3>
-            <p className="text-sm text-[#8A8A8A]">
-              {completion < 50 ? "Add more details to get noticed by recruiters." : completion < 80 ? "Almost there! A complete profile gets 5x more views." : "Great profile! Recruiters can find you easily."}
-            </p>
+      {/* Completion Banner — hidden when profile is 100% complete */}
+      {completion < 100 && (
+        <div className="bg-white rounded-2xl p-6 shadow-md mb-6">
+          <div className="flex items-center justify-between mb-3">
+            <div>
+              <h3 className="font-semibold text-[#3A1F1F]">Profile Completion</h3>
+              <p className="text-sm text-[#8A8A8A]">
+                {completion < 50 ? "Add more details to get noticed by recruiters." : completion < 80 ? "Almost there! A complete profile gets 5x more views." : "Great profile! Recruiters can find you easily."}
+              </p>
+            </div>
+            <div className="text-3xl font-bold text-[#3A1F1F]">{completion}%</div>
           </div>
-          <div className="text-3xl font-bold text-[#3A1F1F]">{completion}%</div>
+          <div className="w-full bg-gray-200 rounded-full h-3">
+            <div className={`${completionColor} h-3 rounded-full transition-all duration-500`} style={{ width: `${completion}%` }} />
+          </div>
+          <div className="mt-3 flex flex-wrap gap-2 text-xs text-[#8A8A8A]">
+            {[
+              { label: "Basic Info", done: !!(basicInfo.name && basicInfo.phone && basicInfo.email && basicInfo.location) },
+              { label: "Summary", done: summary.length > 20 },
+              { label: "Skills (3+)", done: skills.length >= 3 },
+              { label: "Experience", done: experiences.length > 0 },
+              { label: "Education", done: education.length > 0 },
+              { label: "Projects", done: projects.length > 0 },
+              { label: "Certifications", done: certifications.length > 0 },
+              { label: "Resume", done: !!resumeFile },
+              { label: "Job Preferences", done: !!(preferences.desiredJobTitle && preferences.expectedSalary) },
+            ].map(({ label, done }) => (
+              <span key={label} className={`px-2 py-1 rounded-full text-xs ${done ? "bg-green-100 text-green-700" : "bg-gray-100 text-gray-500"}`}>
+                {done ? "✓" : "○"} {label}
+              </span>
+            ))}
+          </div>
         </div>
-        <div className="w-full bg-gray-200 rounded-full h-3">
-          <div className={`${completionColor} h-3 rounded-full transition-all duration-500`} style={{ width: `${completion}%` }} />
-        </div>
-        <div className="mt-3 flex flex-wrap gap-2 text-xs text-[#8A8A8A]">
-          {[
-            { label: "Basic Info", done: !!(basicInfo.name && basicInfo.phone && basicInfo.email && basicInfo.location) },
-            { label: "Summary", done: summary.length > 20 },
-            { label: "Skills (3+)", done: skills.length >= 3 },
-            { label: "Experience", done: experiences.length > 0 },
-            { label: "Education", done: education.length > 0 },
-            { label: "Projects", done: projects.length > 0 },
-            { label: "Certifications", done: certifications.length > 0 },
-            { label: "Resume", done: !!resumeFile },
-            { label: "Job Preferences", done: !!(preferences.desiredJobTitle && preferences.expectedSalary) },
-          ].map(({ label, done }) => (
-            <span key={label} className={`px-2 py-1 rounded-full text-xs ${done ? "bg-green-100 text-green-700" : "bg-gray-100 text-gray-500"}`}>
-              {done ? "✓" : "○"} {label}
-            </span>
-          ))}
-        </div>
-      </div>
+      )}
 
       <div className="space-y-6">
         {/* ── Basic Info ── */}

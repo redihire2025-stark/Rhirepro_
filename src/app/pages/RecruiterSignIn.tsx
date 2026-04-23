@@ -131,6 +131,7 @@ export default function RecruiterSignIn() {
       const valid = await verifyOTPFromDB(userId, otp.trim());
       if (!valid) throw new Error("Invalid or expired OTP. Please try again.");
       await supabase.from("recruiter_profiles").update({ otp_code: null, otp_expires_at: null }).eq("id", userId);
+      // Dashboard checks profile completion on load and redirects to company-profile if needed
       navigate("/recruiter/dashboard");
     } catch (err: unknown) {
       setError(err instanceof Error ? err.message : "OTP verification failed.");
