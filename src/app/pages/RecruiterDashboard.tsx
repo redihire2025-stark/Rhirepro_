@@ -1,4 +1,4 @@
-import { useState, useEffect, useCallback, useRef } from "react";
+import { useState, useEffect, useCallback, useRef, useMemo } from "react";
 import { useNavigate, Routes, Route, Link, useLocation } from "react-router";
 import { supabase, Job, Application, Notification, Profile, WorkExperience, Education as EduType, RecruiterSubscription } from "../../lib/supabase";
 import { buildJobDeadlineTimestamp, formatJobDeadline, getEffectiveJobStatus, getJobDeadlineDateValue, isJobExpired } from "../../lib/jobs";
@@ -653,6 +653,30 @@ export default function RecruiterDashboard() {
     return () => document.removeEventListener("mousedown", handler);
   }, [notificationsOpen]);
 
+  // On root dashboard path: check company profile completion and redirect if incomplete
+  const recruiterCheckRef = useRef(false);
+  const isRootPath = location.pathname === "/recruiter/dashboard" || location.pathname === "/recruiter/dashboard/";
+  const [checkingCompletion, setCheckingCompletion] = useState(isRootPath);
+
+  useEffect(() => {
+    if (authLoading || !recruiterProfile || !user || recruiterCheckRef.current) return;
+    recruiterCheckRef.current = true;
+    if (!isRootPath) { setCheckingCompletion(false); return; }
+    const rp = recruiterProfile;
+    let score = 0;
+    if (rp.recruiter_name) score += 10;
+    if (rp.company_name) score += 15;
+    if (rp.phone) score += 5;
+    if (rp.industry) score += 15;
+    if (rp.company_size) score += 10;
+    if (rp.company_type) score += 5;
+    if ((rp.company_description || "").trim().length > 20) score += 20;
+    if (rp.location) score += 10;
+    if (rp.website) score += 10;
+    setCheckingCompletion(false);
+    if (score < 100) navigate("/recruiter/dashboard/company-profile", { replace: true });
+  }, [authLoading, recruiterProfile, user, navigate, isRootPath]);
+
   const handleSignOut = async () => {
     await signOut();
     navigate("/");
@@ -696,6 +720,18 @@ export default function RecruiterDashboard() {
     );
   }
   if (!user) return null;
+
+  // Show spinner while checking profile completion (only on root path)
+  if (checkingCompletion) {
+    return (
+      <div className="min-h-screen bg-[#F6F6F6] flex items-center justify-center">
+        <div className="text-center">
+          <div className="w-10 h-10 border-4 border-[#FF2B2B] border-t-transparent rounded-full animate-spin mx-auto mb-3" />
+          <p className="text-[#8A8A8A] text-sm">Setting up your dashboard...</p>
+        </div>
+      </div>
+    );
+  }
 
   return (
     <div className="min-h-screen bg-[#F6F6F6]">
@@ -822,6 +858,21 @@ function DashboardOverview() {
   const [dbJobs, setDbJobs] = useState<Job[]>([]);
   const [dbApplications, setDbApplications] = useState<Application[]>([]);
 
+  const recruiterCompletion = useMemo(() => {
+    if (!recruiterProfile) return 0;
+    let score = 0;
+    if (recruiterProfile.recruiter_name) score += 10;
+    if (recruiterProfile.company_name) score += 15;
+    if (recruiterProfile.phone) score += 5;
+    if (recruiterProfile.industry) score += 15;
+    if (recruiterProfile.company_size) score += 10;
+    if (recruiterProfile.company_type) score += 5;
+    if ((recruiterProfile.company_description || "").trim().length > 20) score += 20;
+    if (recruiterProfile.location) score += 10;
+    if (recruiterProfile.website) score += 10;
+    return Math.min(100, score);
+  }, [recruiterProfile]);
+
   useEffect(() => {
     if (!recruiterProfile?.id) return;
     const load = async () => {
@@ -869,6 +920,65 @@ function DashboardOverview() {
           <Plus className="mr-2 h-4 w-4" /> Post New Job
         </Button>
       </div>
+
+      {/* Company Profile Completion Banner */}
+      {recruiterCompletion < 100 && (
+        <div className="bg-white rounded-2xl p-4 shadow-sm border border-orange-100">
+          <div className="flex items-center justify-between mb-2">
+            <div className="flex items-center gap-3">
+              <div className="w-9 h-9 bg-orange-50 rounded-full flex items-center justify-center flex-shrink-0">
+                <Building2 className="h-4 w-4 text-orange-500" />
+              </div>
+              <div>
+                <p className="text-sm font-semibold text-[#3A1F1F]">Complete your company profile</p>
+                <p className="text-xs text-[#8A8A8A]">
+                  {recruiterCompletion < 50
+                    ? "A complete profile builds trust with job seekers."
+                    : "Almost there! Finish your company details to attract better candidates."}
+                </p>
+              </div>
+            </div>
+            <div className="flex items-center gap-3 flex-shrink-0">
+              <span className={`text-2xl font-bold ${recruiterCompletion >= 80 ? "text-green-600" : recruiterCompletion >= 50 ? "text-yellow-600" : "text-[#FF2B2B]"}`}>
+                {recruiterCompletion}%
+              </span>
+              <Link to="/recruiter/dashboard/company-profile">
+                <Button size="sm" className="bg-[#FF2B2B] hover:bg-[#e02525] text-white rounded-full text-xs">
+                  Complete Profile
+                </Button>
+              </Link>
+            </div>
+          </div>
+          <div className="w-full bg-gray-200 rounded-full h-2">
+            <div
+              className={`h-2 rounded-full transition-all duration-500 ${recruiterCompletion >= 80 ? "bg-green-500" : recruiterCompletion >= 50 ? "bg-yellow-500" : "bg-[#FF2B2B]"}`}
+              style={{ width: `${recruiterCompletion}%` }}
+            />
+          </div>
+          {(() => {
+            const missing = [
+              { label: "HR Contact Name", done: !!recruiterProfile?.recruiter_name },
+              { label: "Company Name", done: !!recruiterProfile?.company_name },
+              { label: "Phone", done: !!recruiterProfile?.phone },
+              { label: "Industry", done: !!recruiterProfile?.industry },
+              { label: "Company Size", done: !!recruiterProfile?.company_size },
+              { label: "Company Type", done: !!recruiterProfile?.company_type },
+              { label: "About Company", done: (recruiterProfile?.company_description || "").trim().length > 20 },
+              { label: "Location", done: !!recruiterProfile?.location },
+              { label: "Website", done: !!recruiterProfile?.website },
+            ].filter(item => !item.done);
+            return missing.length > 0 ? (
+              <div className="mt-2 flex flex-wrap gap-1.5">
+                {missing.map(({ label }) => (
+                  <span key={label} className="px-2 py-0.5 rounded-full text-xs bg-orange-50 text-orange-600 border border-orange-100">
+                    ○ {label}
+                  </span>
+                ))}
+              </div>
+            ) : null;
+          })()}
+        </div>
+      )}
 
       {/* Stats */}
       <div className="grid grid-cols-2 md:grid-cols-4 gap-4">
@@ -3242,6 +3352,20 @@ function CompanyProfilePage() {
   const [saving, setSaving] = useState(false);
   const [saveError, setSaveError] = useState("");
 
+  const companyCompletion = useMemo(() => {
+    let score = 0;
+    if (profile.recruiterName) score += 10;
+    if (profile.companyName) score += 15;
+    if (profile.phone) score += 5;
+    if (profile.industry) score += 15;
+    if (profile.companySize) score += 10;
+    if (profile.type) score += 5;
+    if (profile.description.trim().length > 20) score += 20;
+    if (profile.location) score += 10;
+    if (profile.website) score += 10;
+    return Math.min(100, score);
+  }, [profile]);
+
   useEffect(() => {
     if (recruiterProfile) {
       setProfile({
@@ -3295,6 +3419,50 @@ function CompanyProfilePage() {
   return (
     <div className="container mx-auto px-4 py-8 max-w-4xl">
       <h1 className="text-3xl font-bold text-[#3A1F1F] mb-6">Company Profile</h1>
+
+      {/* Completion Banner — hidden when profile is 100% complete */}
+      {companyCompletion < 100 && (
+        <div className="bg-white rounded-2xl p-6 shadow-sm mb-6">
+          <div className="flex items-center justify-between mb-3">
+            <div>
+              <h3 className="font-semibold text-[#3A1F1F]">Profile Completion</h3>
+              <p className="text-sm text-[#8A8A8A]">
+                {companyCompletion < 50
+                  ? "Add more details so candidates can trust your job postings."
+                  : companyCompletion < 80
+                    ? "Almost there! A complete profile attracts better applicants."
+                    : "Looking great! Just a few more details to go."}
+              </p>
+            </div>
+            <div className={`text-3xl font-bold ${companyCompletion >= 80 ? "text-green-600" : companyCompletion >= 50 ? "text-yellow-600" : "text-[#FF2B2B]"}`}>
+              {companyCompletion}%
+            </div>
+          </div>
+          <div className="w-full bg-gray-200 rounded-full h-3">
+            <div
+              className={`h-3 rounded-full transition-all duration-500 ${companyCompletion >= 80 ? "bg-green-500" : companyCompletion >= 50 ? "bg-yellow-500" : "bg-[#FF2B2B]"}`}
+              style={{ width: `${companyCompletion}%` }}
+            />
+          </div>
+          <div className="mt-3 flex flex-wrap gap-2">
+            {[
+              { label: "HR Contact", done: !!profile.recruiterName },
+              { label: "Company Name", done: !!profile.companyName },
+              { label: "Phone", done: !!profile.phone },
+              { label: "Industry", done: !!profile.industry },
+              { label: "Company Size", done: !!profile.companySize },
+              { label: "Company Type", done: !!profile.type },
+              { label: "About Company", done: profile.description.trim().length > 20 },
+              { label: "Location", done: !!profile.location },
+              { label: "Website", done: !!profile.website },
+            ].map(({ label, done }) => (
+              <span key={label} className={`px-2 py-1 rounded-full text-xs ${done ? "bg-green-100 text-green-700" : "bg-gray-100 text-gray-500"}`}>
+                {done ? "✓" : "○"} {label}
+              </span>
+            ))}
+          </div>
+        </div>
+      )}
 
       <div className="space-y-6">
         {/* Logo & Cover */}
