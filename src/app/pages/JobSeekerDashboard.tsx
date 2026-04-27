@@ -1,9 +1,10 @@
 import { useState, useMemo, useEffect, useCallback, useRef } from "react";
 import { useNavigate, Routes, Route, Link, useLocation } from "react-router";
-import { supabase, Job as DBJob, Notification, Application } from "../../lib/supabase";
+import { supabase, Job as DBJob, Notification } from "../../lib/supabase";
 import { isJobVisibleToSeekers } from "../../lib/jobs";
 import { recordJobInteraction, recordJobSearch } from "../../lib/jobRecommendations";
 import { useAuth } from "../../lib/auth-context";
+import AppliedJobsSection from "../components/AppliedJobsSection";
 import {
   Bell, LogOut, Search, MapPin, DollarSign, Briefcase, Filter, Bookmark,
   User, BarChart3, Lightbulb, Upload, Plus, X, Pencil, Trash2,
@@ -25,14 +26,12 @@ import { Select, SelectContent, SelectItem, SelectTrigger, SelectValue } from ".
 import { BarChart, Bar, XAxis, YAxis, CartesianGrid, Tooltip, ResponsiveContainer } from "recharts";
 import { Badge } from "../components/ui/badge";
 import FeedbackPopup from "../components/FeedbackPopup";
+import SavedJobsSection from "../components/SavedJobsSection";
+import { AppliedJobWithJob, SavedJobWithJob } from "../services/jobService";
+import SavedJobsComparePage from "./SavedJobsComparePage";
 import logoImage from "../../logo/logo.png";
 
 // ── Types ──────────────────────────────────────────────────────────────────────
-interface Job {
-  id: number; title: string; company: string; location: string;
-  salary: string; salaryMin: number; type: "Full-time" | "Part-time" | "Contract";
-  description: string; industry: string; experience: string; isRemote: boolean;
-}
 interface DashboardDisplayJob {
   id: string;
   title: string;
@@ -105,22 +104,6 @@ function formatDashboardDescription(job: DBJob): string {
   if (parts.length > 0) return parts.join(" | ");
   return "Explore this opportunity and apply now.";
 }
-
-// ── Job Data ───────────────────────────────────────────────────────────────────
-const ALL_JOBS: Job[] = [
-  { id: 1, title: "Senior Data Analyst", company: "TechCorp Inc.", location: "New York, NY", salary: "$90k–$120k", salaryMin: 90000, type: "Full-time", description: "Work with large datasets to drive business decisions using Python, SQL, and Tableau.", industry: "tech", experience: "senior", isRemote: false },
-  { id: 2, title: "UI/UX Designer", company: "Creative Studios", location: "Remote", salary: "$70k–$95k", salaryMin: 70000, type: "Full-time", description: "Design beautiful and intuitive user experiences collaborating with engineers and PMs.", industry: "design", experience: "mid", isRemote: true },
-  { id: 3, title: "Marketing Manager", company: "Marketing Pro", location: "Chicago, IL", salary: "$80k–$110k", salaryMin: 80000, type: "Full-time", description: "Lead marketing initiatives and grow brand presence across digital and offline channels.", industry: "marketing", experience: "mid", isRemote: false },
-  { id: 4, title: "Software Engineer", company: "Tech Innovations", location: "San Francisco, CA", salary: "$100k–$140k", salaryMin: 100000, type: "Full-time", description: "Build scalable applications using React, Node.js, and cloud platforms.", industry: "tech", experience: "mid", isRemote: false },
-  { id: 5, title: "Product Manager", company: "Product Co", location: "Austin, TX", salary: "$95k–$130k", salaryMin: 95000, type: "Full-time", description: "Drive product strategy and execution from concept to launch with cross-functional teams.", industry: "tech", experience: "senior", isRemote: false },
-  { id: 6, title: "Content Writer", company: "Media Group", location: "Remote", salary: "$55k–$75k", salaryMin: 55000, type: "Contract", description: "Create engaging blog articles, social media posts, and email newsletters.", industry: "media", experience: "entry", isRemote: true },
-  { id: 7, title: "Financial Analyst", company: "Finance Plus", location: "New York, NY", salary: "$75k–$100k", salaryMin: 75000, type: "Full-time", description: "Analyze financial data, prepare reports, and support business planning and budgeting.", industry: "finance", experience: "mid", isRemote: false },
-  { id: 8, title: "Healthcare Data Specialist", company: "MedTech Solutions", location: "Remote", salary: "$65k–$85k", salaryMin: 65000, type: "Full-time", description: "Manage and analyze healthcare data to improve patient outcomes and efficiency.", industry: "healthcare", experience: "entry", isRemote: true },
-  { id: 9, title: "Frontend Developer", company: "WebStudio", location: "San Francisco, CA", salary: "$85k–$115k", salaryMin: 85000, type: "Full-time", description: "Build responsive and accessible web interfaces using React and TypeScript.", industry: "tech", experience: "mid", isRemote: false },
-  { id: 10, title: "Social Media Manager", company: "Brand Agency", location: "Chicago, IL", salary: "$50k–$70k", salaryMin: 50000, type: "Part-time", description: "Manage social media accounts and grow online community for global brands.", industry: "marketing", experience: "entry", isRemote: false },
-  { id: 11, title: "DevOps Engineer", company: "CloudSys", location: "Remote", salary: "$110k–$145k", salaryMin: 110000, type: "Full-time", description: "Build CI/CD pipelines, manage cloud infrastructure, and improve deployment processes.", industry: "tech", experience: "senior", isRemote: true },
-  { id: 12, title: "Graphic Designer", company: "Design House", location: "New York, NY", salary: "$45k–$65k", salaryMin: 45000, type: "Contract", description: "Create visual assets including branding materials, digital graphics, and marketing collateral.", industry: "design", experience: "entry", isRemote: false },
-];
 
 const MONTHS = ["Jan","Feb","Mar","Apr","May","Jun","Jul","Aug","Sep","Oct","Nov","Dec"];
 const YEARS = Array.from({ length: 17 }, (_, i) => String(2010 + i));
@@ -377,6 +360,7 @@ export default function JobSeekerDashboard() {
 
       <Routes>
         <Route index element={<FindJobPage />} />
+        <Route path="saved-jobs/compare" element={<SavedJobsComparePage />} />
         <Route path="profile" element={<ProfilePage />} />
         <Route path="analytics" element={<AnalyticsPage />} />
         <Route path="insights" element={<InsightsPage />} />
@@ -388,6 +372,7 @@ export default function JobSeekerDashboard() {
 // ── Find a Job ─────────────────────────────────────────────────────────────────
 function FindJobPage() {
   const { profile } = useAuth();
+  const userId = profile?.id;
   const [searchQuery, setSearchQuery] = useState("");
   const [inputValue, setInputValue] = useState("");
   const [selectedChip, setSelectedChip] = useState<string | null>(null);
@@ -407,16 +392,40 @@ function FindJobPage() {
   const [applyingId, setApplyingId] = useState<string | null>(null);
   const [selectedJob, setSelectedJob] = useState<DashboardDisplayJob | null>(null);
 
+  const handleAppliedJobsLoaded = useCallback((jobs: AppliedJobWithJob[]) => {
+    const ids = jobs
+      .map((job) => job.job_id)
+      .filter((jobId): jobId is string => typeof jobId === "string" && jobId.length > 0);
+    setAppliedJobIds(ids);
+  }, []);
+
+  const handleSavedJobsLoaded = useCallback((jobs: SavedJobWithJob[]) => {
+    const ids = jobs
+      .map((job) => job.job_id)
+      .filter((jobId): jobId is string => typeof jobId === "string" && jobId.length > 0);
+    setSavedJobIds(ids);
+  }, []);
+
   useEffect(() => {
-    if (profile?.id) {
-      supabase.from("applications").select("job_id").eq("profile_id", profile.id).then(({ data }) => {
-        if (data) setAppliedJobIds(data.map(a => a.job_id));
+    if (userId) {
+      supabase.from("applications").select("job_id").eq("profile_id", userId).then(({ data }) => {
+        if (data) {
+          const ids = data
+            .map((application) => application.job_id)
+            .filter((jobId): jobId is string => typeof jobId === "string" && jobId.length > 0);
+          setAppliedJobIds(ids);
+        }
       });
-      supabase.from("saved_jobs").select("job_id").eq("profile_id", profile.id).then(({ data }) => {
-        if (data) setSavedJobIds(data.map(s => s.job_id));
+      supabase.from("saved_jobs").select("job_id").eq("profile_id", userId).then(({ data }) => {
+        if (data) {
+          const ids = data
+            .map((savedJob) => savedJob.job_id)
+            .filter((jobId): jobId is string => typeof jobId === "string" && jobId.length > 0);
+          setSavedJobIds(ids);
+        }
       });
     }
-  }, [profile?.id]);
+  }, [userId]);
 
   useEffect(() => {
     let cancelled = false;
@@ -515,19 +524,19 @@ function FindJobPage() {
   ]);
 
   const handleApply = async (job: DBJob) => {
-    if (!profile?.id) return;
+    if (!userId) return;
     if (appliedJobIds.includes(job.id)) return;
     if (!isJobVisibleToSeekers(job)) return;
     setApplyingId(job.id);
     try {
       await supabase.from("applications").insert({
         job_id: job.id,
-        profile_id: profile.id,
+        profile_id: userId,
         recruiter_id: job.recruiter_id,
         status: "New",
         resume_url: profile.resume_url,
       });
-      recordJobInteraction(job, profile.id);
+      recordJobInteraction(job, userId);
       setAppliedJobIds(prev => [...prev, job.id]);
     } finally {
       setApplyingId(null);
@@ -535,13 +544,13 @@ function FindJobPage() {
   };
 
   const handleSave = async (job: DBJob) => {
-    if (!profile?.id) return;
+    if (!userId) return;
     if (savedJobIds.includes(job.id)) {
-      await supabase.from("saved_jobs").delete().eq("profile_id", profile.id).eq("job_id", job.id);
+      await supabase.from("saved_jobs").delete().eq("profile_id", userId).eq("job_id", job.id);
       setSavedJobIds(prev => prev.filter(id => id !== job.id));
     } else {
-      await supabase.from("saved_jobs").insert({ profile_id: profile.id, job_id: job.id });
-      recordJobInteraction(job, profile.id);
+      await supabase.from("saved_jobs").insert({ profile_id: userId, job_id: job.id });
+      recordJobInteraction(job, userId);
       setSavedJobIds(prev => [...prev, job.id]);
     }
   };
@@ -642,6 +651,26 @@ function FindJobPage() {
               </button>
             ))}
           </div>
+        </div>
+      </div>
+
+      <div className="grid grid-cols-1 xl:grid-cols-2 gap-6 mb-8">
+        <div className="bg-white rounded-2xl p-5 shadow-sm">
+          <h2 className="text-lg font-semibold text-[#3A1F1F] mb-4">Saved Jobs</h2>
+          <SavedJobsSection
+            userId={userId}
+            compact
+            appliedJobIds={appliedJobIds}
+            onJobsLoaded={handleSavedJobsLoaded}
+          />
+        </div>
+        <div className="bg-white rounded-2xl p-5 shadow-sm">
+          <h2 className="text-lg font-semibold text-[#3A1F1F] mb-4">Applied Jobs</h2>
+          <AppliedJobsSection
+            userId={userId}
+            compact
+            onJobsLoaded={handleAppliedJobsLoaded}
+          />
         </div>
       </div>
 
@@ -2045,17 +2074,6 @@ function CertForm({ form, setForm, onSave, onCancel }: {
 }
 
 // ── Analytics Page ─────────────────────────────────────────────────────────────
-const STATUS_STEPS = ["Applied", "Profile Viewed", "Shortlisted", "Interview", "Offer"] as const;
-
-const STATUS_META: Record<string, { color: string; step: number }> = {
-  "Applied":             { color: "bg-gray-100 text-gray-700",    step: 1 },
-  "Profile Viewed":      { color: "bg-blue-100 text-blue-700",    step: 2 },
-  "Shortlisted":         { color: "bg-amber-100 text-amber-700",  step: 3 },
-  "Interview Scheduled": { color: "bg-purple-100 text-purple-700",step: 4 },
-  "Offer Received":      { color: "bg-green-100 text-green-700",  step: 5 },
-  "Rejected":            { color: "bg-red-100 text-red-700",      step: -1 },
-};
-
 function fmtIndustry(s: string) {
   return ({ tech:"Technology", finance:"Finance", healthcare:"Healthcare", marketing:"Marketing", design:"Design", media:"Media" } as Record<string,string>)[s] ?? s;
 }
@@ -2063,43 +2081,43 @@ function fmtExp(s: string) {
   return ({ entry:"Entry Level", mid:"Mid Level", senior:"Senior" } as Record<string,string>)[s] ?? s;
 }
 
+function toCompareJob(savedJob: SavedJobWithJob): DashboardDisplayJob | null {
+  if (!savedJob.job) return null;
+  return buildDashboardJob(savedJob.job);
+}
+
 function AnalyticsPage() {
+  const navigate = useNavigate();
+  const { profile } = useAuth();
   const [activeTab, setActiveTab] = useState<"applied" | "saved" | "compare">("applied");
+  const [appliedJobs, setAppliedJobs] = useState<AppliedJobWithJob[]>([]);
+  const [savedJobs, setSavedJobs] = useState<SavedJobWithJob[]>([]);
 
-  const chartData = [
-    { month: "Oct", applications: 8 },  { month: "Nov", applications: 14 },
-    { month: "Dec", applications: 10 }, { month: "Jan", applications: 18 },
-    { month: "Feb", applications: 24 }, { month: "Mar", applications: 30 },
-  ];
-
-  const [appliedJobs, setAppliedJobs] = useState([
-    { id: 1, title: "Senior Data Analyst",   company: "TechCorp Inc.",     location: "New York, NY",      appliedDate: "Mar 1, 2026",  status: "Interview Scheduled" },
-    { id: 2, title: "DevOps Engineer",        company: "CloudSys",          location: "Remote",            appliedDate: "Feb 28, 2026", status: "Profile Viewed" },
-    { id: 3, title: "Marketing Manager",      company: "Marketing Pro",     location: "Chicago, IL",       appliedDate: "Feb 25, 2026", status: "Applied" },
-    { id: 4, title: "Product Designer",       company: "Design Hub",        location: "San Francisco, CA", appliedDate: "Feb 20, 2026", status: "Shortlisted" },
-    { id: 5, title: "Software Engineer",      company: "Tech Innovations",  location: "Austin, TX",        appliedDate: "Feb 10, 2026", status: "Rejected" },
-    { id: 6, title: "Product Manager",        company: "Product Co",        location: "Austin, TX",        appliedDate: "Jan 30, 2026", status: "Offer Received" },
-  ]);
-
-  const [savedJobs, setSavedJobs] = useState([
-    { id: 1, title: "Frontend Developer",         company: "WebStudio",         location: "San Francisco, CA", salary: "$85k–$115k", savedDate: "Mar 5, 2026" },
-    { id: 2, title: "Financial Analyst",           company: "Finance Plus",      location: "New York, NY",      salary: "$75k–$100k", savedDate: "Mar 3, 2026" },
-    { id: 3, title: "Healthcare Data Specialist",  company: "MedTech Solutions", location: "Remote",            salary: "$65k–$85k",  savedDate: "Feb 28, 2026" },
-    { id: 4, title: "Content Writer",              company: "Media Group",       location: "Remote",            salary: "$55k–$75k",  savedDate: "Feb 25, 2026" },
-  ]);
+  const chartData = useMemo(() => {
+    const counts = new Map<string, number>();
+    appliedJobs.forEach((job) => {
+      const month = new Date(job.applied_at).toLocaleDateString("en-IN", { month: "short" });
+      counts.set(month, (counts.get(month) || 0) + 1);
+    });
+    return Array.from(counts.entries()).slice(-6).map(([month, applications]) => ({ month, applications }));
+  }, [appliedJobs]);
 
   // Compare state
   const [job1Id, setJob1Id] = useState<string>("");
   const [job2Id, setJob2Id] = useState<string>("");
 
-  const job1 = useMemo(() => ALL_JOBS.find(j => String(j.id) === job1Id) ?? null, [job1Id]);
-  const job2 = useMemo(() => ALL_JOBS.find(j => String(j.id) === job2Id) ?? null, [job2Id]);
+  useEffect(() => {
+    const savedIds = new Set(savedJobs.map((job) => job.job_id));
+    if (job1Id && !savedIds.has(job1Id)) setJob1Id("");
+    if (job2Id && !savedIds.has(job2Id)) setJob2Id("");
+  }, [job1Id, job2Id, savedJobs]);
 
-  // IDs of saved jobs found in ALL_JOBS
-  const savedAllJobIds = useMemo(() =>
-    savedJobs.map(sj => ALL_JOBS.find(j => j.title === sj.title)?.id).filter(Boolean) as number[],
-    [savedJobs]
+  const compareJobs = useMemo(
+    () => savedJobs.map(toCompareJob).filter((job): job is DashboardDisplayJob => Boolean(job)),
+    [savedJobs],
   );
+  const job1 = useMemo(() => compareJobs.find(j => j.id === job1Id) ?? null, [compareJobs, job1Id]);
+  const job2 = useMemo(() => compareJobs.find(j => j.id === job2Id) ?? null, [compareJobs, job2Id]);
 
   const compareRows: { label: string; val1: string; val2: string }[] = useMemo(() => {
     if (!job1 || !job2) return [];
@@ -2119,15 +2137,14 @@ function AnalyticsPage() {
 
   const stats = [
     { label: "Applied",            value: appliedJobs.length,                                                Icon: Briefcase },
-    { label: "Profile Views",      value: 2543,                                                              Icon: User },
-    { label: "Recruiter Searches", value: 48,                                                                Icon: Search },
-    { label: "Interviews",         value: appliedJobs.filter(j => j.status === "Interview Scheduled").length, Icon: Bell },
+    { label: "Profile Views",      value: 0,                                                                 Icon: User },
+    { label: "Recruiter Searches", value: 0,                                                                 Icon: Search },
+    { label: "Interviews",         value: appliedJobs.filter(j => j.displayStatus === "interview").length,    Icon: Bell },
   ];
 
   const tabs = [
     { key: "applied",  label: `Applied Jobs (${appliedJobs.length})` },
     { key: "saved",    label: `Saved Jobs (${savedJobs.length})` },
-    { key: "compare",  label: "Compare Jobs" },
   ] as const;
 
   return (
@@ -2173,94 +2190,12 @@ function AnalyticsPage() {
 
           {/* Applied Jobs */}
           {activeTab === "applied" && (
-            <div className="space-y-3">
-              {appliedJobs.length === 0 && (
-                <div className="bg-white rounded-2xl p-12 shadow-md text-center">
-                  <Briefcase className="h-12 w-12 text-gray-300 mx-auto mb-3" />
-                  <p className="text-[#8A8A8A]">No applications yet. Start applying!</p>
-                </div>
-              )}
-              {appliedJobs.map((job) => {
-                const meta = STATUS_META[job.status] ?? STATUS_META["Applied"];
-                const isRejected = job.status === "Rejected";
-                return (
-                  <div key={job.id} className="bg-white rounded-2xl p-5 shadow-md">
-                    <div className="flex justify-between items-start mb-3">
-                      <div>
-                        <h3 className="font-semibold text-[#3A1F1F] text-lg">{job.title}</h3>
-                        <p className="text-[#8A8A8A] text-sm">{job.company} · {job.location}</p>
-                        <p className="text-xs text-[#8A8A8A] mt-0.5">Applied on {job.appliedDate}</p>
-                      </div>
-                      <div className="flex items-center gap-2">
-                        <Badge className={`${meta.color} text-xs`}>{job.status}</Badge>
-                        <Button variant="ghost" size="icon" className="h-7 w-7 text-[#8A8A8A] hover:text-red-500"
-                          onClick={() => setAppliedJobs(p => p.filter(j => j.id !== job.id))}>
-                          <X className="h-4 w-4" />
-                        </Button>
-                      </div>
-                    </div>
-                    {isRejected ? (
-                      <div className="flex items-center gap-2 mt-2">
-                        <div className="h-1.5 flex-1 bg-red-200 rounded-full" />
-                        <span className="text-xs text-red-500 font-medium">Application not moved forward</span>
-                        <div className="h-1.5 flex-1 bg-red-200 rounded-full" />
-                      </div>
-                    ) : (
-                      <div className="flex items-center gap-1 mt-2 overflow-x-auto pb-1">
-                        {STATUS_STEPS.map((step, i) => {
-                          const done = meta.step > i;
-                          const current = meta.step === i + 1;
-                          return (
-                            <div key={step} className="flex items-center gap-1 shrink-0">
-                              <div className={`flex items-center gap-1 px-2 py-1 rounded-full text-xs font-medium transition-all ${done || current ? "bg-[#FF2B2B] text-white" : "bg-gray-100 text-gray-400"}`}>
-                                {(done || current) && <span className="text-[10px]">●</span>}
-                                {step}
-                              </div>
-                              {i < STATUS_STEPS.length - 1 && (
-                                <div className={`w-4 h-0.5 rounded-full ${done ? "bg-[#FF2B2B]" : "bg-gray-200"}`} />
-                              )}
-                            </div>
-                          );
-                        })}
-                      </div>
-                    )}
-                  </div>
-                );
-              })}
-            </div>
+            <AppliedJobsSection userId={profile?.id} onJobsLoaded={setAppliedJobs} />
           )}
-
           {/* Saved Jobs */}
           {activeTab === "saved" && (
-            <div className="space-y-3">
-              {savedJobs.length === 0 && (
-                <div className="bg-white rounded-2xl p-12 shadow-md text-center">
-                  <Bookmark className="h-12 w-12 text-gray-300 mx-auto mb-3" />
-                  <p className="text-[#8A8A8A]">No saved jobs yet. Bookmark jobs to apply later!</p>
-                </div>
-              )}
-              {savedJobs.map((job) => (
-                <div key={job.id} className="bg-white rounded-2xl p-5 shadow-md flex items-center justify-between gap-4">
-                  <div>
-                    <h3 className="font-semibold text-[#3A1F1F]">{job.title}</h3>
-                    <p className="text-[#8A8A8A] text-sm">{job.company} · {job.location}</p>
-                    <div className="flex items-center gap-3 mt-1 text-xs text-[#8A8A8A]">
-                      <span className="flex items-center gap-1"><DollarSign className="h-3 w-3" />{job.salary}</span>
-                      <span>Saved {job.savedDate}</span>
-                    </div>
-                  </div>
-                  <div className="flex gap-2 shrink-0">
-                    <Button size="sm" className="bg-[#FF2B2B] hover:bg-[#e02525] text-white rounded-full text-xs">Apply Now</Button>
-                    <Button size="sm" variant="ghost" className="text-[#8A8A8A] hover:text-red-500 rounded-full"
-                      onClick={() => setSavedJobs(p => p.filter(j => j.id !== job.id))}>
-                      <Trash2 className="h-4 w-4" />
-                    </Button>
-                  </div>
-                </div>
-              ))}
-            </div>
+            <SavedJobsSection userId={profile?.id} onJobsLoaded={setSavedJobs} />
           )}
-
           {/* ── Compare Jobs ── */}
           {activeTab === "compare" && (
             <div className="bg-white rounded-2xl p-6 shadow-md">
@@ -2269,13 +2204,13 @@ function AnalyticsPage() {
                   <h3 className="text-xl font-semibold text-[#3A1F1F]">Compare Jobs Side by Side</h3>
                   <p className="text-sm text-[#8A8A8A] mt-1">Select any two jobs to compare their details</p>
                 </div>
-                {savedAllJobIds.length >= 2 && (
+                {compareJobs.length >= 2 && (
                   <Button
                     variant="outline"
                     className="border-[#FF2B2B] text-[#FF2B2B] rounded-full text-sm shrink-0"
                     onClick={() => {
-                      setJob1Id(String(savedAllJobIds[0]));
-                      setJob2Id(String(savedAllJobIds[1]));
+                      setJob1Id(compareJobs[0].id);
+                      setJob2Id(compareJobs[1].id);
                     }}
                   >
                     <Bookmark className="h-4 w-4 mr-2" /> Fill from Saved Jobs
@@ -2292,22 +2227,16 @@ function AnalyticsPage() {
                       <SelectValue placeholder="Select a job..." />
                     </SelectTrigger>
                     <SelectContent>
-                      {savedAllJobIds.length > 0 && (
+                      {compareJobs.length > 0 && (
                         <>
                           <div className="px-2 py-1 text-xs font-semibold text-[#8A8A8A] uppercase tracking-wide">Saved Jobs</div>
-                          {ALL_JOBS.filter(j => savedAllJobIds.includes(j.id)).map(j => (
+                          {compareJobs.map(j => (
                             <SelectItem key={j.id} value={String(j.id)}>
-                              🔖 {j.title} — {j.company}
+                              {j.title} - {j.company}
                             </SelectItem>
                           ))}
-                          <div className="px-2 py-1 text-xs font-semibold text-[#8A8A8A] uppercase tracking-wide mt-1">All Jobs</div>
                         </>
                       )}
-                      {ALL_JOBS.filter(j => !savedAllJobIds.includes(j.id)).map(j => (
-                        <SelectItem key={j.id} value={String(j.id)}>
-                          {j.title} — {j.company}
-                        </SelectItem>
-                      ))}
                     </SelectContent>
                   </Select>
                 </div>
@@ -2318,22 +2247,16 @@ function AnalyticsPage() {
                       <SelectValue placeholder="Select a job..." />
                     </SelectTrigger>
                     <SelectContent>
-                      {savedAllJobIds.length > 0 && (
+                      {compareJobs.length > 0 && (
                         <>
                           <div className="px-2 py-1 text-xs font-semibold text-[#8A8A8A] uppercase tracking-wide">Saved Jobs</div>
-                          {ALL_JOBS.filter(j => savedAllJobIds.includes(j.id)).map(j => (
+                          {compareJobs.map(j => (
                             <SelectItem key={j.id} value={String(j.id)}>
-                              🔖 {j.title} — {j.company}
+                              {j.title} - {j.company}
                             </SelectItem>
                           ))}
-                          <div className="px-2 py-1 text-xs font-semibold text-[#8A8A8A] uppercase tracking-wide mt-1">All Jobs</div>
                         </>
                       )}
-                      {ALL_JOBS.filter(j => !savedAllJobIds.includes(j.id)).map(j => (
-                        <SelectItem key={j.id} value={String(j.id)}>
-                          {j.title} — {j.company}
-                        </SelectItem>
-                      ))}
                     </SelectContent>
                   </Select>
                 </div>
@@ -2372,13 +2295,13 @@ function AnalyticsPage() {
                       <p className="text-xs text-[#8A8A8A] mb-1">Job 1</p>
                       <h4 className="font-bold text-[#3A1F1F] text-sm leading-tight">{job1.title}</h4>
                       <p className="text-xs text-[#8A8A8A] mt-1">{job1.company}</p>
-                      {savedAllJobIds.includes(job1.id) && <Badge className="mt-2 bg-amber-100 text-amber-700 text-xs">Saved</Badge>}
+                      <Badge className="mt-2 bg-amber-100 text-amber-700 text-xs">Saved</Badge>
                     </div>
                     <div className="bg-[#FF2B2B]/10 border-2 border-[#FF2B2B]/30 rounded-xl p-4 text-center">
                       <p className="text-xs text-[#8A8A8A] mb-1">Job 2</p>
                       <h4 className="font-bold text-[#3A1F1F] text-sm leading-tight">{job2.title}</h4>
                       <p className="text-xs text-[#8A8A8A] mt-1">{job2.company}</p>
-                      {savedAllJobIds.includes(job2.id) && <Badge className="mt-2 bg-amber-100 text-amber-700 text-xs">Saved</Badge>}
+                      <Badge className="mt-2 bg-amber-100 text-amber-700 text-xs">Saved</Badge>
                     </div>
                   </div>
 
@@ -2408,8 +2331,8 @@ function AnalyticsPage() {
                   {/* CTA row */}
                   <div className="grid grid-cols-3 gap-3 mt-4">
                     <div />
-                    <Button className="bg-[#FF2B2B] hover:bg-[#e02525] text-white rounded-full text-sm">Apply — {job1.title}</Button>
-                    <Button className="bg-[#FF2B2B] hover:bg-[#e02525] text-white rounded-full text-sm">Apply — {job2.title}</Button>
+                    <Button className="bg-[#FF2B2B] hover:bg-[#e02525] text-white rounded-full text-sm" onClick={() => navigate(`/job/${job1.id}`)}>Apply - {job1.title}</Button>
+                    <Button className="bg-[#FF2B2B] hover:bg-[#e02525] text-white rounded-full text-sm" onClick={() => navigate(`/job/${job2.id}`)}>Apply - {job2.title}</Button>
                   </div>
                 </>
               )}
@@ -2437,8 +2360,8 @@ function AnalyticsPage() {
               <h3 className="font-semibold text-[#3A1F1F] mb-4">Application Summary</h3>
               <div className="space-y-3">
                 {[
-                  { label: "In Progress",    count: appliedJobs.filter(j => !["Offer Received","Rejected"].includes(j.status)).length, color: "bg-blue-500" },
-                  { label: "Offer Received", count: appliedJobs.filter(j => j.status === "Offer Received").length,  color: "bg-green-500" },
+                  { label: "In Progress",    count: appliedJobs.filter(j => !["Offered","Rejected"].includes(j.status)).length, color: "bg-blue-500" },
+                  { label: "Offer Received", count: appliedJobs.filter(j => j.status === "Offered").length,  color: "bg-green-500" },
                   { label: "Rejected",       count: appliedJobs.filter(j => j.status === "Rejected").length,        color: "bg-red-400" },
                   { label: "Saved Jobs",     count: savedJobs.length,                                               color: "bg-amber-400" },
                 ].map(({ label, count, color }) => (
@@ -2816,7 +2739,7 @@ function InsightsPage() {
               <div key={i} className="flex items-center justify-between p-3 bg-[#F6F6F6] rounded-xl">
                 <div className="flex items-center gap-2 min-w-0">
                   {item.youHaveIt && (
-                    <CheckCircle className="h-4 w-4 text-green-500 flex-shrink-0" title="You already have this skill" />
+                    <CheckCircle className="h-4 w-4 text-green-500 flex-shrink-0" />
                   )}
                   <span className={`text-sm truncate ${item.youHaveIt ? "text-green-700 font-medium" : "text-[#3A1F1F]"}`}>{item.skill}</span>
                 </div>
