@@ -177,11 +177,10 @@ export default function FeedbackPopup({
                     className="rounded-md p-1 transition-transform hover:scale-110 focus:outline-none focus:ring-2 focus:ring-[#FF2B2B]"
                   >
                     <Star
-                      className={`h-8 w-8 ${
-                        value <= activeRating
+                      className={`h-8 w-8 ${value <= activeRating
                           ? "fill-yellow-400 text-yellow-400"
                           : "text-gray-300"
-                      }`}
+                        }`}
                     />
                   </button>
                 ))}
