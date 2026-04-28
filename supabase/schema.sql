@@ -132,6 +132,7 @@ create table if not exists applications (
   unique(job_id, profile_id)
 );
 
+
 -- ── 7. SAVED JOBS ────────────────────────────────────────────
 create table if not exists saved_jobs (
   id         uuid primary key default gen_random_uuid(),
@@ -351,6 +352,7 @@ as $$
 $$;
 
 grant execute on function public.get_landing_testimonials(integer) to anon, authenticated;
+
 
 -- =============================================================
 -- TRIGGERS
