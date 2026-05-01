@@ -127,23 +127,6 @@ export default function SavedJobsComparePage() {
   const openedFromSavedJobs = navigationState.fromSavedJobs === true || storedCompareState.fromSavedJobs === true;
   const returnPath = navigationState.returnPath || storedCompareState.returnPath || "/jobseeker/dashboard";
 
-  const initialSelectedJobIds = useMemo(() => {
-    const selectedIds = Array.isArray(navigationState.selectedJobIds)
-      ? navigationState.selectedJobIds
-      : Array.isArray(storedCompareState.selectedJobIds)
-      ? storedCompareState.selectedJobIds
-      : [];
-
-    const uniqueIds = Array.from(
-      new Set(
-        selectedIds.filter(
-          (jobId): jobId is string => typeof jobId === "string" && jobId.trim().length > 0,
-        ),
-      ),
-    );
-    return uniqueIds.slice(0, MAX_COMPARE_JOBS);
-  }, [navigationState.selectedJobIds, storedCompareState.selectedJobIds]);
-
   const initialSelectedJobs = useMemo(() => {
     const selectedJobs = Array.isArray(navigationState.selectedJobs)
       ? navigationState.selectedJobs
@@ -155,6 +138,26 @@ export default function SavedJobsComparePage() {
       .filter((savedJob): savedJob is SavedJobWithJob => Boolean(savedJob && savedJob.job && savedJob.job_id))
       .slice(0, MAX_COMPARE_JOBS);
   }, [navigationState.selectedJobs, storedCompareState.selectedJobs]);
+
+  const initialSelectedJobIds = useMemo(() => {
+    const selectedIds = Array.isArray(navigationState.selectedJobIds)
+      ? navigationState.selectedJobIds
+      : Array.isArray(storedCompareState.selectedJobIds)
+      ? storedCompareState.selectedJobIds
+      : [];
+
+    const normalizedIds = selectedIds.filter(
+      (jobId): jobId is string => typeof jobId === "string" && jobId.trim().length > 0,
+    );
+
+    // Fallback to selectedJobs order when id list is missing/stale so UI order stays deterministic.
+    const fallbackIdsFromJobs = initialSelectedJobs
+      .map((savedJob) => savedJob.job_id)
+      .filter((jobId): jobId is string => typeof jobId === "string" && jobId.trim().length > 0);
+
+    const sourceIds = normalizedIds.length > 0 ? normalizedIds : fallbackIdsFromJobs;
+    return Array.from(new Set(sourceIds)).slice(0, MAX_COMPARE_JOBS);
+  }, [initialSelectedJobs, navigationState.selectedJobIds, storedCompareState.selectedJobIds]);
 
   const [savedJobs, setSavedJobs] = useState<SavedJobWithJob[]>(initialSelectedJobs);
   const [selectedJobIds, setSelectedJobIds] = useState<string[]>(initialSelectedJobIds);
@@ -380,17 +383,24 @@ export default function SavedJobsComparePage() {
       {selectedJobs.length >= 2 && (
         <>
           <div className="bg-white rounded-2xl p-5 shadow-md overflow-x-auto">
-            <table className={`${tableMinWidthClass} w-full border-separate border-spacing-0`}>
+            <table className={`${tableMinWidthClass} w-full table-fixed border-separate border-spacing-0`}>
+              <colgroup>
+                <col className="w-44" />
+                {selectedJobs.map((savedJob) => (
+                  <col key={`col-${savedJob.id}`} />
+                ))}
+              </colgroup>
               <thead>
                 <tr>
-                  <th className="sticky top-20 z-20 text-left text-base text-[#6B6B6B] font-semibold bg-[#F1F1F1] px-5 py-4 rounded-l-xl border-b border-gray-200">Field</th>
+                  <th className="text-left text-base text-[#6B6B6B] font-semibold bg-[#F1F1F1] px-5 py-4 rounded-l-xl border-b border-gray-200">Field</th>
                   {selectedJobs.map((savedJob, index) => (
                     <th
                       key={savedJob.id}
-                      className={`sticky top-20 z-20 text-left bg-[#F1F1F1] px-5 py-4 border-b border-gray-200 ${index === selectedJobs.length - 1 ? "rounded-r-xl" : ""}`}
+                      className={`text-left bg-[#F1F1F1] px-5 py-4 border-b border-gray-200 ${index === selectedJobs.length - 1 ? "rounded-r-xl" : ""}`}
                     >
-                      <p className="text-base font-semibold text-[#3A1F1F]">{savedJob.job?.title?.trim() || "N/A"}</p>
-                      <p className="text-sm text-[#8A8A8A]">{savedJob.job?.company_name?.trim() || "N/A"}</p>
+                      <p className="text-base font-semibold text-[#3A1F1F] whitespace-normal break-words leading-6">
+                        {savedJob.job?.title?.trim() || "N/A"}
+                      </p>
                     </th>
                   ))}
                 </tr>
@@ -402,13 +412,13 @@ export default function SavedJobsComparePage() {
 
                   return (
                     <tr key={field.key}>
-                      <th className="text-left align-top text-[15px] text-[#3A1F1F] font-medium border-b border-gray-100 px-5 py-4">
+                      <th className="text-left align-top text-[15px] text-[#3A1F1F] font-medium border-b border-gray-100 px-5 py-4 whitespace-normal break-words">
                         {field.label}
                       </th>
                       {values.map((value, index) => (
                         <td
                           key={`${field.key}-${selectedJobs[index].id}`}
-                          className={`align-top border-b border-gray-100 px-5 py-4 text-[15px] ${
+                          className={`align-top border-b border-gray-100 px-5 py-4 text-[15px] whitespace-normal break-words leading-6 ${
                             highlightMask[index] ? "bg-amber-100 text-amber-950 font-semibold shadow-[inset_0_0_0_1px_rgba(217,119,6,0.25)]" : "text-[#3A1F1F]"
                           }`}
                         >
