@@ -8,7 +8,7 @@ import {
   Bell, LogOut, Search, MapPin, DollarSign, Briefcase, Filter, Bookmark,
   User, BarChart3, Lightbulb, Upload, Plus, X, Pencil, Trash2,
   GraduationCap, Award, Globe, Phone, Mail, Camera, Clock, CheckCircle,
-  TrendingUp, ArrowRight, Loader2,
+  TrendingUp, ArrowRight, Loader2, Check, ChevronsUpDown,
 } from "lucide-react";
 import { Button } from "../components/ui/button";
 import { Input } from "../components/ui/input";
@@ -125,6 +125,39 @@ const ALL_JOBS: Job[] = [
 const MONTHS = ["Jan","Feb","Mar","Apr","May","Jun","Jul","Aug","Sep","Oct","Nov","Dec"];
 const YEARS = Array.from({ length: 17 }, (_, i) => String(2010 + i));
 const JOBS_PER_PAGE = 12;
+const PROFILE_SKILL_OPTIONS = [
+  "JavaScript", "TypeScript", "React", "Next.js", "Angular", "Vue.js", "HTML", "CSS", "Tailwind CSS",
+  "Bootstrap", "Node.js", "Express.js", "NestJS", "Python", "Django", "Flask", "FastAPI", "Java",
+  "Spring Boot", "C", "C++", "C#", ".NET", "PHP", "Laravel", "Ruby", "Ruby on Rails", "Go", "Rust",
+  "Kotlin", "Swift", "Objective-C", "React Native", "Flutter", "Android Development", "iOS Development",
+  "SQL", "MySQL", "PostgreSQL", "MongoDB", "Redis", "Firebase", "Supabase", "Oracle", "SQLite",
+  "GraphQL", "REST API", "Microservices", "System Design", "Data Structures", "Algorithms",
+  "Git", "GitHub", "GitLab", "Docker", "Kubernetes", "Jenkins", "CI/CD", "Linux", "Shell Scripting",
+  "AWS", "Azure", "Google Cloud", "DevOps", "Terraform", "Ansible", "Nginx", "Apache",
+  "Data Analysis", "Data Visualization", "Excel", "Advanced Excel", "Power BI", "Tableau", "Looker",
+  "Python Pandas", "NumPy", "Matplotlib", "Seaborn", "R", "Statistics", "Machine Learning",
+  "Deep Learning", "TensorFlow", "PyTorch", "Scikit-learn", "NLP", "Computer Vision", "Generative AI",
+  "Prompt Engineering", "MLOps", "Data Engineering", "ETL", "Apache Spark", "Hadoop", "Kafka",
+  "Airflow", "Snowflake", "BigQuery", "Redshift",
+  "UI Design", "UX Design", "Figma", "Adobe XD", "Sketch", "Wireframing", "Prototyping",
+  "User Research", "Usability Testing", "Design Systems", "Graphic Design", "Photoshop", "Illustrator",
+  "Canva", "Video Editing", "After Effects", "Premiere Pro", "Motion Graphics",
+  "Digital Marketing", "SEO", "SEM", "Google Ads", "Meta Ads", "Social Media Marketing",
+  "Content Marketing", "Copywriting", "Email Marketing", "Marketing Analytics", "Google Analytics",
+  "CRM", "HubSpot", "Salesforce", "Lead Generation", "Brand Strategy",
+  "Project Management", "Product Management", "Agile", "Scrum", "Jira", "Confluence", "Roadmapping",
+  "Business Analysis", "Requirement Gathering", "Stakeholder Management", "Process Improvement",
+  "QA Testing", "Manual Testing", "Automation Testing", "Selenium", "Cypress", "Playwright",
+  "Jest", "Postman", "API Testing", "Performance Testing", "Security Testing",
+  "Cybersecurity", "Network Security", "Cloud Security", "Penetration Testing", "Ethical Hacking",
+  "SOC", "SIEM", "Risk Management", "Compliance", "ISO 27001",
+  "Accounting", "Financial Analysis", "Financial Modeling", "Tally", "GST", "Taxation", "Auditing",
+  "Budgeting", "Forecasting", "Investment Analysis",
+  "HR Management", "Recruitment", "Talent Acquisition", "Payroll", "Employee Engagement",
+  "Training and Development", "Operations Management", "Supply Chain Management", "Logistics",
+  "Customer Support", "Technical Support", "Sales", "B2B Sales", "Negotiation", "Communication",
+  "Leadership", "Team Management", "Problem Solving", "Critical Thinking", "Presentation Skills",
+];
 
 function escapeLikeValue(value: string): string {
   return value.replace(/[%_,]/g, (match) => `\\${match}`);
@@ -925,7 +958,9 @@ function ProfilePage() {
   // Skills
   const [skills, setSkills] = useState<string[]>([]);
   const [showSkillInput, setShowSkillInput] = useState(false);
-  const [newSkill, setNewSkill] = useState("");
+  const [skillPickerOpen, setSkillPickerOpen] = useState(false);
+  const [skillSearch, setSkillSearch] = useState("");
+  const skillFieldRef = useRef<HTMLDivElement>(null);
 
   // Sync profile data from DB when it loads, fallback to user metadata
   useEffect(() => {
@@ -1096,16 +1131,35 @@ function ProfilePage() {
   }, [basicInfo, summary, skills, experiences, education, projects, certifications, resumeFile, preferences]);
 
   const completionColor = completion >= 80 ? "bg-green-500" : completion >= 50 ? "bg-yellow-500" : "bg-[#FF2B2B]";
+  const filteredSkillOptions = useMemo(() => {
+    const query = skillSearch.trim().toLowerCase();
+    if (!query) return PROFILE_SKILL_OPTIONS;
+    return PROFILE_SKILL_OPTIONS.filter(skill => skill.toLowerCase().includes(query));
+  }, [skillSearch]);
+
+  useEffect(() => {
+    if (!skillPickerOpen) return;
+    const handleClickOutside = (event: MouseEvent) => {
+      if (!skillFieldRef.current?.contains(event.target as Node)) {
+        setSkillPickerOpen(false);
+      }
+    };
+    document.addEventListener("mousedown", handleClickOutside);
+    return () => document.removeEventListener("mousedown", handleClickOutside);
+  }, [skillPickerOpen]);
 
   // ── Helpers ───────────────────────────────────────────────────────────────
-  async function addSkill() {
-    const s = newSkill.trim();
-    if (s && !skills.includes(s)) {
+  async function addSkill(skill: string) {
+    const s = skill.trim();
+    const alreadySelected = skills.some(existing => existing.toLowerCase() === s.toLowerCase());
+    if (s && !alreadySelected) {
       const updated = [...skills, s];
       setSkills(updated);
       if (profile?.id) await supabase.from("profiles").update({ skills: updated }).eq("id", profile.id);
     }
-    setNewSkill(""); setShowSkillInput(false);
+    setSkillSearch("");
+    setSkillPickerOpen(false);
+    setShowSkillInput(false);
   }
   async function removeSkill(skill: string) {
     const updated = skills.filter(s => s !== skill);
@@ -1480,8 +1534,16 @@ function ProfilePage() {
         <div className="bg-white rounded-2xl p-6 shadow-md">
           <div className="flex justify-between items-center mb-4">
             <h3 className="text-xl font-semibold text-[#3A1F1F]">Key Skills</h3>
-            <Button variant="outline" size="sm" className="border-[#FF2B2B] text-[#FF2B2B] rounded-full" onClick={() => setShowSkillInput(true)}>
-              <Plus className="h-4 w-4 mr-1" /> Add Skill
+            <Button
+              variant="outline"
+              size="sm"
+              className="border-[#FF2B2B] text-[#FF2B2B] rounded-full"
+              onClick={() => {
+                setShowSkillInput(true);
+                setSkillPickerOpen(true);
+              }}
+            >
+              <Plus className="h-4 w-4 mr-1" /> Add
             </Button>
           </div>
           <div className="flex flex-wrap gap-2 mb-3">
@@ -1493,17 +1555,83 @@ function ProfilePage() {
             ))}
           </div>
           {showSkillInput && (
-            <div className="flex gap-2 mt-3">
-              <Input
-                value={newSkill}
-                onChange={(e) => setNewSkill(e.target.value)}
-                onKeyDown={(e) => { if (e.key === "Enter") addSkill(); if (e.key === "Escape") setShowSkillInput(false); }}
-                placeholder="Type a skill and press Enter"
-                className="bg-[#F6F6F6] border-gray-200 rounded-xl max-w-xs"
-                autoFocus
-              />
-              <Button className="bg-[#FF2B2B] hover:bg-[#e02525] text-white rounded-full" onClick={addSkill}>Add</Button>
-              <Button variant="outline" className="rounded-full" onClick={() => setShowSkillInput(false)}>Cancel</Button>
+            <div className="flex max-w-xl gap-2">
+              <div className="relative flex-1" ref={skillFieldRef}>
+                <div className="relative">
+                  <Search className="absolute left-3 top-1/2 h-4 w-4 -translate-y-1/2 text-[#8A8A8A]" />
+                  <Input
+                    value={skillSearch}
+                    onFocus={() => setSkillPickerOpen(true)}
+                    onChange={(e) => {
+                      setSkillSearch(e.target.value);
+                      setSkillPickerOpen(true);
+                    }}
+                    onKeyDown={(e) => {
+                      if (e.key === "Enter") {
+                        e.preventDefault();
+                        const firstOption = filteredSkillOptions.find(skill => !skills.some(s => s.toLowerCase() === skill.toLowerCase()));
+                        void addSkill(firstOption || skillSearch);
+                      }
+                      if (e.key === "Escape") {
+                        setSkillPickerOpen(false);
+                        setShowSkillInput(false);
+                      }
+                    }}
+                    placeholder="Type or search a skill"
+                    className="h-11 rounded-xl border-gray-200 bg-[#F6F6F6] pl-9 pr-10"
+                    autoFocus
+                  />
+                  <button
+                    type="button"
+                    onClick={() => setSkillPickerOpen(open => !open)}
+                    className="absolute right-3 top-1/2 -translate-y-1/2 text-[#8A8A8A] hover:text-[#3A1F1F]"
+                  >
+                    <ChevronsUpDown className="h-4 w-4" />
+                  </button>
+                </div>
+                {skillPickerOpen && (
+                  <div className="absolute left-0 right-0 top-full z-[80] mt-2 overflow-hidden rounded-xl border border-gray-200 bg-white shadow-xl">
+                    <div className="max-h-72 overflow-y-auto p-1">
+                      {filteredSkillOptions.length === 0 ? (
+                        <button
+                          type="button"
+                          onClick={() => void addSkill(skillSearch)}
+                          className="flex w-full items-center gap-2 rounded-lg px-3 py-2 text-left text-sm text-[#3A1F1F] hover:bg-[#FFF0F0]"
+                        >
+                          <Plus className="h-4 w-4 text-[#FF2B2B]" />
+                          <span>Add "{skillSearch.trim()}"</span>
+                        </button>
+                      ) : (
+                        filteredSkillOptions.map((skill) => {
+                          const selected = skills.some(s => s.toLowerCase() === skill.toLowerCase());
+                          return (
+                            <button
+                              key={skill}
+                              type="button"
+                              onClick={() => void addSkill(skill)}
+                              className="flex w-full items-center gap-2 rounded-lg px-3 py-2 text-left text-sm text-[#3A1F1F] hover:bg-[#FFF0F0]"
+                            >
+                              <Check className={`h-4 w-4 ${selected ? "text-[#FF2B2B] opacity-100" : "opacity-0"}`} />
+                              <span>{skill}</span>
+                            </button>
+                          );
+                        })
+                      )}
+                    </div>
+                  </div>
+                )}
+              </div>
+              <Button
+                variant="outline"
+                className="h-11 rounded-full"
+                onClick={() => {
+                  setShowSkillInput(false);
+                  setSkillPickerOpen(false);
+                  setSkillSearch("");
+                }}
+              >
+                Cancel
+              </Button>
             </div>
           )}
         </div>
