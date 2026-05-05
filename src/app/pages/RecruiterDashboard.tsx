@@ -3,6 +3,7 @@ import { useNavigate, Routes, Route, Link, useLocation } from "react-router";
 import { supabase, Job, Application, Notification, Profile, WorkExperience, Education as EduType, RecruiterSubscription } from "../../lib/supabase";
 import { buildJobDeadlineTimestamp, formatJobDeadline, getEffectiveJobStatus, getJobDeadlineDateValue, isJobExpired } from "../../lib/jobs";
 import { PLANS, FREE_DAILY_POST_LIMIT, getPlanById, validatePromo, applyPromo } from "../../lib/plans";
+import { INDIA_CITY_OPTIONS } from "../../lib/locationData";
 import logoImage from "../../logo/logo.png";
 import { useAuth } from "../../lib/auth-context";
 import {
@@ -12,7 +13,7 @@ import {
   BarChart2, TrendingUp, Users, FileText, CheckCircle, XCircle,
   MessageSquare, Video, Award, BookOpen, Globe, Linkedin, Share2,
   ArrowRight, Target, Zap, RefreshCw, MoreVertical, ThumbsUp, ThumbsDown, ExternalLink, Loader2,
-  CreditCard, Tag, ShieldCheck, Crown,
+  CreditCard, Tag, ShieldCheck, Crown, Check,
 } from "lucide-react";
 import { Button } from "../components/ui/button";
 import { Input } from "../components/ui/input";
@@ -29,6 +30,209 @@ import {
 import { Dialog, DialogContent, DialogHeader, DialogTitle, DialogTrigger } from "../components/ui/dialog";
 import { Tabs, TabsContent, TabsList, TabsTrigger } from "../components/ui/tabs";
 import FeedbackPopup from "../components/FeedbackPopup";
+
+const SKILL_OPTIONS = [
+  "JavaScript", "TypeScript", "React", "Next.js", "Angular", "Vue.js", "HTML", "CSS", "Tailwind CSS",
+  "Bootstrap", "Node.js", "Express.js", "NestJS", "Python", "Django", "Flask", "FastAPI", "Java",
+  "Spring Boot", "C", "C++", "C#", ".NET", "PHP", "Laravel", "Ruby", "Ruby on Rails", "Go", "Rust",
+  "Kotlin", "Swift", "Objective-C", "React Native", "Flutter", "Android Development", "iOS Development",
+  "SQL", "MySQL", "PostgreSQL", "MongoDB", "Redis", "Firebase", "Supabase", "Oracle", "SQLite",
+  "GraphQL", "REST API", "Microservices", "System Design", "Data Structures", "Algorithms",
+  "Git", "GitHub", "GitLab", "Docker", "Kubernetes", "Jenkins", "CI/CD", "Linux", "Shell Scripting",
+  "AWS", "Azure", "Google Cloud", "DevOps", "Terraform", "Ansible", "Nginx", "Apache",
+  "Data Analysis", "Data Visualization", "Excel", "Advanced Excel", "Power BI", "Tableau", "Looker",
+  "Python Pandas", "NumPy", "Matplotlib", "Seaborn", "R", "Statistics", "Machine Learning",
+  "Deep Learning", "TensorFlow", "PyTorch", "Scikit-learn", "NLP", "Computer Vision", "Generative AI",
+  "Prompt Engineering", "MLOps", "Data Engineering", "ETL", "Apache Spark", "Hadoop", "Kafka",
+  "Airflow", "Snowflake", "BigQuery", "Redshift",
+  "UI Design", "UX Design", "Figma", "Adobe XD", "Sketch", "Wireframing", "Prototyping",
+  "User Research", "Usability Testing", "Design Systems", "Graphic Design", "Photoshop", "Illustrator",
+  "Canva", "Video Editing", "After Effects", "Premiere Pro", "Motion Graphics",
+  "Digital Marketing", "SEO", "SEM", "Google Ads", "Meta Ads", "Social Media Marketing",
+  "Content Marketing", "Copywriting", "Email Marketing", "Marketing Analytics", "Google Analytics",
+  "CRM", "HubSpot", "Salesforce", "Lead Generation", "Brand Strategy",
+  "Project Management", "Product Management", "Agile", "Scrum", "Jira", "Confluence", "Roadmapping",
+  "Business Analysis", "Requirement Gathering", "Stakeholder Management", "Process Improvement",
+  "QA Testing", "Manual Testing", "Automation Testing", "Selenium", "Cypress", "Playwright",
+  "Jest", "Postman", "API Testing", "Performance Testing", "Security Testing",
+  "Cybersecurity", "Network Security", "Cloud Security", "Penetration Testing", "Ethical Hacking",
+  "SOC", "SIEM", "Risk Management", "Compliance", "ISO 27001",
+  "Accounting", "Financial Analysis", "Financial Modeling", "Tally", "GST", "Taxation", "Auditing",
+  "Budgeting", "Forecasting", "Investment Analysis",
+  "HR Management", "Recruitment", "Talent Acquisition", "Payroll", "Employee Engagement",
+  "Training and Development", "Operations Management", "Supply Chain Management", "Logistics",
+  "Customer Support", "Technical Support", "Sales", "B2B Sales", "Negotiation", "Communication",
+  "Leadership", "Team Management", "Problem Solving", "Critical Thinking", "Presentation Skills",
+];
+
+const DEPARTMENT_OPTIONS = [
+  "Engineering",
+  "Software Development",
+  "Information Technology",
+  "Data Science",
+  "Artificial Intelligence / Machine Learning",
+  "Product Management",
+  "Project Management",
+  "Quality Assurance",
+  "DevOps / Cloud Infrastructure",
+  "Cybersecurity",
+  "UI/UX Design",
+  "Design / Creative",
+  "Research and Development",
+  "Operations",
+  "Business Operations",
+  "Sales",
+  "Business Development",
+  "Marketing",
+  "Digital Marketing",
+  "Content / Editorial",
+  "Customer Support",
+  "Customer Success",
+  "Human Resources",
+  "Talent Acquisition",
+  "Finance",
+  "Accounting",
+  "Legal",
+  "Compliance",
+  "Administration",
+  "Procurement",
+  "Supply Chain",
+  "Logistics",
+  "Manufacturing",
+  "Production",
+  "Maintenance",
+  "Healthcare / Clinical",
+  "Education / Training",
+  "Consulting",
+  "Analytics",
+  "Strategy",
+  "Public Relations",
+  "Facilities",
+  "Security",
+  "Other",
+];
+
+function LocationAutocomplete({
+  value,
+  onChange,
+  placeholder = "Search city",
+  required = false,
+  className = "",
+  inputClassName = "",
+  onEnter,
+}: {
+  value: string;
+  onChange: (value: string) => void;
+  placeholder?: string;
+  required?: boolean;
+  className?: string;
+  inputClassName?: string;
+  onEnter?: () => void;
+}) {
+  const [open, setOpen] = useState(false);
+  const [search, setSearch] = useState(value);
+  const wrapperRef = useRef<HTMLDivElement>(null);
+
+  useEffect(() => {
+    setSearch(value);
+  }, [value]);
+
+  useEffect(() => {
+    if (!open) return;
+    const handleClickOutside = (event: MouseEvent) => {
+      if (!wrapperRef.current?.contains(event.target as Node)) {
+        setOpen(false);
+      }
+    };
+    document.addEventListener("mousedown", handleClickOutside);
+    return () => document.removeEventListener("mousedown", handleClickOutside);
+  }, [open]);
+
+  const filteredCities = useMemo(() => {
+    const query = search.trim().toLowerCase();
+    if (!query) return INDIA_CITY_OPTIONS;
+
+    const startsWith = INDIA_CITY_OPTIONS.filter(city => city.toLowerCase().startsWith(query));
+    const includes = INDIA_CITY_OPTIONS.filter(city => {
+      const normalized = city.toLowerCase();
+      return !normalized.startsWith(query) && normalized.includes(query);
+    });
+    return [...startsWith, ...includes];
+  }, [search]);
+
+  const selectCity = (city: string, submit = false) => {
+    const next = city.trim();
+    onChange(next);
+    setSearch(next);
+    setOpen(false);
+    if (submit && onEnter) onEnter();
+  };
+
+  return (
+    <div className={`relative ${className}`} ref={wrapperRef}>
+      <div className="relative">
+        <MapPin className="absolute left-3 top-1/2 h-4 w-4 -translate-y-1/2 text-[#8A8A8A]" />
+        <Input
+          value={search}
+          required={required}
+          onFocus={() => setOpen(true)}
+          onChange={(e) => {
+            setSearch(e.target.value);
+            onChange(e.target.value);
+            setOpen(true);
+          }}
+          onKeyDown={(e) => {
+            if (e.key === "Enter") {
+              e.preventDefault();
+              selectCity(filteredCities[0] || search, true);
+            }
+            if (e.key === "Escape") setOpen(false);
+          }}
+          className={`bg-[#F6F6F6] border-gray-200 rounded-xl pl-9 pr-10 ${inputClassName}`}
+          placeholder={placeholder}
+        />
+        <button
+          type="button"
+          onClick={() => setOpen(current => !current)}
+          className="absolute right-3 top-1/2 -translate-y-1/2 text-[#8A8A8A] hover:text-[#3A1F1F]"
+        >
+          <ChevronDown className="h-4 w-4" />
+        </button>
+      </div>
+      {open && (
+        <div className="absolute left-0 right-0 top-full z-[80] mt-2 overflow-hidden rounded-xl border border-gray-200 bg-white shadow-xl">
+          <div className="max-h-72 overflow-y-auto p-1">
+            {filteredCities.length === 0 ? (
+              <button
+                type="button"
+                onClick={() => selectCity(search)}
+                className="flex w-full items-center gap-2 rounded-lg px-3 py-2 text-left text-sm text-[#3A1F1F] hover:bg-[#FFF0F0]"
+              >
+                <Plus className="h-4 w-4 text-[#FF2B2B]" />
+                <span>Add "{search.trim()}"</span>
+              </button>
+            ) : (
+              filteredCities.map((city) => {
+                const selected = value.toLowerCase() === city.toLowerCase();
+                return (
+                  <button
+                    key={city}
+                    type="button"
+                    onClick={() => selectCity(city)}
+                    className="flex w-full items-center gap-2 rounded-lg px-3 py-2 text-left text-sm text-[#3A1F1F] hover:bg-[#FFF0F0]"
+                  >
+                    <Check className={`h-4 w-4 ${selected ? "text-[#FF2B2B] opacity-100" : "opacity-0"}`} />
+                    <span>{city}</span>
+                  </button>
+                );
+              })
+            )}
+          </div>
+        </div>
+      )}
+    </div>
+  );
+}
 
 // ─── Types ──────────────────────────────────────────────────────────────────
 
@@ -1099,6 +1303,13 @@ function PostJobPage() {
   const [activeSub, setActiveSub] = useState<RecruiterSubscription | null>(null);
   const [todayPostCount, setTodayPostCount] = useState(0);
   const [subLoading, setSubLoading] = useState(true);
+  const [showSkillInput, setShowSkillInput] = useState(false);
+  const [skillPickerOpen, setSkillPickerOpen] = useState(false);
+  const [skillSearch, setSkillSearch] = useState("");
+  const skillFieldRef = useRef<HTMLDivElement>(null);
+  const [departmentPickerOpen, setDepartmentPickerOpen] = useState(false);
+  const [departmentSearch, setDepartmentSearch] = useState("");
+  const departmentFieldRef = useRef<HTMLDivElement>(null);
   const [formData, setFormData] = useState({
     jobTitle: "", jobDescription: "", rolesResponsibilities: "", requirements: "",
     location: "", workMode: "",
@@ -1144,6 +1355,68 @@ function PostJobPage() {
     : FREE_DAILY_POST_LIMIT;
 
   const isLimitReached = todayPostCount >= dailyLimit;
+  const selectedSkills = useMemo(
+    () => formData.skills.split(",").map(s => s.trim()).filter(Boolean),
+    [formData.skills],
+  );
+  const filteredSkillOptions = useMemo(() => {
+    const query = skillSearch.trim().toLowerCase();
+    if (!query) return SKILL_OPTIONS;
+    return SKILL_OPTIONS.filter(skill => skill.toLowerCase().includes(query));
+  }, [skillSearch]);
+  const filteredDepartmentOptions = useMemo(() => {
+    const query = departmentSearch.trim().toLowerCase();
+    if (!query) return DEPARTMENT_OPTIONS;
+    const startsWith = DEPARTMENT_OPTIONS.filter(department => department.toLowerCase().startsWith(query));
+    const includes = DEPARTMENT_OPTIONS.filter(department => {
+      const normalized = department.toLowerCase();
+      return !normalized.startsWith(query) && normalized.includes(query);
+    });
+    return [...startsWith, ...includes];
+  }, [departmentSearch]);
+
+  useEffect(() => {
+    if (!skillPickerOpen) return;
+    const handleClickOutside = (event: MouseEvent) => {
+      if (!skillFieldRef.current?.contains(event.target as Node)) {
+        setSkillPickerOpen(false);
+      }
+    };
+    document.addEventListener("mousedown", handleClickOutside);
+    return () => document.removeEventListener("mousedown", handleClickOutside);
+  }, [skillPickerOpen]);
+
+  useEffect(() => {
+    if (!departmentPickerOpen) return;
+    const handleClickOutside = (event: MouseEvent) => {
+      if (!departmentFieldRef.current?.contains(event.target as Node)) {
+        setDepartmentPickerOpen(false);
+      }
+    };
+    document.addEventListener("mousedown", handleClickOutside);
+    return () => document.removeEventListener("mousedown", handleClickOutside);
+  }, [departmentPickerOpen]);
+
+  useEffect(() => {
+    setDepartmentSearch(formData.department);
+  }, [formData.department]);
+
+  const addSkill = (skill: string) => {
+    const s = skill.trim();
+    if (!s) return;
+    const alreadySelected = selectedSkills.some(existing => existing.toLowerCase() === s.toLowerCase());
+    if (!alreadySelected) {
+      setFormData(prev => ({ ...prev, skills: [...selectedSkills, s].join(", ") }));
+    }
+    setSkillSearch("");
+    setSkillPickerOpen(false);
+    setShowSkillInput(false);
+  };
+
+  const removeSkill = (skill: string) => {
+    const updated = selectedSkills.filter(s => s !== skill);
+    setFormData(prev => ({ ...prev, skills: updated.join(", ") }));
+  };
 
   const perkOptions = ["Health Insurance", "Work from Home", "Flexible Hours", "5 Days a Week", "Free Meals", "Stock Options", "Annual Bonus", "Paid Sick Leave"];
   const togglePerk = (p: string) => {
@@ -1151,6 +1424,74 @@ function PostJobPage() {
       ...prev,
       perks: prev.perks.includes(p) ? prev.perks.filter(x => x !== p) : [...prev.perks, p]
     }));
+  };
+
+  const bulletPrefix = "\u2022 ";
+
+  const normalizeBulletList = (value: string) =>
+    value
+      .split("\n")
+      .map(line => line.trim())
+      .filter(Boolean)
+      .map(line => `${bulletPrefix}${line.replace(/^(\u2022|[*-]|\d+[.)])\s*/, "")}`)
+      .join("\n");
+
+  const handleBulletListChange = (field: "rolesResponsibilities" | "requirements", value: string) => {
+    setFormData(prev => ({
+      ...prev,
+      [field]: normalizeBulletList(value),
+    }));
+  };
+
+  const handleBulletListKeyDown = (
+    field: "rolesResponsibilities" | "requirements",
+    event: React.KeyboardEvent<HTMLTextAreaElement>
+  ) => {
+    const target = event.currentTarget;
+    const { selectionStart, selectionEnd, value } = target;
+
+    if (event.key === "Enter") {
+      event.preventDefault();
+      const before = value.slice(0, selectionStart);
+      const after = value.slice(selectionEnd);
+      const nextValue = `${before}${value ? `\n${bulletPrefix}` : bulletPrefix}${after}`;
+
+      setFormData(prev => ({
+        ...prev,
+        [field]: nextValue,
+      }));
+
+      requestAnimationFrame(() => {
+        const nextCursor = selectionStart + (value ? 3 : 2);
+        target.setSelectionRange(nextCursor, nextCursor);
+      });
+      return;
+    }
+
+    if (event.key !== "Backspace" || selectionStart !== selectionEnd) return;
+
+    const currentLineStart = value.lastIndexOf("\n", selectionStart - 1) + 1;
+    const nextLineBreak = value.indexOf("\n", selectionStart);
+    const currentLineEnd = nextLineBreak === -1 ? value.length : nextLineBreak;
+    const currentLine = value.slice(currentLineStart, currentLineEnd);
+
+    if (currentLine !== bulletPrefix) return;
+
+    event.preventDefault();
+
+    const removeStart = currentLineStart > 0 ? currentLineStart - 1 : currentLineStart;
+    const removeEnd = currentLineEnd < value.length ? currentLineEnd + 1 : currentLineEnd;
+    const nextValue = `${value.slice(0, removeStart)}${value.slice(removeEnd)}`;
+    const nextCursor = currentLineStart > 0 ? currentLineStart - 1 : 0;
+
+    setFormData(prev => ({
+      ...prev,
+      [field]: nextValue,
+    }));
+
+    requestAnimationFrame(() => {
+      target.setSelectionRange(nextCursor, nextCursor);
+    });
   };
 
   const handleSubmit = async (e?: React.FormEvent) => {
@@ -1201,6 +1542,9 @@ function PostJobPage() {
       setShowPreview(false);
       setTimeout(() => { setPostSuccess(false); navigate("/recruiter/dashboard/manage-jobs"); }, 2000);
       setFormData({ jobTitle:"",jobDescription:"",rolesResponsibilities:"",requirements:"",location:"",workMode:"",salaryMin:"",salaryMax:"",salaryType:"LPA",experienceMin:"",experienceMax:"",skills:"",employmentType:"",industry:"",openings:"1",education:"",perks:[],department:"",interviewMode:"",applicationDeadline:"",applicationDeadlineTime:"" });
+      setShowSkillInput(false);
+      setSkillPickerOpen(false);
+      setSkillSearch("");
     } catch (err: unknown) {
       setPostError(err instanceof Error ? err.message : "Failed to post job.");
     } finally {
@@ -1365,7 +1709,17 @@ function PostJobPage() {
       <div className="bg-white rounded-2xl p-8 shadow-md">
         {postSuccess && <div className="bg-green-50 border border-green-200 text-green-700 rounded-xl p-4 mb-4 text-sm font-medium">✓ Job posted successfully! Redirecting to Manage Jobs...</div>}
         {postError && <div className="bg-red-50 border border-red-200 text-red-700 rounded-xl p-4 mb-4 text-sm">{postError}</div>}
-        <form onSubmit={e => { e.preventDefault(); setShowPreview(true); }} className="space-y-6">
+        <form onSubmit={e => {
+          e.preventDefault();
+          if (selectedSkills.length === 0) {
+            setPostError("Please add at least one key skill.");
+            setShowSkillInput(true);
+            setSkillPickerOpen(true);
+            return;
+          }
+          setPostError("");
+          setShowPreview(true);
+        }} className="space-y-6">
           {/* Basic Info */}
           <div className="border-b pb-6">
             <h2 className="text-lg font-semibold text-[#3A1F1F] mb-4">Basic Information</h2>
@@ -1376,7 +1730,77 @@ function PostJobPage() {
               </div>
               <div>
                 <label className="block mb-1.5 text-sm font-medium text-[#3A1F1F]">Department</label>
-                <Input value={formData.department} onChange={e => setFormData({ ...formData, department: e.target.value })} className="bg-[#F6F6F6] border-gray-200 rounded-xl" placeholder="e.g. Engineering, Marketing" />
+                <div className="relative" ref={departmentFieldRef}>
+                  <div className="relative">
+                    <Input
+                      value={departmentSearch}
+                      onFocus={() => setDepartmentPickerOpen(true)}
+                      onChange={(e) => {
+                        setDepartmentSearch(e.target.value);
+                        setFormData({ ...formData, department: e.target.value });
+                        setDepartmentPickerOpen(true);
+                      }}
+                      onKeyDown={(e) => {
+                        if (e.key === "Enter") {
+                          e.preventDefault();
+                          const firstDepartment = filteredDepartmentOptions[0] || departmentSearch.trim();
+                          setFormData({ ...formData, department: firstDepartment });
+                          setDepartmentSearch(firstDepartment);
+                          setDepartmentPickerOpen(false);
+                        }
+                        if (e.key === "Escape") setDepartmentPickerOpen(false);
+                      }}
+                      className="bg-[#F6F6F6] border-gray-200 rounded-xl pr-10"
+                      placeholder="Search or select department"
+                    />
+                    <button
+                      type="button"
+                      onClick={() => setDepartmentPickerOpen(open => !open)}
+                      className="absolute right-3 top-1/2 -translate-y-1/2 text-[#8A8A8A] hover:text-[#3A1F1F]"
+                    >
+                      <ChevronDown className="h-4 w-4" />
+                    </button>
+                  </div>
+                  {departmentPickerOpen && (
+                    <div className="absolute left-0 right-0 top-full z-[80] mt-2 overflow-hidden rounded-xl border border-gray-200 bg-white shadow-xl">
+                      <div className="max-h-72 overflow-y-auto p-1">
+                        {filteredDepartmentOptions.length === 0 ? (
+                          <button
+                            type="button"
+                            onClick={() => {
+                              const typedDepartment = departmentSearch.trim();
+                              setFormData({ ...formData, department: typedDepartment });
+                              setDepartmentPickerOpen(false);
+                            }}
+                            className="flex w-full items-center gap-2 rounded-lg px-3 py-2 text-left text-sm text-[#3A1F1F] hover:bg-[#FFF0F0]"
+                          >
+                            <Plus className="h-4 w-4 text-[#FF2B2B]" />
+                            <span>Add "{departmentSearch.trim()}"</span>
+                          </button>
+                        ) : (
+                          filteredDepartmentOptions.map((department) => {
+                            const selected = formData.department.toLowerCase() === department.toLowerCase();
+                            return (
+                              <button
+                                key={department}
+                                type="button"
+                                onClick={() => {
+                                  setFormData({ ...formData, department });
+                                  setDepartmentSearch(department);
+                                  setDepartmentPickerOpen(false);
+                                }}
+                                className="flex w-full items-center gap-2 rounded-lg px-3 py-2 text-left text-sm text-[#3A1F1F] hover:bg-[#FFF0F0]"
+                              >
+                                <Check className={`h-4 w-4 ${selected ? "text-[#FF2B2B] opacity-100" : "opacity-0"}`} />
+                                <span>{department}</span>
+                              </button>
+                            );
+                          })
+                        )}
+                      </div>
+                    </div>
+                  )}
+                </div>
               </div>
               <div>
                 <label className="block mb-1.5 text-sm font-medium text-[#3A1F1F]">Industry *</label>
@@ -1414,7 +1838,12 @@ function PostJobPage() {
             <div className="grid md:grid-cols-2 gap-4">
               <div>
                 <label className="block mb-1.5 text-sm font-medium text-[#3A1F1F]">Location *</label>
-                <Input value={formData.location} onChange={e => setFormData({ ...formData, location: e.target.value })} className="bg-[#F6F6F6] border-gray-200 rounded-xl" placeholder="e.g. Bengaluru, Karnataka" required />
+                <LocationAutocomplete
+                  value={formData.location}
+                  onChange={location => setFormData({ ...formData, location })}
+                  placeholder="Search Indian city"
+                  required
+                />
               </div>
               <div>
                 <label className="block mb-1.5 text-sm font-medium text-[#3A1F1F]">Number of Openings</label>
@@ -1470,12 +1899,114 @@ function PostJobPage() {
 
           {/* Skills */}
           <div className="border-b pb-6">
-            <h2 className="text-lg font-semibold text-[#3A1F1F] mb-4">Key Skills</h2>
-            <div>
-              <label className="block mb-1.5 text-sm font-medium text-[#3A1F1F]">Key Skills *</label>
-              <Input value={formData.skills} onChange={e => setFormData({ ...formData, skills: e.target.value })} className="bg-[#F6F6F6] border-gray-200 rounded-xl" placeholder="Python, SQL, Tableau (comma separated)" required />
-              <p className="text-xs text-[#8A8A8A] mt-1">Candidates with these skills will be highlighted</p>
+            <div className="flex justify-between items-center mb-4">
+              <h2 className="text-lg font-semibold text-[#3A1F1F]">Key Skills</h2>
+              <Button
+                type="button"
+                variant="outline"
+                size="sm"
+                className="border-[#FF2B2B] text-[#FF2B2B] rounded-full"
+                onClick={() => {
+                  setShowSkillInput(true);
+                  setSkillPickerOpen(true);
+                }}
+              >
+                <Plus className="h-4 w-4 mr-1" /> Add
+              </Button>
             </div>
+            <div className="flex flex-wrap gap-2 mb-3">
+              {selectedSkills.map((skill) => (
+                <span key={skill} className="flex items-center gap-1 bg-[#ECECF4] text-[#3A1F1F] px-3 py-1.5 rounded-full text-sm font-medium">
+                  {skill}
+                  <button type="button" onClick={() => removeSkill(skill)} className="ml-1 text-[#8A8A8A] hover:text-[#FF2B2B]">
+                    <XCircle className="h-3 w-3" />
+                  </button>
+                </span>
+              ))}
+            </div>
+            {showSkillInput && (
+              <div className="flex max-w-xl gap-2">
+                <div className="relative flex-1" ref={skillFieldRef}>
+                  <div className="relative">
+                    <Search className="absolute left-3 top-1/2 h-4 w-4 -translate-y-1/2 text-[#8A8A8A]" />
+                    <Input
+                      value={skillSearch}
+                      onFocus={() => setSkillPickerOpen(true)}
+                      onChange={(e) => {
+                        setSkillSearch(e.target.value);
+                        setSkillPickerOpen(true);
+                      }}
+                      onKeyDown={(e) => {
+                        if (e.key === "Enter") {
+                          e.preventDefault();
+                          const firstOption = filteredSkillOptions.find(skill => !selectedSkills.some(s => s.toLowerCase() === skill.toLowerCase()));
+                          addSkill(firstOption || skillSearch);
+                        }
+                        if (e.key === "Escape") {
+                          setSkillPickerOpen(false);
+                          setShowSkillInput(false);
+                        }
+                      }}
+                      placeholder="Type or search a skill"
+                      className="h-11 rounded-xl border-gray-200 bg-[#F6F6F6] pl-9 pr-10"
+                      autoFocus
+                    />
+                    <button
+                      type="button"
+                      onClick={() => setSkillPickerOpen(open => !open)}
+                      className="absolute right-3 top-1/2 -translate-y-1/2 text-[#8A8A8A] hover:text-[#3A1F1F]"
+                    >
+                      <ChevronDown className="h-4 w-4" />
+                    </button>
+                  </div>
+                  {skillPickerOpen && (
+                    <div className="absolute left-0 right-0 top-full z-[80] mt-2 overflow-hidden rounded-xl border border-gray-200 bg-white shadow-xl">
+                      <div className="max-h-72 overflow-y-auto p-1">
+                        {filteredSkillOptions.length === 0 ? (
+                          <button
+                            type="button"
+                            onClick={() => addSkill(skillSearch)}
+                            className="flex w-full items-center gap-2 rounded-lg px-3 py-2 text-left text-sm text-[#3A1F1F] hover:bg-[#FFF0F0]"
+                          >
+                            <Plus className="h-4 w-4 text-[#FF2B2B]" />
+                            <span>Add "{skillSearch.trim()}"</span>
+                          </button>
+                        ) : (
+                          filteredSkillOptions.map((skill) => {
+                            const selected = selectedSkills.some(s => s.toLowerCase() === skill.toLowerCase());
+                            return (
+                              <button
+                                key={skill}
+                                type="button"
+                                onClick={() => addSkill(skill)}
+                                className="flex w-full items-center gap-2 rounded-lg px-3 py-2 text-left text-sm text-[#3A1F1F] hover:bg-[#FFF0F0]"
+                              >
+                                <Check className={`h-4 w-4 ${selected ? "text-[#FF2B2B] opacity-100" : "opacity-0"}`} />
+                                <span>{skill}</span>
+                              </button>
+                            );
+                          })
+                        )}
+                      </div>
+                    </div>
+                  )}
+                </div>
+                <Button
+                  type="button"
+                  variant="outline"
+                  className="h-11 rounded-full"
+                  onClick={() => {
+                    setShowSkillInput(false);
+                    setSkillPickerOpen(false);
+                    setSkillSearch("");
+                  }}
+                >
+                  Cancel
+                </Button>
+              </div>
+            )}
+            <p className="text-xs text-[#8A8A8A] mt-1">Candidates with these skills will be highlighted</p>
+            <input type="hidden" value={formData.skills} required />
           </div>
 
           {/* Job Description */}
@@ -1488,13 +2019,27 @@ function PostJobPage() {
               </div>
               <div>
                 <label className="block mb-1.5 text-sm font-medium text-[#3A1F1F]">Roles & Responsibilities</label>
-                <Textarea value={formData.rolesResponsibilities} onChange={e => setFormData({ ...formData, rolesResponsibilities: e.target.value })} className="bg-[#F6F6F6] border-gray-200 rounded-xl" rows={6} placeholder={"• Lead end-to-end development of features\n• Collaborate with cross-functional teams\n• Review code and mentor junior developers\n• Drive technical decisions and architecture"} />
-                <p className="text-xs text-[#8A8A8A] mt-1">Use bullet points (•) or numbered lists for clarity</p>
+                <Textarea
+                  value={formData.rolesResponsibilities}
+                  onChange={e => handleBulletListChange("rolesResponsibilities", e.target.value)}
+                  onKeyDown={e => handleBulletListKeyDown("rolesResponsibilities", e)}
+                  className="bg-[#F6F6F6] border-gray-200 rounded-xl"
+                  rows={6}
+                  placeholder={"• Lead end-to-end development of features\n• Collaborate with cross-functional teams\n• Review code and mentor junior developers\n• Drive technical decisions and architecture"}
+                />
+                <p className="text-xs text-[#8A8A8A] mt-1">Enter each point on a new line (press Enter after each point). Bullets will be added automatically.</p>
               </div>
               <div>
                 <label className="block mb-1.5 text-sm font-medium text-[#3A1F1F]">Requirements / Qualifications</label>
-                <Textarea value={formData.requirements} onChange={e => setFormData({ ...formData, requirements: e.target.value })} className="bg-[#F6F6F6] border-gray-200 rounded-xl" rows={5} placeholder={"• 3+ years of experience with React and Node.js\n• Strong understanding of REST APIs\n• Experience with cloud platforms (AWS/GCP)\n• Excellent communication skills"} />
-                <p className="text-xs text-[#8A8A8A] mt-1">List must-have and nice-to-have qualifications</p>
+                <Textarea
+                  value={formData.requirements}
+                  onChange={e => handleBulletListChange("requirements", e.target.value)}
+                  onKeyDown={e => handleBulletListKeyDown("requirements", e)}
+                  className="bg-[#F6F6F6] border-gray-200 rounded-xl"
+                  rows={5}
+                  placeholder={"• 3+ years of experience with React and Node.js\n• Strong understanding of REST APIs\n• Experience with cloud platforms (AWS/GCP)\n• Excellent communication skills"}
+                />
+                <p className="text-xs text-[#8A8A8A] mt-1">Enter each point on a new line (press Enter after each point). Bullets will be added automatically.</p>
               </div>
             </div>
           </div>
@@ -1735,7 +2280,11 @@ function ManageJobsPage() {
             </div>
             <div>
               <label className="block text-sm font-medium text-[#3A1F1F] mb-1">Location</label>
-              <Input value={editForm.location} onChange={e => setEditForm(f => ({ ...f, location: e.target.value }))} className="bg-[#F6F6F6] border-gray-200 rounded-xl" />
+              <LocationAutocomplete
+                value={editForm.location}
+                onChange={location => setEditForm(f => ({ ...f, location }))}
+                placeholder="Search Indian city"
+              />
             </div>
             <div className="grid grid-cols-2 gap-3">
               <div>
@@ -2010,16 +2559,13 @@ function SearchCandidatesPage() {
               placeholder="Skills, designation, company name..."
             />
           </div>
-          <div className="relative min-w-[160px]">
-            <MapPin className="absolute left-3 top-1/2 -translate-y-1/2 h-4 w-4 text-[#8A8A8A]" />
-            <Input
-              value={location}
-              onChange={e => setLocation(e.target.value)}
-              onKeyDown={e => { if (e.key === "Enter") handleSearch(); }}
-              className="pl-9 bg-[#F6F6F6] border-gray-200 rounded-xl"
-              placeholder="Location"
-            />
-          </div>
+          <LocationAutocomplete
+            value={location}
+            onChange={setLocation}
+            onEnter={handleSearch}
+            placeholder="Location"
+            className="min-w-[160px]"
+          />
           <Button onClick={handleSearch} disabled={searching} className="bg-[#FF2B2B] hover:bg-[#e02525] text-white rounded-xl px-6">
             <Search className="h-4 w-4 mr-2" /> {searching ? "Searching..." : "Search"}
           </Button>
@@ -2682,7 +3228,12 @@ function ApplicantsPage() {
             </div>
             <div>
               <label className="block text-xs font-medium text-[#5A5A5A] mb-1.5">Location</label>
-              <Input value={locationFilter} onChange={e => setLocationFilter(e.target.value)} className="bg-[#F6F6F6] border-gray-200 rounded-xl text-sm h-9" placeholder="e.g. Bengaluru" />
+              <LocationAutocomplete
+                value={locationFilter}
+                onChange={setLocationFilter}
+                placeholder="e.g. Bengaluru"
+                inputClassName="text-sm h-9"
+              />
             </div>
             <div>
               <label className="block text-xs font-medium text-[#5A5A5A] mb-1.5">Exp. Salary (up to)</label>

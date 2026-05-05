@@ -22,14 +22,20 @@ function normalizeLocationName(value: string): string {
 
 const indianStates = State.getStatesOfCountry(INDIA_COUNTRY_CODE);
 
+export const INDIA_CITY_OPTIONS = Array.from(
+  new Set(
+    indianStates.flatMap((state) =>
+      City.getCitiesOfState(INDIA_COUNTRY_CODE, state.isoCode).map((city) => city.name)
+    )
+  )
+).sort((left, right) => left.localeCompare(right));
+
 export const INDIA_LOCATION_NAMES = Array.from(
   new Set(
     [
       ...EXTRA_INDIAN_LOCATION_ALIASES,
       ...indianStates.map((state) => state.name),
-      ...indianStates.flatMap((state) =>
-        City.getCitiesOfState(INDIA_COUNTRY_CODE, state.isoCode).map((city) => city.name)
-      ),
+      ...INDIA_CITY_OPTIONS,
     ].map(normalizeLocationName)
   )
 ).sort((left, right) => left.localeCompare(right));
