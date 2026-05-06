@@ -14,6 +14,10 @@ interface ComparePageLocationState {
   selectedJobs?: SavedJobWithJob[];
   returnPath?: string;
 }
+interface SavedJobsComparePageProps {
+  forcedState?: ComparePageLocationState;
+  embedded?: boolean;
+}
 
 type CompareFieldKey =
   | "jobTitle"
@@ -116,12 +120,12 @@ function getDifferenceHighlightMask(values: string[]): boolean[] {
   return normalizedValues.map((value) => (frequencyMap.get(value) || 0) < maxFrequency);
 }
 
-export default function SavedJobsComparePage() {
+export default function SavedJobsComparePage({ forcedState, embedded = false }: SavedJobsComparePageProps) {
   const navigate = useNavigate();
   const location = useLocation();
   const { profile } = useAuth();
 
-  const navigationState = (location.state || {}) as ComparePageLocationState;
+  const navigationState = (forcedState || location.state || {}) as ComparePageLocationState;
   const storedCompareState = useMemo(readStoredCompareState, []);
 
   const openedFromSavedJobs = navigationState.fromSavedJobs === true || storedCompareState.fromSavedJobs === true;
@@ -341,10 +345,12 @@ export default function SavedJobsComparePage() {
     <div className="container mx-auto px-4 py-8 space-y-6">
       <div className="flex flex-wrap items-center justify-between gap-3">
         <div>
-          <Button variant="ghost" className="rounded-full px-0 text-[#8A8A8A] hover:text-[#3A1F1F]" onClick={goBackToSavedJobs}>
-            <ArrowLeft className="h-4 w-4 mr-2" />
-            Back to Saved Jobs
-          </Button>
+          {!embedded && (
+            <Button variant="ghost" className="rounded-full px-0 text-[#8A8A8A] hover:text-[#3A1F1F]" onClick={goBackToSavedJobs}>
+              <ArrowLeft className="h-4 w-4 mr-2" />
+              Back to Saved Jobs
+            </Button>
+          )}
           <h1 className="text-3xl font-bold text-[#3A1F1F]">Compare Saved Jobs</h1>
           <p className="text-sm text-[#8A8A8A] mt-1">Side-by-side view for your selected saved jobs.</p>
         </div>

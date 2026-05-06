@@ -22,6 +22,13 @@ interface SavedJobsSectionProps {
   compact?: boolean;
   appliedJobIds?: string[];
   onJobsLoaded?: (jobs: SavedJobWithJob[]) => void;
+  showComparisonControls?: boolean;
+  onCompareRequested?: (state: {
+    fromSavedJobs: true;
+    selectedJobIds: string[];
+    selectedJobs: SavedJobWithJob[];
+    returnPath: string;
+  }) => void;
 }
 
 const SAVED_JOBS_COMPARE_STATE_KEY = "savedJobsCompareState";
@@ -51,6 +58,8 @@ export default function SavedJobsSection({
   compact = false,
   appliedJobIds = [],
   onJobsLoaded,
+  showComparisonControls = true,
+  onCompareRequested,
 }: SavedJobsSectionProps) {
   const location = useLocation();
   const navigate = useNavigate();
@@ -177,9 +186,12 @@ export default function SavedJobsSection({
       // ignore sessionStorage errors and continue with route state
     }
 
-    navigate("/jobseeker/dashboard/saved-jobs/compare", {
-      state: compareState,
-    });
+    if (onCompareRequested) {
+      onCompareRequested(compareState);
+      return;
+    }
+
+    navigate("/jobseeker/dashboard/saved-jobs/compare", { state: compareState });
   }
 
   if (loading) {
@@ -204,7 +216,9 @@ export default function SavedJobsSection({
       <div className={`${compact ? "py-8" : "bg-white rounded-2xl p-12 shadow-md"} text-center`}>
         <Bookmark className="h-12 w-12 text-gray-300 mx-auto mb-3" />
         <p className="text-[#8A8A8A]">No saved jobs found</p>
-        <p className="text-xs text-red-600 mt-1">Save at least 2 jobs to compare.</p>
+        {showComparisonControls && (
+          <p className="text-xs text-red-600 mt-1">Save at least 2 jobs to compare.</p>
+        )}
       </div>
     );
   }
@@ -230,14 +244,16 @@ export default function SavedJobsSection({
                   {appliedJobIdSet.has(savedJob.job_id) && (
                     <Badge className="bg-green-100 text-green-700 text-xs">Applied</Badge>
                   )}
-                  <label className="inline-flex items-center gap-2 rounded-full border border-gray-200 bg-white px-3 py-1.5 text-xs text-[#3A1F1F]">
-                    <Checkbox
-                      checked={compareJobIds.includes(savedJob.job_id)}
-                      onCheckedChange={() => toggleCompare(savedJob.job_id)}
-                      disabled={compareJobIds.length >= MAX_COMPARE_JOBS && !compareJobIds.includes(savedJob.job_id)}
-                    />
-                    Compare
-                  </label>
+                  {showComparisonControls && (
+                    <label className="inline-flex items-center gap-2 rounded-full border border-gray-200 bg-white px-3 py-1.5 text-xs text-[#3A1F1F]">
+                      <Checkbox
+                        checked={compareJobIds.includes(savedJob.job_id)}
+                        onCheckedChange={() => toggleCompare(savedJob.job_id)}
+                        disabled={compareJobIds.length >= MAX_COMPARE_JOBS && !compareJobIds.includes(savedJob.job_id)}
+                      />
+                      Compare
+                    </label>
+                  )}
                   <Button
                     size="sm"
                     className={`rounded-full text-xs ${appliedJobIdSet.has(savedJob.job_id) ? "bg-green-500 hover:bg-green-500 text-white cursor-default" : "bg-[#FF2B2B] hover:bg-[#e02525] text-white"}`}
@@ -267,41 +283,43 @@ export default function SavedJobsSection({
         );
       })}
 
-      <div className={`${compact ? "p-4" : "p-5"} rounded-2xl border border-gray-200 bg-white`}>
-        <div className="flex flex-wrap items-center justify-between gap-3">
-          <p className="text-sm font-medium text-[#3A1F1F]">
-            Compare Selection: {compareJobIds.length}/{MAX_COMPARE_JOBS}
-          </p>
-          <div className="flex items-center gap-2">
-            {compareJobIds.length > 0 && (
+      {showComparisonControls && (
+        <div className={`${compact ? "p-4" : "p-5"} rounded-2xl border border-gray-200 bg-white`}>
+          <div className="flex flex-wrap items-center justify-between gap-3">
+            <p className="text-sm font-medium text-[#3A1F1F]">
+              Compare Selection: {compareJobIds.length}/{MAX_COMPARE_JOBS}
+            </p>
+            <div className="flex items-center gap-2">
+              {compareJobIds.length > 0 && (
+                <Button
+                  size="sm"
+                  variant="ghost"
+                  className="rounded-full text-xs text-[#8A8A8A]"
+                  onClick={() => setCompareJobIds([])}
+                >
+                  Clear
+                </Button>
+              )}
               <Button
                 size="sm"
-                variant="ghost"
-                className="rounded-full text-xs text-[#8A8A8A]"
-                onClick={() => setCompareJobIds([])}
+                className="rounded-full text-xs bg-[#FF2B2B] hover:bg-[#e02525] text-white"
+                onClick={openComparePage}
+                disabled={compareJobIds.length < 2 || savedJobs.length < 2}
               >
-                Clear
+                Compare Jobs
               </Button>
-            )}
-            <Button
-              size="sm"
-              className="rounded-full text-xs bg-[#FF2B2B] hover:bg-[#e02525] text-white"
-              onClick={openComparePage}
-              disabled={compareJobIds.length < 2 || savedJobs.length < 2}
-            >
-              Compare Jobs
-            </Button>
+            </div>
           </div>
+
+          {savedJobs.length < 2 ? (
+            <p className="text-xs text-red-600 mt-1">Save at least 2 jobs to compare.</p>
+          ) : compareJobIds.length < 2 ? (
+            <p className="text-xs text-red-600 mt-1">Please select at least 2 jobs to compare.</p>
+          ) : null}
+
+          {compareError && <p className="text-xs text-red-600 mt-1">{compareError}</p>}
         </div>
-
-        {savedJobs.length < 2 ? (
-          <p className="text-xs text-red-600 mt-1">Save at least 2 jobs to compare.</p>
-        ) : compareJobIds.length < 2 ? (
-          <p className="text-xs text-red-600 mt-1">Please select at least 2 jobs to compare.</p>
-        ) : null}
-
-        {compareError && <p className="text-xs text-red-600 mt-1">{compareError}</p>}
-      </div>
+      )}
 
       {totalPages > 1 && (
         <div className="mt-6 flex justify-center">
