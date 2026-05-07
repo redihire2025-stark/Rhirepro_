@@ -27,7 +27,7 @@ import { BarChart, Bar, XAxis, YAxis, CartesianGrid, Tooltip, ResponsiveContaine
 import { Badge } from "../components/ui/badge";
 import FeedbackPopup from "../components/FeedbackPopup";
 import SavedJobsSection from "../components/SavedJobsSection";
-import { AppliedJobWithJob, SavedJobWithJob } from "../services/jobService";
+import { AppliedJobWithJob, SavedJobWithJob, getAppliedJobs, getSavedJobs } from "../services/jobService";
 import SavedJobsComparePage from "./SavedJobsComparePage";
 import logoImage from "../../logo/logo.png";
 
@@ -425,20 +425,6 @@ function FindJobPage() {
   const [applyingId, setApplyingId] = useState<string | null>(null);
   const [selectedJob, setSelectedJob] = useState<DashboardDisplayJob | null>(null);
 
-  const handleAppliedJobsLoaded = useCallback((jobs: AppliedJobWithJob[]) => {
-    const ids = jobs
-      .map((job) => job.job_id)
-      .filter((jobId): jobId is string => typeof jobId === "string" && jobId.length > 0);
-    setAppliedJobIds(ids);
-  }, []);
-
-  const handleSavedJobsLoaded = useCallback((jobs: SavedJobWithJob[]) => {
-    const ids = jobs
-      .map((job) => job.job_id)
-      .filter((jobId): jobId is string => typeof jobId === "string" && jobId.length > 0);
-    setSavedJobIds(ids);
-  }, []);
-
   useEffect(() => {
     if (userId) {
       supabase.from("applications").select("job_id").eq("profile_id", userId).then(({ data }) => {
@@ -684,26 +670,6 @@ function FindJobPage() {
               </button>
             ))}
           </div>
-        </div>
-      </div>
-
-      <div className="grid grid-cols-1 xl:grid-cols-2 gap-6 mb-8">
-        <div className="bg-white rounded-2xl p-5 shadow-sm">
-          <h2 className="text-lg font-semibold text-[#3A1F1F] mb-4">Saved Jobs</h2>
-          <SavedJobsSection
-            userId={userId}
-            compact
-            appliedJobIds={appliedJobIds}
-            onJobsLoaded={handleSavedJobsLoaded}
-          />
-        </div>
-        <div className="bg-white rounded-2xl p-5 shadow-sm">
-          <h2 className="text-lg font-semibold text-[#3A1F1F] mb-4">Applied Jobs</h2>
-          <AppliedJobsSection
-            userId={userId}
-            compact
-            onJobsLoaded={handleAppliedJobsLoaded}
-          />
         </div>
       </div>
 
@@ -2202,24 +2168,54 @@ function CertForm({ form, setForm, onSave, onCancel }: {
 }
 
 // ── Analytics Page ─────────────────────────────────────────────────────────────
-function fmtIndustry(s: string) {
-  return ({ tech:"Technology", finance:"Finance", healthcare:"Healthcare", marketing:"Marketing", design:"Design", media:"Media" } as Record<string,string>)[s] ?? s;
-}
-function fmtExp(s: string) {
-  return ({ entry:"Entry Level", mid:"Mid Level", senior:"Senior" } as Record<string,string>)[s] ?? s;
-}
-
-function toCompareJob(savedJob: SavedJobWithJob): DashboardDisplayJob | null {
-  if (!savedJob.job) return null;
-  return buildDashboardJob(savedJob.job);
-}
-
 function AnalyticsPage() {
-  const navigate = useNavigate();
   const { profile } = useAuth();
   const [activeTab, setActiveTab] = useState<"applied" | "saved" | "compare">("applied");
   const [appliedJobs, setAppliedJobs] = useState<AppliedJobWithJob[]>([]);
   const [savedJobs, setSavedJobs] = useState<SavedJobWithJob[]>([]);
+  const [analyticsLoading, setAnalyticsLoading] = useState(true);
+  const [compareState, setCompareState] = useState<{
+    fromSavedJobs: true;
+    selectedJobIds: string[];
+    selectedJobs: SavedJobWithJob[];
+    returnPath: string;
+  } | null>(null);
+
+  useEffect(() => {
+    const currentUserId = profile?.id;
+    if (!currentUserId) {
+      setAppliedJobs([]);
+      setSavedJobs([]);
+      setAnalyticsLoading(false);
+      return;
+    }
+
+    let cancelled = false;
+    async function loadAnalyticsData(userId: string) {
+      setAnalyticsLoading(true);
+      try {
+        const [applied, saved] = await Promise.all([
+          getAppliedJobs(userId),
+          getSavedJobs(userId),
+        ]);
+        if (cancelled) return;
+        setAppliedJobs(applied);
+        setSavedJobs(saved);
+      } catch {
+        if (!cancelled) {
+          setAppliedJobs([]);
+          setSavedJobs([]);
+        }
+      } finally {
+        if (!cancelled) setAnalyticsLoading(false);
+      }
+    }
+
+    void loadAnalyticsData(currentUserId);
+    return () => {
+      cancelled = true;
+    };
+  }, [profile?.id]);
 
   const chartData = useMemo(() => {
     const counts = new Map<string, number>();
@@ -2229,39 +2225,6 @@ function AnalyticsPage() {
     });
     return Array.from(counts.entries()).slice(-6).map(([month, applications]) => ({ month, applications }));
   }, [appliedJobs]);
-
-  // Compare state
-  const [job1Id, setJob1Id] = useState<string>("");
-  const [job2Id, setJob2Id] = useState<string>("");
-
-  useEffect(() => {
-    const savedIds = new Set(savedJobs.map((job) => job.job_id));
-    if (job1Id && !savedIds.has(job1Id)) setJob1Id("");
-    if (job2Id && !savedIds.has(job2Id)) setJob2Id("");
-  }, [job1Id, job2Id, savedJobs]);
-
-  const compareJobs = useMemo(
-    () => savedJobs.map(toCompareJob).filter((job): job is DashboardDisplayJob => Boolean(job)),
-    [savedJobs],
-  );
-  const job1 = useMemo(() => compareJobs.find(j => j.id === job1Id) ?? null, [compareJobs, job1Id]);
-  const job2 = useMemo(() => compareJobs.find(j => j.id === job2Id) ?? null, [compareJobs, job2Id]);
-
-  const compareRows: { label: string; val1: string; val2: string }[] = useMemo(() => {
-    if (!job1 || !job2) return [];
-    return [
-      { label: "Company",          val1: job1.company,                     val2: job2.company },
-      { label: "Location",         val1: job1.location,                    val2: job2.location },
-      { label: "Salary",           val1: job1.salary,                      val2: job2.salary },
-      { label: "Job Type",         val1: job1.type,                        val2: job2.type },
-      { label: "Work Mode",        val1: job1.isRemote ? "Remote" : "On-site", val2: job2.isRemote ? "Remote" : "On-site" },
-      { label: "Industry",         val1: fmtIndustry(job1.industry),       val2: fmtIndustry(job2.industry) },
-      { label: "Experience Level", val1: fmtExp(job1.experience),          val2: fmtExp(job2.experience) },
-    ];
-  }, [job1, job2]);
-
-  const matchCount = compareRows.filter(r => r.val1 === r.val2).length;
-  const matchPct = compareRows.length ? Math.round((matchCount / compareRows.length) * 100) : 0;
 
   const stats = [
     { label: "Applied",            value: appliedJobs.length,                                                Icon: Briefcase },
@@ -2273,6 +2236,7 @@ function AnalyticsPage() {
   const tabs = [
     { key: "applied",  label: `Applied Jobs (${appliedJobs.length})` },
     { key: "saved",    label: `Saved Jobs (${savedJobs.length})` },
+    { key: "compare",  label: "Job Comparison" },
   ] as const;
 
   return (
@@ -2322,154 +2286,24 @@ function AnalyticsPage() {
           )}
           {/* Saved Jobs */}
           {activeTab === "saved" && (
-            <SavedJobsSection userId={profile?.id} onJobsLoaded={setSavedJobs} />
+            <SavedJobsSection userId={profile?.id} onJobsLoaded={setSavedJobs} showComparisonControls={false} />
           )}
-          {/* ── Compare Jobs ── */}
+          {/* Job Comparison */}
           {activeTab === "compare" && (
-            <div className="bg-white rounded-2xl p-6 shadow-md">
-              <div className="flex flex-col md:flex-row md:items-center justify-between gap-3 mb-6">
-                <div>
-                  <h3 className="text-xl font-semibold text-[#3A1F1F]">Compare Jobs Side by Side</h3>
-                  <p className="text-sm text-[#8A8A8A] mt-1">Select any two jobs to compare their details</p>
-                </div>
-                {compareJobs.length >= 2 && (
-                  <Button
-                    variant="outline"
-                    className="border-[#FF2B2B] text-[#FF2B2B] rounded-full text-sm shrink-0"
-                    onClick={() => {
-                      setJob1Id(compareJobs[0].id);
-                      setJob2Id(compareJobs[1].id);
-                    }}
-                  >
-                    <Bookmark className="h-4 w-4 mr-2" /> Fill from Saved Jobs
-                  </Button>
-                )}
-              </div>
-
-              {/* Job Selectors */}
-              <div className="grid md:grid-cols-2 gap-4 mb-6">
-                <div>
-                  <label className="block text-sm font-medium text-[#3A1F1F] mb-2">Job 1</label>
-                  <Select value={job1Id} onValueChange={setJob1Id}>
-                    <SelectTrigger className="bg-[#F6F6F6] border-gray-200 rounded-xl">
-                      <SelectValue placeholder="Select a job..." />
-                    </SelectTrigger>
-                    <SelectContent>
-                      {compareJobs.length > 0 && (
-                        <>
-                          <div className="px-2 py-1 text-xs font-semibold text-[#8A8A8A] uppercase tracking-wide">Saved Jobs</div>
-                          {compareJobs.map(j => (
-                            <SelectItem key={j.id} value={String(j.id)}>
-                              {j.title} - {j.company}
-                            </SelectItem>
-                          ))}
-                        </>
-                      )}
-                    </SelectContent>
-                  </Select>
-                </div>
-                <div>
-                  <label className="block text-sm font-medium text-[#3A1F1F] mb-2">Job 2</label>
-                  <Select value={job2Id} onValueChange={setJob2Id}>
-                    <SelectTrigger className="bg-[#F6F6F6] border-gray-200 rounded-xl">
-                      <SelectValue placeholder="Select a job..." />
-                    </SelectTrigger>
-                    <SelectContent>
-                      {compareJobs.length > 0 && (
-                        <>
-                          <div className="px-2 py-1 text-xs font-semibold text-[#8A8A8A] uppercase tracking-wide">Saved Jobs</div>
-                          {compareJobs.map(j => (
-                            <SelectItem key={j.id} value={String(j.id)}>
-                              {j.title} - {j.company}
-                            </SelectItem>
-                          ))}
-                        </>
-                      )}
-                    </SelectContent>
-                  </Select>
-                </div>
-              </div>
-
-              {/* Placeholder when not both selected */}
-              {(!job1 || !job2) && (
-                <div className="text-center py-16 text-[#8A8A8A]">
-                  <div className="flex justify-center gap-4 mb-4 opacity-30">
-                    <div className="w-24 h-32 bg-gray-200 rounded-xl" />
-                    <div className="flex items-center text-2xl font-bold text-gray-400">VS</div>
-                    <div className="w-24 h-32 bg-gray-200 rounded-xl" />
-                  </div>
-                  <p className="font-medium">Select two jobs above to compare</p>
-                  <p className="text-sm mt-1">Compare salary, location, job type, and more</p>
-                </div>
-              )}
-
-              {/* Comparison Table */}
-              {job1 && job2 && (
-                <>
-                  {/* Match Score */}
-                  <div className="flex items-center justify-center gap-4 mb-6 p-4 bg-[#F6F6F6] rounded-xl">
-                    <span className="text-sm text-[#8A8A8A]">Similarity Score</span>
-                    <div className="flex-1 max-w-xs bg-gray-200 rounded-full h-2.5">
-                      <div className="bg-[#FF2B2B] h-2.5 rounded-full transition-all" style={{ width: `${matchPct}%` }} />
-                    </div>
-                    <span className="font-bold text-[#3A1F1F] text-lg">{matchPct}%</span>
-                    <span className="text-xs text-[#8A8A8A]">({matchCount}/{compareRows.length} fields match)</span>
-                  </div>
-
-                  {/* Header row */}
-                  <div className="grid grid-cols-3 gap-3 mb-2">
-                    <div />
-                    <div className="bg-[#FF2B2B]/10 border-2 border-[#FF2B2B]/30 rounded-xl p-4 text-center">
-                      <p className="text-xs text-[#8A8A8A] mb-1">Job 1</p>
-                      <h4 className="font-bold text-[#3A1F1F] text-sm leading-tight">{job1.title}</h4>
-                      <p className="text-xs text-[#8A8A8A] mt-1">{job1.company}</p>
-                      <Badge className="mt-2 bg-amber-100 text-amber-700 text-xs">Saved</Badge>
-                    </div>
-                    <div className="bg-[#FF2B2B]/10 border-2 border-[#FF2B2B]/30 rounded-xl p-4 text-center">
-                      <p className="text-xs text-[#8A8A8A] mb-1">Job 2</p>
-                      <h4 className="font-bold text-[#3A1F1F] text-sm leading-tight">{job2.title}</h4>
-                      <p className="text-xs text-[#8A8A8A] mt-1">{job2.company}</p>
-                      <Badge className="mt-2 bg-amber-100 text-amber-700 text-xs">Saved</Badge>
-                    </div>
-                  </div>
-
-                  {/* Data Rows */}
-                  {compareRows.map(({ label, val1, val2 }) => {
-                    const match = val1 === val2;
-                    return (
-                      <div key={label} className="grid grid-cols-3 gap-3 py-2 border-b border-gray-100 items-center">
-                        <div className="text-sm font-medium text-[#8A8A8A]">{label}</div>
-                        <div className={`text-sm text-center py-2 px-3 rounded-lg ${match ? "bg-green-50 text-green-700 font-medium" : "bg-[#F6F6F6] text-[#3A1F1F]"}`}>
-                          {match && <span className="mr-1">✓</span>}{val1}
-                        </div>
-                        <div className={`text-sm text-center py-2 px-3 rounded-lg ${match ? "bg-green-50 text-green-700 font-medium" : "bg-[#F6F6F6] text-[#3A1F1F]"}`}>
-                          {match && <span className="mr-1">✓</span>}{val2}
-                        </div>
-                      </div>
-                    );
-                  })}
-
-                  {/* Description row */}
-                  <div className="grid grid-cols-3 gap-3 py-3 items-start mt-1">
-                    <div className="text-sm font-medium text-[#8A8A8A]">Description</div>
-                    <div className="text-xs text-[#3A1F1F] bg-[#F6F6F6] rounded-lg p-3 leading-relaxed">{job1.description}</div>
-                    <div className="text-xs text-[#3A1F1F] bg-[#F6F6F6] rounded-lg p-3 leading-relaxed">{job2.description}</div>
-                  </div>
-
-                  {/* CTA row */}
-                  <div className="grid grid-cols-3 gap-3 mt-4">
-                    <div />
-                    <Button className="bg-[#FF2B2B] hover:bg-[#e02525] text-white rounded-full text-sm" onClick={() => navigate(`/job/${job1.id}`)}>Apply - {job1.title}</Button>
-                    <Button className="bg-[#FF2B2B] hover:bg-[#e02525] text-white rounded-full text-sm" onClick={() => navigate(`/job/${job2.id}`)}>Apply - {job2.title}</Button>
-                  </div>
-                </>
-              )}
+            <div className="space-y-6">
+              <SavedJobsSection
+                userId={profile?.id}
+                onJobsLoaded={setSavedJobs}
+                showComparisonControls
+                onCompareRequested={setCompareState}
+              />
+              {compareState && <SavedJobsComparePage forcedState={compareState} embedded />}
             </div>
           )}
         </div>
 
         {/* Right Sidebar — hidden when compare is active */}
-        {activeTab !== "compare" && (
+        {activeTab !== "compare" && !analyticsLoading && (
           <div className="lg:col-span-1 space-y-4">
             <div className="bg-white rounded-2xl p-5 shadow-md">
               <h3 className="font-semibold text-[#3A1F1F] mb-4">Application Trend</h3>
@@ -2488,10 +2322,10 @@ function AnalyticsPage() {
               <h3 className="font-semibold text-[#3A1F1F] mb-4">Application Summary</h3>
               <div className="space-y-3">
                 {[
-                  { label: "In Progress",    count: appliedJobs.filter(j => !["Offered","Rejected"].includes(j.status)).length, color: "bg-blue-500" },
+                  { label: "In Progress",    count: appliedJobs.filter(j => !["Offered", "Rejected"].includes(j.status)).length, color: "bg-blue-500" },
                   { label: "Offer Received", count: appliedJobs.filter(j => j.status === "Offered").length,  color: "bg-green-500" },
-                  { label: "Rejected",       count: appliedJobs.filter(j => j.status === "Rejected").length,        color: "bg-red-400" },
-                  { label: "Saved Jobs",     count: savedJobs.length,                                               color: "bg-amber-400" },
+                  { label: "Rejected",       count: appliedJobs.filter(j => j.status === "Rejected").length, color: "bg-red-400" },
+                  { label: "Saved Jobs",     count: savedJobs.length,                                             color: "bg-amber-400" },
                 ].map(({ label, count, color }) => (
                   <div key={label} className="flex items-center justify-between">
                     <div className="flex items-center gap-2 text-sm text-[#3A1F1F]">
@@ -2515,7 +2349,6 @@ function AnalyticsPage() {
     </div>
   );
 }
-
 // ── Career Insights helpers ───────────────────────────────────────────────────
 type DemandLevel = "High" | "Medium" | "Growing";
 interface DomainData {
