@@ -4,8 +4,9 @@ import { supabase, Job, Application, Notification, Profile, WorkExperience, Educ
 import { buildJobDeadlineTimestamp, formatJobDeadline, getEffectiveJobStatus, getJobDeadlineDateValue, isJobExpired } from "../../lib/jobs";
 import { PLANS, FREE_DAILY_POST_LIMIT, getPlanById, validatePromo, applyPromo } from "../../lib/plans";
 import { INDIA_CITY_OPTIONS } from "../../lib/locationData";
-import logoImage from "../../logo/logo.png";
 import { useAuth } from "../../lib/auth-context";
+
+const logoImage = new URL("../../logo/logo.png", import.meta.url).href;
 import {
   Bell, LogOut, Plus, Edit, Pause, Trash2, User, Upload, Building2,
   Search, Filter, Download, Mail, Phone, MapPin, Calendar, Clock,
@@ -1061,6 +1062,9 @@ function DashboardOverview() {
   const { recruiterProfile } = useAuth();
   const [dbJobs, setDbJobs] = useState<Job[]>([]);
   const [dbApplications, setDbApplications] = useState<Application[]>([]);
+  const [totalApplicantsCount, setTotalApplicantsCount] = useState<number>(0);
+  const [interviewsScheduledCount, setInterviewsScheduledCount] = useState<number>(0);
+  const [positionsFilledCount, setPositionsFilledCount] = useState<number>(0);
 
   const recruiterCompletion = useMemo(() => {
     if (!recruiterProfile) return 0;
@@ -1084,12 +1088,20 @@ function DashboardOverview() {
       if (jobs) setDbJobs(jobs.filter(job => !isJobExpired(job)));
       const { data: apps } = await supabase.from("applications").select("*, profile:profiles(first_name,last_name,current_title,current_company), job:jobs(title)").eq("recruiter_id", recruiterProfile.id).order("applied_at", { ascending: false }).limit(5);
       if (apps) setDbApplications(apps as Application[]);
+
+      // Fetch counts for stats
+      const { count: totalApps } = await supabase.from("applications").select("*", { count: "exact", head: true }).eq("recruiter_id", recruiterProfile.id);
+      const { count: interviews } = await supabase.from("applications").select("*", { count: "exact", head: true }).eq("recruiter_id", recruiterProfile.id).eq("status", "Interview Scheduled");
+      const { count: filled } = await supabase.from("applications").select("*", { count: "exact", head: true }).eq("recruiter_id", recruiterProfile.id).eq("status", "Offered");
+
+      setTotalApplicantsCount(totalApps || 0);
+      setInterviewsScheduledCount(interviews || 0);
+      setPositionsFilledCount(filled || 0);
     };
     load();
   }, [recruiterProfile?.id]);
 
   const activeJobs = dbJobs.filter(j => j.status === "Active").length;
-  const totalApplicants = dbApplications.length;
 
   const greeting = (() => {
     const h = new Date().getHours();
@@ -1100,9 +1112,9 @@ function DashboardOverview() {
 
   const stats = [
     { label: "Active Jobs", value: String(activeJobs || dbJobs.length || "—"), change: "Live postings", icon: Briefcase, color: "text-blue-600", bg: "bg-blue-50" },
-    { label: "Total Applicants", value: String(totalApplicants || "—"), change: "Across all jobs", icon: Users, color: "text-green-600", bg: "bg-green-50" },
-    { label: "Interviews Scheduled", value: "8", change: "Next: Today 3PM", icon: Calendar, color: "text-purple-600", bg: "bg-purple-50" },
-    { label: "Positions Filled", value: "5", change: "This month", icon: CheckCircle, color: "text-[#FF2B2B]", bg: "bg-red-50" },
+    { label: "Total Applicants", value: String(totalApplicantsCount || "—"), change: "Across all jobs", icon: Users, color: "text-green-600", bg: "bg-green-50" },
+    { label: "Interviews Scheduled", value: String(interviewsScheduledCount || "—"), change: "Next: Today 3PM", icon: Calendar, color: "text-purple-600", bg: "bg-purple-50" },
+    { label: "Positions Filled", value: String(positionsFilledCount || "—"), change: "This month", icon: CheckCircle, color: "text-[#FF2B2B]", bg: "bg-red-50" },
   ];
 
   const recentApplicants = candidatesData.slice(0, 3);
@@ -3671,6 +3683,112 @@ function AnalyticsPage() {
   const [reportCopied, setReportCopied] = useState(false);
   const [reportUrl, setReportUrl] = useState("");
   const [reportError, setReportError] = useState("");
+  const [totalJobsPosted, setTotalJobsPosted] = useState<number | null>(null);
+  const [totalApplications, setTotalApplications] = useState<number | null>(null);
+  const [avgTimeToHire, setAvgTimeToHire] = useState<string>("—");
+  const [jobViews, setJobViews] = useState<number | null>(null);
+  const [offerAcceptanceRate, setOfferAcceptanceRate] = useState<string>("—");
+  const [profileVisitRate, setProfileVisitRate] = useState<string>("—");
+  const [timePeriod, setTimePeriod] = useState("30d");
+  const [applicationsGrowth, setApplicationsGrowth] = useState<string>("+0%");
+
+  useEffect(() => {
+    async function loadAnalyticsMetrics() {
+      if (!recruiterProfile?.id) return;
+
+      try {
+        const [jobsRes, appsRes] = await Promise.all([
+          supabase
+            .from("jobs")
+            .select("id, created_at, status, views")
+            .eq("recruiter_id", recruiterProfile.id),
+          supabase
+            .from("applications")
+            .select("job_id, applied_at, status, profile_id")
+            .eq("recruiter_id", recruiterProfile.id),
+        ]);
+
+        if (jobsRes.error || appsRes.error) {
+          setTotalJobsPosted(null);
+          setTotalApplications(null);
+          setAvgTimeToHire("—");
+          setJobViews(null);
+          setOfferAcceptanceRate("—");
+          setProfileVisitRate("—");
+          setApplicationsGrowth("+0%");
+          return;
+        }
+
+        const now = new Date();
+        const days = timePeriod === "7d" ? 7 : timePeriod === "90d" ? 90 : 30;
+        const cutoff = new Date(now.getTime() - days * 24 * 60 * 60 * 1000);
+        const prevCutoff = new Date(cutoff.getTime() - days * 24 * 60 * 60 * 1000);
+
+        const jobs = (jobsRes.data || []) as { id: string; created_at: string; status: string; views: number | null }[];
+        const applications = (appsRes.data || []) as { job_id: string; applied_at: string; status: string | null; profile_id: string }[];
+
+        const filteredJobs = jobs.filter(job => new Date(job.created_at) >= cutoff);
+        const filteredApplications = applications.filter(app => app.applied_at && new Date(app.applied_at) >= cutoff);
+        const prevApplications = applications.filter(app => app.applied_at && new Date(app.applied_at) >= prevCutoff && new Date(app.applied_at) < cutoff);
+
+        setTotalJobsPosted(filteredJobs.length);
+        setTotalApplications(filteredApplications.length);
+
+        const currentCount = filteredApplications.length;
+        const prevCount = prevApplications.length;
+        let growthText = "+0%";
+        
+        if (prevCount === 0 && currentCount > 0) {
+          growthText = "New";
+        } else if (prevCount === 0 && currentCount === 0) {
+          growthText = "No activity";
+        } else if (prevCount > 0) {
+          const growth = Math.round(((currentCount - prevCount) / prevCount) * 100);
+          growthText = growth > 0 ? `+${growth}%` : `${growth}%`;
+        }
+        setApplicationsGrowth(growthText);
+
+        const totalActiveJobViews = new Set(
+          filteredApplications.map(app => app.profile_id)
+        ).size;
+        setJobViews(totalActiveJobViews);
+
+        const offeredCount = filteredApplications.filter((application) => application.status === "Offered").length;
+        setOfferAcceptanceRate(filteredApplications.length > 0 ? `${Math.round((offeredCount / filteredApplications.length) * 100)}%` : "—");
+        setProfileVisitRate(totalActiveJobViews > 0 ? `${Math.round((filteredApplications.length / totalActiveJobViews) * 100)}%` : "—");
+
+        const jobCreatedAtById = new Map(filteredJobs.map((job) => [job.id, job.created_at]));
+        const dayDiffs = filteredApplications
+          .map((application) => {
+            const createdAt = jobCreatedAtById.get(application.job_id);
+            if (!createdAt || !application.applied_at) return null;
+            const createdTime = Date.parse(createdAt);
+            const appliedTime = Date.parse(application.applied_at);
+            if (!Number.isFinite(createdTime) || !Number.isFinite(appliedTime)) return null;
+            return Math.max(0, (appliedTime - createdTime) / (1000 * 60 * 60 * 24));
+          })
+          .filter((value): value is number => value !== null);
+
+        if (dayDiffs.length > 0) {
+          const averageDays = Math.round(dayDiffs.reduce((sum, value) => sum + value, 0) / dayDiffs.length);
+          setAvgTimeToHire(`${averageDays} days`);
+        } else {
+          setAvgTimeToHire("—");
+        }
+      } catch {
+        setTotalJobsPosted(null);
+        setTotalApplications(null);
+        setAvgTimeToHire("—");
+        setJobViews(null);
+        setOfferAcceptanceRate("—");
+        setProfileVisitRate("—");
+        setApplicationsGrowth("+0%");
+      }
+    }
+
+    loadAnalyticsMetrics();
+  }, [recruiterProfile?.id, timePeriod]);
+
 
   const generateAndShareReport = async () => {
     if (!recruiterProfile?.id) return;
@@ -3728,12 +3846,12 @@ function AnalyticsPage() {
   };
 
   const metrics = [
-    { label: "Total Jobs Posted", value: "12", sub: "Last 30 days", icon: Briefcase, color: "text-blue-600", bg: "bg-blue-50" },
-    { label: "Total Applications", value: "428", sub: "+15% vs last month", icon: Users, color: "text-green-600", bg: "bg-green-50" },
-    { label: "Avg. Time to Hire", value: "18 days", sub: "Industry avg: 25 days", icon: Clock, color: "text-purple-600", bg: "bg-purple-50" },
-    { label: "Offer Acceptance Rate", value: "78%", sub: "+5% vs last quarter", icon: CheckCircle, color: "text-[#FF2B2B]", bg: "bg-red-50" },
-    { label: "Job Views", value: "6,861", sub: "Across all active jobs", icon: Eye, color: "text-orange-600", bg: "bg-orange-50" },
-    { label: "Profile Visit Rate", value: "34%", sub: "Views → Applications", icon: TrendingUp, color: "text-teal-600", bg: "bg-teal-50" },
+    { label: "Total Jobs Posted", value: totalJobsPosted !== null ? `${totalJobsPosted}` : "—", sub: timePeriod === "7d" ? "Last 7 days" : timePeriod === "90d" ? "Last 90 days" : "Last 30 days", icon: Briefcase, color: "text-blue-600", bg: "bg-blue-50" },
+    { label: "Total Applications", value: totalApplications !== null ? `${totalApplications}` : "—", sub: `${applicationsGrowth} vs previous ${timePeriod === "7d" ? "7 days" : timePeriod === "90d" ? "90 days" : "30 days"}`, icon: Users, color: "text-green-600", bg: "bg-green-50" },
+    { label: "Avg Time to Hire", value: avgTimeToHire, sub: "Industry avg: 25 days", icon: Clock, color: "text-purple-600", bg: "bg-purple-50" },
+    { label: "Offer Acceptance Rate", value: offerAcceptanceRate, sub: "+5% vs last quarter", icon: CheckCircle, color: "text-[#FF2B2B]", bg: "bg-red-50" },
+    { label: "Job Views", value: jobViews !== null ? jobViews.toLocaleString() : "—", sub: "Across all active jobs", icon: Eye, color: "text-orange-600", bg: "bg-orange-50" },
+    { label: "Profile Visit Rate", value: profileVisitRate, sub: "Views → Applications", icon: TrendingUp, color: "text-teal-600", bg: "bg-teal-50" },
   ];
 
   const sourceData = [
@@ -3754,7 +3872,7 @@ function AnalyticsPage() {
       <div className="flex justify-between items-center mb-6">
         <h1 className="text-3xl font-bold text-[#3A1F1F]">Analytics</h1>
         <div className="flex gap-2">
-          <Select defaultValue="30d">
+          <Select value={timePeriod} onValueChange={setTimePeriod}>
             <SelectTrigger className="w-36 bg-white border-gray-200 rounded-xl"><SelectValue /></SelectTrigger>
             <SelectContent>
               <SelectItem value="7d">Last 7 days</SelectItem>
