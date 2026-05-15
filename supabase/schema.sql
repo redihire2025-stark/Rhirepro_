@@ -125,7 +125,7 @@ create table if not exists applications (
   job_id       uuid references jobs(id) on delete cascade,
   profile_id   uuid references profiles(id) on delete cascade,
   recruiter_id uuid references recruiter_profiles(id),
-  status       text default 'New' check (status in ('New','Reviewed','Shortlisted','Interview Scheduled','Offered','Rejected')),
+  status       text default 'New' check (status in ('New','Reviewed','Screening','Applied','Shortlisted','Interview Scheduled','Offered','Rejected','Hired')),
   cover_letter text,
   resume_url   text,
   applied_at   timestamptz default now(),

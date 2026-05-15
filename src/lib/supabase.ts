@@ -99,12 +99,33 @@ export interface Application {
   job_id: string;
   profile_id: string;
   recruiter_id: string;
-  status: "New" | "Reviewed" | "Shortlisted" | "Interview Scheduled" | "Offered" | "Rejected";
+  status:
+    | "Applied"
+    | "Screening"
+    | "Shortlisted"
+    | "Interview Scheduled"
+    | "Offered"
+    | "Rejected"
+    | "Hired"
+    | "New"
+    | "Reviewed";
   cover_letter: string | null;
   resume_url: string | null;
   applied_at: string;
   job?: Job;
   profile?: Profile;
+  interview_details?: InterviewDetails | null;
+}
+
+export interface InterviewDetails {
+  id: string;
+  application_id: string;
+  recruiter_id: string;
+  candidate_id: string;
+  interview_message: string;
+  status: "Interview Scheduled";
+  created_at: string;
+  updated_at: string;
 }
 
 export interface Notification {

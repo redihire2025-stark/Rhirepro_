@@ -64,6 +64,34 @@ interface Certification {
 }
 interface Language { id: number; language: string; proficiency: string; }
 
+function renderNotificationMessage(message: string) {
+  const linkRegex = /(https?:\/\/[^\s]+)/gi;
+  const lines = message.split("\n");
+
+  return lines.map((line, lineIndex) => {
+    const parts = line.split(linkRegex);
+    return (
+      <span key={`line-${lineIndex}`} className="block">
+        {parts.map((part, partIndex) => {
+          const isLink = /^https?:\/\/[^\s]+$/i.test(part);
+          if (!isLink) return <span key={`part-${lineIndex}-${partIndex}`}>{part}</span>;
+          return (
+            <a
+              key={`part-${lineIndex}-${partIndex}`}
+              href={part}
+              target="_blank"
+              rel="noreferrer"
+              className="text-[#FF2B2B] underline underline-offset-2 break-all"
+            >
+              {part}
+            </a>
+          );
+        })}
+      </span>
+    );
+  });
+}
+
 function formatDashboardSalary(job: DBJob): string {
   if (job.salary_min && job.salary_max && job.salary_type) {
     return `${job.salary_min}-${job.salary_max} ${job.salary_type}`;
@@ -357,7 +385,7 @@ export default function JobSeekerDashboard() {
                         ) : notifications.map((n) => (
                           <div key={n.id} className={`p-3 rounded-lg ${!n.is_read ? "bg-red-50" : "bg-[#F6F6F6]"}`}>
                             <p className="text-sm font-medium text-[#3A1F1F]">{n.title}</p>
-                            <p className="text-xs text-[#8A8A8A]">{n.message}</p>
+                            <p className="text-xs text-[#8A8A8A] whitespace-pre-wrap break-words">{renderNotificationMessage(n.message)}</p>
                             <p className="text-xs text-[#BABABA] mt-0.5">{new Date(n.created_at).toLocaleString()}</p>
                           </div>
                         ))}
@@ -2170,9 +2198,11 @@ function CertForm({ form, setForm, onSave, onCancel }: {
 // ── Analytics Page ─────────────────────────────────────────────────────────────
 function AnalyticsPage() {
   const { profile } = useAuth();
+  const navigate = useNavigate();
   const [activeTab, setActiveTab] = useState<"applied" | "saved" | "compare">("applied");
   const [appliedJobs, setAppliedJobs] = useState<AppliedJobWithJob[]>([]);
   const [savedJobs, setSavedJobs] = useState<SavedJobWithJob[]>([]);
+  const [selectedInterviewJob, setSelectedInterviewJob] = useState<AppliedJobWithJob | null>(null);
   const [analyticsLoading, setAnalyticsLoading] = useState(true);
   const [compareState, setCompareState] = useState<{
     fromSavedJobs: true;
@@ -2217,6 +2247,16 @@ function AnalyticsPage() {
     };
   }, [profile?.id]);
 
+  useEffect(() => {
+    if (!selectedInterviewJob) return;
+    const latest = appliedJobs.find((job) => job.id === selectedInterviewJob.id) || null;
+    if (!latest) {
+      setSelectedInterviewJob(null);
+      return;
+    }
+    setSelectedInterviewJob(latest);
+  }, [appliedJobs, selectedInterviewJob]);
+
   const chartData = useMemo(() => {
     const counts = new Map<string, number>();
     appliedJobs.forEach((job) => {
@@ -2227,7 +2267,7 @@ function AnalyticsPage() {
   }, [appliedJobs]);
 
   const stats = [
-    { label: "Applied",            value: appliedJobs.length,                                                Icon: Briefcase },
+    { label: "Applied Jobs",       value: appliedJobs.length,                                                Icon: Briefcase },
     { label: "Profile Views",      value: 0,                                                                 Icon: User },
     { label: "Recruiter Searches", value: 0,                                                                 Icon: Search },
     { label: "Interviews",         value: appliedJobs.filter(j => j.displayStatus === "interview").length,    Icon: Bell },
@@ -2236,8 +2276,10 @@ function AnalyticsPage() {
   const tabs = [
     { key: "applied",  label: `Applied Jobs (${appliedJobs.length})` },
     { key: "saved",    label: `Saved Jobs (${savedJobs.length})` },
-    { key: "compare",  label: "Job Comparison" },
+    { key: "compare",  label: "Compare Jobs" },
   ] as const;
+
+  const normalizeApplicationStage = (status: string) => status.toLowerCase().trim().replace(/[\s-]+/g, "_");
 
   return (
     <div className="container mx-auto px-4 py-8">
@@ -2246,13 +2288,13 @@ function AnalyticsPage() {
       {/* Stats Row */}
       <div className="grid grid-cols-2 md:grid-cols-4 gap-4 mb-6">
         {stats.map(({ label, value, Icon }) => (
-          <div key={label} className="bg-white rounded-2xl p-4 shadow-md flex items-center gap-3">
-            <div className="w-10 h-10 bg-[#FF2B2B]/10 rounded-full flex items-center justify-center shrink-0">
-              <Icon className="h-5 w-5 text-[#FF2B2B]" />
+          <div key={label} className="bg-white rounded-2xl border border-gray-100 p-4 shadow-[0_2px_8px_rgba(16,24,40,0.08)] flex items-center gap-3">
+            <div className="w-10 h-10 bg-red-50 rounded-full flex items-center justify-center shrink-0">
+              <Icon className="h-[18px] w-[18px] text-[#FF2B2B]" />
             </div>
             <div>
               <p className="text-2xl font-bold text-[#3A1F1F]">{value}</p>
-              <p className="text-xs text-[#8A8A8A]">{label}</p>
+              <p className="text-sm text-[#8A8A8A]">{label}</p>
             </div>
           </div>
         ))}
@@ -2269,10 +2311,10 @@ function AnalyticsPage() {
               <button
                 key={key}
                 onClick={() => setActiveTab(key)}
-                className={`px-5 py-2 rounded-full text-sm font-medium transition-all ${
+                className={`px-5 py-2 rounded-full text-sm font-medium border transition-colors duration-200 ${
                   activeTab === key
-                    ? "bg-[#FF2B2B] text-white"
-                    : "bg-white text-[#3A1F1F] shadow-sm hover:shadow-md"
+                    ? "bg-[#FF2B2B] text-white border-[#FF2B2B]"
+                    : "bg-[#F8FAFC] text-[#3A1F1F] border-gray-200 hover:bg-white"
                 }`}
               >
                 {label}
@@ -2282,7 +2324,11 @@ function AnalyticsPage() {
 
           {/* Applied Jobs */}
           {activeTab === "applied" && (
-            <AppliedJobsSection userId={profile?.id} onJobsLoaded={setAppliedJobs} />
+            <AppliedJobsSection
+              userId={profile?.id}
+              onJobsLoaded={setAppliedJobs}
+              onInterviewDetailsOpen={setSelectedInterviewJob}
+            />
           )}
           {/* Saved Jobs */}
           {activeTab === "saved" && (
@@ -2305,7 +2351,38 @@ function AnalyticsPage() {
         {/* Right Sidebar — hidden when compare is active */}
         {activeTab !== "compare" && !analyticsLoading && (
           <div className="lg:col-span-1 space-y-4">
-            <div className="bg-white rounded-2xl p-5 shadow-md">
+            {activeTab === "applied" && selectedInterviewJob && (
+              <div className="bg-white rounded-2xl border border-gray-100 p-5 shadow-[0_2px_8px_rgba(16,24,40,0.08)]">
+                <div className="flex items-start justify-between gap-3">
+                  <div>
+                    <h3 className="font-semibold text-[#3A1F1F]">Interview Details</h3>
+                    <p className="text-xs text-[#8A8A8A] mt-0.5">
+                      {selectedInterviewJob.job?.title || "Application"} · {selectedInterviewJob.job?.company_name || "Company"}
+                    </p>
+                  </div>
+                  <button
+                    type="button"
+                    onClick={() => setSelectedInterviewJob(null)}
+                    className="text-[#8A8A8A] hover:text-[#646464] transition-colors"
+                    aria-label="Close interview details panel"
+                  >
+                    <X className="h-4 w-4" />
+                  </button>
+                </div>
+                <div className="mt-3 space-y-2 text-sm text-[#3A1F1F]">
+                  <p className="whitespace-pre-wrap">
+                    {selectedInterviewJob.interview_details?.interview_message || "No interview details available."}
+                  </p>
+                  <p className="text-[#8A8A8A]">
+                    Sent on{" "}
+                    {selectedInterviewJob.interview_details?.updated_at
+                      ? new Date(selectedInterviewJob.interview_details.updated_at).toLocaleString("en-IN")
+                      : "N/A"}
+                  </p>
+                </div>
+              </div>
+            )}
+            <div className="bg-white rounded-2xl border border-gray-100 p-5 shadow-[0_2px_8px_rgba(16,24,40,0.08)]">
               <h3 className="font-semibold text-[#3A1F1F] mb-4">Application Trend</h3>
               <ResponsiveContainer width="100%" height={180}>
                 <BarChart data={chartData} margin={{ top: 0, right: 0, left: -20, bottom: 0 }}>
@@ -2318,13 +2395,14 @@ function AnalyticsPage() {
               </ResponsiveContainer>
             </div>
 
-            <div className="bg-white rounded-2xl p-5 shadow-md">
+            <div className="bg-white rounded-2xl border border-gray-100 p-5 shadow-[0_2px_8px_rgba(16,24,40,0.08)]">
               <h3 className="font-semibold text-[#3A1F1F] mb-4">Application Summary</h3>
               <div className="space-y-3">
                 {[
-                  { label: "In Progress",    count: appliedJobs.filter(j => !["Offered", "Rejected"].includes(j.status)).length, color: "bg-blue-500" },
-                  { label: "Offer Received", count: appliedJobs.filter(j => j.status === "Offered").length,  color: "bg-green-500" },
-                  { label: "Rejected",       count: appliedJobs.filter(j => j.status === "Rejected").length, color: "bg-red-400" },
+                  { label: "In Progress",    count: appliedJobs.filter(j => !["offered", "offer_given", "rejected", "hired", "hire", "joined"].includes(normalizeApplicationStage(j.status))).length, color: "bg-blue-500" },
+                  { label: "Offer Received", count: appliedJobs.filter(j => ["offered", "offer_given"].includes(normalizeApplicationStage(j.status))).length,  color: "bg-orange-500" },
+                  { label: "Hired",         count: appliedJobs.filter(j => ["hired", "hire", "joined"].includes(normalizeApplicationStage(j.status))).length,     color: "bg-emerald-500" },
+                  { label: "Rejected",       count: appliedJobs.filter(j => normalizeApplicationStage(j.status) === "rejected").length, color: "bg-red-400" },
                   { label: "Saved Jobs",     count: savedJobs.length,                                             color: "bg-amber-400" },
                 ].map(({ label, count, color }) => (
                   <div key={label} className="flex items-center justify-between">
@@ -2338,10 +2416,10 @@ function AnalyticsPage() {
               </div>
             </div>
 
-            <div className="bg-[#FF2B2B] rounded-2xl p-5 text-white">
+            <div className="bg-[#FF2B2B] rounded-2xl p-5 shadow-[0_2px_8px_rgba(16,24,40,0.08)] text-white">
               <h3 className="font-semibold mb-2">Profile Tip</h3>
               <p className="text-sm text-white/90">Recruiters who viewed your profile are 3× more likely to contact you. Keep your profile complete!</p>
-              <Button size="sm" className="mt-3 bg-white text-[#FF2B2B] hover:bg-white/90 rounded-full text-xs w-full">View Profile</Button>
+              <Button size="sm" className="mt-3 bg-white text-[#FF2B2B] hover:bg-white/90 rounded-full text-xs w-full" onClick={() => navigate("/jobseeker/dashboard/profile")}>View Profile</Button>
             </div>
           </div>
         )}
