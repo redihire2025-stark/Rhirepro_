@@ -224,28 +224,29 @@ export default function SavedJobsSection({
   }
 
   return (
-    <div id="saved-jobs-pagination" className="space-y-3">
+    <div id="saved-jobs-pagination" className="space-y-4">
       {paginatedJobs.map((savedJob) => {
         if (!savedJob.job) return null;
 
         return (
-          <div key={savedJob.id} className={`rounded-2xl flex items-center justify-between gap-4 ${compact ? "p-4 border border-gray-100 bg-[#F6F6F6]" : "p-5 bg-white shadow-md"}`}>
-            <div>
+          <div key={savedJob.id} className={`rounded-2xl border border-gray-100 bg-white shadow-[0_2px_8px_rgba(16,24,40,0.08)] transition-shadow hover:shadow-[0_6px_16px_rgba(16,24,40,0.10)] ${compact ? "p-4" : "p-5"}`}>
+            <div className="flex flex-col gap-4 md:flex-row md:items-start md:justify-between">
+              <div>
               <h3 className={`font-semibold text-[#3A1F1F] ${compact ? "text-base" : ""}`}>{savedJob.job.title}</h3>
-              <p className="text-[#8A8A8A] text-sm">{savedJob.job.company_name} - {formatLocation(savedJob.job)}</p>
-              <div className="flex items-center gap-3 mt-1 text-xs text-[#8A8A8A]">
+              <p className="text-[#7C8593] text-sm">{savedJob.job.company_name} · {formatLocation(savedJob.job)}</p>
+              <div className="flex flex-wrap items-center gap-3 mt-1 text-xs text-[#7C8593]">
                 <span className="flex items-center gap-1"><DollarSign className="h-3 w-3" />{formatSalary(savedJob.job)}</span>
                 <span>Saved {formatDate(savedJob.saved_at)}</span>
               </div>
             </div>
-            <div className="flex gap-2 shrink-0">
+            <div className="flex flex-wrap items-center gap-2 shrink-0">
               {typeof savedJob.job_id === "string" && savedJob.job_id.length > 0 ? (
                 <>
                   {appliedJobIdSet.has(savedJob.job_id) && (
-                    <Badge className="bg-green-100 text-green-700 text-xs">Applied</Badge>
+                    <Badge className="bg-emerald-100 text-emerald-700 text-xs rounded-full px-3 py-1">Applied</Badge>
                   )}
                   {showComparisonControls && (
-                    <label className="inline-flex items-center gap-2 rounded-full border border-gray-200 bg-white px-3 py-1.5 text-xs text-[#3A1F1F]">
+                    <label className="inline-flex items-center gap-2 rounded-full border border-gray-200 bg-[#F8FAFC] px-3 py-1.5 text-xs text-[#3A1F1F]">
                       <Checkbox
                         checked={compareJobIds.includes(savedJob.job_id)}
                         onCheckedChange={() => toggleCompare(savedJob.job_id)}
@@ -256,7 +257,7 @@ export default function SavedJobsSection({
                   )}
                   <Button
                     size="sm"
-                    className={`rounded-full text-xs ${appliedJobIdSet.has(savedJob.job_id) ? "bg-green-500 hover:bg-green-500 text-white cursor-default" : "bg-[#FF2B2B] hover:bg-[#e02525] text-white"}`}
+                    className={`rounded-full text-xs ${appliedJobIdSet.has(savedJob.job_id) ? "bg-emerald-500 hover:bg-emerald-500 text-white cursor-default" : "bg-[#FF2B2B] hover:bg-[#e02525] text-white"}`}
                     onClick={() => {
                       if (!appliedJobIdSet.has(savedJob.job_id)) navigate(`/job/${savedJob.job_id}`);
                     }}
@@ -267,7 +268,7 @@ export default function SavedJobsSection({
                   <Button
                     size="sm"
                     variant="ghost"
-                    className="text-[#8A8A8A] hover:text-red-500 rounded-full"
+                    className="text-[#8A8A8A] hover:text-red-500 rounded-full hover:bg-red-50"
                     onClick={() => handleRemove(savedJob.job_id)}
                   >
                     <Trash2 className="h-4 w-4" />
@@ -278,6 +279,7 @@ export default function SavedJobsSection({
                   <Trash2 className="h-4 w-4" />
                 </Button>
               )}
+              </div>
             </div>
           </div>
         );
