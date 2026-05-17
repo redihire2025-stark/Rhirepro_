@@ -4229,23 +4229,86 @@ function AnalyticsPage() {
         setOfferAcceptanceRate(filteredApplications.length > 0 ? `${Math.round((offeredCount / filteredApplications.length) * 100)}%` : "—");
         setProfileVisitRate(totalActiveJobViews > 0 ? `${Math.round((filteredApplications.length / totalActiveJobViews) * 100)}%` : "—");
 
-        const jobCreatedAtById = new Map(filteredJobs.map((job) => [job.id, job.created_at]));
-        const dayDiffs = filteredApplications
-          .map((application) => {
-            const createdAt = jobCreatedAtById.get(application.job_id);
-            if (!createdAt || !application.applied_at) return null;
-            const createdTime = Date.parse(createdAt);
-            const appliedTime = Date.parse(application.applied_at);
-            if (!Number.isFinite(createdTime) || !Number.isFinite(appliedTime)) return null;
-            return Math.max(0, (appliedTime - createdTime) / (1000 * 60 * 60 * 24));
-          })
-          .filter((value): value is number => value !== null);
+        // Prefer calculating recruiter active time from activity/session tables if present.
+        // Fallback: average days between job.created_at -> application.applied_at.
+        const activityTables = [
+          "recruiter_activity",
+          "activity_logs",
+          "activity_sessions",
+          "user_activity",
+          "session_logs",
+          "activity",
+        ];
 
-        if (dayDiffs.length > 0) {
-          const averageDays = Math.round(dayDiffs.reduce((sum, value) => sum + value, 0) / dayDiffs.length);
-          setAvgTimeToHire(`${averageDays} days`);
+        let totalActiveSeconds = 0;
+        let foundActivity = false;
+
+        for (const table of activityTables) {
+          try {
+            // try to fetch common columns if the table exists
+            // limit to 1000 rows to keep response size reasonable
+            // columns: started_at, ended_at, duration_seconds
+            // some schemas may use different names; this is a best-effort attempt
+            // Query only recent activity within the selected cutoff
+            // eslint-disable-next-line no-await-in-loop
+            const { data: activityData, error: activityError } = await supabase
+              .from(table)
+              .select("started_at, ended_at, duration_seconds")
+              .eq("recruiter_id", recruiterProfile.id)
+              .gte("started_at", cutoff)
+              .limit(1000 as any);
+
+            if (!activityError && activityData && (activityData as any[]).length > 0) {
+              foundActivity = true;
+              for (const row of (activityData as any[])) {
+                if (row == null) continue;
+                if (row.duration_seconds != null) {
+                  totalActiveSeconds += Number(row.duration_seconds) || 0;
+                } else if (row.started_at && row.ended_at) {
+                  const s = Date.parse(row.started_at);
+                  const e = Date.parse(row.ended_at);
+                  if (Number.isFinite(s) && Number.isFinite(e) && e > s) {
+                    totalActiveSeconds += Math.max(0, (e - s) / 1000);
+                  }
+                }
+              }
+              break;
+            }
+          } catch (err) {
+            // ignore and try next candidate table
+          }
+        }
+
+        if (foundActivity && totalActiveSeconds > 0) {
+          const days = Math.floor(totalActiveSeconds / (24 * 3600));
+          const hours = Math.floor((totalActiveSeconds % (24 * 3600)) / 3600);
+          const mins = Math.floor((totalActiveSeconds % 3600) / 60);
+          let txt = "";
+          if (days > 0) txt = `${days} day${days > 1 ? "s" : ""}${hours > 0 ? ` ${hours} hour${hours > 1 ? "s" : ""}` : ""}`;
+          else if (hours > 0) txt = `${hours} hour${hours > 1 ? "s" : ""}${mins > 0 ? ` ${mins} min${mins > 1 ? "s" : ""}` : ""}`;
+          else if (mins > 0) txt = `${mins} min${mins > 1 ? "s" : ""}`;
+          else txt = "<1 min";
+          setAvgTimeToHire(txt);
         } else {
-          setAvgTimeToHire("—");
+          // Fallback to previous behavior (average days between job.created_at -> application.applied_at)
+          const jobCreatedAtById = new Map(filteredJobs.map((job) => [job.id, job.created_at]));
+          const dayDiffs = filteredApplications
+            .map((application) => {
+              const createdAt = jobCreatedAtById.get(application.job_id);
+              if (!createdAt || !application.applied_at) return null;
+              const createdTime = Date.parse(createdAt);
+              const appliedTime = Date.parse(application.applied_at);
+              if (!Number.isFinite(createdTime) || !Number.isFinite(appliedTime)) return null;
+              return Math.max(0, (appliedTime - createdTime) / (1000 * 60 * 60 * 24));
+            })
+            .filter((value): value is number => value !== null);
+
+          if (dayDiffs.length > 0) {
+            const averageDays = Math.round(dayDiffs.reduce((sum, value) => sum + value, 0) / dayDiffs.length);
+            setAvgTimeToHire(`${averageDays} days`);
+          } else {
+            setAvgTimeToHire("—");
+          }
         }
       } catch {
         setTotalJobsPosted(null);
