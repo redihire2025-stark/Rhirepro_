@@ -4280,14 +4280,74 @@ function AnalyticsPage() {
         }
 
         if (foundActivity && totalActiveSeconds > 0) {
-          const days = Math.floor(totalActiveSeconds / (24 * 3600));
-          const hours = Math.floor((totalActiveSeconds % (24 * 3600)) / 3600);
-          const mins = Math.floor((totalActiveSeconds % 3600) / 60);
+          // Compute unique calendar dates touched by activity and total seconds
+          const activeDateSet = new Set<string>();
+          // We re-query the activity table rows above and processed them into totalActiveSeconds,
+          // but we didn't capture per-row dates there. If the table provided started_at/ended_at
+          // we'll infer dates now by re-fetching the same candidate tables until we find one.
+          for (const table of activityTables) {
+            try {
+              // eslint-disable-next-line no-await-in-loop
+              const { data: activityData } = await supabase
+                .from(table)
+                .select("started_at, ended_at, duration_seconds")
+                .eq("recruiter_id", recruiterProfile.id)
+                .gte("started_at", cutoff)
+                .limit(1000 as any);
+
+              if (activityData && (activityData as any[]).length > 0) {
+                for (const row of (activityData as any[])) {
+                  if (!row) continue;
+                  if (row.started_at && row.ended_at) {
+                    const s = Date.parse(row.started_at);
+                    const e = Date.parse(row.ended_at);
+                    if (Number.isFinite(s) && Number.isFinite(e) && e >= s) {
+                      // iterate calendar dates touched by this session (local dates)
+                      const startDay = new Date(s);
+                      startDay.setHours(0, 0, 0, 0);
+                      const endTime = new Date(e);
+                      let cur = new Date(startDay.getTime());
+                      while (cur.getTime() <= endTime.getTime()) {
+                        // use YYYY-MM-DD from local time
+                        const iso = cur.toISOString().slice(0, 10);
+                        activeDateSet.add(iso);
+                        cur.setDate(cur.getDate() + 1);
+                      }
+                    }
+                  } else if (row.started_at) {
+                    const s = Date.parse(row.started_at);
+                    if (Number.isFinite(s)) {
+                      activeDateSet.add(new Date(s).toISOString().slice(0, 10));
+                    }
+                  } else if (row.duration_seconds != null) {
+                    // no timestamps — conservatively count today as active
+                    activeDateSet.add(new Date().toISOString().slice(0, 10));
+                  }
+                }
+                break;
+              }
+            } catch (err) {
+              // ignore and try next
+            }
+          }
+
+          const totalSeconds = Math.round(totalActiveSeconds);
+          const totalHours = Math.floor(totalSeconds / 3600);
+          const totalMins = Math.floor((totalSeconds % 3600) / 60);
+          const distinctDays = activeDateSet.size;
+
+          const pad = (n: number) => String(n).padStart(2, "0");
+
           let txt = "";
-          if (days > 0) txt = `${days} day${days > 1 ? "s" : ""}${hours > 0 ? ` ${hours} hour${hours > 1 ? "s" : ""}` : ""}`;
-          else if (hours > 0) txt = `${hours} hour${hours > 1 ? "s" : ""}${mins > 0 ? ` ${mins} min${mins > 1 ? "s" : ""}` : ""}`;
-          else if (mins > 0) txt = `${mins} min${mins > 1 ? "s" : ""}`;
-          else txt = "<1 min";
+          if (distinctDays <= 1) {
+            // Show as HH:MM when activity only on a single calendar day
+            if (totalSeconds < 60) txt = "<1 min";
+            else txt = `${pad(totalHours)}:${pad(totalMins)}`;
+          } else {
+            // Show as D:HH:MM where D is number of calendar days touched, and HH:MM is total active time
+            txt = `${distinctDays}:${pad(totalHours)}:${pad(totalMins)}`;
+          }
+
           setAvgTimeToHire(txt);
         } else {
           // Fallback to previous behavior (average days between job.created_at -> application.applied_at)
