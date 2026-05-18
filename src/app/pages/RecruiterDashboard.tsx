@@ -1696,9 +1696,13 @@ function PostJobPage() {
   const normalizeBulletList = (value: string) =>
     value
       .split("\n")
-      .map(line => line.trim())
-      .filter(Boolean)
-      .map(line => `${bulletPrefix}${line.replace(/^(\u2022|[*-]|\d+[.)])\s*/, "")}`)
+      .map(line => {
+        if (!line) return "";
+
+        const existingBullet = line.match(/^(\u2022|[*-]|\d+[.)])\s*/);
+        const text = existingBullet ? line.slice(existingBullet[0].length) : line;
+        return `${bulletPrefix}${text}`;
+      })
       .join("\n");
 
   const handleBulletListChange = (field: "rolesResponsibilities" | "requirements", value: string) => {
