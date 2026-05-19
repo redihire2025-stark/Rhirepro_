@@ -104,6 +104,7 @@ Just open the app and sign up with these emails. The sign-up form automatically 
 1. Go to **Storage → New Bucket**
 2. Create bucket: `avatars` (public)
 3. Create bucket: `resumes` (private)
+4. Create bucket: `offer-letters` (private)
 
 Set storage policies:
 ```sql
@@ -113,6 +114,12 @@ create policy "Auth users upload avatar" on storage.objects for insert with chec
 
 -- resumes: owner access + recruiters can read
 create policy "Owner resume access" on storage.objects for all using (bucket_id = 'resumes' and auth.uid()::text = (storage.foldername(name))[1]);
+
+-- offer-letters: authenticated read/write (needed for recruiter offer upload and jobseeker preview/download)
+create policy "Authenticated read offer letters" on storage.objects for select using (bucket_id = 'offer-letters' and auth.role() = 'authenticated');
+create policy "Authenticated upload offer letters" on storage.objects for insert with check (bucket_id = 'offer-letters' and auth.role() = 'authenticated');
+create policy "Authenticated update offer letters" on storage.objects for update using (bucket_id = 'offer-letters' and auth.role() = 'authenticated') with check (bucket_id = 'offer-letters' and auth.role() = 'authenticated');
+create policy "Authenticated delete offer letters" on storage.objects for delete using (bucket_id = 'offer-letters' and auth.role() = 'authenticated');
 ```
 
 ---

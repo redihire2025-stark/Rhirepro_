@@ -9,7 +9,8 @@ import {
   Bell, LogOut, Search, MapPin, DollarSign, Briefcase, Filter, Bookmark,
   User, BarChart3, Lightbulb, Upload, Plus, X, Pencil, Trash2,
   GraduationCap, Award, Globe, Phone, Mail, Camera, Clock, CheckCircle,
-  TrendingUp, ArrowRight, Loader2, Check, ChevronsUpDown,
+  TrendingUp, ArrowRight, Loader2, Check, ChevronsUpDown, FileText,
+  Eye, Download,
 } from "lucide-react";
 import { Button } from "../components/ui/button";
 import { Input } from "../components/ui/input";
@@ -63,10 +64,108 @@ interface Certification {
   id: number; name: string; issuer: string; issueDate: string; credentialId: string;
 }
 interface Language { id: number; language: string; proficiency: string; }
+interface OfferPanelDetails {
+  offer_message: string;
+  offer_letter_name: string | null;
+  offer_letter_url: string | null;
+  offer_letter_path: string | null;
+  sent_at: string | null;
+}
+
+function deriveOfferFileName(details: OfferPanelDetails | null, job: AppliedJobWithJob | null): string {
+  const explicitName = (details?.offer_letter_name || job?.offer_details?.offer_letter_name || "").trim();
+  if (explicitName) return explicitName;
+
+  const fromPath = (details?.offer_letter_path || job?.offer_details?.offer_letter_path || "").trim();
+  if (fromPath) {
+    const segments = fromPath.split("/");
+    const fileName = segments[segments.length - 1];
+    if (fileName) return fileName;
+  }
+
+  const fromUrl = (details?.offer_letter_url || job?.offer_details?.offer_letter_url || "").trim();
+  if (fromUrl) {
+    const cleanUrl = fromUrl.split("?")[0].split("#")[0];
+    const segments = cleanUrl.split("/");
+    const fileName = segments[segments.length - 1];
+    if (fileName) return fileName;
+  }
+
+  return "offer-letter.pdf";
+}
+
+function canInlinePreviewOfferFile(fileName: string): boolean {
+  const normalized = (fileName || "").toLowerCase().trim();
+  return [
+    ".pdf", ".png", ".jpg", ".jpeg", ".webp", ".gif", ".txt",
+    ".doc", ".docx", ".xls", ".xlsx", ".ppt", ".pptx",
+  ].some((ext) => normalized.endsWith(ext));
+}
+
+function getOfferPreviewSrc(url: string, fileName: string): string {
+  const normalized = (fileName || "").toLowerCase().trim();
+  const officeExt = [".doc", ".docx", ".xls", ".xlsx", ".ppt", ".pptx"];
+  if (officeExt.some((ext) => normalized.endsWith(ext))) {
+    // Prefer Office Web Viewer for Office documents; it is generally more reliable in iframes.
+    return `https://view.officeapps.live.com/op/embed.aspx?src=${encodeURIComponent(url)}`;
+  }
+  if (normalized.endsWith(".txt") || normalized.endsWith(".csv")) {
+    return url;
+  }
+  return url;
+}
+
+function isOfficeOfferFile(fileName: string): boolean {
+  const normalized = (fileName || "").toLowerCase().trim();
+  return [".doc", ".docx", ".xls", ".xlsx", ".ppt", ".pptx"].some((ext) => normalized.endsWith(ext));
+}
+
+function extractOfferField(rawMessage: string, field: "name" | "url" | "path"): string | null {
+  const patterns: Record<typeof field, RegExp> = {
+    name: /^offer letter:\s*(.+)$/im,
+    url: /^offer letter url:\s*(.+)$/im,
+    path: /^offer letter path:\s*(.+)$/im,
+  };
+  const match = (rawMessage || "").match(patterns[field]);
+  if (!match?.[1]) return null;
+  const value = match[1].trim();
+  if (!value || value.toLowerCase() === "n/a") return null;
+  return value;
+}
+
+function extractOfferMessageText(rawMessage: string): string {
+  const lines = (rawMessage || "").split("\n");
+  const separatorIndex = lines.findIndex((line) => line.trim() === "");
+  if (separatorIndex >= 0) return lines.slice(separatorIndex + 1).join("\n").trim();
+  return (rawMessage || "")
+    .replace(/^status:.*$/gim, "")
+    .replace(/^company:.*$/gim, "")
+    .replace(/^updated:.*$/gim, "")
+    .replace(/^offer letter:.*$/gim, "")
+    .replace(/^offer letter url:.*$/gim, "")
+    .replace(/^offer letter path:.*$/gim, "")
+    .trim();
+}
 
 function renderNotificationMessage(message: string) {
+  const sanitizedMessage = (message || "")
+    .split("\n")
+    .filter((line) => !/^offer letter (url|path):/i.test(line.trim()))
+    .join("\n");
+
   const linkRegex = /(https?:\/\/[^\s]+)/gi;
-  const lines = message.split("\n");
+  const lines = sanitizedMessage.split("\n");
+
+  const getLinkLabel = (url: string) => {
+    try {
+      const parsed = new URL(url);
+      const fileName = parsed.pathname.split("/").pop();
+      if (fileName) return `Open ${decodeURIComponent(fileName)}`;
+      return `Open ${parsed.hostname}`;
+    } catch {
+      return "Open link";
+    }
+  };
 
   return lines.map((line, lineIndex) => {
     const parts = line.split(linkRegex);
@@ -81,9 +180,9 @@ function renderNotificationMessage(message: string) {
               href={part}
               target="_blank"
               rel="noreferrer"
-              className="text-[#FF2B2B] underline underline-offset-2 break-all"
+              className="text-[#FF2B2B] underline underline-offset-2 break-words"
             >
-              {part}
+              {getLinkLabel(part)}
             </a>
           );
         })}
@@ -2203,6 +2302,8 @@ function AnalyticsPage() {
   const [appliedJobs, setAppliedJobs] = useState<AppliedJobWithJob[]>([]);
   const [savedJobs, setSavedJobs] = useState<SavedJobWithJob[]>([]);
   const [selectedInterviewJob, setSelectedInterviewJob] = useState<AppliedJobWithJob | null>(null);
+  const [selectedOfferJob, setSelectedOfferJob] = useState<AppliedJobWithJob | null>(null);
+  const [selectedOfferDetails, setSelectedOfferDetails] = useState<OfferPanelDetails | null>(null);
   const [analyticsLoading, setAnalyticsLoading] = useState(true);
   const [compareState, setCompareState] = useState<{
     fromSavedJobs: true;
@@ -2210,6 +2311,11 @@ function AnalyticsPage() {
     selectedJobs: SavedJobWithJob[];
     returnPath: string;
   } | null>(null);
+  const [refreshTick, setRefreshTick] = useState(0);
+  const [resolvingOfferFile, setResolvingOfferFile] = useState(false);
+  const [isOfferPreviewOpen, setIsOfferPreviewOpen] = useState(false);
+  const [offerPreviewUrl, setOfferPreviewUrl] = useState<string | null>(null);
+  const [offerFileError, setOfferFileError] = useState<string | null>(null);
 
   useEffect(() => {
     const currentUserId = profile?.id;
@@ -2248,6 +2354,74 @@ function AnalyticsPage() {
   }, [profile?.id]);
 
   useEffect(() => {
+    const currentUserId = profile?.id;
+    if (!currentUserId) return;
+
+    const channel = supabase
+      .channel(`jobseeker-analytics-${currentUserId}`)
+      .on(
+        "postgres_changes",
+        {
+          event: "*",
+          schema: "public",
+          table: "applications",
+          filter: `profile_id=eq.${currentUserId}`,
+        },
+        () => setRefreshTick((value) => value + 1),
+      )
+      .on(
+        "postgres_changes",
+        {
+          event: "*",
+          schema: "public",
+          table: "interview_details",
+          filter: `candidate_id=eq.${currentUserId}`,
+        },
+        () => setRefreshTick((value) => value + 1),
+      )
+      .on(
+        "postgres_changes",
+        {
+          event: "*",
+          schema: "public",
+          table: "notifications",
+          filter: `user_id=eq.${currentUserId}`,
+        },
+        () => setRefreshTick((value) => value + 1),
+      )
+      .subscribe();
+
+    return () => {
+      supabase.removeChannel(channel);
+    };
+  }, [profile?.id]);
+
+  useEffect(() => {
+    if (!profile?.id || refreshTick === 0) return;
+    const userId = profile.id;
+    let cancelled = false;
+
+    const refreshAnalyticsData = async () => {
+      try {
+        const [applied, saved] = await Promise.all([getAppliedJobs(userId), getSavedJobs(userId)]);
+        if (cancelled) return;
+        setAppliedJobs(applied);
+        setSavedJobs(saved);
+      } catch {
+        if (!cancelled) {
+          setAppliedJobs([]);
+          setSavedJobs([]);
+        }
+      }
+    };
+
+    void refreshAnalyticsData();
+    return () => {
+      cancelled = true;
+    };
+  }, [profile?.id, refreshTick]);
+
+  useEffect(() => {
     if (!selectedInterviewJob) return;
     const latest = appliedJobs.find((job) => job.id === selectedInterviewJob.id) || null;
     if (!latest) {
@@ -2256,6 +2430,76 @@ function AnalyticsPage() {
     }
     setSelectedInterviewJob(latest);
   }, [appliedJobs, selectedInterviewJob]);
+
+  useEffect(() => {
+    if (!selectedOfferJob) return;
+    const latest = appliedJobs.find((job) => job.id === selectedOfferJob.id) || null;
+    if (!latest) {
+      setSelectedOfferJob(null);
+      return;
+    }
+    setSelectedOfferJob(latest);
+  }, [appliedJobs, selectedOfferJob]);
+
+  useEffect(() => {
+    if (!selectedOfferJob || !profile?.id) {
+      setSelectedOfferDetails(null);
+      return;
+    }
+
+    const fromJob = selectedOfferJob.offer_details;
+    if (fromJob?.offer_message || fromJob?.offer_letter_name || fromJob?.offer_letter_url || fromJob?.offer_letter_path) {
+      setSelectedOfferDetails({
+        offer_message: fromJob.offer_message || "",
+        offer_letter_name: fromJob.offer_letter_name || null,
+        offer_letter_url: fromJob.offer_letter_url || null,
+        offer_letter_path: fromJob.offer_letter_path || null,
+        sent_at: fromJob.sent_at || null,
+      });
+      return;
+    }
+
+    let cancelled = false;
+    const fetchOfferFallback = async () => {
+      const { data } = await supabase
+        .from("notifications")
+        .select("message, created_at")
+        .eq("user_id", profile.id)
+        .eq("user_type", "jobseeker")
+        .eq("related_id", selectedOfferJob.id)
+        .order("created_at", { ascending: false })
+        .limit(5);
+
+      const offerNotification = (data || []).find((row) => {
+        const text = (row.message || "").toLowerCase();
+        return text.includes("status: offered") || text.includes("offer letter");
+      });
+
+      if (!cancelled && offerNotification) {
+        const raw = offerNotification.message || "";
+        setSelectedOfferDetails({
+          offer_message: extractOfferMessageText(raw),
+          offer_letter_name: extractOfferField(raw, "name"),
+          offer_letter_url: extractOfferField(raw, "url"),
+          offer_letter_path: extractOfferField(raw, "path"),
+          sent_at: offerNotification.created_at || null,
+        });
+      } else if (!cancelled) {
+        setSelectedOfferDetails({
+          offer_message: "",
+          offer_letter_name: null,
+          offer_letter_url: null,
+          offer_letter_path: null,
+          sent_at: null,
+        });
+      }
+    };
+
+    void fetchOfferFallback();
+    return () => {
+      cancelled = true;
+    };
+  }, [profile?.id, selectedOfferJob]);
 
   const chartData = useMemo(() => {
     const counts = new Map<string, number>();
@@ -2280,6 +2524,165 @@ function AnalyticsPage() {
   ] as const;
 
   const normalizeApplicationStage = (status: string) => status.toLowerCase().trim().replace(/[\s-]+/g, "_");
+
+  const resolveOfferLetterUrl = useCallback(async (job: AppliedJobWithJob): Promise<string | null> => {
+    const directUrl = (selectedOfferDetails?.offer_letter_url || job.offer_details?.offer_letter_url || "").trim();
+    const rawPath = (selectedOfferDetails?.offer_letter_path || job.offer_details?.offer_letter_path || "").trim();
+    let pathFromUrl = "";
+    if (directUrl && directUrl.toLowerCase() !== "n/a") {
+      try {
+        const parsed = new URL(directUrl);
+        const marker = "/storage/v1/object/";
+        const markerIndex = parsed.pathname.indexOf(marker);
+        if (markerIndex !== -1) {
+          const objectPath = parsed.pathname.slice(markerIndex + marker.length);
+          const pathParts = objectPath.split("/").filter(Boolean);
+          const bucketIndex = pathParts.indexOf("offer-letters");
+          if (bucketIndex !== -1) {
+            pathFromUrl = pathParts.slice(bucketIndex + 1).join("/");
+          }
+        }
+      } catch {
+        pathFromUrl = "";
+      }
+    }
+    const normalizedCandidates = Array.from(
+      new Set([
+        rawPath,
+        rawPath.replace(/\\/g, "/"),
+        rawPath.replace(/^\/+/, ""),
+        pathFromUrl,
+        pathFromUrl.replace(/\\/g, "/"),
+        pathFromUrl.replace(/^\/+/, ""),
+      ]),
+    ).filter(Boolean);
+
+    for (const candidatePath of normalizedCandidates) {
+      const { data, error } = await supabase.storage.from("offer-letters").createSignedUrl(candidatePath, 60 * 10);
+      if (!error && data?.signedUrl) return data.signedUrl;
+    }
+
+    if (directUrl && directUrl.toLowerCase() !== "n/a" && !pathFromUrl) {
+      return directUrl;
+    }
+
+    // Fallback: find file in expected application folder even when stored path in notification is stale.
+    const profileId = job.profile_id;
+    const applicationId = job.id;
+    const expectedFileName = deriveOfferFileName(selectedOfferDetails, job);
+    if (!profileId || !applicationId) return null;
+
+    const folder = `${profileId}/${applicationId}`;
+    const { data: files, error: listError } = await supabase.storage.from("offer-letters").list(folder, {
+      limit: 100,
+      sortBy: { column: "name", order: "desc" },
+    });
+    if (listError || !files?.length) return null;
+
+    const matched = files.find((file) => file.name === expectedFileName) || files.find((file) => file.name.toLowerCase().includes(expectedFileName.toLowerCase()));
+    const chosen = matched || files[0];
+    if (!chosen?.name) return null;
+
+    const recoveredPath = `${folder}/${chosen.name}`;
+    const { data: recovered, error: recoveredError } = await supabase.storage.from("offer-letters").createSignedUrl(recoveredPath, 60 * 10);
+    if (recoveredError || !recovered?.signedUrl) return null;
+    return recovered.signedUrl;
+  }, [selectedOfferDetails]);
+
+  const hasOfferLetter = useMemo(() => {
+    const directUrl = (selectedOfferDetails?.offer_letter_url || selectedOfferJob?.offer_details?.offer_letter_url || "").trim();
+    const path = (selectedOfferDetails?.offer_letter_path || selectedOfferJob?.offer_details?.offer_letter_path || "").trim();
+    return Boolean((directUrl && directUrl.toLowerCase() !== "n/a") || path);
+  }, [selectedOfferDetails, selectedOfferJob]);
+
+  const offerFileName = useMemo(() => deriveOfferFileName(selectedOfferDetails, selectedOfferJob), [selectedOfferDetails, selectedOfferJob]);
+  const canInlinePreview = useMemo(() => canInlinePreviewOfferFile(offerFileName), [offerFileName]);
+  const offerPreviewSrc = useMemo(
+    () => (offerPreviewUrl ? getOfferPreviewSrc(offerPreviewUrl, offerFileName) : null),
+    [offerPreviewUrl, offerFileName],
+  );
+
+  const closeOfferPreview = useCallback(() => {
+    setIsOfferPreviewOpen(false);
+    setOfferPreviewUrl((prev) => {
+      if (prev?.startsWith("blob:")) {
+        URL.revokeObjectURL(prev);
+      }
+      return null;
+    });
+  }, []);
+
+  useEffect(() => {
+    return () => {
+      if (offerPreviewUrl?.startsWith("blob:")) {
+        URL.revokeObjectURL(offerPreviewUrl);
+      }
+    };
+  }, [offerPreviewUrl]);
+
+  const downloadOfferLetter = useCallback(async (url: string, fileName: string) => {
+    try {
+      const response = await fetch(url);
+      if (!response.ok) throw new Error("Unable to fetch offer letter.");
+      const blob = await response.blob();
+      const blobUrl = URL.createObjectURL(blob);
+      const anchor = document.createElement("a");
+      anchor.href = blobUrl;
+      anchor.download = fileName;
+      document.body.appendChild(anchor);
+      anchor.click();
+      document.body.removeChild(anchor);
+      URL.revokeObjectURL(blobUrl);
+    } catch {
+      const anchor = document.createElement("a");
+      anchor.href = url;
+      anchor.download = fileName;
+      anchor.target = "_blank";
+      anchor.rel = "noopener noreferrer";
+      document.body.appendChild(anchor);
+      anchor.click();
+      document.body.removeChild(anchor);
+    }
+  }, []);
+
+  const handleOpenOfferPreview = useCallback(async () => {
+    if (!selectedOfferJob) return;
+    setOfferFileError(null);
+    setResolvingOfferFile(true);
+    const url = await resolveOfferLetterUrl(selectedOfferJob);
+    setResolvingOfferFile(false);
+    if (!url) {
+      setOfferFileError("Offer file is unavailable. Ask recruiter to re-upload the offer letter.");
+      return;
+    }
+    if (canInlinePreview && !isOfficeOfferFile(offerFileName)) {
+      try {
+        const response = await fetch(url);
+        if (!response.ok) throw new Error("Preview fetch failed");
+        const blob = await response.blob();
+        const blobUrl = URL.createObjectURL(blob);
+        setOfferPreviewUrl(blobUrl);
+      } catch {
+        setOfferPreviewUrl(url);
+      }
+    } else {
+      setOfferPreviewUrl(url);
+    }
+    setIsOfferPreviewOpen(true);
+  }, [canInlinePreview, offerFileName, resolveOfferLetterUrl, selectedOfferJob]);
+
+  const handleDownloadOffer = useCallback(async () => {
+    if (!selectedOfferJob) return;
+    setOfferFileError(null);
+    setResolvingOfferFile(true);
+    const url = await resolveOfferLetterUrl(selectedOfferJob);
+    setResolvingOfferFile(false);
+    if (!url) {
+      setOfferFileError("Download failed. Offer file link is missing or expired.");
+      return;
+    }
+    await downloadOfferLetter(url, offerFileName);
+  }, [downloadOfferLetter, offerFileName, resolveOfferLetterUrl, selectedOfferJob]);
 
   return (
     <div className="container mx-auto px-4 py-8">
@@ -2328,6 +2731,7 @@ function AnalyticsPage() {
               userId={profile?.id}
               onJobsLoaded={setAppliedJobs}
               onInterviewDetailsOpen={setSelectedInterviewJob}
+              onOfferDetailsOpen={setSelectedOfferJob}
             />
           )}
           {/* Saved Jobs */}
@@ -2351,6 +2755,60 @@ function AnalyticsPage() {
         {/* Right Sidebar — hidden when compare is active */}
         {activeTab !== "compare" && !analyticsLoading && (
           <div className="lg:col-span-1 space-y-4">
+            {activeTab === "applied" && selectedOfferJob && (
+              <div className="bg-white rounded-2xl border border-gray-100 p-5 shadow-[0_2px_8px_rgba(16,24,40,0.08)]">
+                <div className="flex items-start justify-between gap-3">
+                  <div>
+                    <h3 className="font-semibold text-[#3A1F1F]">Offer Details</h3>
+                    <p className="text-xs text-[#8A8A8A] mt-0.5">
+                      {selectedOfferJob.job?.title || "Application"} · {selectedOfferJob.job?.company_name || "Company"}
+                    </p>
+                  </div>
+                  <button
+                    type="button"
+                    onClick={() => setSelectedOfferJob(null)}
+                    className="text-[#8A8A8A] hover:text-[#646464] transition-colors"
+                    aria-label="Close offer details panel"
+                  >
+                    <X className="h-4 w-4" />
+                  </button>
+                </div>
+                <div className="mt-3 space-y-3 text-sm text-[#3A1F1F]">
+                  <p className="whitespace-pre-wrap">
+                    {(selectedOfferDetails?.offer_message || "No offer details available.").trim() || "No offer details available."}
+                  </p>
+                  <div className="flex flex-wrap gap-2">
+                    <Button
+                      type="button"
+                      size="sm"
+                      className="rounded-full bg-[#FF2B2B] text-white hover:bg-[#e02525]"
+                      disabled={resolvingOfferFile || !hasOfferLetter}
+                      onClick={() => void handleOpenOfferPreview()}
+                    >
+                      <Eye className="h-3.5 w-3.5 mr-1" /> Preview
+                    </Button>
+                    <Button
+                      type="button"
+                      size="sm"
+                      variant="outline"
+                      className="rounded-full border-gray-200"
+                      disabled={resolvingOfferFile || !hasOfferLetter}
+                      onClick={() => void handleDownloadOffer()}
+                    >
+                      <Download className="h-3.5 w-3.5 mr-1" /> Download
+                    </Button>
+                  </div>
+                  {offerFileError ? <p className="text-xs text-red-600">{offerFileError}</p> : null}
+                  <p className="text-[#8A8A8A]">
+                    Sent on{" "}
+                    {selectedOfferDetails?.sent_at
+                      ? new Date(selectedOfferDetails.sent_at).toLocaleString("en-IN")
+                      : "N/A"}
+                  </p>
+                  {hasOfferLetter ? <p className="text-[#8A8A8A]">Offer Letter: {offerFileName}</p> : null}
+                </div>
+              </div>
+            )}
             {activeTab === "applied" && selectedInterviewJob && (
               <div className="bg-white rounded-2xl border border-gray-100 p-5 shadow-[0_2px_8px_rgba(16,24,40,0.08)]">
                 <div className="flex items-start justify-between gap-3">
@@ -2370,8 +2828,30 @@ function AnalyticsPage() {
                   </button>
                 </div>
                 <div className="mt-3 space-y-2 text-sm text-[#3A1F1F]">
+                  {(() => {
+                    const explicitMeetingUrl = selectedInterviewJob.interview_details?.meeting_url?.trim() || "";
+                    const message = selectedInterviewJob.interview_details?.interview_message || "";
+                    const extractedFromMessage = message.match(/https?:\/\/[^\s]+/i)?.[0] || "";
+                    const joinUrl = explicitMeetingUrl || extractedFromMessage;
+                    if (!joinUrl) return null;
+                    return (
+                    <p>
+                      Join meeting:{" "}
+                      <a
+                        href={joinUrl}
+                        target="_blank"
+                        rel="noopener noreferrer"
+                        className="text-[#FF2B2B] underline hover:text-[#e02525]"
+                      >
+                        {joinUrl}
+                      </a>
+                    </p>
+                    );
+                  })()}
                   <p className="whitespace-pre-wrap">
-                    {selectedInterviewJob.interview_details?.interview_message || "No interview details available."}
+                    {(selectedInterviewJob.interview_details?.interview_message || "No interview details available.")
+                      .replace(/^meeting url:.*$/gim, "")
+                      .trim() || "No interview details available."}
                   </p>
                   <p className="text-[#8A8A8A]">
                     Sent on{" "}
@@ -2424,6 +2904,84 @@ function AnalyticsPage() {
           </div>
         )}
       </div>
+      {isOfferPreviewOpen && (
+        <div className="fixed inset-0 z-[100] bg-black/55 p-4" onClick={closeOfferPreview}>
+          <div
+            className="mx-auto flex h-full w-full max-w-3xl flex-col overflow-hidden rounded-2xl bg-[#F6F6F6] shadow-2xl"
+            onClick={(event) => event.stopPropagation()}
+          >
+            <div className="bg-gradient-to-r from-[#3A1F1F] to-[#FF2B2B] px-5 py-4 text-white">
+              <div className="flex items-start justify-between gap-4">
+                <div>
+                  <p className="text-xs uppercase tracking-wide text-white/75">Offer Preview</p>
+                  <h3 className="text-xl font-bold leading-tight">{selectedOfferJob?.job?.title || "Job Offer"}</h3>
+                  <p className="text-sm text-white/80">{selectedOfferJob?.job?.company_name || "Company"}</p>
+                </div>
+                <button
+                  type="button"
+                  onClick={closeOfferPreview}
+                  className="rounded-full border border-white/25 bg-white/10 px-3 py-1 text-xs font-medium hover:bg-white/20"
+                >
+                  Close
+                </button>
+              </div>
+            </div>
+            <div className="flex-1 overflow-y-auto bg-white p-4">
+              <div className="mb-4 grid gap-3 rounded-xl bg-[#F6F6F6] p-4 sm:grid-cols-2">
+                <div>
+                  <p className="text-xs text-[#8A8A8A]">Application Status</p>
+                  <p className="text-sm font-semibold text-[#3A1F1F]">{selectedOfferJob?.status || "Offered"}</p>
+                </div>
+                <div>
+                  <p className="text-xs text-[#8A8A8A]">Offer Sent On</p>
+                  <p className="text-sm font-semibold text-[#3A1F1F]">
+                    {selectedOfferDetails?.sent_at ? new Date(selectedOfferDetails.sent_at).toLocaleString("en-IN") : "N/A"}
+                  </p>
+                </div>
+                <div className="sm:col-span-2">
+                  <p className="text-xs text-[#8A8A8A]">Offer Letter</p>
+                  <p className="text-sm font-semibold text-[#3A1F1F] break-all">{offerFileName}</p>
+                </div>
+              </div>
+              <div className="mb-4">
+                <h4 className="mb-2 flex items-center gap-2 text-sm font-bold text-[#3A1F1F]">
+                  <FileText className="h-4 w-4 text-[#FF2B2B]" /> Offer Message
+                </h4>
+                <p className="rounded-xl border-l-2 border-[#FF2B2B] bg-[#F6F6F6] p-3 text-sm text-[#5A5A5A]">
+                  {(selectedOfferDetails?.offer_message || "No offer details available.").trim() || "No offer details available."}
+                </p>
+              </div>
+              <div className="mb-4 flex flex-wrap gap-2">
+                <Button
+                  type="button"
+                  size="sm"
+                  className="rounded-full bg-[#FF2B2B] text-white hover:bg-[#e02525]"
+                  disabled={!offerPreviewUrl}
+                  onClick={() => {
+                    if (!offerPreviewUrl) return;
+                    void downloadOfferLetter(offerPreviewUrl, offerFileName);
+                  }}
+                >
+                  <Download className="mr-1.5 h-3.5 w-3.5" /> Download Offer Letter
+                </Button>
+              </div>
+              {offerPreviewSrc && canInlinePreview ? (
+                <iframe
+                  title="Offer letter preview"
+                  src={offerPreviewSrc}
+                  className="h-[60vh] w-full rounded-xl border border-gray-200"
+                />
+              ) : (
+                <div className="flex h-40 items-center justify-center rounded-xl border border-dashed border-gray-300 text-sm text-[#8A8A8A]">
+                  {canInlinePreview
+                    ? "Unable to load preview."
+                    : "Preview is not available for this file type. Please use Download Offer Letter."}
+                </div>
+              )}
+            </div>
+          </div>
+        </div>
+      )}
     </div>
   );
 }
