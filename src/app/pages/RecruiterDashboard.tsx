@@ -30,6 +30,9 @@ import {
 import { Dialog, DialogContent, DialogHeader, DialogTitle, DialogTrigger } from "../components/ui/dialog";
 import { Tabs, TabsContent, TabsList, TabsTrigger } from "../components/ui/tabs";
 import FeedbackPopup from "../components/FeedbackPopup";
+import InterviewDetailsModal from "../components/InterviewDetailsModal";
+import InterviewFeedbackModal from "../components/InterviewFeedbackModal";
+import OfferDetailsModal from "../components/OfferDetailsModal";
 
 const SKILL_OPTIONS = [
   "JavaScript", "TypeScript", "React", "Next.js", "Angular", "Vue.js", "HTML", "CSS", "Tailwind CSS",
@@ -547,19 +550,93 @@ const jobsData = [
   { id: 4, title: "Software Engineer", applicants: 67, views: 2100, status: "Active", posted: "3 days ago", location: "Hyderabad", type: "Full-time", salary: "20-40 LPA", pipeline: { new: 22, reviewed: 28, shortlisted: 11, interview: 5, offered: 1 } },
 ];
 
+const PIPELINE_STAGES = [
+  "Applied",
+  "Screening",
+  "Shortlisted",
+  "Interview Scheduled",
+  "Offered",
+  "Rejected",
+  "Hired",
+] as const;
+
+type PipelineStage = typeof PIPELINE_STAGES[number];
+
+const PIPELINE_STAGE_STYLES: Record<PipelineStage, { bar: string; badge: string; text: string }> = {
+  Applied: {
+    bar: "bg-[#4F8EF7]/70",
+    badge: "bg-gray-50 border-gray-100 hover:bg-gray-100",
+    text: "text-[#4F8EF7]",
+  },
+  Screening: {
+    bar: "bg-slate-400/60",
+    badge: "bg-blue-50/70 border-blue-100/70 hover:bg-blue-50",
+    text: "text-slate-500",
+  },
+  Shortlisted: {
+    bar: "bg-pink-400/60",
+    badge: "bg-pink-50/70 border-pink-100/70 hover:bg-pink-50",
+    text: "text-pink-600",
+  },
+  "Interview Scheduled": {
+    bar: "bg-purple-300/65",
+    badge: "bg-purple-50/70 border-purple-100/70 hover:bg-purple-50",
+    text: "text-purple-500",
+  },
+  Offered: {
+    bar: "bg-green-400/60",
+    badge: "bg-orange-50/70 border-orange-100/70 hover:bg-orange-50",
+    text: "text-green-600",
+  },
+  Rejected: {
+    bar: "bg-red-300/60",
+    badge: "bg-red-50/70 border-red-100/70 hover:bg-red-50",
+    text: "text-red-500",
+  },
+  Hired: {
+    bar: "bg-emerald-500/65",
+    badge: "bg-red-50/70 border-red-100/70 hover:bg-red-50",
+    text: "text-emerald-600",
+  },
+};
+
+function mapApplicationStatusToPipelineStage(status: string | null | undefined): PipelineStage {
+  const normalized = (status || "").toLowerCase().trim().replace(/[\s-]+/g, "_");
+  if (normalized === "applied" || normalized === "new") return "Applied";
+  if (normalized === "screening" || normalized === "reviewed") return "Screening";
+  if (normalized === "interview_scheduled" || normalized === "interview") return "Interview Scheduled";
+  if (normalized === "shortlisted") return "Shortlisted";
+  if (normalized === "offered" || normalized === "offer_given") return "Offered";
+  if (normalized === "rejected") return "Rejected";
+  if (normalized === "hired" || normalized === "hire" || normalized === "joined") return "Hired";
+  return "Applied";
+}
+
 // ─── Status Color Helper ──────────────────────────────────────────────────────
 
 function statusColor(status: string) {
-  switch (status) {
-    case "New": return "bg-gray-100 text-gray-700";
-    case "Reviewed": return "bg-blue-100 text-blue-700";
-    case "Shortlisted": return "bg-green-100 text-green-700";
+  const stage = mapApplicationStatusToPipelineStage(status);
+  switch (stage) {
+    case "Applied": return "bg-gray-100 text-gray-700";
+    case "Screening": return "bg-blue-100 text-blue-700";
+    case "Shortlisted": return "bg-pink-100 text-pink-700";
     case "Interview Scheduled": return "bg-purple-100 text-purple-700";
-    case "Offered": return "bg-yellow-100 text-yellow-700";
+    case "Offered": return "bg-orange-100 text-orange-700";
     case "Rejected": return "bg-red-100 text-red-700";
+    case "Hired": return "bg-emerald-100 text-emerald-700";
     default: return "bg-gray-100 text-gray-700";
   }
 }
+
+const STATUS_TRANSITIONS: Record<PipelineStage, PipelineStage[]> = {
+  Applied: ["Screening"],
+  Screening: ["Shortlisted"],
+  Shortlisted: ["Interview Scheduled"],
+  "Interview Scheduled": ["Offered"],
+  Offered: ["Hired", "Rejected"],
+  Rejected: ["Screening"],
+  Hired: [],
+};
 
 // ─── Career Timeline Component (Naukri-style) ────────────────────────────────
 
@@ -1007,10 +1084,8 @@ export default function RecruiterDashboard() {
               </div>
 
               <DropdownMenu>
-                <DropdownMenuTrigger asChild>
-                  <Button variant="ghost" size="icon">
-                    <div className="w-8 h-8 bg-[#FF2B2B] rounded-full flex items-center justify-center text-white text-xs font-bold">{companyInitials}</div>
-                  </Button>
+                <DropdownMenuTrigger className="inline-flex h-10 w-10 items-center justify-center rounded-md hover:bg-accent focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-ring focus-visible:ring-offset-2">
+                  <div className="w-8 h-8 bg-[#FF2B2B] rounded-full flex items-center justify-center text-white text-xs font-bold">{companyInitials}</div>
                 </DropdownMenuTrigger>
                 <DropdownMenuContent align="end">
                   <div className="px-3 py-2">
@@ -1060,7 +1135,19 @@ function DashboardOverview() {
   const navigate = useNavigate();
   const { recruiterProfile } = useAuth();
   const [dbJobs, setDbJobs] = useState<Job[]>([]);
-  const [dbApplications, setDbApplications] = useState<Application[]>([]);
+  const [dbApplications, setDbApplications] = useState<Array<Pick<Application, "id" | "job_id" | "status" | "applied_at">>>([]);
+  const [recentApplicants, setRecentApplicants] = useState<Array<{
+    id: string;
+    initials: string;
+    name: string;
+    currentCompany: string;
+    currentTitle: string;
+    status: Application["status"];
+    appliedDate: string;
+    matchScore: number;
+  }>>([]);
+  const [pipelineLoading, setPipelineLoading] = useState(true);
+  const [pipelineError, setPipelineError] = useState("");
 
   const recruiterCompletion = useMemo(() => {
     if (!recruiterProfile) return 0;
@@ -1080,16 +1167,157 @@ function DashboardOverview() {
   useEffect(() => {
     if (!recruiterProfile?.id) return;
     const load = async () => {
-      const { data: jobs } = await supabase.from("jobs").select("*").eq("recruiter_id", recruiterProfile.id).order("created_at", { ascending: false });
-      if (jobs) setDbJobs(jobs.filter(job => !isJobExpired(job)));
-      const { data: apps } = await supabase.from("applications").select("*, profile:profiles(first_name,last_name,current_title,current_company), job:jobs(title)").eq("recruiter_id", recruiterProfile.id).order("applied_at", { ascending: false }).limit(5);
-      if (apps) setDbApplications(apps as Application[]);
+      setPipelineLoading(true);
+      setPipelineError("");
+      const { data: jobs, error: jobsError } = await supabase
+        .from("jobs")
+        .select("*")
+        .eq("recruiter_id", recruiterProfile.id)
+        .order("created_at", { ascending: false });
+
+      if (jobsError) {
+        setPipelineError(jobsError.message || "Failed to load pipeline data");
+        setPipelineLoading(false);
+        return;
+      }
+
+      const recruiterJobs = (jobs || []).filter(job => !isJobExpired(job));
+      setDbJobs(recruiterJobs);
+
+      const { data: recruiterScopedApps, error: recruiterScopedAppsError } = await supabase
+        .from("applications")
+        .select("id, job_id, status, applied_at")
+        .eq("recruiter_id", recruiterProfile.id)
+        .order("applied_at", { ascending: false });
+
+      if (recruiterScopedAppsError) {
+        setPipelineError(recruiterScopedAppsError.message || "Failed to load pipeline data");
+      }
+
+      const recruiterScoped = (recruiterScopedApps as Array<Pick<Application, "id" | "job_id" | "status" | "applied_at">>) || [];
+      let jobScoped: Array<Pick<Application, "id" | "job_id" | "status" | "applied_at">> = [];
+
+      // Include legacy rows where recruiter_id may be null but job_id belongs to this recruiter.
+      if (recruiterJobs.length > 0) {
+        const jobIds = recruiterJobs.map(job => job.id);
+        const { data: jobScopedApps } = await supabase
+          .from("applications")
+          .select("id, job_id, status, applied_at")
+          .in("job_id", jobIds)
+          .order("applied_at", { ascending: false });
+        jobScoped = (jobScopedApps as Array<Pick<Application, "id" | "job_id" | "status" | "applied_at">>) || [];
+      }
+
+      const merged = new Map<string, Pick<Application, "id" | "job_id" | "status" | "applied_at">>();
+      for (const app of [...recruiterScoped, ...jobScoped]) {
+        if (app?.id) merged.set(app.id, app);
+      }
+
+      setDbApplications(Array.from(merged.values()));
+
+      if (recruiterJobs.length > 0) {
+        const jobIds = recruiterJobs.map(job => job.id);
+        const { data: recentApps } = await supabase
+          .from("applications")
+          .select("id, status, applied_at, profile:profiles(first_name, last_name, current_company, current_title)")
+          .in("job_id", jobIds)
+          .order("applied_at", { ascending: false })
+          .limit(3);
+
+        const formattedRecentApplicants = ((recentApps || []) as Array<{
+          id: string;
+          status: Application["status"];
+          applied_at: string;
+          profile?: {
+            first_name?: string | null;
+            last_name?: string | null;
+            current_company?: string | null;
+            current_title?: string | null;
+          } | null;
+        }>).map((app) => {
+          const firstName = app.profile?.first_name?.trim() || "";
+          const lastName = app.profile?.last_name?.trim() || "";
+          const fullName = `${firstName} ${lastName}`.trim() || "Applicant";
+          const initials = fullName
+            .split(" ")
+            .filter(Boolean)
+            .map((part) => part[0])
+            .join("")
+            .toUpperCase()
+            .slice(0, 2) || "AP";
+
+          return {
+            id: app.id,
+            initials,
+            name: fullName,
+            currentCompany: app.profile?.current_company?.trim() || "Current company not provided",
+            currentTitle: app.profile?.current_title?.trim() || "Current title not provided",
+            status: app.status,
+            appliedDate: app.applied_at ? new Date(app.applied_at).toLocaleDateString("en-IN", { day: "numeric", month: "short", year: "numeric" }) : "N/A",
+            matchScore: Math.floor(70 + (app.id.charCodeAt(0) % 25)),
+          };
+        });
+
+        setRecentApplicants(formattedRecentApplicants);
+      } else {
+        setRecentApplicants([]);
+      }
+
+      setPipelineLoading(false);
     };
     load();
+    const channel = supabase.channel(`dashboard-overview-apps-${recruiterProfile.id}`)
+      .on("postgres_changes", { event: "*", schema: "public", table: "applications", filter: `recruiter_id=eq.${recruiterProfile.id}` }, load)
+      .subscribe();
+    return () => { supabase.removeChannel(channel); };
   }, [recruiterProfile?.id]);
 
   const activeJobs = dbJobs.filter(j => j.status === "Active").length;
   const totalApplicants = dbApplications.length;
+  const pipelineByJob = useMemo(() => {
+    const initial = () => ({
+      Applied: 0,
+      Screening: 0,
+      "Interview Scheduled": 0,
+      Shortlisted: 0,
+      Offered: 0,
+      Rejected: 0,
+      Hired: 0,
+    });
+    const byJob = new Map<string, ReturnType<typeof initial>>();
+    for (const app of dbApplications) {
+      const jobId = app?.job_id;
+      if (!jobId) continue;
+      if (!byJob.has(jobId)) byJob.set(jobId, initial());
+      const stage = mapApplicationStatusToPipelineStage(app.status);
+      const counts = byJob.get(jobId);
+      if (counts) counts[stage] += 1;
+    }
+    return byJob;
+  }, [dbApplications]);
+
+  const pipelineJobs = useMemo(() => {
+    const latestAppliedByJob = new Map<string, number>();
+
+    for (const app of dbApplications) {
+      if (!app.job_id || !app.applied_at) continue;
+      const appliedAt = new Date(app.applied_at).getTime();
+      if (Number.isNaN(appliedAt)) continue;
+      const currentLatest = latestAppliedByJob.get(app.job_id) || 0;
+      if (appliedAt > currentLatest) latestAppliedByJob.set(app.job_id, appliedAt);
+    }
+
+    return [...dbJobs].sort((a, b) => {
+      const aLatestAppliedAt = latestAppliedByJob.get(a.id);
+      const bLatestAppliedAt = latestAppliedByJob.get(b.id);
+
+      if (aLatestAppliedAt && bLatestAppliedAt) return bLatestAppliedAt - aLatestAppliedAt;
+      if (aLatestAppliedAt) return -1;
+      if (bLatestAppliedAt) return 1;
+
+      return new Date(b.created_at).getTime() - new Date(a.created_at).getTime();
+    });
+  }, [dbApplications, dbJobs]);
 
   const greeting = (() => {
     const h = new Date().getHours();
@@ -1105,7 +1333,6 @@ function DashboardOverview() {
     { label: "Positions Filled", value: "5", change: "This month", icon: CheckCircle, color: "text-[#FF2B2B]", bg: "bg-red-50" },
   ];
 
-  const recentApplicants = candidatesData.slice(0, 3);
   const upcomingInterviews = [
     { name: "Sneha Verma", role: "Product Designer", time: "Today, 3:00 PM", type: "Video Call" },
     { name: "Arjun Mehta", role: "Senior Data Analyst", time: "Tomorrow, 11:00 AM", type: "In-Person" },
@@ -1206,8 +1433,39 @@ function DashboardOverview() {
             <Link to="/recruiter/dashboard/manage-jobs"><Button variant="ghost" size="sm" className="text-[#FF2B2B] text-xs">View All</Button></Link>
           </div>
           <div className="space-y-3">
-            {jobsData.slice(0, 3).map(job => {
-              const total = Object.values(job.pipeline).reduce((a, b) => a + b, 0);
+            {pipelineLoading && (
+              <div className="border border-gray-100 rounded-xl p-3 text-sm text-[#8A8A8A]">Loading pipeline...</div>
+            )}
+            {!pipelineLoading && pipelineError && (
+              <div className="border border-red-100 bg-red-50 rounded-xl p-3 text-sm text-red-600">{pipelineError}</div>
+            )}
+            {!pipelineLoading && !pipelineError && dbJobs.length === 0 && (
+              <div className="border border-gray-100 rounded-xl p-3 text-sm text-[#8A8A8A]">No jobs available yet.</div>
+            )}
+            {!pipelineLoading && !pipelineError && pipelineJobs.slice(0, 3).map(job => {
+              const counts = pipelineByJob.get(job.id) || {
+                Applied: 0,
+                Screening: 0,
+                "Interview Scheduled": 0,
+                Shortlisted: 0,
+                Offered: 0,
+                Rejected: 0,
+                Hired: 0,
+              };
+              const total = Object.values(counts).reduce((a, b) => a + b, 0);
+              const pct = (value: number) => (total > 0 ? (value / total) * 100 : 0);
+              const actionStages = [
+                { label: "New", value: counts.Applied, color: "bg-gray-300", title: `New: ${counts.Applied}` },
+                { label: "Reviewed", value: counts.Screening, color: "bg-blue-400", title: `Reviewed: ${counts.Screening}` },
+                { label: "Shortlisted", value: counts.Shortlisted, color: "bg-pink-400", title: `Shortlisted: ${counts.Shortlisted}` },
+                { label: "Interview", value: counts["Interview Scheduled"], color: "bg-purple-400", title: `Interview: ${counts["Interview Scheduled"]}` },
+                { label: "Offered", value: counts.Offered, color: "bg-orange-400", title: `Offered: ${counts.Offered}` },
+                { label: "Rejected", value: counts.Rejected, color: "bg-red-400", title: `Rejected: ${counts.Rejected}` },
+                { label: "Hired", value: counts.Hired, color: "bg-emerald-500", title: `Hired: ${counts.Hired}` },
+              ];
+              const visibleActionLabels = actionStages.filter(stage => (
+                ["New", "Reviewed", "Shortlisted", "Interview"].includes(stage.label) || stage.value > 0
+              ));
               return (
                 <div key={job.id} className="border border-gray-100 rounded-xl p-3">
                   <div className="flex justify-between items-center mb-2">
@@ -1215,17 +1473,14 @@ function DashboardOverview() {
                     <Badge className={job.status === "Active" ? "bg-green-100 text-green-700" : "bg-gray-100 text-gray-600"} >{job.status}</Badge>
                   </div>
                   <div className="flex gap-1 h-2 rounded-full overflow-hidden">
-                    <div className="bg-gray-300" style={{ width: `${(job.pipeline.new / total) * 100}%` }} title={`New: ${job.pipeline.new}`} />
-                    <div className="bg-blue-400" style={{ width: `${(job.pipeline.reviewed / total) * 100}%` }} title={`Reviewed: ${job.pipeline.reviewed}`} />
-                    <div className="bg-green-400" style={{ width: `${(job.pipeline.shortlisted / total) * 100}%` }} title={`Shortlisted: ${job.pipeline.shortlisted}`} />
-                    <div className="bg-purple-400" style={{ width: `${(job.pipeline.interview / total) * 100}%` }} title={`Interview: ${job.pipeline.interview}`} />
-                    <div className="bg-yellow-400" style={{ width: `${(job.pipeline.offered / total) * 100}%` }} title={`Offered: ${job.pipeline.offered}`} />
+                    {actionStages.map(stage => (
+                      <div key={`${job.id}-${stage.label}`} className={stage.color} style={{ width: `${pct(stage.value)}%` }} title={stage.title} />
+                    ))}
                   </div>
                   <div className="flex gap-3 mt-1.5 text-xs text-[#8A8A8A]">
-                    <span>New: {job.pipeline.new}</span>
-                    <span>Reviewed: {job.pipeline.reviewed}</span>
-                    <span>Shortlisted: {job.pipeline.shortlisted}</span>
-                    <span>Interview: {job.pipeline.interview}</span>
+                    {visibleActionLabels.map(stage => (
+                      <span key={`${job.id}-${stage.label}-label`}>{stage.label}: {stage.value}</span>
+                    ))}
                   </div>
                 </div>
               );
@@ -2834,7 +3089,7 @@ function SearchCandidatesPage() {
                           <Button size="sm" onClick={() => setProfileModal(c)} className="bg-[#FF2B2B] hover:bg-[#e02525] text-white rounded-full text-xs h-7">
                             <Eye className="h-3.5 w-3.5 mr-1" /> View Full Profile
                           </Button>
-                          <Button size="sm" variant={shortlisted.has(c.id) ? "default" : "outline"} className={shortlisted.has(c.id) ? "bg-green-600 hover:bg-green-700 text-white rounded-full text-xs h-7" : "border-green-500 text-green-600 hover:bg-green-50 rounded-full text-xs h-7"} onClick={() => toggleShortlist(c.id)}>
+                          <Button size="sm" variant={shortlisted.has(c.id) ? "default" : "outline"} className={shortlisted.has(c.id) ? "bg-pink-600 hover:bg-pink-700 text-white rounded-full text-xs h-7" : "border-pink-500 text-pink-600 hover:bg-pink-50 rounded-full text-xs h-7"} onClick={() => toggleShortlist(c.id)}>
                             <ThumbsUp className="h-3.5 w-3.5 mr-1" /> {shortlisted.has(c.id) ? "Shortlisted" : "Shortlist"}
                           </Button>
                           <Button size="sm" variant="outline" className="border-gray-200 rounded-full text-xs h-7" onClick={() => { if (c.email) window.location.href = `mailto:${c.email}`; }}>
@@ -2912,7 +3167,7 @@ function SearchCandidatesPage() {
 
                 {/* Action buttons */}
                 <div className="flex gap-2 flex-wrap mb-5">
-                  <Button size="sm" variant={shortlisted.has(c.id) ? "default" : "outline"} className={shortlisted.has(c.id) ? "bg-green-600 hover:bg-green-700 text-white rounded-full text-xs" : "border-green-500 text-green-600 hover:bg-green-50 rounded-full text-xs"} onClick={() => toggleShortlist(c.id)}><ThumbsUp className="h-3.5 w-3.5 mr-1" /> {shortlisted.has(c.id) ? "Shortlisted ✓" : "Shortlist"}</Button>
+                  <Button size="sm" variant={shortlisted.has(c.id) ? "default" : "outline"} className={shortlisted.has(c.id) ? "bg-pink-600 hover:bg-pink-700 text-white rounded-full text-xs" : "border-pink-500 text-pink-600 hover:bg-pink-50 rounded-full text-xs"} onClick={() => toggleShortlist(c.id)}><ThumbsUp className="h-3.5 w-3.5 mr-1" /> {shortlisted.has(c.id) ? "Shortlisted ✓" : "Shortlist"}</Button>
                   <Button size="sm" variant={interviewInvited.has(c.id) ? "default" : "outline"} className={interviewInvited.has(c.id) ? "bg-purple-600 hover:bg-purple-700 text-white rounded-full text-xs" : "border-purple-400 text-purple-600 hover:bg-purple-50 rounded-full text-xs"} onClick={() => toggleInterview(c.id)}><Video className="h-3.5 w-3.5 mr-1" /> {interviewInvited.has(c.id) ? "Invited ✓" : "Schedule Interview"}</Button>
                   <Button size="sm" variant="outline" className="border-gray-200 rounded-full text-xs" onClick={() => { if (c.email) window.location.href = `mailto:${c.email}`; }}><Mail className="h-3.5 w-3.5 mr-1" /> Send Message</Button>
                   {c.linkedin_url && <a href={c.linkedin_url} target="_blank" rel="noreferrer"><Button size="sm" variant="outline" className="border-blue-400 text-blue-600 hover:bg-blue-50 rounded-full text-xs">LinkedIn</Button></a>}
@@ -3015,9 +3270,13 @@ interface AppWithProfile extends Application {
 
 function ApplicantsPage() {
   const { recruiterProfile } = useAuth();
+  const location = useLocation();
   const [applicants, setApplicants] = useState<AppWithProfile[]>([]);
   const [loading, setLoading] = useState(true);
-  const [statusFilter, setStatusFilter] = useState("All");
+  const [statusFilter, setStatusFilter] = useState(() => {
+    const queryStatus = new URLSearchParams(window.location.search).get("status");
+    return queryStatus || "All";
+  });
   const [jobFilter, setJobFilter] = useState("All");
   const [searchTerm, setSearchTerm] = useState("");
   const [sortBy, setSortBy] = useState("recent");
@@ -3032,6 +3291,25 @@ function ApplicantsPage() {
   const [noticePeriodFilter, setNoticePeriodFilter] = useState("");
   const [skillFilter, setSkillFilter] = useState("");
   const [showFilters, setShowFilters] = useState(false);
+  const [interviewModalApplicant, setInterviewModalApplicant] = useState<AppWithProfile | null>(null);
+  const [feedbackModalApplicant, setFeedbackModalApplicant] = useState<AppWithProfile | null>(null);
+  const [offerModalApplicant, setOfferModalApplicant] = useState<AppWithProfile | null>(null);
+  const [isSendingInterviewDetails, setIsSendingInterviewDetails] = useState(false);
+  const [isSendingInterviewFeedback, setIsSendingInterviewFeedback] = useState(false);
+  const [isSendingOfferDetails, setIsSendingOfferDetails] = useState(false);
+  const [feedbackInitialRound, setFeedbackInitialRound] = useState<"L1" | "L2" | "L3" | "HR Round">("L1");
+  const [statusUpdateInFlight, setStatusUpdateInFlight] = useState<Set<string>>(new Set());
+  const [optimisticStatusByApplicant, setOptimisticStatusByApplicant] = useState<Record<string, Application["status"]>>({});
+
+  const getEffectiveApplicationStatus = useCallback(
+    (applicant: AppWithProfile) => optimisticStatusByApplicant[applicant.id] ?? applicant.status,
+    [optimisticStatusByApplicant]
+  );
+
+  const getEffectiveApplicationStage = useCallback(
+    (applicant: AppWithProfile) => mapApplicationStatusToPipelineStage(getEffectiveApplicationStatus(applicant)),
+    [getEffectiveApplicationStatus]
+  );
 
   const fetchApplicants = useCallback(async () => {
     if (!recruiterProfile?.id) return;
@@ -3055,8 +3333,13 @@ function ApplicantsPage() {
     return () => { supabase.removeChannel(channel); };
   }, [recruiterProfile?.id, fetchApplicants]);
 
-  const statuses = ["All", "New", "Reviewed", "Shortlisted", "Interview Scheduled", "Offered", "Rejected"];
+  const statuses = ["All", ...PIPELINE_STAGES];
   const jobTitles = ["All", ...Array.from(new Set(applicants.map(a => a.job?.title).filter(Boolean)))];
+
+  useEffect(() => {
+    const queryStatus = new URLSearchParams(location.search).get("status") || "All";
+    if (statuses.includes(queryStatus)) setStatusFilter(queryStatus);
+  }, [location.search]);
 
   const parseExpYears = (exp: string | null) => {
     if (!exp) return 0;
@@ -3073,7 +3356,7 @@ function ApplicantsPage() {
   const activeFilterCount = [expMin, expMax, locationFilter, salaryFilter, noticePeriodFilter, skillFilter].filter(Boolean).length;
 
   const filtered = applicants
-    .filter(a => statusFilter === "All" || a.status === statusFilter)
+    .filter(a => statusFilter === "All" || getEffectiveApplicationStage(a) === statusFilter)
     .filter(a => jobFilter === "All" || a.job?.title === jobFilter)
     .filter(a => {
       if (!searchTerm) return true;
@@ -3114,13 +3397,382 @@ function ApplicantsPage() {
     });
 
   const updateStatus = async (id: string, newStatus: Application["status"]) => {
-    await supabase.from("applications").update({ status: newStatus }).eq("id", id);
-    setApplicants(prev => prev.map(a => a.id === id ? { ...a, status: newStatus } : a));
+    const statusWriteAttempts: Record<Application["status"], string[]> = {
+      Applied: ["New", "Applied", "applied"],
+      New: ["New", "Applied", "applied"],
+      Screening: ["Reviewed", "Screening", "screening"],
+      Reviewed: ["Reviewed", "Screening", "screening"],
+      Shortlisted: ["Shortlisted", "shortlisted"],
+      "Interview Scheduled": ["Interview Scheduled", "interview_scheduled"],
+      Offered: ["Offered", "offered"],
+      Rejected: ["Rejected", "rejected"],
+      Hired: ["Hired", "hired", "Hire", "hire", "Joined", "joined"],
+    };
+
+    const attempts = statusWriteAttempts[newStatus] || [newStatus];
+    let lastError: { message?: string } | null = null;
+
+    for (const candidateStatus of attempts) {
+      const { error } = await supabase
+        .from("applications")
+        .update({ status: candidateStatus as Application["status"] })
+        .eq("id", id);
+
+      if (!error) {
+        const resolved = candidateStatus as Application["status"];
+        setApplicants(prev => prev.map(a => a.id === id ? { ...a, status: resolved } : a));
+        return resolved;
+      }
+      lastError = error;
+    }
+
+    console.error(`Failed to update application status for ${id} to ${newStatus}:`, lastError?.message || "Unknown error");
+    return false;
+  };
+
+  const openProfileAndMoveToScreening = async (applicant: AppWithProfile) => {
+    setProfileModal(prev => {
+      if (prev?.id === applicant.id) {
+        return { ...prev };
+      }
+      return { ...applicant };
+    });
+  };
+
+  const handleInterviewStatusRequest = (applicant: AppWithProfile) => {
+    setInterviewModalApplicant(applicant);
+  };
+
+  const handleOfferStatusRequest = (applicant: AppWithProfile) => {
+    setOfferModalApplicant(applicant);
+  };
+
+  const resolveLatestRoundForApplication = async (applicationId: string): Promise<"L1" | "L2" | "L3" | "HR Round"> => {
+    const { data } = await supabase
+      .from("interview_details")
+      .select("interview_message, updated_at")
+      .eq("application_id", applicationId)
+      .order("updated_at", { ascending: false })
+      .limit(1);
+
+    const message = data?.[0]?.interview_message || "";
+    const match = message.match(/^round:\s*(.+)$/im)?.[1]?.trim().toUpperCase();
+    if (match === "L2") return "L2";
+    if (match === "L3") return "L3";
+    if (match === "HR ROUND") return "HR Round";
+    return "L1";
+  };
+
+  const handleInterviewFeedbackRequest = async (applicant: AppWithProfile) => {
+    const initialRound = await resolveLatestRoundForApplication(applicant.id);
+    setFeedbackInitialRound(initialRound);
+    setFeedbackModalApplicant(applicant);
+  };
+
+  const quickUpdateStatus = async (applicantId: string, nextStatus: Application["status"]) => {
+    if (statusUpdateInFlight.has(applicantId)) return;
+
+    const currentStatus = applicants.find(a => a.id === applicantId)?.status;
+    if (currentStatus && mapApplicationStatusToPipelineStage(currentStatus) === "Hired" && nextStatus === "Hired") {
+      return;
+    }
+
+    setOptimisticStatusByApplicant(prev => ({ ...prev, [applicantId]: nextStatus }));
+    setStatusUpdateInFlight(prev => new Set(prev).add(applicantId));
+    let updated: Application["status"] | false = false;
+
+    try {
+      // Hire should behave exactly like other actions: one direct status update only.
+      updated = await updateStatus(applicantId, nextStatus);
+
+      if (updated) {
+        setProfileModal(prev => prev && prev.id === applicantId ? { ...prev, status: updated } : prev);
+      }
+    } finally {
+      setOptimisticStatusByApplicant(prev => {
+        const { [applicantId]: _removed, ...rest } = prev;
+        return rest;
+      });
+      setStatusUpdateInFlight(prev => {
+        const next = new Set(prev);
+        next.delete(applicantId);
+        return next;
+      });
+    }
+  };
+
+  const handleStatusDropdownSelect = async (applicant: AppWithProfile, nextStage: PipelineStage) => {
+    const currentStage = getEffectiveApplicationStage(applicant);
+    if (nextStage === currentStage) return;
+    if (!STATUS_TRANSITIONS[currentStage].includes(nextStage)) return;
+
+    if (nextStage === "Interview Scheduled") {
+      handleInterviewStatusRequest(applicant);
+      return;
+    }
+    if (nextStage === "Offered") {
+      handleOfferStatusRequest(applicant);
+      return;
+    }
+    await quickUpdateStatus(applicant.id, nextStage);
+  };
+
+  const sendInterviewDetails = async (message: string, meetingUrl: string, round: "L1" | "L2" | "L3" | "HR Round") => {
+    if (!interviewModalApplicant) return;
+    if (!recruiterProfile?.id) return;
+    setIsSendingInterviewDetails(true);
+
+    const targetApplicant = interviewModalApplicant;
+    const companyName = recruiterProfile?.company_name || "Recruiter Team";
+    const nowIso = new Date().toISOString();
+    const normalizedMeetingUrl = meetingUrl.trim();
+    const formattedInterviewMessage = [`Round: ${round}`, `Meeting URL: ${normalizedMeetingUrl}`, "", message].join("\n");
+
+    const statusUpdatePromise = supabase
+      .from("applications")
+      .update({ status: "Interview Scheduled" })
+      .eq("id", targetApplicant.id);
+
+    const interviewDetailsPromise = supabase
+      .from("interview_details")
+      .upsert(
+        {
+          application_id: targetApplicant.id,
+          recruiter_id: recruiterProfile.id,
+          candidate_id: targetApplicant.profile_id,
+          interview_message: formattedInterviewMessage,
+          meeting_url: normalizedMeetingUrl,
+          status: "Interview Scheduled",
+        },
+        { onConflict: "application_id" },
+      );
+
+    const notificationPromise = supabase
+      .from("notifications")
+      .insert({
+        user_id: targetApplicant.profile_id,
+        user_type: "jobseeker",
+        title: `Interview Details from ${companyName}`,
+        message: [
+          `Status: Interview Scheduled`,
+          `Round: ${round}`,
+          `Company: ${companyName}`,
+          `Updated: ${new Date(nowIso).toLocaleString()}`,
+          `Meeting URL: ${normalizedMeetingUrl}`,
+          "",
+          message,
+        ].join("\n"),
+        type: "status_change",
+        is_read: false,
+        related_id: targetApplicant.id,
+      });
+
+    const [{ error: statusError }, { error: interviewDetailsError }, { error: notificationError }] = await Promise.all([
+      statusUpdatePromise,
+      interviewDetailsPromise,
+      notificationPromise,
+    ]);
+
+    setIsSendingInterviewDetails(false);
+
+    if (statusError) {
+      console.error("Failed to update interview status:", statusError.message);
+      return;
+    }
+
+    if (interviewDetailsError) {
+      console.error("Failed to save interview details:", interviewDetailsError.message);
+      return;
+    }
+
+    if (notificationError) {
+      console.error("Failed to send interview details notification:", notificationError.message);
+    }
+
+    setApplicants(prev => prev.map(a => a.id === targetApplicant.id ? { ...a, status: "Interview Scheduled" } : a));
+    setProfileModal(prev => prev && prev.id === targetApplicant.id ? { ...prev, status: "Interview Scheduled" } : prev);
+    setInterviewModalApplicant(null);
+  };
+
+  const sendOfferDetails = async (message: string, offerLetterFile: File) => {
+    if (!offerModalApplicant) return;
+    if (!recruiterProfile?.id) return;
+    setIsSendingOfferDetails(true);
+
+    const targetApplicant = offerModalApplicant;
+    const companyName = recruiterProfile?.company_name || "Recruiter Team";
+    const nowIso = new Date().toISOString();
+    const safeFileName = `${Date.now()}-${offerLetterFile.name.replace(/[^a-zA-Z0-9._-]/g, "_")}`;
+    const filePath = `${targetApplicant.profile_id}/${targetApplicant.id}/${safeFileName}`;
+
+    let offerLetterUrl: string | null = null;
+    const uploadResult = await supabase.storage
+      .from("offer-letters")
+      .upload(filePath, offerLetterFile, { upsert: true });
+
+    if (uploadResult.error) {
+      console.error("Failed to upload offer letter:", uploadResult.error.message);
+      setIsSendingOfferDetails(false);
+      window.alert(`Offer letter upload failed: ${uploadResult.error.message}`);
+      return;
+    }
+
+    const { data } = supabase.storage.from("offer-letters").getPublicUrl(filePath);
+    offerLetterUrl = data.publicUrl || null;
+
+    const statusUpdatePromise = supabase
+      .from("applications")
+      .update({ status: "Offered" })
+      .eq("id", targetApplicant.id);
+
+    const notificationPromise = supabase
+      .from("notifications")
+      .insert({
+        user_id: targetApplicant.profile_id,
+        user_type: "jobseeker",
+        title: `Offer Letter from ${companyName}`,
+        message: [
+          "Status: Offered",
+          `Company: ${companyName}`,
+          `Updated: ${new Date(nowIso).toLocaleString()}`,
+          `Offer Letter: ${offerLetterFile.name}`,
+          `Offer Letter URL: ${offerLetterUrl || "N/A"}`,
+          `Offer Letter Path: ${filePath}`,
+          "",
+          message,
+        ].join("\n"),
+        type: "status_change",
+        is_read: false,
+        related_id: targetApplicant.id,
+      });
+
+    const [{ error: statusError }, { error: notificationError }] = await Promise.all([
+      statusUpdatePromise,
+      notificationPromise,
+    ]);
+
+    setIsSendingOfferDetails(false);
+
+    if (statusError) {
+      console.error("Failed to update offer status:", statusError.message);
+      return;
+    }
+
+    if (notificationError) {
+      console.error("Failed to send offer notification:", notificationError.message);
+    }
+
+    setApplicants(prev => prev.map(a => a.id === targetApplicant.id ? { ...a, status: "Offered" } : a));
+    setProfileModal(prev => prev && prev.id === targetApplicant.id ? { ...prev, status: "Offered" } : prev);
+    setOfferModalApplicant(null);
+  };
+
+  const sendInterviewFeedback = async (
+    round: "L1" | "L2" | "L3" | "HR Round",
+    feedback: string,
+    nextRoundDiscussion: string,
+  ) => {
+    if (!feedbackModalApplicant) return;
+    if (!recruiterProfile?.id) return;
+    setIsSendingInterviewFeedback(true);
+
+    const targetApplicant = feedbackModalApplicant;
+    const companyName = recruiterProfile.company_name || "Recruiter Team";
+    const nowIso = new Date().toISOString();
+    const feedbackMessageBody = [
+      "Interview Feedback:",
+      feedback,
+      "",
+      "Next Round Discussion:",
+      nextRoundDiscussion || "N/A",
+    ].join("\n");
+
+    const { error } = await supabase.from("notifications").insert({
+      user_id: targetApplicant.profile_id,
+      user_type: "jobseeker",
+      title: `Interview Feedback from ${companyName}`,
+      message: [
+        "Status: Interview Scheduled",
+        `Round: ${round}`,
+        `Company: ${companyName}`,
+        `Updated: ${new Date(nowIso).toLocaleString()}`,
+        "",
+        feedbackMessageBody,
+      ].join("\n"),
+      type: "status_change",
+      is_read: false,
+      related_id: targetApplicant.id,
+    });
+
+    setIsSendingInterviewFeedback(false);
+
+    if (error) {
+      console.error("Failed to send interview feedback:", error.message);
+      return;
+    }
+
+    setFeedbackModalApplicant(null);
+  };
+
+  const moveToOptions = (currentStage: PipelineStage): PipelineStage[] => {
+    return [currentStage, ...STATUS_TRANSITIONS[currentStage]];
+  };
+
+  const renderStageActions = (applicant: AppWithProfile) => {
+    const stage = getEffectiveApplicationStage(applicant);
+    const isUpdating = statusUpdateInFlight.has(applicant.id);
+    const isLockedAfterHire = stage === "Hired";
+    const disableActions = isUpdating;
+    const isInterviewActive = stage === "Interview Scheduled";
+    const isShortlistActive = stage === "Shortlisted";
+    const isOfferActive = stage === "Offered";
+    const isRejectActive = stage === "Rejected";
+    const isHireActive = stage === "Hired";
+    const fadedAfterHire = isLockedAfterHire ? "opacity-40" : "";
+    const disabledOpacityClass = "disabled:opacity-40";
+    const openMail = () => { if (applicant.profile?.email) window.location.href = `mailto:${applicant.profile.email}`; };
+    const viewBtn = (
+      <Button size="sm" variant="outline" className="border-2 border-blue-500 bg-blue-50 text-blue-700 hover:bg-blue-100 rounded-full text-xs h-7" onClick={() => openProfileAndMoveToScreening(applicant)}>
+        <User className="h-3 w-3 mr-1" /> View Profile
+      </Button>
+    );
+    const messageBtn = (
+      <Button size="sm" variant="outline" className="border-2 border-gray-400 bg-gray-50 text-[#3A1F1F] hover:bg-gray-100 rounded-full text-xs h-7" onClick={openMail}>
+        <Mail className="h-3.5 w-3.5 mr-1" /> Message
+      </Button>
+    );
+    const canShortlist = stage === "Screening" || stage === "Shortlisted";
+    const canInterview = stage === "Shortlisted" || stage === "Interview Scheduled";
+    const canOffer = stage === "Interview Scheduled" || stage === "Offered";
+    const canHire = stage === "Offered" || stage === "Hired";
+    const canReject = stage === "Offered" || stage === "Rejected";
+
+    return (
+      <div className="flex flex-wrap gap-2">
+        {viewBtn}
+        {messageBtn}
+        <Button size="sm" variant="outline" disabled={disableActions || !canShortlist} className={`${isShortlistActive ? "border-2 border-pink-600 bg-pink-50 text-pink-700" : "border-pink-500 text-pink-600 hover:bg-pink-50 opacity-40"} rounded-full text-xs h-7 ${disabledOpacityClass} ${fadedAfterHire}`} onClick={() => void quickUpdateStatus(applicant.id, "Shortlisted")}><ThumbsUp className="h-3.5 w-3.5 mr-1" /> Shortlist</Button>
+        <Button size="sm" variant="outline" disabled={disableActions || !canInterview} className={`${isInterviewActive ? "border-2 border-purple-600 bg-purple-50 text-purple-700" : "border-purple-400 text-purple-600 hover:bg-purple-50 opacity-40"} rounded-full text-xs h-7 ${disabledOpacityClass} ${fadedAfterHire}`} onClick={() => handleInterviewStatusRequest(applicant)}><Video className="h-3.5 w-3.5 mr-1" /> {stage === "Interview Scheduled" ? "Schedule Next Round" : "Interview"}</Button>
+        {stage === "Interview Scheduled" && (
+          <Button size="sm" variant="outline" disabled={disableActions} className={`border-purple-300 text-purple-700 hover:bg-purple-50 rounded-full text-xs h-7 ${disabledOpacityClass} ${fadedAfterHire}`} onClick={() => void handleInterviewFeedbackRequest(applicant)}>
+            Add Feedback
+          </Button>
+        )}
+        <Button size="sm" variant="outline" disabled={disableActions || !canOffer} className={`${isOfferActive ? "border-2 border-orange-600 bg-orange-50 text-orange-700" : "border-orange-400 text-orange-700 hover:bg-orange-50 opacity-40"} rounded-full text-xs h-7 ${disabledOpacityClass} ${fadedAfterHire}`} onClick={() => handleOfferStatusRequest(applicant)}><Award className="h-3.5 w-3.5 mr-1" /> Offer</Button>
+        {isHireActive ? (
+          <Button size="sm" variant="outline" disabled className="border-emerald-500 text-emerald-700 bg-emerald-100 ring-1 ring-emerald-300 rounded-full text-xs h-7 disabled:opacity-100"><Check className="h-3.5 w-3.5 mr-1" /> Hired</Button>
+        ) : (
+          <Button size="sm" variant="outline" disabled={disableActions || !canHire} className={`${isHireActive ? "border-2 border-emerald-600 bg-emerald-50 text-emerald-700" : "border-emerald-500 text-emerald-600 hover:bg-emerald-50 opacity-40"} rounded-full text-xs h-7 ${disabledOpacityClass}`} onClick={() => void quickUpdateStatus(applicant.id, "Hired")}>Hire</Button>
+        )}
+        <Button size="sm" variant="outline" disabled={disableActions || !canReject} className={`${isRejectActive ? "border-2 border-red-600 bg-red-50 text-red-700" : "border-red-400 text-red-500 hover:bg-red-50 opacity-40"} rounded-full text-xs h-7 ${disabledOpacityClass} ${fadedAfterHire}`} onClick={() => void quickUpdateStatus(applicant.id, "Rejected")}><ThumbsDown className="h-3.5 w-3.5 mr-1" /> Reject</Button>
+        {stage === "Rejected" && <Button size="sm" variant="outline" disabled={disableActions} className={`border-[#8B5E3C] text-[#8B5E3C] hover:bg-[#F5EEE8] rounded-full text-xs h-7 ${disabledOpacityClass} ${fadedAfterHire}`} onClick={() => void quickUpdateStatus(applicant.id, "Reviewed")}><RefreshCw className="h-3.5 w-3.5 mr-1" /> Restore Candidate</Button>}
+      </div>
+    );
   };
 
   const statusCounts = statuses.slice(1).reduce((acc, s) => ({
     ...acc,
-    [s]: applicants.filter(a => a.status === s).length
+    [s]: applicants.filter(a => mapApplicationStatusToPipelineStage(a.status) === s).length
   }), {} as Record<string, number>);
 
   const exportCSV = () => {
@@ -3345,31 +3997,27 @@ function ApplicantsPage() {
               {/* Actions */}
               <div className="flex items-center justify-between mt-4 pt-3 border-t border-gray-100 flex-wrap gap-2">
                 <div className="flex items-center gap-2 flex-wrap">
-                  <Badge className={`text-xs ${statusColor(applicant.status)}`}>{applicant.status}</Badge>
-                  <DropdownMenu>
-                    <DropdownMenuTrigger asChild>
-                      <Button variant="outline" size="sm" className="border-gray-200 rounded-full text-xs h-7">
-                        Move to <ChevronDown className="h-3 w-3 ml-1" />
-                      </Button>
-                    </DropdownMenuTrigger>
-                    <DropdownMenuContent>
-                      {(["New", "Reviewed", "Shortlisted", "Interview Scheduled", "Offered", "Rejected"] as const).map(s => (
-                        <DropdownMenuItem key={s} onClick={() => updateStatus(applicant.id, s)}>
-                          <span className={`w-2 h-2 rounded-full mr-2 inline-block ${statusColor(s).split(" ")[0]}`} />
-                          {s}
-                        </DropdownMenuItem>
+                  <Badge className={`text-xs ${statusColor(getEffectiveApplicationStatus(applicant))}`}>{getEffectiveApplicationStage(applicant)}</Badge>
+                  <Select
+                    value={getEffectiveApplicationStage(applicant)}
+                    onValueChange={(value) => {
+                      void handleStatusDropdownSelect(applicant, value as PipelineStage);
+                    }}
+                  >
+                    <SelectTrigger className="h-7 min-w-[140px] rounded-full border-gray-200 text-xs">
+                      <span>Move to</span>
+                    </SelectTrigger>
+                    <SelectContent className="max-h-64">
+                      {moveToOptions(getEffectiveApplicationStage(applicant)).map((stage) => (
+                        <SelectItem key={stage} value={stage} className="text-xs">
+                          {stage}
+                        </SelectItem>
                       ))}
-                    </DropdownMenuContent>
-                  </DropdownMenu>
+                    </SelectContent>
+                  </Select>
                 </div>
                 <div className="flex gap-1.5 flex-wrap">
-                  <Button size="sm" variant="outline" className="border-blue-300 text-blue-600 hover:bg-blue-50 rounded-full text-xs h-7" onClick={() => setProfileModal(applicant)}>
-                    <User className="h-3 w-3 mr-1" /> View Profile
-                  </Button>
-                  <Button size="sm" variant="outline" className="border-gray-200 rounded-full text-xs h-7" onClick={() => { if (applicant.profile?.email) window.location.href = `mailto:${applicant.profile.email}`; }}><Mail className="h-3.5 w-3.5 mr-1" /> Message</Button>
-                  <Button size="sm" variant="outline" className="border-purple-400 text-purple-600 hover:bg-purple-50 rounded-full text-xs h-7" onClick={() => updateStatus(applicant.id, "Interview Scheduled")}><Video className="h-3.5 w-3.5 mr-1" /> Interview</Button>
-                  <Button size="sm" variant="outline" className="border-green-500 text-green-600 hover:bg-green-50 rounded-full text-xs h-7" onClick={() => updateStatus(applicant.id, "Shortlisted")}><ThumbsUp className="h-3.5 w-3.5 mr-1" /> Shortlist</Button>
-                  <Button size="sm" variant="outline" className="border-red-400 text-red-500 hover:bg-red-50 rounded-full text-xs h-7" onClick={() => updateStatus(applicant.id, "Rejected")}><ThumbsDown className="h-3.5 w-3.5 mr-1" /> Reject</Button>
+                  {renderStageActions(applicant)}
                 </div>
               </div>
             </div>
@@ -3487,6 +4135,22 @@ function ApplicantsPage() {
       {/* ── Full Profile Modal (Naukri-style) ── */}
       {profileModal && (() => {
         const p = profileModal.profile;
+        const isUpdating = statusUpdateInFlight.has(profileModal.id);
+        const modalEffectiveStatus = optimisticStatusByApplicant[profileModal.id] ?? profileModal.status;
+        const modalStage = mapApplicationStatusToPipelineStage(modalEffectiveStatus);
+        const isLockedAfterHire = modalStage === "Hired";
+        const disableActions = isUpdating;
+        const isInterviewActive = modalStage === "Interview Scheduled";
+        const isShortlistActive = modalStage === "Shortlisted";
+        const isOfferActive = modalStage === "Offered";
+        const isRejectActive = modalStage === "Rejected";
+        const fadedAfterHire = isLockedAfterHire ? "opacity-40" : "";
+        const disabledOpacityClass = "disabled:opacity-40";
+        const canShortlist = modalStage === "Screening" || modalStage === "Shortlisted";
+        const canInterview = modalStage === "Shortlisted" || modalStage === "Interview Scheduled";
+        const canOffer = modalStage === "Interview Scheduled" || modalStage === "Offered";
+        const canHire = modalStage === "Offered" || modalStage === "Hired";
+        const canReject = modalStage === "Offered" || modalStage === "Rejected";
         const name = p ? `${p.first_name || ""} ${p.last_name || ""}`.trim() : "Unknown";
         const initials = name.split(" ").map(n => n[0]).join("").toUpperCase().slice(0, 2);
         const workExp = p?.work_experience || [];
@@ -3556,25 +4220,44 @@ function ApplicantsPage() {
 
                 {/* Status + Actions */}
                 <div className="flex items-center justify-between mb-5 flex-wrap gap-2">
-                  <Badge className={`${statusColor(profileModal.status)}`}>{profileModal.status}</Badge>
+                  <Badge className={`${statusColor(modalEffectiveStatus)}`}>{modalStage}</Badge>
                   <div className="flex gap-2 flex-wrap">
-                    <DropdownMenu>
-                      <DropdownMenuTrigger asChild>
-                        <Button variant="outline" size="sm" className="border-gray-200 rounded-full text-xs">
-                          Change Status <ChevronDown className="h-3 w-3 ml-1" />
-                        </Button>
-                      </DropdownMenuTrigger>
-                      <DropdownMenuContent>
-                        {(["New", "Reviewed", "Shortlisted", "Interview Scheduled", "Offered", "Rejected"] as const).map(s => (
-                          <DropdownMenuItem key={s} onClick={() => { updateStatus(profileModal.id, s); setProfileModal(prev => prev ? { ...prev, status: s } : null); }}>
-                            <span className={`w-2 h-2 rounded-full mr-2 inline-block ${statusColor(s).split(" ")[0]}`} />{s}
-                          </DropdownMenuItem>
+                    <Select
+                      value={modalStage}
+                      onValueChange={(value) => {
+                        void handleStatusDropdownSelect(profileModal, value as PipelineStage);
+                      }}
+                      disabled={disableActions}
+                    >
+                      <SelectTrigger className="h-8 min-w-[170px] rounded-full border-gray-200 text-xs">
+                        <span>Change Status</span>
+                      </SelectTrigger>
+                      <SelectContent className="max-h-64">
+                        {moveToOptions(modalStage).map((stage) => (
+                          <SelectItem key={stage} value={stage} className="text-xs">
+                            {stage}
+                          </SelectItem>
                         ))}
-                      </DropdownMenuContent>
-                    </DropdownMenu>
-                    <Button size="sm" variant="outline" className="border-green-500 text-green-600 hover:bg-green-50 rounded-full text-xs" onClick={() => { updateStatus(profileModal.id, "Shortlisted"); setProfileModal(prev => prev ? { ...prev, status: "Shortlisted" } : null); }}><ThumbsUp className="h-3.5 w-3.5 mr-1" /> Shortlist</Button>
-                    <Button size="sm" variant="outline" className="border-purple-400 text-purple-600 hover:bg-purple-50 rounded-full text-xs" onClick={() => { updateStatus(profileModal.id, "Interview Scheduled"); setProfileModal(prev => prev ? { ...prev, status: "Interview Scheduled" } : null); }}><Video className="h-3.5 w-3.5 mr-1" /> Interview</Button>
-                    <Button size="sm" variant="outline" className="border-gray-200 rounded-full text-xs" onClick={() => { if (profileModal.profile?.email) window.location.href = `mailto:${profileModal.profile.email}`; }}><Mail className="h-3.5 w-3.5 mr-1" /> Message</Button>
+                      </SelectContent>
+                    </Select>
+                    <Button size="sm" variant="outline" className="border-2 border-gray-400 bg-gray-50 text-[#3A1F1F] hover:bg-gray-100 rounded-full text-xs" onClick={() => { if (profileModal.profile?.email) window.location.href = `mailto:${profileModal.profile.email}`; }}><Mail className="h-3.5 w-3.5 mr-1" /> Message</Button>
+                    <Button size="sm" variant="outline" disabled={disableActions || !canShortlist} className={`${isShortlistActive ? "border-2 border-pink-600 bg-pink-50 text-pink-700" : "border-pink-500 text-pink-600 hover:bg-pink-50 opacity-40"} rounded-full text-xs ${disabledOpacityClass} ${fadedAfterHire}`} onClick={() => quickUpdateStatus(profileModal.id, "Shortlisted")}><ThumbsUp className="h-3.5 w-3.5 mr-1" /> Shortlist</Button>
+                    <Button size="sm" variant="outline" disabled={disableActions || !canInterview} className={`${isInterviewActive ? "border-2 border-purple-600 bg-purple-50 text-purple-700" : "border-purple-400 text-purple-600 hover:bg-purple-50 opacity-40"} rounded-full text-xs ${disabledOpacityClass} ${fadedAfterHire}`} onClick={() => handleInterviewStatusRequest(profileModal)}><Video className="h-3.5 w-3.5 mr-1" /> {modalStage === "Interview Scheduled" ? "Schedule Next Round" : "Interview"}</Button>
+                    {modalStage === "Interview Scheduled" && (
+                      <Button size="sm" variant="outline" disabled={disableActions} className={`border-purple-300 text-purple-700 hover:bg-purple-50 rounded-full text-xs ${disabledOpacityClass} ${fadedAfterHire}`} onClick={() => void handleInterviewFeedbackRequest(profileModal)}>
+                        Add Feedback
+                      </Button>
+                    )}
+                    <Button size="sm" variant="outline" disabled={disableActions || !canOffer} className={`${isOfferActive ? "border-2 border-orange-600 bg-orange-50 text-orange-700" : "border-orange-400 text-orange-700 hover:bg-orange-50 opacity-40"} rounded-full text-xs ${disabledOpacityClass} ${fadedAfterHire}`} onClick={() => handleOfferStatusRequest(profileModal)}><Award className="h-3.5 w-3.5 mr-1" /> Offer</Button>
+                    {modalStage === "Hired" ? (
+                      <Button size="sm" variant="outline" disabled className="border-emerald-500 text-emerald-700 bg-emerald-100 ring-1 ring-emerald-300 rounded-full text-xs"><Check className="h-3.5 w-3.5 mr-1" /> Hired</Button>
+                    ) : (
+                      <Button size="sm" variant="outline" disabled={disableActions || !canHire} className={`${modalStage === "Hired" ? "border-2 border-emerald-600 bg-emerald-50 text-emerald-700" : "border-emerald-500 text-emerald-600 hover:bg-emerald-50 opacity-40"} rounded-full text-xs ${disabledOpacityClass}`} onClick={() => quickUpdateStatus(profileModal.id, "Hired")}>Hire</Button>
+                    )}
+                    <Button size="sm" variant="outline" disabled={disableActions || !canReject} className={`${isRejectActive ? "border-2 border-red-600 bg-red-50 text-red-700" : "border-red-400 text-red-500 hover:bg-red-50 opacity-40"} rounded-full text-xs ${disabledOpacityClass} ${fadedAfterHire}`} onClick={() => quickUpdateStatus(profileModal.id, "Rejected")}><ThumbsDown className="h-3.5 w-3.5 mr-1" /> Reject</Button>
+                    {modalStage === "Rejected" && (
+                      <Button size="sm" variant="outline" disabled={disableActions} className={`border-[#8B5E3C] text-[#8B5E3C] hover:bg-[#F5EEE8] rounded-full text-xs ${disabledOpacityClass} ${fadedAfterHire}`} onClick={() => quickUpdateStatus(profileModal.id, "Reviewed")}><RefreshCw className="h-3.5 w-3.5 mr-1" /> Restore Candidate</Button>
+                    )}
                   </div>
                 </div>
 
@@ -3659,6 +4342,37 @@ function ApplicantsPage() {
           </div>
         );
       })()}
+      <InterviewDetailsModal
+        open={Boolean(interviewModalApplicant)}
+        onOpenChange={(open) => {
+          if (!open && !isSendingInterviewDetails) {
+            setInterviewModalApplicant(null);
+          }
+        }}
+        onSubmit={sendInterviewDetails}
+        submitting={isSendingInterviewDetails}
+      />
+      <OfferDetailsModal
+        open={Boolean(offerModalApplicant)}
+        onOpenChange={(open) => {
+          if (!open && !isSendingOfferDetails) {
+            setOfferModalApplicant(null);
+          }
+        }}
+        onSubmit={sendOfferDetails}
+        submitting={isSendingOfferDetails}
+      />
+      <InterviewFeedbackModal
+        open={Boolean(feedbackModalApplicant)}
+        onOpenChange={(open) => {
+          if (!open && !isSendingInterviewFeedback) {
+            setFeedbackModalApplicant(null);
+          }
+        }}
+        onSubmit={sendInterviewFeedback}
+        submitting={isSendingInterviewFeedback}
+        initialRound={feedbackInitialRound}
+      />
     </div>
   );
 }
@@ -3830,10 +4544,10 @@ function AnalyticsPage() {
             {[
               { stage: "Total Applicants", count: 172, color: "bg-gray-400" },
               { stage: "Reviewed", count: 124, color: "bg-blue-400" },
-              { stage: "Shortlisted", count: 48, color: "bg-green-400" },
+              { stage: "Shortlisted", count: 48, color: "bg-pink-400" },
               { stage: "Interview Scheduled", count: 18, color: "bg-purple-400" },
-              { stage: "Offer Given", count: 8, color: "bg-yellow-400" },
-              { stage: "Hired", count: 5, color: "bg-[#FF2B2B]" },
+              { stage: "Offer Given", count: 8, color: "bg-orange-400" },
+              { stage: "Hired", count: 5, color: "bg-emerald-500" },
             ].map((stage, i, arr) => (
               <div key={i}>
                 <div className="flex items-center justify-between text-sm mb-1">
@@ -3878,8 +4592,8 @@ function AnalyticsPage() {
                   <td className="py-3 px-2 text-center text-[#5A5A5A]">{job.views.toLocaleString()}</td>
                   <td className="py-3 px-2 text-center text-[#5A5A5A]">{job.applicants}</td>
                   <td className="py-3 px-2 text-center text-blue-600 font-medium">{job.ctr}</td>
-                  <td className="py-3 px-2 text-center text-green-600 font-medium">{job.pipeline.shortlisted}</td>
-                  <td className="py-3 px-2 text-center text-yellow-600 font-medium">{job.pipeline.offered}</td>
+                  <td className="py-3 px-2 text-center text-pink-600 font-medium">{job.pipeline.shortlisted}</td>
+                  <td className="py-3 px-2 text-center text-orange-600 font-medium">{job.pipeline.offered}</td>
                 </tr>
               ))}
             </tbody>

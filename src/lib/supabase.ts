@@ -99,12 +99,45 @@ export interface Application {
   job_id: string;
   profile_id: string;
   recruiter_id: string;
-  status: "New" | "Reviewed" | "Shortlisted" | "Interview Scheduled" | "Offered" | "Rejected";
+  status:
+    | "Applied"
+    | "Screening"
+    | "Shortlisted"
+    | "Interview Scheduled"
+    | "Offered"
+    | "Rejected"
+    | "Hired"
+    | "New"
+    | "Reviewed";
   cover_letter: string | null;
   resume_url: string | null;
   applied_at: string;
   job?: Job;
   profile?: Profile;
+  interview_details?: InterviewDetails | null;
+  offer_details?: OfferDetails | null;
+}
+
+export interface InterviewDetails {
+  id: string;
+  application_id: string;
+  recruiter_id: string;
+  candidate_id: string;
+  interview_message: string;
+  meeting_url: string | null;
+  round?: "L1" | "L2" | "L3" | "HR Round" | null;
+  status: "Interview Scheduled";
+  created_at: string;
+  updated_at: string;
+}
+
+export interface OfferDetails {
+  application_id: string;
+  offer_message: string;
+  offer_letter_name: string | null;
+  offer_letter_url: string | null;
+  offer_letter_path: string | null;
+  sent_at: string;
 }
 
 export interface Notification {

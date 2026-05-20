@@ -231,4 +231,44 @@
   .animate-scroll-marquee-reverse {
     animation: scroll-marquee-reverse 50s linear infinite;
   }
+
+  @keyframes interview-cta-pulse {
+    0%, 100% {
+      transform: translateY(0) scale(1);
+      box-shadow: 0 0 0 0 rgba(255, 43, 43, 0.35), 0 0 0 0 rgba(168, 85, 247, 0.25);
+    }
+    35% {
+      transform: translateY(-1px) scale(1.03);
+      box-shadow: 0 0 0 4px rgba(255, 43, 43, 0.18), 0 0 0 8px rgba(168, 85, 247, 0.12);
+    }
+    70% {
+      transform: translateY(0) scale(1.01);
+      box-shadow: 0 0 0 2px rgba(255, 43, 43, 0.16), 0 0 0 6px rgba(168, 85, 247, 0.1);
+    }
+  }
+
+  .animate-interview-cta {
+    animation: interview-cta-pulse 1.8s ease-in-out infinite;
+    will-change: transform, box-shadow;
+  }
+
+  @keyframes offer-cta-pulse {
+    0%, 100% {
+      transform: translateY(0) scale(1);
+      box-shadow: 0 0 0 0 rgba(249, 115, 22, 0.32), 0 0 0 0 rgba(255, 43, 43, 0.2);
+    }
+    35% {
+      transform: translateY(-1px) scale(1.03);
+      box-shadow: 0 0 0 4px rgba(249, 115, 22, 0.18), 0 0 0 8px rgba(255, 43, 43, 0.1);
+    }
+    70% {
+      transform: translateY(0) scale(1.01);
+      box-shadow: 0 0 0 2px rgba(249, 115, 22, 0.16), 0 0 0 6px rgba(255, 43, 43, 0.08);
+    }
+  }
+
+  .animate-offer-cta {
+    animation: offer-cta-pulse 1.8s ease-in-out infinite;
+    will-change: transform, box-shadow;
+  }
 }
