@@ -4,8 +4,9 @@ import { supabase, Job, Application, Notification, Profile, WorkExperience, Educ
 import { buildJobDeadlineTimestamp, formatJobDeadline, getEffectiveJobStatus, getJobDeadlineDateValue, isJobExpired } from "../../lib/jobs";
 import { PLANS, FREE_DAILY_POST_LIMIT, getPlanById, validatePromo, applyPromo } from "../../lib/plans";
 import { INDIA_CITY_OPTIONS } from "../../lib/locationData";
-import logoImage from "../../logo/logo.png";
 import { useAuth } from "../../lib/auth-context";
+
+const logoImage = new URL("../../logo/logo.png", import.meta.url).href;
 import {
   Bell, LogOut, Plus, Edit, Pause, Trash2, User, Upload, Building2,
   Search, Filter, Download, Mail, Phone, MapPin, Calendar, Clock,
@@ -1136,6 +1137,9 @@ function DashboardOverview() {
   const { recruiterProfile } = useAuth();
   const [dbJobs, setDbJobs] = useState<Job[]>([]);
   const [dbApplications, setDbApplications] = useState<Array<Pick<Application, "id" | "job_id" | "status" | "applied_at">>>([]);
+  const [totalApplicantsCount, setTotalApplicantsCount] = useState<number>(0);
+  const [interviewsScheduledCount, setInterviewsScheduledCount] = useState<number>(0);
+  const [positionsFilledCount, setPositionsFilledCount] = useState<number>(0);
   const [recentApplicants, setRecentApplicants] = useState<Array<{
     id: string;
     initials: string;
@@ -1263,6 +1267,14 @@ function DashboardOverview() {
         setRecentApplicants([]);
       }
 
+      const { count: totalApps } = await supabase.from("applications").select("*", { count: "exact", head: true }).eq("recruiter_id", recruiterProfile.id);
+      const { count: interviews } = await supabase.from("applications").select("*", { count: "exact", head: true }).eq("recruiter_id", recruiterProfile.id).eq("status", "Interview Scheduled");
+      const { count: filled } = await supabase.from("applications").select("*", { count: "exact", head: true }).eq("recruiter_id", recruiterProfile.id).eq("status", "Offered");
+
+      setTotalApplicantsCount(totalApps || 0);
+      setInterviewsScheduledCount(interviews || 0);
+      setPositionsFilledCount(filled || 0);
+
       setPipelineLoading(false);
     };
     load();
@@ -1328,9 +1340,9 @@ function DashboardOverview() {
 
   const stats = [
     { label: "Active Jobs", value: String(activeJobs || dbJobs.length || "—"), change: "Live postings", icon: Briefcase, color: "text-blue-600", bg: "bg-blue-50" },
-    { label: "Total Applicants", value: String(totalApplicants || "—"), change: "Across all jobs", icon: Users, color: "text-green-600", bg: "bg-green-50" },
-    { label: "Interviews Scheduled", value: "8", change: "Next: Today 3PM", icon: Calendar, color: "text-purple-600", bg: "bg-purple-50" },
-    { label: "Positions Filled", value: "5", change: "This month", icon: CheckCircle, color: "text-[#FF2B2B]", bg: "bg-red-50" },
+    { label: "Total Applicants", value: String(totalApplicantsCount || "—"), change: "Across all jobs", icon: Users, color: "text-green-600", bg: "bg-green-50" },
+    { label: "Interviews Scheduled", value: String(interviewsScheduledCount || "—"), change: "Next: Today 3PM", icon: Calendar, color: "text-purple-600", bg: "bg-purple-50" },
+    { label: "Positions Filled", value: String(positionsFilledCount || "—"), change: "This month", icon: CheckCircle, color: "text-[#FF2B2B]", bg: "bg-red-50" },
   ];
 
   const upcomingInterviews = [
@@ -1686,9 +1698,13 @@ function PostJobPage() {
   const normalizeBulletList = (value: string) =>
     value
       .split("\n")
-      .map(line => line.trim())
-      .filter(Boolean)
-      .map(line => `${bulletPrefix}${line.replace(/^(\u2022|[*-]|\d+[.)])\s*/, "")}`)
+      .map(line => {
+        if (!line) return "";
+
+        const existingBullet = line.match(/^(\u2022|[*-]|\d+[.)])\s*/);
+        const text = existingBullet ? line.slice(existingBullet[0].length) : line;
+        return `${bulletPrefix}${text}`;
+      })
       .join("\n");
 
   const handleBulletListChange = (field: "rolesResponsibilities" | "requirements", value: string) => {
@@ -3268,6 +3284,31 @@ interface AppWithProfile extends Application {
   job: Job;
 }
 
+function getCandidateDisplayName(profile?: Profile | null) {
+  if (!profile) return "Unknown Candidate";
+
+  const firstName = profile.first_name?.trim() || "";
+  const lastName = profile.last_name?.trim() || "";
+  const splitName = `${firstName} ${lastName}`.trim();
+  if (splitName) return splitName;
+
+  const googleName = ((profile as any).full_name || (profile as any).name || "").trim();
+  if (googleName) return googleName;
+
+  const emailName = profile.email?.split("@")[0]?.replace(/[._-]+/g, " ").trim() || "";
+  return emailName || "Unknown Candidate";
+}
+
+function getCandidateInitials(name: string, fallback = "UC") {
+  return name
+    .split(" ")
+    .filter(Boolean)
+    .map(part => part[0])
+    .join("")
+    .toUpperCase()
+    .slice(0, 2) || fallback;
+}
+
 function ApplicantsPage() {
   const { recruiterProfile } = useAuth();
   const location = useLocation();
@@ -3361,7 +3402,7 @@ function ApplicantsPage() {
     .filter(a => {
       if (!searchTerm) return true;
       const p = a.profile;
-      const name = `${p?.first_name || ""} ${p?.last_name || ""}`.toLowerCase();
+      const name = getCandidateDisplayName(p).toLowerCase();
       const skills = (p?.skills || []).join(" ").toLowerCase();
       return name.includes(searchTerm.toLowerCase()) || skills.includes(searchTerm.toLowerCase());
     })
@@ -3486,7 +3527,8 @@ function ApplicantsPage() {
       updated = await updateStatus(applicantId, nextStatus);
 
       if (updated) {
-        setProfileModal(prev => prev && prev.id === applicantId ? { ...prev, status: updated } : prev);
+        const resolvedStatus = updated;
+        setProfileModal(prev => prev && prev.id === applicantId ? { ...prev, status: resolvedStatus } : prev);
       }
     } finally {
       setOptimisticStatusByApplicant(prev => {
@@ -3780,7 +3822,7 @@ function ApplicantsPage() {
       ["Name", "Email", "Phone", "Job", "Status", "Applied At", "Experience", "Skills"],
       ...filtered.map(a => {
         const p = a.profile;
-        const name = `${p?.first_name || ""} ${p?.last_name || ""}`.trim();
+        const name = getCandidateDisplayName(p);
         return [
           name,
           p?.email || "",
@@ -3931,8 +3973,8 @@ function ApplicantsPage() {
       <div className="space-y-3">
         {filtered.map(applicant => {
           const p = applicant.profile;
-          const name = p ? `${p.first_name || ""} ${p.last_name || ""}`.trim() : "Unknown";
-          const initials = name.split(" ").map(n => n[0]).join("").toUpperCase().slice(0, 2);
+          const name = getCandidateDisplayName(p);
+          const initials = getCandidateInitials(name);
           const skills = p?.skills || [];
           const workExp = p?.work_experience || [];
           const edu = p?.education || [];
@@ -4048,8 +4090,10 @@ function ApplicantsPage() {
               const spans: TSpan[] = [];
               const nowVal = new Date().getFullYear() * 12 + new Date().getMonth() + 1;
               edu.forEach(e => {
-                const s = e.start_year ? e.start_year * 12 + 1 : null;
-                const en = e.end_year ? e.end_year * 12 + 6 : null;
+                const startYear = e.start_year ? Number(e.start_year) : null;
+                const endYear = e.end_year ? Number(e.end_year) : null;
+                const s = startYear ? startYear * 12 + 1 : null;
+                const en = endYear ? endYear * 12 + 6 : null;
                 if (s && en && en > s) spans.push({startVal: s, endVal: en, type: 'edu', tooltip: `Education: ${e.degree}${e.field ? " in " + e.field : ""} · ${e.institution}`});
               });
               workExp.forEach(exp => {
@@ -4136,6 +4180,9 @@ function ApplicantsPage() {
       {profileModal && (() => {
         const p = profileModal.profile;
         const isUpdating = statusUpdateInFlight.has(profileModal.id);
+        const name = getCandidateDisplayName(p);
+        const initials = getCandidateInitials(name);
+
         const modalEffectiveStatus = optimisticStatusByApplicant[profileModal.id] ?? profileModal.status;
         const modalStage = mapApplicationStatusToPipelineStage(modalEffectiveStatus);
         const isLockedAfterHire = modalStage === "Hired";
@@ -4151,8 +4198,6 @@ function ApplicantsPage() {
         const canOffer = modalStage === "Interview Scheduled" || modalStage === "Offered";
         const canHire = modalStage === "Offered" || modalStage === "Hired";
         const canReject = modalStage === "Offered" || modalStage === "Rejected";
-        const name = p ? `${p.first_name || ""} ${p.last_name || ""}`.trim() : "Unknown";
-        const initials = name.split(" ").map(n => n[0]).join("").toUpperCase().slice(0, 2);
         const workExp = p?.work_experience || [];
         const edu = p?.education || [];
         const skills = p?.skills || [];
@@ -4381,10 +4426,194 @@ function ApplicantsPage() {
 
 function AnalyticsPage() {
   const { recruiterProfile } = useAuth();
+  const activeTimerLastTickAtRef = useRef(Date.now());
+  const [activeTimerNow, setActiveTimerNow] = useState(Date.now());
   const [reportLoading, setReportLoading] = useState(false);
   const [reportCopied, setReportCopied] = useState(false);
   const [reportUrl, setReportUrl] = useState("");
   const [reportError, setReportError] = useState("");
+  const [totalJobsPosted, setTotalJobsPosted] = useState<number | null>(null);
+  const [totalApplications, setTotalApplications] = useState<number | null>(null);
+  const [avgTimeToHire, setAvgTimeToHire] = useState<string>("—");
+  const [jobViews, setJobViews] = useState<number | null>(null);
+  const [offerAcceptanceRate, setOfferAcceptanceRate] = useState<string>("—");
+  const [profileVisitRate, setProfileVisitRate] = useState<string>("—");
+  const [timePeriod, setTimePeriod] = useState("30d");
+  const [applicationsGrowth, setApplicationsGrowth] = useState<string>("+0%");
+  const [funnelCounts, setFunnelCounts] = useState({
+    reviewed: 0,
+    shortlisted: 0,
+    interviewScheduled: 0,
+    offered: 0,
+    hired: 0,
+  });
+
+  const toLocalDateKey = useCallback((timestamp: number) => {
+    const date = new Date(timestamp);
+    const year = date.getFullYear();
+    const month = String(date.getMonth() + 1).padStart(2, "0");
+    const day = String(date.getDate()).padStart(2, "0");
+    return `${year}-${month}-${day}`;
+  }, []);
+
+  const getDateDiffDays = useCallback((fromDateKey: string, toDateKey: string) => {
+    const fromDate = new Date(`${fromDateKey}T00:00:00`);
+    const toDate = new Date(`${toDateKey}T00:00:00`);
+    return Math.max(0, Math.floor((toDate.getTime() - fromDate.getTime()) / (24 * 60 * 60 * 1000)));
+  }, []);
+
+  useEffect(() => {
+    const timer = window.setInterval(() => setActiveTimerNow(Date.now()), 1000);
+    return () => window.clearInterval(timer);
+  }, []);
+
+  useEffect(() => {
+    if (!recruiterProfile?.id) {
+      setAvgTimeToHire("—");
+      activeTimerLastTickAtRef.current = activeTimerNow;
+      return;
+    }
+
+    const todayKey = toLocalDateKey(activeTimerNow);
+    const storageKey = `rhirepro:recruiter-active-time:${recruiterProfile.id}`;
+    const elapsedSeconds = Math.max(0, Math.floor((activeTimerNow - activeTimerLastTickAtRef.current) / 1000));
+    const tickSeconds = document.hidden ? 0 : Math.min(elapsedSeconds, 5);
+    activeTimerLastTickAtRef.current = activeTimerNow;
+
+    let firstActiveDateKey = todayKey;
+    let currentDateKey = todayKey;
+    let todayActiveSeconds = 0;
+
+    try {
+      const storedRaw = localStorage.getItem(storageKey);
+      const stored = storedRaw
+        ? JSON.parse(storedRaw) as { firstActiveDateKey?: string; currentDateKey?: string; todayActiveSeconds?: number }
+        : {};
+
+      firstActiveDateKey = stored.firstActiveDateKey || todayKey;
+      currentDateKey = stored.currentDateKey || todayKey;
+      todayActiveSeconds = typeof stored.todayActiveSeconds === "number" ? stored.todayActiveSeconds : 0;
+    } catch {
+      firstActiveDateKey = todayKey;
+      currentDateKey = todayKey;
+      todayActiveSeconds = 0;
+    }
+
+    if (currentDateKey !== todayKey) {
+      currentDateKey = todayKey;
+      todayActiveSeconds = 0;
+    }
+
+    todayActiveSeconds += tickSeconds;
+
+    try {
+      localStorage.setItem(storageKey, JSON.stringify({
+        firstActiveDateKey,
+        currentDateKey,
+        todayActiveSeconds,
+      }));
+    } catch {
+      // Keep the visible timer working even if browser storage is unavailable.
+    }
+
+    const activeDays = getDateDiffDays(firstActiveDateKey, todayKey);
+    const activeHours = Math.floor(todayActiveSeconds / 3600);
+    const activeMins = Math.floor((todayActiveSeconds % 3600) / 60);
+    const pad = (n: number) => String(n).padStart(2, "0");
+
+    setAvgTimeToHire(`${activeDays}:${pad(activeHours)}:${pad(activeMins)}`);
+  }, [activeTimerNow, getDateDiffDays, recruiterProfile?.id, toLocalDateKey]);
+
+  useEffect(() => {
+    async function loadAnalyticsMetrics() {
+      if (!recruiterProfile?.id) return;
+
+      try {
+        const [jobsRes, appsRes] = await Promise.all([
+          supabase
+            .from("jobs")
+            .select("id, created_at, status, views")
+            .eq("recruiter_id", recruiterProfile.id),
+          supabase
+            .from("applications")
+            .select("job_id, applied_at, status, profile_id")
+            .eq("recruiter_id", recruiterProfile.id),
+        ]);
+
+        if (jobsRes.error || appsRes.error) {
+          setTotalJobsPosted(null);
+          setTotalApplications(null);
+          setJobViews(null);
+          setOfferAcceptanceRate("—");
+          setProfileVisitRate("—");
+          setApplicationsGrowth("+0%");
+          setFunnelCounts({ reviewed: 0, shortlisted: 0, interviewScheduled: 0, offered: 0, hired: 0 });
+          return;
+        }
+
+        const now = new Date();
+        const days = timePeriod === "7d" ? 7 : timePeriod === "90d" ? 90 : 30;
+        const cutoff = new Date(now.getTime() - days * 24 * 60 * 60 * 1000);
+        const prevCutoff = new Date(cutoff.getTime() - days * 24 * 60 * 60 * 1000);
+
+        const jobs = (jobsRes.data || []) as { id: string; created_at: string; status: string; views: number | null }[];
+        const applications = (appsRes.data || []) as { job_id: string; applied_at: string; status: string | null; profile_id: string }[];
+
+        const filteredJobs = jobs.filter(job => new Date(job.created_at) >= cutoff);
+        const filteredApplications = applications.filter(app => app.applied_at && new Date(app.applied_at) >= cutoff);
+        const prevApplications = applications.filter(app => app.applied_at && new Date(app.applied_at) >= prevCutoff && new Date(app.applied_at) < cutoff);
+
+        setTotalJobsPosted(filteredJobs.length);
+        setTotalApplications(filteredApplications.length);
+        setFunnelCounts(filteredApplications.reduce((counts, application) => {
+          const stage = mapApplicationStatusToPipelineStage(application.status);
+
+          if (stage === "Screening") counts.reviewed += 1;
+          if (stage === "Shortlisted") counts.shortlisted += 1;
+          if (stage === "Interview Scheduled") counts.interviewScheduled += 1;
+          if (stage === "Offered") counts.offered += 1;
+          if (stage === "Hired") counts.hired += 1;
+
+          return counts;
+        }, { reviewed: 0, shortlisted: 0, interviewScheduled: 0, offered: 0, hired: 0 }));
+
+        const currentCount = filteredApplications.length;
+        const prevCount = prevApplications.length;
+        let growthText = "+0%";
+        
+        if (prevCount === 0 && currentCount > 0) {
+          growthText = "New";
+        } else if (prevCount === 0 && currentCount === 0) {
+          growthText = "No activity";
+        } else if (prevCount > 0) {
+          const growth = Math.round(((currentCount - prevCount) / prevCount) * 100);
+          growthText = growth > 0 ? `+${growth}%` : `${growth}%`;
+        }
+        setApplicationsGrowth(growthText);
+
+        const profileViews = new Set(
+          filteredApplications.map(app => app.profile_id)
+        ).size;
+        const profileAppearances = filteredApplications.length;
+        setJobViews(profileViews);
+
+        const offeredCount = filteredApplications.filter((application) => application.status === "Offered").length;
+        setOfferAcceptanceRate(filteredApplications.length > 0 ? `${Math.round((offeredCount / filteredApplications.length) * 100)}%` : "—");
+        setProfileVisitRate(profileAppearances > 0 ? `${Math.round((profileViews / profileAppearances) * 100)}%` : "—");
+      } catch {
+        setTotalJobsPosted(null);
+        setTotalApplications(null);
+        setJobViews(null);
+        setOfferAcceptanceRate("—");
+        setProfileVisitRate("—");
+        setApplicationsGrowth("+0%");
+        setFunnelCounts({ reviewed: 0, shortlisted: 0, interviewScheduled: 0, offered: 0, hired: 0 });
+      }
+    }
+
+    loadAnalyticsMetrics();
+  }, [recruiterProfile?.id, timePeriod]);
+
 
   const generateAndShareReport = async () => {
     if (!recruiterProfile?.id) return;
@@ -4442,12 +4671,12 @@ function AnalyticsPage() {
   };
 
   const metrics = [
-    { label: "Total Jobs Posted", value: "12", sub: "Last 30 days", icon: Briefcase, color: "text-blue-600", bg: "bg-blue-50" },
-    { label: "Total Applications", value: "428", sub: "+15% vs last month", icon: Users, color: "text-green-600", bg: "bg-green-50" },
-    { label: "Avg. Time to Hire", value: "18 days", sub: "Industry avg: 25 days", icon: Clock, color: "text-purple-600", bg: "bg-purple-50" },
-    { label: "Offer Acceptance Rate", value: "78%", sub: "+5% vs last quarter", icon: CheckCircle, color: "text-[#FF2B2B]", bg: "bg-red-50" },
-    { label: "Job Views", value: "6,861", sub: "Across all active jobs", icon: Eye, color: "text-orange-600", bg: "bg-orange-50" },
-    { label: "Profile Visit Rate", value: "34%", sub: "Views → Applications", icon: TrendingUp, color: "text-teal-600", bg: "bg-teal-50" },
+    { label: "Total Jobs Posted", value: totalJobsPosted !== null ? `${totalJobsPosted}` : "—", sub: timePeriod === "7d" ? "Last 7 days" : timePeriod === "90d" ? "Last 90 days" : "Last 30 days", icon: Briefcase, color: "text-blue-600", bg: "bg-blue-50" },
+    { label: "Total Applications", value: totalApplications !== null ? `${totalApplications}` : "—", sub: `${applicationsGrowth} vs previous ${timePeriod === "7d" ? "7 days" : timePeriod === "90d" ? "90 days" : "30 days"}`, icon: Users, color: "text-green-600", bg: "bg-green-50" },
+    { label: "day hr min", value: avgTimeToHire, sub: "Industry avg: 25 days", icon: Clock, color: "text-purple-600", bg: "bg-purple-50" },
+    { label: "Offer Acceptance Rate", value: offerAcceptanceRate, sub: "+5% vs last quarter", icon: CheckCircle, color: "text-[#FF2B2B]", bg: "bg-red-50" },
+    { label: "Job Views", value: jobViews !== null ? jobViews.toLocaleString() : "—", sub: "Across all active jobs", icon: Eye, color: "text-orange-600", bg: "bg-orange-50" },
+    { label: "Profile View Rate", value: profileVisitRate, sub: "Profile Appearances", icon: TrendingUp, color: "text-teal-600", bg: "bg-teal-50" },
   ];
 
   const sourceData = [
@@ -4456,6 +4685,19 @@ function AnalyticsPage() {
     { source: "Job Alert Email", count: 87, pct: 20 },
     { source: "Similar Jobs", count: 65, pct: 15 },
     { source: "Social Share", count: 36, pct: 9 },
+  ];
+
+  const totalApplicationsValue = totalApplications ?? 0;
+  const funnelTarget = 500;
+  const funnelPct = (count: number) => Math.min((count / funnelTarget) * 100, 100);
+  const formatFunnelPct = (pct: number) => Number.isInteger(pct) ? String(pct) : pct.toFixed(1);
+  const funnelData = [
+    { stage: "Total Applicants", count: totalApplicationsValue, color: "bg-gray-400" },
+    { stage: "Reviewed", count: funnelCounts.reviewed, color: "bg-blue-400" },
+    { stage: "Shortlisted", count: funnelCounts.shortlisted, color: "bg-pink-400" },
+    { stage: "Interview Scheduled", count: funnelCounts.interviewScheduled, color: "bg-purple-400" },
+    { stage: "Offer Given", count: funnelCounts.offered, color: "bg-orange-400" },
+    { stage: "Hired", count: funnelCounts.hired, color: "bg-emerald-500" },
   ];
 
   const jobPerformance = jobsData.map(j => ({
@@ -4468,7 +4710,7 @@ function AnalyticsPage() {
       <div className="flex justify-between items-center mb-6">
         <h1 className="text-3xl font-bold text-[#3A1F1F]">Analytics</h1>
         <div className="flex gap-2">
-          <Select defaultValue="30d">
+          <Select value={timePeriod} onValueChange={setTimePeriod}>
             <SelectTrigger className="w-36 bg-white border-gray-200 rounded-xl"><SelectValue /></SelectTrigger>
             <SelectContent>
               <SelectItem value="7d">Last 7 days</SelectItem>
@@ -4541,27 +4783,27 @@ function AnalyticsPage() {
         <div className="bg-white rounded-2xl p-6 shadow-sm">
           <h2 className="font-bold text-[#3A1F1F] mb-4">Hiring Funnel</h2>
           <div className="space-y-2">
-            {[
-              { stage: "Total Applicants", count: 172, color: "bg-gray-400" },
-              { stage: "Reviewed", count: 124, color: "bg-blue-400" },
-              { stage: "Shortlisted", count: 48, color: "bg-pink-400" },
-              { stage: "Interview Scheduled", count: 18, color: "bg-purple-400" },
-              { stage: "Offer Given", count: 8, color: "bg-orange-400" },
-              { stage: "Hired", count: 5, color: "bg-emerald-500" },
-            ].map((stage, i, arr) => (
-              <div key={i}>
-                <div className="flex items-center justify-between text-sm mb-1">
-                  <span className="text-[#3A1F1F]">{stage.stage}</span>
-                  <span className="text-[#8A8A8A] font-medium">{stage.count}</span>
-                </div>
-                <div className="h-8 bg-gray-50 rounded-lg overflow-hidden relative">
-                  <div className={`h-full ${stage.color} rounded-lg flex items-center px-3 text-white text-xs font-medium transition-all`}
-                    style={{ width: `${(stage.count / arr[0].count) * 100}%` }}>
-                    {((stage.count / arr[0].count) * 100).toFixed(0)}%
+            {funnelData.map((stage, i) => {
+              const pct = funnelPct(stage.count);
+
+              return (
+                <div key={i}>
+                  <div className="flex items-center justify-between text-sm mb-1">
+                    <span className="text-[#3A1F1F]">{stage.stage}</span>
+                    <span className="text-[#8A8A8A] font-medium">{stage.count}</span>
+                  </div>
+                  <div className="h-8 bg-gray-50 rounded-lg overflow-hidden relative">
+                    <div
+                      className={`h-full ${stage.color} rounded-lg transition-all`}
+                      style={{ width: `${pct}%` }}
+                    />
+                    <span className={`absolute left-3 top-1/2 -translate-y-1/2 text-xs font-medium ${pct >= 12 ? "text-white" : "text-[#3A1F1F]"}`}>
+                      {formatFunnelPct(pct)}%
+                    </span>
                   </div>
                 </div>
-              </div>
-            ))}
+              );
+            })}
           </div>
         </div>
       </div>
