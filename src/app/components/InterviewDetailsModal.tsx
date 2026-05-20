@@ -1,5 +1,7 @@
 import { useEffect, useState } from "react";
 import { Button } from "./ui/button";
+import { Input } from "./ui/input";
+import { Select, SelectContent, SelectItem, SelectTrigger, SelectValue } from "./ui/select";
 import { Textarea } from "./ui/textarea";
 import {
   Dialog,
@@ -12,7 +14,7 @@ import {
 interface InterviewDetailsModalProps {
   open: boolean;
   onOpenChange: (open: boolean) => void;
-  onSubmit: (message: string) => Promise<void>;
+  onSubmit: (message: string, meetingUrl: string, round: "L1" | "L2" | "L3" | "HR Round") => Promise<void>;
   submitting?: boolean;
 }
 
@@ -25,17 +27,38 @@ export default function InterviewDetailsModal({
   submitting = false,
 }: InterviewDetailsModalProps) {
   const [message, setMessage] = useState("");
+  const [meetingUrl, setMeetingUrl] = useState("");
+  const [round, setRound] = useState<"L1" | "L2" | "L3" | "HR Round">("L1");
+
+  const normalizeMeetingUrl = (value: string): string | null => {
+    const trimmed = value.trim();
+    if (!trimmed) return null;
+    const withProtocol = /^https?:\/\//i.test(trimmed) ? trimmed : `https://${trimmed}`;
+    try {
+      const url = new URL(withProtocol);
+      if (url.protocol !== "http:" && url.protocol !== "https:") return null;
+      return url.toString();
+    } catch {
+      return null;
+    }
+  };
 
   useEffect(() => {
     if (!open) {
       setMessage("");
+      setMeetingUrl("");
+      setRound("L1");
     }
   }, [open]);
+
+  const normalizedMeetingUrl = normalizeMeetingUrl(meetingUrl);
+  const isMeetingUrlValid = Boolean(normalizedMeetingUrl);
 
   const handleSend = async () => {
     const trimmed = message.trim();
     if (!trimmed) return;
-    await onSubmit(trimmed);
+    if (!isMeetingUrlValid) return;
+    await onSubmit(trimmed, normalizedMeetingUrl as string, round);
   };
 
   return (
@@ -54,7 +77,28 @@ export default function InterviewDetailsModal({
 
         <div className="space-y-4 px-6 pb-6 pt-5">
           <div>
+            <label htmlFor="interview-round" className="mb-2 block text-sm font-semibold text-[#3A1F1F]">
+              Round
+            </label>
+            <Select value={round} onValueChange={(value) => setRound(value as "L1" | "L2" | "L3" | "HR Round")}>
+              <SelectTrigger id="interview-round" className="rounded-xl border-gray-200 bg-[#F6F6F6] text-[#3A1F1F] focus:ring-[#FF2B2B]">
+                <SelectValue placeholder="Select round" />
+              </SelectTrigger>
+              <SelectContent>
+                <SelectItem value="L1">L1</SelectItem>
+                <SelectItem value="L2">L2</SelectItem>
+                <SelectItem value="L3">L3</SelectItem>
+                <SelectItem value="HR Round">HR Round</SelectItem>
+              </SelectContent>
+            </Select>
+          </div>
+
+          <div>
+            <label htmlFor="interview-description" className="mb-2 block text-sm font-semibold text-[#3A1F1F]">
+              Description
+            </label>
             <Textarea
+              id="interview-description"
               value={message}
               onChange={(event) => setMessage(event.target.value)}
               placeholder="Write interview details, meeting link, instructions, or any message for the candidate..."
@@ -64,6 +108,23 @@ export default function InterviewDetailsModal({
             <p className="mt-1 text-right text-xs text-[#8A8A8A]">
               {message.length}/{MAX_MESSAGE_LENGTH}
             </p>
+          </div>
+
+          <div>
+            <label htmlFor="interview-meeting-url" className="mb-2 block text-sm font-semibold text-[#3A1F1F]">
+              Meeting URL
+            </label>
+            <Input
+              id="interview-meeting-url"
+              type="url"
+              value={meetingUrl}
+              onChange={(event) => setMeetingUrl(event.target.value)}
+              placeholder="https://meet.google.com/..."
+              className="rounded-xl border-gray-200 bg-[#F6F6F6] text-[#3A1F1F] focus-visible:ring-[#FF2B2B]"
+            />
+            {!isMeetingUrlValid && (
+              <p className="mt-1 text-xs text-red-600">Meeting URL is required (you can paste with or without `https://`).</p>
+            )}
           </div>
 
           <div className="flex flex-col gap-3 sm:flex-row sm:justify-end">
@@ -79,7 +140,7 @@ export default function InterviewDetailsModal({
             <Button
               type="button"
               onClick={handleSend}
-              disabled={submitting || !message.trim()}
+              disabled={submitting || !message.trim() || !isMeetingUrlValid}
               className="rounded-full bg-[#FF2B2B] text-white hover:bg-[#e02525]"
             >
               {submitting ? "Sending..." : "Send Details"}

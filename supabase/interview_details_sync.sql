@@ -7,11 +7,14 @@ create table if not exists interview_details (
   recruiter_id uuid not null references recruiter_profiles(id) on delete cascade,
   candidate_id uuid not null references profiles(id) on delete cascade,
   interview_message text not null,
+  meeting_url text,
   status text not null default 'Interview Scheduled' check (status in ('Interview Scheduled')),
   created_at timestamptz not null default now(),
   updated_at timestamptz not null default now(),
   unique (application_id)
 );
+
+alter table interview_details add column if not exists meeting_url text;
 
 create index if not exists interview_details_candidate_idx on interview_details(candidate_id);
 create index if not exists interview_details_recruiter_idx on interview_details(recruiter_id);

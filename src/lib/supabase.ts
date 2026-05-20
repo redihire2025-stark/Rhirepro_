@@ -116,6 +116,7 @@ export interface Application {
   job?: Job;
   profile?: Profile;
   interview_details?: InterviewDetails | null;
+  offer_details?: OfferDetails | null;
 }
 
 export interface InterviewDetails {
@@ -124,9 +125,20 @@ export interface InterviewDetails {
   recruiter_id: string;
   candidate_id: string;
   interview_message: string;
+  meeting_url: string | null;
+  round?: "L1" | "L2" | "L3" | "HR Round" | null;
   status: "Interview Scheduled";
   created_at: string;
   updated_at: string;
+}
+
+export interface OfferDetails {
+  application_id: string;
+  offer_message: string;
+  offer_letter_name: string | null;
+  offer_letter_url: string | null;
+  offer_letter_path: string | null;
+  sent_at: string;
 }
 
 export interface Notification {

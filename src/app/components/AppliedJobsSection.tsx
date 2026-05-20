@@ -20,9 +20,11 @@ interface AppliedJobsSectionProps {
   compact?: boolean;
   onJobsLoaded?: (jobs: AppliedJobWithJob[]) => void;
   onInterviewDetailsOpen?: (job: AppliedJobWithJob) => void;
+  onOfferDetailsOpen?: (job: AppliedJobWithJob) => void;
 }
 
 const PIPELINE_STAGES = ["Applied", "Profile Viewed", "Shortlisted", "Interview", "Offer"] as const;
+const INTERVIEW_ROUNDS = ["L1", "L2", "L3", "HR"] as const;
 
 const STATUS_BADGE_CLASS: Record<string, string> = {
   applied: "bg-slate-100 text-slate-700",
@@ -109,12 +111,13 @@ function formatDate(value: string): string {
   });
 }
 
-export default function AppliedJobsSection({ userId, compact = false, onJobsLoaded, onInterviewDetailsOpen }: AppliedJobsSectionProps) {
+export default function AppliedJobsSection({ userId, compact = false, onJobsLoaded, onInterviewDetailsOpen, onOfferDetailsOpen }: AppliedJobsSectionProps) {
   const [appliedJobs, setAppliedJobs] = useState<AppliedJobWithJob[]>([]);
   const [loading, setLoading] = useState(true);
   const [error, setError] = useState("");
   const [currentPage, setCurrentPage] = useState(1);
   const [interviewDetailsFor, setInterviewDetailsFor] = useState<AppliedJobWithJob | null>(null);
+  const [selectedInterviewRound, setSelectedInterviewRound] = useState<AppliedJobWithJob["interviews"][number] | null>(null);
 
   useEffect(() => {
     const currentUserId = userId;
@@ -144,20 +147,25 @@ export default function AppliedJobsSection({ userId, compact = false, onJobsLoad
       }
     }
 
-    loadAppliedJobs(currentUserId);
+    void loadAppliedJobs(currentUserId);
+    const handleForegroundRefresh = () => {
+      if (document.visibilityState === "visible") {
+        void loadAppliedJobs(currentUserId);
+      }
+    };
 
     const channel = supabase
       .channel(`jobseeker-applications-${currentUserId}`)
       .on(
         "postgres_changes",
         {
-          event: "UPDATE",
+          event: "*",
           schema: "public",
           table: "applications",
           filter: `profile_id=eq.${currentUserId}`,
         },
         () => {
-          loadAppliedJobs(currentUserId);
+          void loadAppliedJobs(currentUserId);
         },
       )
       .on(
@@ -169,7 +177,7 @@ export default function AppliedJobsSection({ userId, compact = false, onJobsLoad
           filter: `candidate_id=eq.${currentUserId}`,
         },
         () => {
-          loadAppliedJobs(currentUserId);
+          void loadAppliedJobs(currentUserId);
         },
       )
       .on(
@@ -181,13 +189,18 @@ export default function AppliedJobsSection({ userId, compact = false, onJobsLoad
           filter: `user_id=eq.${currentUserId}`,
         },
         () => {
-          loadAppliedJobs(currentUserId);
+          void loadAppliedJobs(currentUserId);
         },
       )
       .subscribe();
 
+    window.addEventListener("focus", handleForegroundRefresh);
+    document.addEventListener("visibilitychange", handleForegroundRefresh);
+
     return () => {
       cancelled = true;
+      window.removeEventListener("focus", handleForegroundRefresh);
+      document.removeEventListener("visibilitychange", handleForegroundRefresh);
       supabase.removeChannel(channel);
     };
   }, [onJobsLoaded, userId]);
@@ -262,39 +275,113 @@ export default function AppliedJobsSection({ userId, compact = false, onJobsLoad
             </div>
 
             {!isRejected && !isHired ? (
-              <div className="mt-4 overflow-x-auto">
+              <div className="mt-4 overflow-x-auto [scrollbar-width:none] [&::-webkit-scrollbar]:hidden">
                 <div className="inline-flex min-w-full items-center">
                   {PIPELINE_STAGES.map((stage, index) => {
                     const completed = index < completedCount;
                     const connectorCompleted = index < completedCount - 1;
                     const isInterviewStage = stage === "Interview";
+                    const isOfferStage = stage === "Offer";
                     const isInterviewScheduled = normalizeStatus(application.status) === "interview";
+                    const isOffered = normalizeStatus(application.status) === "offered";
                     const isInterviewActive = isInterviewStage && isInterviewScheduled;
+                    const isOfferActive = isOfferStage && isOffered;
                     const handleInterviewClick = () => {
+                      setSelectedInterviewRound(null);
                       setInterviewDetailsFor(application);
                       onInterviewDetailsOpen?.(application);
+                    };
+                    const handleOfferClick = () => {
+                      onOfferDetailsOpen?.(application);
                     };
 
                     return (
                       <div key={stage} className="flex items-center">
-                        {isInterviewActive ? (
-                          <button
-                            type="button"
-                            onClick={handleInterviewClick}
-                            onKeyDown={(event) => {
-                              if (event.key === "Enter" || event.key === " ") {
-                                event.preventDefault();
-                                handleInterviewClick();
-                              }
-                            }}
-                            className={`inline-flex items-center whitespace-nowrap rounded-full px-3 py-1 text-xs font-semibold ${
-                              completed ? PIPELINE_STAGE_CLASS[stage].completed : PIPELINE_STAGE_CLASS[stage].pending
-                            } cursor-pointer animate-pulse focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-[#FF2B2B] focus-visible:ring-offset-1`}
-                            aria-label="View interview details"
-                            title="View interview details"
-                          >
-                            {stage}
-                          </button>
+                        {isInterviewActive || isOfferActive ? (
+                          <div className="inline-flex items-center gap-1.5">
+                            <button
+                              type="button"
+                              onClick={isInterviewActive ? handleInterviewClick : handleOfferClick}
+                              onKeyDown={(event) => {
+                                if (event.key === "Enter" || event.key === " ") {
+                                  event.preventDefault();
+                                  if (isInterviewActive) handleInterviewClick();
+                                  if (isOfferActive) handleOfferClick();
+                                }
+                              }}
+                              className={`inline-flex items-center whitespace-nowrap rounded-full px-3 py-1 text-xs font-semibold ${
+                                completed ? PIPELINE_STAGE_CLASS[stage].completed : PIPELINE_STAGE_CLASS[stage].pending
+                              } cursor-pointer ${isOfferActive ? "animate-offer-cta" : "animate-interview-cta"} focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-[#FF2B2B] focus-visible:ring-offset-1`}
+                              aria-label={isInterviewActive ? "View interview details" : "View offer details"}
+                              title={isInterviewActive ? "View interview details" : "View offer details"}
+                            >
+                              {stage}
+                            </button>
+                            {isInterviewActive ? (
+                              <div className="inline-flex items-center gap-1">
+                                {INTERVIEW_ROUNDS.map((roundLabel, roundIndex) => {
+                                  const scheduledRounds = application.interviews || [];
+
+                                  const latestScheduledRound = (() => {
+                                    const latest = [...scheduledRounds]
+                                      .filter((item) => item.round)
+                                      .sort((a, b) => new Date(b.updated_at).getTime() - new Date(a.updated_at).getTime())[0];
+                                    if (!latest?.round) return null;
+                                    const normalized = latest.round.toUpperCase().trim();
+                                    return normalized === "HR ROUND" ? "HR" : normalized;
+                                  })();
+
+                                  const latestRoundIndex = latestScheduledRound
+                                    ? INTERVIEW_ROUNDS.indexOf(latestScheduledRound as (typeof INTERVIEW_ROUNDS)[number])
+                                    : -1;
+                                  const hasRound = latestRoundIndex >= 0 && roundIndex <= latestRoundIndex;
+                                  const mappedInterview = [...scheduledRounds]
+                                    .reverse()
+                                    .find((item) => {
+                                      const normalized = (item.round || "").toUpperCase().trim();
+                                      const normalizedRound = normalized === "HR ROUND" ? "HR" : normalized;
+                                      return normalizedRound === roundLabel;
+                                    }) || null;
+
+                                  const isLatestRound = hasRound && latestScheduledRound === roundLabel;
+
+                                  if (!hasRound) {
+                                    return (
+                                      <span
+                                        key={`${application.id}-round-${roundLabel}`}
+                                        className="inline-flex h-5 min-w-5 items-center justify-center rounded-full bg-[#EEF0F4] px-1 text-[10px] font-semibold leading-none text-[#98A2B3]"
+                                        aria-label={`${roundLabel} not scheduled`}
+                                        title={`${roundLabel} not scheduled`}
+                                      >
+                                        {roundLabel}
+                                      </span>
+                                    );
+                                  }
+
+                                  return (
+                                    <button
+                                      key={`${application.id}-${mappedInterview?.updated_at || roundLabel}-${roundIndex}`}
+                                      type="button"
+                                      onClick={() => {
+                                        const detailInterview = mappedInterview || scheduledRounds[scheduledRounds.length - 1] || null;
+                                        if (!detailInterview) return;
+                                        setSelectedInterviewRound(detailInterview);
+                                        setInterviewDetailsFor(application);
+                                        onInterviewDetailsOpen?.(application);
+                                      }}
+                                      className={`inline-flex h-5 min-w-5 items-center justify-center rounded-full bg-[#FF2B2B] px-1 text-[10px] font-semibold leading-none text-white hover:bg-[#e02525] ${
+                                        hasRound ? "animate-interview-cta" : ""
+                                      }`}
+                                      title={`View ${roundLabel} details`}
+                                      aria-label={`View ${roundLabel} details`}
+                                    >
+                                      {roundLabel}
+                                    </button>
+                                  );
+                                })}
+                              </div>
+                            ) : null}
+                          </div>
                         ) : (
                           <span
                             className={`inline-flex items-center whitespace-nowrap rounded-full px-3 py-1 text-xs font-semibold ${
@@ -373,17 +460,60 @@ export default function AppliedJobsSection({ userId, compact = false, onJobsLoad
         </div>
       )}
     </div>
-    <Dialog open={!onInterviewDetailsOpen && Boolean(interviewDetailsFor)} onOpenChange={(open) => !open && setInterviewDetailsFor(null)}>
+    <Dialog
+      open={!onInterviewDetailsOpen && Boolean(interviewDetailsFor)}
+      onOpenChange={(open) => {
+        if (!open) {
+          setInterviewDetailsFor(null);
+          setSelectedInterviewRound(null);
+        }
+      }}
+    >
       <DialogContent className="max-w-lg">
         <DialogHeader>
           <DialogTitle>Interview Details</DialogTitle>
         </DialogHeader>
         <div className="space-y-3 text-sm text-[#3A1F1F]">
-          <p className="whitespace-pre-wrap">{interviewDetailsFor?.interview_details?.interview_message || "No interview details available."}</p>
+          {(() => {
+            const currentInterview = selectedInterviewRound || interviewDetailsFor?.interview_details || null;
+            const explicitMeetingUrl = currentInterview?.meeting_url?.trim() || "";
+            const message = currentInterview?.interview_message || "";
+            const extractedFromMessage = message.match(/https?:\/\/[^\s]+/i)?.[0] || "";
+            const joinUrl = explicitMeetingUrl || extractedFromMessage;
+            if (!joinUrl) return null;
+            return (
+            <p>
+              Join meeting:{" "}
+              <a
+                href={joinUrl}
+                target="_blank"
+                rel="noopener noreferrer"
+                className="text-[#FF2B2B] underline hover:text-[#e02525]"
+              >
+                {joinUrl}
+              </a>
+            </p>
+            );
+          })()}
+          <p className="whitespace-pre-wrap">
+            {((
+              selectedInterviewRound?.interview_message ||
+              interviewDetailsFor?.interview_details?.interview_message ||
+              "No interview details available."
+            )
+              .replace(/^round:.*$/gim, "")
+              .replace(/^meeting url:.*$/gim, "")
+              .trim() || "No interview details available.")}
+          </p>
+          {(selectedInterviewRound?.round || interviewDetailsFor?.interview_details?.round) ? (
+            <p className="text-[#8A8A8A]">
+              Round: {selectedInterviewRound?.round || interviewDetailsFor?.interview_details?.round}
+            </p>
+          ) : null}
           <p className="text-[#8A8A8A]">
             Sent on{" "}
-            {interviewDetailsFor?.interview_details?.updated_at
-              ? new Date(interviewDetailsFor.interview_details.updated_at).toLocaleString("en-IN")
+            {(selectedInterviewRound?.updated_at || interviewDetailsFor?.interview_details?.updated_at)
+              ? new Date(selectedInterviewRound?.updated_at || interviewDetailsFor?.interview_details?.updated_at || "").toLocaleString("en-IN")
               : "N/A"}
           </p>
           {interviewDetailsFor?.job?.company_name ? (

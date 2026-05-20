@@ -38,6 +38,7 @@ export default function FeedbackPopup({
   const [comment, setComment] = useState("");
   const [status, setStatus] = useState<"idle" | "submitting" | "success" | "error">("idle");
   const [message, setMessage] = useState("");
+  const [selectedAction, setSelectedAction] = useState<"later" | "submit" | null>(null);
   const reopenTimerRef = useRef<number | null>(null);
 
   const isSignedIn = Boolean(userId) && userType !== "guest";
@@ -94,6 +95,7 @@ export default function FeedbackPopup({
     setComment("");
     setStatus("idle");
     setMessage("");
+    setSelectedAction(null);
   };
 
   const handleOpenChange = (nextOpen: boolean) => {
@@ -225,16 +227,30 @@ export default function FeedbackPopup({
               <Button
                 type="button"
                 variant="outline"
-                onClick={() => handleOpenChange(false)}
-                className="rounded-full border-gray-200 text-[#3A1F1F]"
+                onClick={() => {
+                  setSelectedAction("later");
+                  handleOpenChange(false);
+                }}
+                className={`rounded-full border-gray-200 text-[#3A1F1F] ${
+                  selectedAction === "later" ? "border-[#FF2B2B] bg-red-50 text-[#FF2B2B]" : ""
+                } ${
+                  selectedAction && selectedAction !== "later" ? "opacity-45" : "opacity-100"
+                }`}
               >
                 Maybe later
               </Button>
               <Button
                 type="button"
-                onClick={handleSubmit}
+                onClick={() => {
+                  setSelectedAction("submit");
+                  void handleSubmit();
+                }}
                 disabled={status === "submitting"}
-                className="rounded-full bg-[#FF2B2B] text-white hover:bg-[#e02525]"
+                className={`rounded-full bg-[#FF2B2B] text-white hover:bg-[#e02525] ${
+                  selectedAction === "submit" ? "ring-2 ring-[#FF2B2B] ring-offset-2" : ""
+                } ${
+                  selectedAction && selectedAction !== "submit" ? "opacity-45" : "opacity-100"
+                }`}
               >
                 <Send className="mr-2 h-4 w-4" />
                 {isSignedIn ? "Send feedback" : "Sign in to send"}
