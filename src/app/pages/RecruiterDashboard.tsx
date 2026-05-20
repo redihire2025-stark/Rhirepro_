@@ -3282,6 +3282,31 @@ interface AppWithProfile extends Application {
   job: Job;
 }
 
+function getCandidateDisplayName(profile?: Profile | null) {
+  if (!profile) return "Unknown Candidate";
+
+  const firstName = profile.first_name?.trim() || "";
+  const lastName = profile.last_name?.trim() || "";
+  const splitName = `${firstName} ${lastName}`.trim();
+  if (splitName) return splitName;
+
+  const googleName = ((profile as any).full_name || (profile as any).name || "").trim();
+  if (googleName) return googleName;
+
+  const emailName = profile.email?.split("@")[0]?.replace(/[._-]+/g, " ").trim() || "";
+  return emailName || "Unknown Candidate";
+}
+
+function getCandidateInitials(name: string, fallback = "UC") {
+  return name
+    .split(" ")
+    .filter(Boolean)
+    .map(part => part[0])
+    .join("")
+    .toUpperCase()
+    .slice(0, 2) || fallback;
+}
+
 function ApplicantsPage() {
   const { recruiterProfile } = useAuth();
   const location = useLocation();
@@ -3359,7 +3384,7 @@ function ApplicantsPage() {
     .filter(a => {
       if (!searchTerm) return true;
       const p = a.profile;
-      const name = `${p?.first_name || ""} ${p?.last_name || ""}`.toLowerCase();
+      const name = getCandidateDisplayName(p).toLowerCase();
       const skills = (p?.skills || []).join(" ").toLowerCase();
       return name.includes(searchTerm.toLowerCase()) || skills.includes(searchTerm.toLowerCase());
     })
@@ -3457,7 +3482,8 @@ function ApplicantsPage() {
       updated = await updateStatus(applicantId, nextStatus);
 
       if (updated) {
-        setProfileModal(prev => prev && prev.id === applicantId ? { ...prev, status: updated } : prev);
+        const resolvedStatus = updated;
+        setProfileModal(prev => prev && prev.id === applicantId ? { ...prev, status: resolvedStatus } : prev);
       }
     } finally {
       setStatusUpdateInFlight(prev => {
@@ -3596,7 +3622,7 @@ function ApplicantsPage() {
       ["Name", "Email", "Phone", "Job", "Status", "Applied At", "Experience", "Skills"],
       ...filtered.map(a => {
         const p = a.profile;
-        const name = `${p?.first_name || ""} ${p?.last_name || ""}`.trim();
+        const name = getCandidateDisplayName(p);
         return [
           name,
           p?.email || "",
@@ -3747,8 +3773,8 @@ function ApplicantsPage() {
       <div className="space-y-3">
         {filtered.map(applicant => {
           const p = applicant.profile;
-          const name = p ? `${p.first_name || ""} ${p.last_name || ""}`.trim() : "Unknown";
-          const initials = name.split(" ").map(n => n[0]).join("").toUpperCase().slice(0, 2);
+          const name = getCandidateDisplayName(p);
+          const initials = getCandidateInitials(name);
           const skills = p?.skills || [];
           const workExp = p?.work_experience || [];
           const edu = p?.education || [];
@@ -3864,8 +3890,10 @@ function ApplicantsPage() {
               const spans: TSpan[] = [];
               const nowVal = new Date().getFullYear() * 12 + new Date().getMonth() + 1;
               edu.forEach(e => {
-                const s = e.start_year ? e.start_year * 12 + 1 : null;
-                const en = e.end_year ? e.end_year * 12 + 6 : null;
+                const startYear = e.start_year ? Number(e.start_year) : null;
+                const endYear = e.end_year ? Number(e.end_year) : null;
+                const s = startYear ? startYear * 12 + 1 : null;
+                const en = endYear ? endYear * 12 + 6 : null;
                 if (s && en && en > s) spans.push({startVal: s, endVal: en, type: 'edu', tooltip: `Education: ${e.degree}${e.field ? " in " + e.field : ""} · ${e.institution}`});
               });
               workExp.forEach(exp => {
@@ -3952,8 +3980,8 @@ function ApplicantsPage() {
       {profileModal && (() => {
         const p = profileModal.profile;
         const isUpdating = statusUpdateInFlight.has(profileModal.id);
-        const name = p ? `${p.first_name || ""} ${p.last_name || ""}`.trim() : "Unknown";
-        const initials = name.split(" ").map(n => n[0]).join("").toUpperCase().slice(0, 2);
+        const name = getCandidateDisplayName(p);
+        const initials = getCandidateInitials(name);
         const workExp = p?.work_experience || [];
         const edu = p?.education || [];
         const skills = p?.skills || [];
@@ -4155,6 +4183,8 @@ function ApplicantsPage() {
 
 function AnalyticsPage() {
   const { recruiterProfile } = useAuth();
+  const activeTimerLastTickAtRef = useRef(Date.now());
+  const [activeTimerNow, setActiveTimerNow] = useState(Date.now());
   const [reportLoading, setReportLoading] = useState(false);
   const [reportCopied, setReportCopied] = useState(false);
   const [reportUrl, setReportUrl] = useState("");
@@ -4167,6 +4197,89 @@ function AnalyticsPage() {
   const [profileVisitRate, setProfileVisitRate] = useState<string>("—");
   const [timePeriod, setTimePeriod] = useState("30d");
   const [applicationsGrowth, setApplicationsGrowth] = useState<string>("+0%");
+  const [funnelCounts, setFunnelCounts] = useState({
+    reviewed: 0,
+    shortlisted: 0,
+    interviewScheduled: 0,
+    offered: 0,
+    hired: 0,
+  });
+
+  const toLocalDateKey = useCallback((timestamp: number) => {
+    const date = new Date(timestamp);
+    const year = date.getFullYear();
+    const month = String(date.getMonth() + 1).padStart(2, "0");
+    const day = String(date.getDate()).padStart(2, "0");
+    return `${year}-${month}-${day}`;
+  }, []);
+
+  const getDateDiffDays = useCallback((fromDateKey: string, toDateKey: string) => {
+    const fromDate = new Date(`${fromDateKey}T00:00:00`);
+    const toDate = new Date(`${toDateKey}T00:00:00`);
+    return Math.max(0, Math.floor((toDate.getTime() - fromDate.getTime()) / (24 * 60 * 60 * 1000)));
+  }, []);
+
+  useEffect(() => {
+    const timer = window.setInterval(() => setActiveTimerNow(Date.now()), 1000);
+    return () => window.clearInterval(timer);
+  }, []);
+
+  useEffect(() => {
+    if (!recruiterProfile?.id) {
+      setAvgTimeToHire("—");
+      activeTimerLastTickAtRef.current = activeTimerNow;
+      return;
+    }
+
+    const todayKey = toLocalDateKey(activeTimerNow);
+    const storageKey = `rhirepro:recruiter-active-time:${recruiterProfile.id}`;
+    const elapsedSeconds = Math.max(0, Math.floor((activeTimerNow - activeTimerLastTickAtRef.current) / 1000));
+    const tickSeconds = document.hidden ? 0 : Math.min(elapsedSeconds, 5);
+    activeTimerLastTickAtRef.current = activeTimerNow;
+
+    let firstActiveDateKey = todayKey;
+    let currentDateKey = todayKey;
+    let todayActiveSeconds = 0;
+
+    try {
+      const storedRaw = localStorage.getItem(storageKey);
+      const stored = storedRaw
+        ? JSON.parse(storedRaw) as { firstActiveDateKey?: string; currentDateKey?: string; todayActiveSeconds?: number }
+        : {};
+
+      firstActiveDateKey = stored.firstActiveDateKey || todayKey;
+      currentDateKey = stored.currentDateKey || todayKey;
+      todayActiveSeconds = typeof stored.todayActiveSeconds === "number" ? stored.todayActiveSeconds : 0;
+    } catch {
+      firstActiveDateKey = todayKey;
+      currentDateKey = todayKey;
+      todayActiveSeconds = 0;
+    }
+
+    if (currentDateKey !== todayKey) {
+      currentDateKey = todayKey;
+      todayActiveSeconds = 0;
+    }
+
+    todayActiveSeconds += tickSeconds;
+
+    try {
+      localStorage.setItem(storageKey, JSON.stringify({
+        firstActiveDateKey,
+        currentDateKey,
+        todayActiveSeconds,
+      }));
+    } catch {
+      // Keep the visible timer working even if browser storage is unavailable.
+    }
+
+    const activeDays = getDateDiffDays(firstActiveDateKey, todayKey);
+    const activeHours = Math.floor(todayActiveSeconds / 3600);
+    const activeMins = Math.floor((todayActiveSeconds % 3600) / 60);
+    const pad = (n: number) => String(n).padStart(2, "0");
+
+    setAvgTimeToHire(`${activeDays}:${pad(activeHours)}:${pad(activeMins)}`);
+  }, [activeTimerNow, getDateDiffDays, recruiterProfile?.id, toLocalDateKey]);
 
   useEffect(() => {
     async function loadAnalyticsMetrics() {
@@ -4187,11 +4300,11 @@ function AnalyticsPage() {
         if (jobsRes.error || appsRes.error) {
           setTotalJobsPosted(null);
           setTotalApplications(null);
-          setAvgTimeToHire("—");
           setJobViews(null);
           setOfferAcceptanceRate("—");
           setProfileVisitRate("—");
           setApplicationsGrowth("+0%");
+          setFunnelCounts({ reviewed: 0, shortlisted: 0, interviewScheduled: 0, offered: 0, hired: 0 });
           return;
         }
 
@@ -4209,6 +4322,17 @@ function AnalyticsPage() {
 
         setTotalJobsPosted(filteredJobs.length);
         setTotalApplications(filteredApplications.length);
+        setFunnelCounts(filteredApplications.reduce((counts, application) => {
+          const stage = mapApplicationStatusToPipelineStage(application.status);
+
+          if (stage === "Screening") counts.reviewed += 1;
+          if (stage === "Shortlisted") counts.shortlisted += 1;
+          if (stage === "Interview Scheduled") counts.interviewScheduled += 1;
+          if (stage === "Offered") counts.offered += 1;
+          if (stage === "Hired") counts.hired += 1;
+
+          return counts;
+        }, { reviewed: 0, shortlisted: 0, interviewScheduled: 0, offered: 0, hired: 0 }));
 
         const currentCount = filteredApplications.length;
         const prevCount = prevApplications.length;
@@ -4224,164 +4348,23 @@ function AnalyticsPage() {
         }
         setApplicationsGrowth(growthText);
 
-        const totalActiveJobViews = new Set(
+        const profileViews = new Set(
           filteredApplications.map(app => app.profile_id)
         ).size;
-        setJobViews(totalActiveJobViews);
+        const profileAppearances = filteredApplications.length;
+        setJobViews(profileViews);
 
         const offeredCount = filteredApplications.filter((application) => application.status === "Offered").length;
         setOfferAcceptanceRate(filteredApplications.length > 0 ? `${Math.round((offeredCount / filteredApplications.length) * 100)}%` : "—");
-        setProfileVisitRate(totalActiveJobViews > 0 ? `${Math.round((filteredApplications.length / totalActiveJobViews) * 100)}%` : "—");
-
-        // Prefer calculating recruiter active time from activity/session tables if present.
-        // Fallback: average days between job.created_at -> application.applied_at.
-        const activityTables = [
-          "recruiter_activity",
-          "activity_logs",
-          "activity_sessions",
-          "user_activity",
-          "session_logs",
-          "activity",
-        ];
-
-        let totalActiveSeconds = 0;
-        let foundActivity = false;
-
-        for (const table of activityTables) {
-          try {
-            // try to fetch common columns if the table exists
-            // limit to 1000 rows to keep response size reasonable
-            // columns: started_at, ended_at, duration_seconds
-            // some schemas may use different names; this is a best-effort attempt
-            // Query only recent activity within the selected cutoff
-            // eslint-disable-next-line no-await-in-loop
-            const { data: activityData, error: activityError } = await supabase
-              .from(table)
-              .select("started_at, ended_at, duration_seconds")
-              .eq("recruiter_id", recruiterProfile.id)
-              .gte("started_at", cutoff)
-              .limit(1000 as any);
-
-            if (!activityError && activityData && (activityData as any[]).length > 0) {
-              foundActivity = true;
-              for (const row of (activityData as any[])) {
-                if (row == null) continue;
-                if (row.duration_seconds != null) {
-                  totalActiveSeconds += Number(row.duration_seconds) || 0;
-                } else if (row.started_at && row.ended_at) {
-                  const s = Date.parse(row.started_at);
-                  const e = Date.parse(row.ended_at);
-                  if (Number.isFinite(s) && Number.isFinite(e) && e > s) {
-                    totalActiveSeconds += Math.max(0, (e - s) / 1000);
-                  }
-                }
-              }
-              break;
-            }
-          } catch (err) {
-            // ignore and try next candidate table
-          }
-        }
-
-        if (foundActivity && totalActiveSeconds > 0) {
-          // Compute unique calendar dates touched by activity and total seconds
-          const activeDateSet = new Set<string>();
-          // We re-query the activity table rows above and processed them into totalActiveSeconds,
-          // but we didn't capture per-row dates there. If the table provided started_at/ended_at
-          // we'll infer dates now by re-fetching the same candidate tables until we find one.
-          for (const table of activityTables) {
-            try {
-              // eslint-disable-next-line no-await-in-loop
-              const { data: activityData } = await supabase
-                .from(table)
-                .select("started_at, ended_at, duration_seconds")
-                .eq("recruiter_id", recruiterProfile.id)
-                .gte("started_at", cutoff)
-                .limit(1000 as any);
-
-              if (activityData && (activityData as any[]).length > 0) {
-                for (const row of (activityData as any[])) {
-                  if (!row) continue;
-                  if (row.started_at && row.ended_at) {
-                    const s = Date.parse(row.started_at);
-                    const e = Date.parse(row.ended_at);
-                    if (Number.isFinite(s) && Number.isFinite(e) && e >= s) {
-                      // iterate calendar dates touched by this session (local dates)
-                      const startDay = new Date(s);
-                      startDay.setHours(0, 0, 0, 0);
-                      const endTime = new Date(e);
-                      let cur = new Date(startDay.getTime());
-                      while (cur.getTime() <= endTime.getTime()) {
-                        // use YYYY-MM-DD from local time
-                        const iso = cur.toISOString().slice(0, 10);
-                        activeDateSet.add(iso);
-                        cur.setDate(cur.getDate() + 1);
-                      }
-                    }
-                  } else if (row.started_at) {
-                    const s = Date.parse(row.started_at);
-                    if (Number.isFinite(s)) {
-                      activeDateSet.add(new Date(s).toISOString().slice(0, 10));
-                    }
-                  } else if (row.duration_seconds != null) {
-                    // no timestamps — conservatively count today as active
-                    activeDateSet.add(new Date().toISOString().slice(0, 10));
-                  }
-                }
-                break;
-              }
-            } catch (err) {
-              // ignore and try next
-            }
-          }
-
-          const totalSeconds = Math.round(totalActiveSeconds);
-          const totalHours = Math.floor(totalSeconds / 3600);
-          const totalMins = Math.floor((totalSeconds % 3600) / 60);
-          const distinctDays = activeDateSet.size;
-
-          const pad = (n: number) => String(n).padStart(2, "0");
-
-          let txt = "";
-          if (distinctDays <= 1) {
-            // Show as HH:MM when activity only on a single calendar day
-            if (totalSeconds < 60) txt = "<1 min";
-            else txt = `${pad(totalHours)}:${pad(totalMins)}`;
-          } else {
-            // Show as D:HH:MM where D is number of calendar days touched, and HH:MM is total active time
-            txt = `${distinctDays}:${pad(totalHours)}:${pad(totalMins)}`;
-          }
-
-          setAvgTimeToHire(txt);
-        } else {
-          // Fallback to previous behavior (average days between job.created_at -> application.applied_at)
-          const jobCreatedAtById = new Map(filteredJobs.map((job) => [job.id, job.created_at]));
-          const dayDiffs = filteredApplications
-            .map((application) => {
-              const createdAt = jobCreatedAtById.get(application.job_id);
-              if (!createdAt || !application.applied_at) return null;
-              const createdTime = Date.parse(createdAt);
-              const appliedTime = Date.parse(application.applied_at);
-              if (!Number.isFinite(createdTime) || !Number.isFinite(appliedTime)) return null;
-              return Math.max(0, (appliedTime - createdTime) / (1000 * 60 * 60 * 24));
-            })
-            .filter((value): value is number => value !== null);
-
-          if (dayDiffs.length > 0) {
-            const averageDays = Math.round(dayDiffs.reduce((sum, value) => sum + value, 0) / dayDiffs.length);
-            setAvgTimeToHire(`${averageDays} days`);
-          } else {
-            setAvgTimeToHire("—");
-          }
-        }
+        setProfileVisitRate(profileAppearances > 0 ? `${Math.round((profileViews / profileAppearances) * 100)}%` : "—");
       } catch {
         setTotalJobsPosted(null);
         setTotalApplications(null);
-        setAvgTimeToHire("—");
         setJobViews(null);
         setOfferAcceptanceRate("—");
         setProfileVisitRate("—");
         setApplicationsGrowth("+0%");
+        setFunnelCounts({ reviewed: 0, shortlisted: 0, interviewScheduled: 0, offered: 0, hired: 0 });
       }
     }
 
@@ -4447,10 +4430,10 @@ function AnalyticsPage() {
   const metrics = [
     { label: "Total Jobs Posted", value: totalJobsPosted !== null ? `${totalJobsPosted}` : "—", sub: timePeriod === "7d" ? "Last 7 days" : timePeriod === "90d" ? "Last 90 days" : "Last 30 days", icon: Briefcase, color: "text-blue-600", bg: "bg-blue-50" },
     { label: "Total Applications", value: totalApplications !== null ? `${totalApplications}` : "—", sub: `${applicationsGrowth} vs previous ${timePeriod === "7d" ? "7 days" : timePeriod === "90d" ? "90 days" : "30 days"}`, icon: Users, color: "text-green-600", bg: "bg-green-50" },
-    { label: "Avg Time to Hire", value: avgTimeToHire, sub: "Industry avg: 25 days", icon: Clock, color: "text-purple-600", bg: "bg-purple-50" },
+    { label: "day hr min", value: avgTimeToHire, sub: "Industry avg: 25 days", icon: Clock, color: "text-purple-600", bg: "bg-purple-50" },
     { label: "Offer Acceptance Rate", value: offerAcceptanceRate, sub: "+5% vs last quarter", icon: CheckCircle, color: "text-[#FF2B2B]", bg: "bg-red-50" },
     { label: "Job Views", value: jobViews !== null ? jobViews.toLocaleString() : "—", sub: "Across all active jobs", icon: Eye, color: "text-orange-600", bg: "bg-orange-50" },
-    { label: "Profile Visit Rate", value: profileVisitRate, sub: "Views → Applications", icon: TrendingUp, color: "text-teal-600", bg: "bg-teal-50" },
+    { label: "Profile View Rate", value: profileVisitRate, sub: "Profile Appearances", icon: TrendingUp, color: "text-teal-600", bg: "bg-teal-50" },
   ];
 
   const sourceData = [
@@ -4459,6 +4442,19 @@ function AnalyticsPage() {
     { source: "Job Alert Email", count: 87, pct: 20 },
     { source: "Similar Jobs", count: 65, pct: 15 },
     { source: "Social Share", count: 36, pct: 9 },
+  ];
+
+  const totalApplicationsValue = totalApplications ?? 0;
+  const funnelTarget = 500;
+  const funnelPct = (count: number) => Math.min((count / funnelTarget) * 100, 100);
+  const formatFunnelPct = (pct: number) => Number.isInteger(pct) ? String(pct) : pct.toFixed(1);
+  const funnelData = [
+    { stage: "Total Applicants", count: totalApplicationsValue, color: "bg-gray-400" },
+    { stage: "Reviewed", count: funnelCounts.reviewed, color: "bg-blue-400" },
+    { stage: "Shortlisted", count: funnelCounts.shortlisted, color: "bg-pink-400" },
+    { stage: "Interview Scheduled", count: funnelCounts.interviewScheduled, color: "bg-purple-400" },
+    { stage: "Offer Given", count: funnelCounts.offered, color: "bg-orange-400" },
+    { stage: "Hired", count: funnelCounts.hired, color: "bg-emerald-500" },
   ];
 
   const jobPerformance = jobsData.map(j => ({
@@ -4544,27 +4540,27 @@ function AnalyticsPage() {
         <div className="bg-white rounded-2xl p-6 shadow-sm">
           <h2 className="font-bold text-[#3A1F1F] mb-4">Hiring Funnel</h2>
           <div className="space-y-2">
-            {[
-              { stage: "Total Applicants", count: 172, color: "bg-gray-400" },
-              { stage: "Reviewed", count: 124, color: "bg-blue-400" },
-              { stage: "Shortlisted", count: 48, color: "bg-pink-400" },
-              { stage: "Interview Scheduled", count: 18, color: "bg-purple-400" },
-              { stage: "Offer Given", count: 8, color: "bg-orange-400" },
-              { stage: "Hired", count: 5, color: "bg-emerald-500" },
-            ].map((stage, i, arr) => (
-              <div key={i}>
-                <div className="flex items-center justify-between text-sm mb-1">
-                  <span className="text-[#3A1F1F]">{stage.stage}</span>
-                  <span className="text-[#8A8A8A] font-medium">{stage.count}</span>
-                </div>
-                <div className="h-8 bg-gray-50 rounded-lg overflow-hidden relative">
-                  <div className={`h-full ${stage.color} rounded-lg flex items-center px-3 text-white text-xs font-medium transition-all`}
-                    style={{ width: `${(stage.count / arr[0].count) * 100}%` }}>
-                    {((stage.count / arr[0].count) * 100).toFixed(0)}%
+            {funnelData.map((stage, i) => {
+              const pct = funnelPct(stage.count);
+
+              return (
+                <div key={i}>
+                  <div className="flex items-center justify-between text-sm mb-1">
+                    <span className="text-[#3A1F1F]">{stage.stage}</span>
+                    <span className="text-[#8A8A8A] font-medium">{stage.count}</span>
+                  </div>
+                  <div className="h-8 bg-gray-50 rounded-lg overflow-hidden relative">
+                    <div
+                      className={`h-full ${stage.color} rounded-lg transition-all`}
+                      style={{ width: `${pct}%` }}
+                    />
+                    <span className={`absolute left-3 top-1/2 -translate-y-1/2 text-xs font-medium ${pct >= 12 ? "text-white" : "text-[#3A1F1F]"}`}>
+                      {formatFunnelPct(pct)}%
+                    </span>
                   </div>
                 </div>
-              </div>
-            ))}
+              );
+            })}
           </div>
         </div>
       </div>
