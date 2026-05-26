@@ -110,29 +110,6 @@ create table if not exists jobs (
   created_at      timestamptz default now()
 );
 
-create table if not exists recruiter_articles (
-  id               uuid primary key default gen_random_uuid(),
-  recruiter_id     uuid not null references recruiter_profiles(id) on delete cascade,
-  title            text not null,
-  category         text not null,
-  summary          text,
-  key_takeaway     text,
-  content          text not null,
-  cover_image_url  text,
-  cover_image_name text,
-  read_time        integer not null default 1,
-  status           text not null default 'Published' check (status in ('Published', 'Draft')),
-  created_at       timestamptz not null default now(),
-  updated_at       timestamptz not null default now(),
-  published_at     timestamptz
-);
-
-create index if not exists recruiter_articles_recruiter_id_idx
-  on recruiter_articles(recruiter_id);
-
-create index if not exists recruiter_articles_public_feed_idx
-  on recruiter_articles(status, published_at desc, created_at desc);
-
 -- Run if the jobs table already exists (migration):
 -- alter table jobs add column if not exists roles_responsibilities text;
 -- alter table jobs add column if not exists requirements text;
@@ -210,7 +187,6 @@ alter table work_experience enable row level security;
 alter table education enable row level security;
 alter table recruiter_profiles enable row level security;
 alter table jobs enable row level security;
-alter table recruiter_articles enable row level security;
 alter table applications enable row level security;
 alter table saved_jobs enable row level security;
 alter table notifications enable row level security;
@@ -279,32 +255,6 @@ create policy "Anyone can read active jobs"
       )
     )
   );
-
-drop policy if exists "Recruiters manage own articles" on recruiter_articles;
-drop policy if exists "Public can read published recruiter articles" on recruiter_articles;
-create policy "Recruiters manage own articles"
-  on recruiter_articles for all
-  using (recruiter_id = auth.uid())
-  with check (recruiter_id = auth.uid());
-create policy "Public can read published recruiter articles"
-  on recruiter_articles for select
-  using (status = 'Published');
-
-create or replace function set_recruiter_article_updated_at()
-returns trigger as $$
-begin
-  new.updated_at = now();
-  if new.status = 'Published' and new.published_at is null then
-    new.published_at = now();
-  end if;
-  return new;
-end;
-$$ language plpgsql;
-
-drop trigger if exists recruiter_articles_updated_at on recruiter_articles;
-create trigger recruiter_articles_updated_at
-  before insert or update on recruiter_articles
-  for each row execute function set_recruiter_article_updated_at();
 
 -- applications
 drop policy if exists "Job seekers see own applications" on applications;

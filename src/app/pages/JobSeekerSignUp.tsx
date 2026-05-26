@@ -1,5 +1,5 @@
 import { useState } from "react";
-import { useNavigate, Link, useLocation } from "react-router";
+import { useNavigate, Link } from "react-router";
 
 const logoImage = new URL("../../logo/logo.png", import.meta.url).href;
 import { Eye, EyeOff, Loader2, CheckCircle } from "lucide-react";
@@ -33,9 +33,6 @@ export default function JobSeekerSignUp() {
   const [error, setError] = useState("");
   const [success, setSuccess] = useState(false);
   const navigate = useNavigate();
-  const location = useLocation();
-  const redirectTo = new URLSearchParams(location.search).get("redirect");
-  const safeRedirectTo = redirectTo?.startsWith("/") ? redirectTo : "/jobseeker/dashboard";
 
   const handleSubmit = async (e: React.FormEvent) => {
     e.preventDefault();
@@ -89,12 +86,12 @@ export default function JobSeekerSignUp() {
       const { data: { session } } = await supabase.auth.getSession();
       if (session) {
         // Already signed in — go straight to dashboard
-        navigate(safeRedirectTo);
+        navigate("/jobseeker/dashboard");
         return;
       }
 
       setSuccess(true);
-      setTimeout(() => navigate(`/jobseeker/signin${redirectTo ? `?redirect=${encodeURIComponent(safeRedirectTo)}` : ""}`), 3000);
+      setTimeout(() => navigate("/jobseeker/signin"), 3000);
     } catch (err: unknown) {
       const message = err instanceof Error ? err.message : "Sign up failed.";
       if (message.includes("already registered")) {
@@ -309,7 +306,7 @@ export default function JobSeekerSignUp() {
 
           <p className="text-center mt-6 text-sm text-[#8A8A8A]">
             Already have an account?{" "}
-            <Link to={`/jobseeker/signin${redirectTo ? `?redirect=${encodeURIComponent(safeRedirectTo)}` : ""}`} className="text-[#FF2B2B] font-semibold hover:underline">
+            <Link to="/jobseeker/signin" className="text-[#FF2B2B] font-semibold hover:underline">
               Sign In
             </Link>
           </p>

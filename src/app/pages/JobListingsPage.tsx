@@ -18,7 +18,6 @@ import { isJobVisibleToSeekers } from "../../lib/jobs";
 import { useAuth } from "../../lib/auth-context";
 import { getRecommendedJobs, recordJobInteraction, recordJobSearch } from "../../lib/jobRecommendations";
 import { isIndianLocation } from "../../lib/locationData";
-import JobShareButton from "../components/JobShareButton";
 import {
   assignBalancedCategories,
   getAvailableJobCategories,
@@ -410,11 +409,10 @@ export default function JobListingsPage() {
                   navigate(`/job/${job.id}`);
                 }}
               >
-                <JobShareButton jobId={job.id} title={job.title} className="absolute right-4 top-4" />
                 {job.featured && (
-                  <div className="absolute top-5 right-16 w-3 h-3 bg-[#FF2B2B] rounded-full"></div>
+                  <div className="absolute top-4 right-4 w-3 h-3 bg-[#FF2B2B] rounded-full"></div>
                 )}
-                <div className="mb-4 pr-12">
+                <div className="mb-4">
                   <span className="text-sm text-[#8A8A8A]">{job.company}</span>
                   <h3 className="text-xl font-bold text-[#3A1F1F] mt-1">{job.title}</h3>
                 </div>

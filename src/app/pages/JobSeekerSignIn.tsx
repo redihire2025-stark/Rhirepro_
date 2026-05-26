@@ -1,5 +1,5 @@
 import { useState } from "react";
-import { useNavigate, Link, useLocation } from "react-router";
+import { useNavigate, Link } from "react-router";
 
 const logoImage = new URL("../../logo/logo.png", import.meta.url).href;
 import { Eye, EyeOff, Loader2, ShieldCheck, RefreshCw, Mail } from "lucide-react";
@@ -63,9 +63,6 @@ export default function JobSeekerSignIn() {
   const [showNewPassword, setShowNewPassword] = useState(false);
   const [resetSuccess, setResetSuccess] = useState(false);
   const navigate = useNavigate();
-  const location = useLocation();
-  const redirectTo = new URLSearchParams(location.search).get("redirect");
-  const safeRedirectTo = redirectTo?.startsWith("/") ? redirectTo : "/jobseeker/dashboard";
 
   const handleForgotPassword = async (e: React.FormEvent) => {
     e.preventDefault();
@@ -167,7 +164,7 @@ export default function JobSeekerSignIn() {
       if (!valid) throw new Error("Invalid or expired OTP. Please try again.");
       await supabase.from("profiles").update({ otp_code: null, otp_expires_at: null }).eq("id", userId);
       // Dashboard checks profile completion on load and redirects to profile if needed
-      navigate(safeRedirectTo);
+      navigate("/jobseeker/dashboard");
     } catch (err: unknown) {
       setError(err instanceof Error ? err.message : "OTP verification failed.");
     } finally {
@@ -395,7 +392,7 @@ export default function JobSeekerSignIn() {
 
               <p className="text-center mt-6 text-sm text-[#8A8A8A]">
                 Don't have an account?{" "}
-                <Link to={`/jobseeker/signup${redirectTo ? `?redirect=${encodeURIComponent(safeRedirectTo)}` : ""}`} className="text-[#FF2B2B] font-semibold hover:underline">
+                <Link to="/jobseeker/signup" className="text-[#FF2B2B] font-semibold hover:underline">
                   Sign Up Free
                 </Link>
               </p>

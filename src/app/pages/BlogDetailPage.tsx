@@ -1,11 +1,10 @@
-import { useEffect, useMemo, useState } from "react";
+import { useState } from "react";
 import { Menu, ChevronRight, Facebook, Instagram, Twitter, Bell, Star, ArrowRight, MapPin, Clock, User } from "lucide-react";
 import { Button } from "../components/ui/button";
 import { Input } from "../components/ui/input";
 import { Sheet, SheetContent, SheetTrigger, SheetTitle, SheetDescription } from "../components/ui/sheet";
 import { useNavigate, useParams } from "react-router";
 import logoImage from "../../logo/logo.png";
-import { supabase, type RecruiterArticle } from "../../lib/supabase";
 
 const articles = [
   {
@@ -214,174 +213,13 @@ const articles = [
   }
 ];
 
-type MoreArticle = {
-  id: string;
-  title: string;
-  category: string;
-  date: string;
-  readTime: string;
-};
-
-const ARTICLE_CATEGORY_OPTIONS = [
-  "Career Tips",
-  "Industry Insights",
-  "Recruitment Trends",
-  "Employer Tips",
-  "Job Search",
-  "Workplace Culture",
-  "Remote Work",
-  "AI in Recruitment",
-  "Resume Building",
-  "Interview Preparation",
-  "Hiring Strategy",
-  "Leadership",
-  "Employee Engagement",
-  "Salary Insights",
-  "Freshers Guide",
-];
-
-const formatArticleDate = (article: Pick<RecruiterArticle, "published_at" | "created_at">) =>
-  new Date(article.published_at || article.created_at).toLocaleDateString("en-US", {
-    month: "long",
-    day: "numeric",
-    year: "numeric",
-  });
-
-const shuffleArticles = <T,>(items: T[]) => {
-  const shuffled = [...items];
-
-  for (let index = shuffled.length - 1; index > 0; index -= 1) {
-    const randomIndex = Math.floor(Math.random() * (index + 1));
-    [shuffled[index], shuffled[randomIndex]] = [shuffled[randomIndex], shuffled[index]];
-  }
-
-  return shuffled;
-};
-
 export default function BlogDetailPage() {
   const [isMenuOpen, setIsMenuOpen] = useState(false);
   const [email, setEmail] = useState("");
   const navigate = useNavigate();
   const { id } = useParams();
-  const [databaseArticle, setDatabaseArticle] = useState<RecruiterArticle | null>(null);
-  const [publishedArticles, setPublishedArticles] = useState<RecruiterArticle[]>([]);
-  const [articleLoading, setArticleLoading] = useState(false);
-  const numericArticleId = Number(id);
-  const isDatabaseArticleId = Boolean(id && Number.isNaN(numericArticleId));
 
-  useEffect(() => {
-    async function loadDatabaseArticle() {
-      if (!id || !isDatabaseArticleId) {
-        setDatabaseArticle(null);
-        return;
-      }
-
-      setArticleLoading(true);
-      const articleResult = await supabase
-        .from("recruiter_articles")
-        .select("*")
-        .eq("id", id)
-        .eq("status", "Published")
-        .single();
-
-      setDatabaseArticle(articleResult.data as RecruiterArticle | null);
-      setArticleLoading(false);
-    }
-
-    void loadDatabaseArticle();
-  }, [id, isDatabaseArticleId]);
-
-  useEffect(() => {
-    async function loadPublishedArticles() {
-      const { data } = await supabase
-        .from("recruiter_articles")
-        .select("*")
-        .eq("status", "Published")
-        .order("published_at", { ascending: false, nullsFirst: false })
-        .order("created_at", { ascending: false });
-
-      setPublishedArticles((data || []) as RecruiterArticle[]);
-    }
-
-    void loadPublishedArticles();
-  }, []);
-
-  const staticArticle = articles.find(a => a.id === numericArticleId) || articles[0];
-  const contentParagraphs = databaseArticle?.content
-    .split(/\n{2,}/)
-    .map(paragraph => paragraph.trim())
-    .filter(Boolean) || [];
-  const fallbackKeyTakeaway = contentParagraphs[contentParagraphs.length - 1] || databaseArticle?.summary || "Thanks for reading this recruiter insight.";
-  const article = databaseArticle ? {
-    id: 0,
-    title: databaseArticle.title,
-    category: databaseArticle.category,
-    date: formatArticleDate(databaseArticle),
-    author: "RhirePro Recruiter",
-    readTime: `${databaseArticle.read_time} min read`,
-    intro: databaseArticle.summary || contentParagraphs[0] || databaseArticle.content,
-    sections: (contentParagraphs.length > 1 ? contentParagraphs.slice(1) : contentParagraphs).map((paragraph, index) => ({
-      heading: index === 0 ? "Article" : `Insight ${index + 1}`,
-      content: paragraph,
-    })),
-    conclusion: databaseArticle.key_takeaway || fallbackKeyTakeaway,
-  } : staticArticle;
-  const moreArticles: MoreArticle[] = useMemo(
-    () => shuffleArticles(publishedArticles)
-      .filter((publishedArticle) => publishedArticle.id !== databaseArticle?.id)
-      .slice(0, 4)
-      .map((publishedArticle) => ({
-        id: publishedArticle.id,
-        title: publishedArticle.title,
-        category: publishedArticle.category,
-        date: formatArticleDate(publishedArticle),
-        readTime: `${publishedArticle.read_time} min read`,
-      })),
-    [databaseArticle?.id, publishedArticles]
-  );
-  const relatedCategories = useMemo(
-    () => {
-      const categories = Array.from(
-        new Set([
-          ...publishedArticles.map((publishedArticle) => publishedArticle.category).filter(Boolean),
-          ...ARTICLE_CATEGORY_OPTIONS,
-        ])
-      );
-      const currentCategory = article.category;
-      const otherCategories = categories.filter((category) => category !== currentCategory);
-      const randomCategories = shuffleArticles(otherCategories).slice(0, 7);
-
-      return currentCategory
-        ? [currentCategory, ...randomCategories]
-        : randomCategories.slice(0, 8);
-    },
-    [article.category, publishedArticles]
-  );
-  const currentDatabaseArticleIndex = databaseArticle
-    ? publishedArticles.findIndex(link => link.id === databaseArticle.id)
-    : -1;
-  const previousArticlePath = databaseArticle
-    ? currentDatabaseArticleIndex > 0
-      ? `/blog/${publishedArticles[currentDatabaseArticleIndex - 1].id}`
-      : null
-    : article.id > 1
-      ? `/blog/${article.id - 1}`
-      : null;
-  const nextArticlePath = databaseArticle
-    ? currentDatabaseArticleIndex >= 0 && currentDatabaseArticleIndex < publishedArticles.length - 1
-      ? `/blog/${publishedArticles[currentDatabaseArticleIndex + 1].id}`
-      : null
-    : article.id < articles.length
-      ? `/blog/${article.id + 1}`
-      : null;
-
-  if (articleLoading) {
-    return (
-      <div className="min-h-screen bg-[#F6F6F6] flex items-center justify-center">
-        <div className="w-10 h-10 border-4 border-[#FF2B2B] border-t-transparent rounded-full animate-spin" />
-      </div>
-    );
-  }
+  const article = articles.find(a => a.id === Number(id)) || articles[0];
 
   return (
     <div className="min-h-screen bg-[#F6F6F6]">
@@ -524,8 +362,8 @@ export default function BlogDetailPage() {
               {/* Navigation between articles */}
               <div className="bg-white rounded-2xl p-6 shadow-md flex justify-between items-center gap-4">
                 <Button
-                  onClick={() => previousArticlePath && navigate(previousArticlePath)}
-                  disabled={!previousArticlePath}
+                  onClick={() => navigate(`/blog/${Math.max(1, article.id - 1)}`)}
+                  disabled={article.id === 1}
                   variant="outline"
                   className="border-2 border-[#FF2B2B] text-[#FF2B2B] hover:bg-[#FF2B2B] hover:text-white rounded-full px-6 disabled:opacity-40"
                 >
@@ -539,8 +377,8 @@ export default function BlogDetailPage() {
                   All Articles
                 </Button>
                 <Button
-                  onClick={() => nextArticlePath && navigate(nextArticlePath)}
-                  disabled={!nextArticlePath}
+                  onClick={() => navigate(`/blog/${Math.min(articles.length, article.id + 1)}`)}
+                  disabled={article.id === articles.length}
                   className="bg-[#FF2B2B] hover:bg-[#e02525] text-white rounded-full px-6 disabled:opacity-40"
                 >
                   Next Article →
@@ -571,7 +409,7 @@ export default function BlogDetailPage() {
               <div className="bg-white rounded-2xl p-6 shadow-md">
                 <h3 className="text-lg font-bold text-[#3A1F1F] mb-4">More Articles</h3>
                 <div className="space-y-4">
-                  {moreArticles.length > 0 ? moreArticles.map(a => (
+                  {articles.filter(a => a.id !== article.id).slice(0, 4).map(a => (
                     <div
                       key={a.id}
                       className="cursor-pointer hover:bg-[#F6F6F6] p-3 rounded-xl transition-colors"
@@ -585,11 +423,7 @@ export default function BlogDetailPage() {
                       </p>
                       <p className="text-xs text-[#8A8A8A] mt-1">{a.readTime} · {a.date}</p>
                     </div>
-                  )) : (
-                    <p className="text-sm text-[#8A8A8A] p-3">
-                      No more articles available yet.
-                    </p>
-                  )}
+                  ))}
                 </div>
                 <Button
                   onClick={() => navigate('/blog')}
@@ -604,20 +438,14 @@ export default function BlogDetailPage() {
               <div className="bg-white rounded-2xl p-6 shadow-md">
                 <h3 className="text-lg font-bold text-[#3A1F1F] mb-4">Related Topics</h3>
                 <div className="flex flex-wrap gap-2">
-                  {relatedCategories.length > 0 ? relatedCategories.map((topic) => (
-                    <button
+                  {["Career Growth", "Interview Tips", "Resume Writing", "Remote Work", "Salary Negotiation", "Networking"].map((topic) => (
+                    <span
                       key={topic}
-                      type="button"
-                      onClick={() => navigate(`/blog?category=${encodeURIComponent(topic)}`)}
                       className="bg-[#ECECF4] text-[#3A1F1F] px-3 py-1 rounded-full text-sm hover:bg-[#FF2B2B] hover:text-white cursor-pointer transition-colors"
                     >
                       {topic}
-                    </button>
-                  )) : (
-                    <p className="text-sm text-[#8A8A8A]">
-                      No article categories available yet.
-                    </p>
-                  )}
+                    </span>
+                  ))}
                 </div>
               </div>
 

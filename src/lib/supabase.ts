@@ -65,24 +65,6 @@ export interface RecruiterProfile {
   created_at: string;
 }
 
-export interface RecruiterArticle {
-  id: string;
-  recruiter_id: string;
-  title: string;
-  category: string;
-  summary: string | null;
-  key_takeaway: string | null;
-  content: string;
-  cover_image_url: string | null;
-  cover_image_name: string | null;
-  read_time: number;
-  status: "Published" | "Draft";
-  created_at: string;
-  updated_at: string;
-  published_at: string | null;
-  recruiter?: Pick<RecruiterProfile, "company_name" | "recruiter_name" | "logo_url"> | null;
-}
-
 export interface Job {
   id: string;
   recruiter_id: string;

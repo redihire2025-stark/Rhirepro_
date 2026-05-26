@@ -1,6 +1,6 @@
-import { useState, useEffect, useCallback, useRef, useMemo, type ChangeEvent } from "react";
-import { useNavigate, Routes, Route, Link, useLocation, useParams } from "react-router";
-import { supabase, Job, Application, Notification, Profile, WorkExperience, Education as EduType, RecruiterSubscription, RecruiterArticle } from "../../lib/supabase";
+import { useState, useEffect, useCallback, useRef, useMemo } from "react";
+import { useNavigate, Routes, Route, Link, useLocation } from "react-router";
+import { supabase, Job, Application, Notification, Profile, WorkExperience, Education as EduType, RecruiterSubscription } from "../../lib/supabase";
 import { buildJobDeadlineTimestamp, formatJobDeadline, getEffectiveJobStatus, getJobDeadlineDateValue, isJobExpired } from "../../lib/jobs";
 import { PLANS, FREE_DAILY_POST_LIMIT, getPlanById, validatePromo, applyPromo } from "../../lib/plans";
 import { INDIA_CITY_OPTIONS } from "../../lib/locationData";
@@ -28,7 +28,7 @@ import {
   DropdownMenuTrigger,
   DropdownMenuSeparator,
 } from "../components/ui/dropdown-menu";
-import { Dialog, DialogContent, DialogHeader, DialogTitle } from "../components/ui/dialog";
+import { Dialog, DialogContent, DialogHeader, DialogTitle, DialogTrigger } from "../components/ui/dialog";
 import { Tabs, TabsContent, TabsList, TabsTrigger } from "../components/ui/tabs";
 import FeedbackPopup from "../components/FeedbackPopup";
 import InterviewDetailsModal from "../components/InterviewDetailsModal";
@@ -115,44 +115,6 @@ const DEPARTMENT_OPTIONS = [
   "Security",
   "Other",
 ];
-
-const ARTICLE_CATEGORY_OPTIONS = [
-  "Career Tips",
-  "Industry Insights",
-  "Recruitment Trends",
-  "Employer Tips",
-  "Job Search",
-  "Workplace Culture",
-  "Remote Work",
-  "AI in Recruitment",
-  "Resume Building",
-  "Interview Preparation",
-  "Hiring Strategy",
-  "Leadership",
-  "Employee Engagement",
-  "Salary Insights",
-  "Freshers Guide",
-];
-
-type RecruiterArticleDraft = {
-  title: string;
-  category: string;
-  summary: string;
-  keyTakeaway: string;
-  content: string;
-  imageName: string;
-};
-
-const createEmptyArticleDraft = (): RecruiterArticleDraft => ({
-  title: "",
-  category: "Career Tips",
-  summary: "",
-  keyTakeaway: "",
-  content: "",
-  imageName: "",
-});
-
-const toArticleCardText = (article: RecruiterArticle) => article.summary || article.content;
 
 function LocationAutocomplete({
   value,
@@ -1012,7 +974,7 @@ export default function RecruiterDashboard() {
     if (path.includes("applicants")) return "applicants";
     if (path.includes("company-profile")) return "company-profile";
     if (path.includes("search-candidates")) return "search-candidates";
-    if (path.includes("analytics") || path.includes("articles")) return "analytics";
+    if (path.includes("analytics")) return "analytics";
     if (path.includes("post-job")) return "post-job";
     if (path.includes("plans")) return "plans";
     return "dashboard";
@@ -1161,8 +1123,6 @@ export default function RecruiterDashboard() {
         <Route path="search-candidates" element={<SearchCandidatesPage />} />
         <Route path="applicants" element={<ApplicantsPage />} />
         <Route path="analytics" element={<AnalyticsPage />} />
-        <Route path="articles/new" element={<ArticleEditorPage />} />
-        <Route path="articles/:articleId/edit" element={<ArticleEditorPage />} />
         <Route path="company-profile" element={<CompanyProfilePage />} />
         <Route path="plans" element={<PlansPage />} />
       </Routes>
@@ -4466,7 +4426,6 @@ function ApplicantsPage() {
 
 function AnalyticsPage() {
   const { recruiterProfile } = useAuth();
-  const navigate = useNavigate();
   const activeTimerLastTickAtRef = useRef(Date.now());
   const [activeTimerNow, setActiveTimerNow] = useState(Date.now());
   const [reportLoading, setReportLoading] = useState(false);
@@ -4488,9 +4447,6 @@ function AnalyticsPage() {
     offered: 0,
     hired: 0,
   });
-  const [articleSaved, setArticleSaved] = useState(false);
-  const [articleError, setArticleError] = useState("");
-  const [publishedArticles, setPublishedArticles] = useState<RecruiterArticle[]>([]);
 
   const toLocalDateKey = useCallback((timestamp: number) => {
     const date = new Date(timestamp);
@@ -4510,28 +4466,6 @@ function AnalyticsPage() {
     const timer = window.setInterval(() => setActiveTimerNow(Date.now()), 1000);
     return () => window.clearInterval(timer);
   }, []);
-
-  useEffect(() => {
-    async function loadRecruiterArticles() {
-      if (!recruiterProfile?.id) return;
-
-      const { data, error } = await supabase
-        .from("recruiter_articles")
-        .select("*")
-        .eq("recruiter_id", recruiterProfile.id)
-        .order("created_at", { ascending: false });
-
-      if (error) {
-        setArticleError(error.message);
-        return;
-      }
-
-      setArticleError("");
-      setPublishedArticles((data || []) as RecruiterArticle[]);
-    }
-
-    void loadRecruiterArticles();
-  }, [recruiterProfile?.id]);
 
   useEffect(() => {
     if (!recruiterProfile?.id) {
@@ -4736,27 +4670,6 @@ function AnalyticsPage() {
     }
   };
 
-  const openCreateArticleDialog = () => {
-    navigate("/recruiter/dashboard/articles/new");
-  };
-
-  const openEditArticleDialog = (article: RecruiterArticle) => {
-    navigate(`/recruiter/dashboard/articles/${article.id}/edit`);
-  };
-
-  const deleteArticle = async (articleId: string) => {
-    const { error } = await supabase.from("recruiter_articles").delete().eq("id", articleId);
-    if (error) {
-      setArticleError(error.message);
-      return;
-    }
-
-    setArticleError("");
-    setPublishedArticles((articles) => articles.filter((article) => article.id !== articleId));
-    setArticleSaved(true);
-    setTimeout(() => setArticleSaved(false), 3500);
-  };
-
   const metrics = [
     { label: "Total Jobs Posted", value: totalJobsPosted !== null ? `${totalJobsPosted}` : "—", sub: timePeriod === "7d" ? "Last 7 days" : timePeriod === "90d" ? "Last 90 days" : "Last 30 days", icon: Briefcase, color: "text-blue-600", bg: "bg-blue-50" },
     { label: "Total Applications", value: totalApplications !== null ? `${totalApplications}` : "—", sub: `${applicationsGrowth} vs previous ${timePeriod === "7d" ? "7 days" : timePeriod === "90d" ? "90 days" : "30 days"}`, icon: Users, color: "text-green-600", bg: "bg-green-50" },
@@ -4929,372 +4842,11 @@ function AnalyticsPage() {
           </table>
         </div>
       </div>
-
-      <div className="bg-white rounded-2xl p-6 shadow-sm mt-6">
-        <div className="flex flex-col lg:flex-row lg:items-center lg:justify-between gap-5">
-          <div className="max-w-2xl">
-            <div className="flex items-center gap-2 mb-2">
-              <div className="h-10 w-10 rounded-xl bg-red-50 flex items-center justify-center">
-                <FileText className="h-5 w-5 text-[#FF2B2B]" />
-              </div>
-              <div>
-                <h2 className="font-bold text-[#3A1F1F]">Article Publishing</h2>
-                <p className="text-sm text-[#8A8A8A]">Share hiring insights, company culture stories, and practical career guidance with candidates.</p>
-              </div>
-            </div>
-            <div className="flex flex-wrap gap-2 mt-4">
-              {ARTICLE_CATEGORY_OPTIONS.slice(0, 6).map((category) => (
-                <Badge key={category} className="bg-[#F6F6F6] text-[#5A5A5A] hover:bg-[#F6F6F6]">
-                  {category}
-                </Badge>
-              ))}
-            </div>
-          </div>
-
-          <Button className="bg-[#FF2B2B] hover:bg-[#e02525] text-white rounded-full w-full sm:w-auto" onClick={openCreateArticleDialog}>
-            <Plus className="h-4 w-4 mr-1.5" /> Create Article
-          </Button>
-        </div>
-
-        {articleSaved && (
-          <div className="mt-5 rounded-xl border border-green-200 bg-green-50 px-4 py-3 text-sm text-green-700 flex items-center gap-2">
-            <CheckCircle className="h-4 w-4" />
-            Article deleted successfully.
-          </div>
-        )}
-
-        {articleError && (
-          <div className="mt-5 rounded-xl border border-red-200 bg-red-50 px-4 py-3 text-sm text-red-700">
-            Article error: {articleError}
-          </div>
-        )}
-
-        {publishedArticles.length > 0 && (
-          <div className="mt-5 border border-gray-100 rounded-2xl p-4">
-            <div className="flex items-center justify-between gap-3 mb-3">
-              <h3 className="font-semibold text-[#3A1F1F]">Created Articles</h3>
-              <Badge className="bg-red-50 text-[#FF2B2B] hover:bg-red-50">
-                {publishedArticles.length} article{publishedArticles.length === 1 ? "" : "s"}
-              </Badge>
-            </div>
-            <div className="space-y-4">
-              {publishedArticles.map((article) => (
-                <div key={article.id} className="grid md:grid-cols-[180px_1fr_auto] gap-4 items-start border-t border-gray-100 pt-4 first:border-t-0 first:pt-0">
-                  <div className="aspect-video rounded-xl bg-[#F6F6F6] border border-gray-100 overflow-hidden flex items-center justify-center">
-                    {article.cover_image_url ? (
-                      <img src={article.cover_image_url} alt="" className="w-full h-full object-cover" />
-                    ) : (
-                      <FileText className="h-8 w-8 text-[#FF2B2B]" />
-                    )}
-                  </div>
-                  <div className="min-w-0">
-                    <div className="flex flex-wrap items-center gap-2 mb-2">
-                      <Badge className="bg-red-50 text-[#FF2B2B] hover:bg-red-50">{article.category}</Badge>
-                      <span className="text-xs text-[#8A8A8A]">{article.read_time} min read</span>
-                    </div>
-                    <h4 className="text-lg font-bold text-[#3A1F1F] leading-tight">{article.title}</h4>
-                    <p className="text-sm text-[#6A6A6A] mt-2 line-clamp-2">
-                      {toArticleCardText(article)}
-                    </p>
-                    <div className="mt-3 text-xs text-[#8A8A8A]">
-                      {recruiterProfile?.company_name || "Your Company"}
-                    </div>
-                  </div>
-                  <div className="flex md:flex-col gap-2">
-                    <Button
-                      variant="outline"
-                      size="sm"
-                      className="rounded-full border-gray-200 text-[#3A1F1F]"
-                      onClick={() => openEditArticleDialog(article)}
-                    >
-                      <Edit className="h-3.5 w-3.5 mr-1" /> Edit
-                    </Button>
-                    <Button
-                      variant="outline"
-                      size="sm"
-                      className="rounded-full border-red-100 text-[#FF2B2B] hover:bg-red-50"
-                      onClick={() => deleteArticle(article.id)}
-                    >
-                      <Trash2 className="h-3.5 w-3.5 mr-1" /> Delete
-                    </Button>
-                  </div>
-                </div>
-              ))}
-            </div>
-          </div>
-        )}
-      </div>
     </div>
   );
 }
 
 // ─── Company Profile Page ─────────────────────────────────────────────────────
-
-function ArticleEditorPage() {
-  const { recruiterProfile } = useAuth();
-  const navigate = useNavigate();
-  const { articleId } = useParams();
-  const isEditing = Boolean(articleId);
-  const [existingArticle, setExistingArticle] = useState<RecruiterArticle | null>(null);
-  const [articleLoading, setArticleLoading] = useState(isEditing);
-  const [articleError, setArticleError] = useState("");
-  const [articleDraft, setArticleDraft] = useState<RecruiterArticleDraft>(createEmptyArticleDraft);
-  const [articleImagePreview, setArticleImagePreview] = useState("");
-
-  useEffect(() => {
-    async function loadArticleForEdit() {
-      if (!articleId) return;
-
-      setArticleLoading(true);
-      const { data, error } = await supabase
-        .from("recruiter_articles")
-        .select("*")
-        .eq("id", articleId)
-        .single();
-
-      if (error || !data) {
-        setArticleError(error?.message || "Article not found");
-        setExistingArticle(null);
-        setArticleLoading(false);
-        return;
-      }
-
-      const article = data as RecruiterArticle;
-      setExistingArticle(article);
-      setArticleDraft({
-        title: article.title,
-        category: article.category,
-        summary: article.summary || "",
-        keyTakeaway: article.key_takeaway || "",
-        content: article.content,
-        imageName: article.cover_image_name || "",
-      });
-      setArticleImagePreview(article.cover_image_url || "");
-      setArticleError("");
-      setArticleLoading(false);
-    }
-
-    void loadArticleForEdit();
-  }, [articleId]);
-
-  const articleWordCount = articleDraft.content.trim() ? articleDraft.content.trim().split(/\s+/).length : 0;
-  const articleReadTime = Math.max(1, Math.ceil(articleWordCount / 180));
-  const canPublishArticle = articleDraft.title.trim().length > 0 && articleDraft.content.trim().length > 0;
-
-  const handleArticleImageUpload = (event: ChangeEvent<HTMLInputElement>) => {
-    const file = event.target.files?.[0];
-    if (!file) return;
-
-    setArticleDraft((draft) => ({ ...draft, imageName: file.name }));
-    const reader = new FileReader();
-    reader.onload = () => {
-      setArticleImagePreview(typeof reader.result === "string" ? reader.result : "");
-    };
-    reader.readAsDataURL(file);
-    event.currentTarget.value = "";
-  };
-
-  const resetArticleDraft = () => {
-    setArticleDraft(existingArticle ? {
-      title: existingArticle.title,
-      category: existingArticle.category,
-      summary: existingArticle.summary || "",
-      keyTakeaway: existingArticle.key_takeaway || "",
-      content: existingArticle.content,
-      imageName: existingArticle.cover_image_name || "",
-    } : createEmptyArticleDraft());
-    setArticleImagePreview(existingArticle?.cover_image_url || "");
-  };
-
-  const publishArticleDraft = async () => {
-    if (!recruiterProfile?.id) return;
-    const title = articleDraft.title.trim();
-    const content = articleDraft.content.trim();
-    if (!title || !content) return;
-
-    const readTime = Math.max(1, Math.ceil(content.split(/\s+/).length / 180));
-    const articlePayload = {
-      recruiter_id: recruiterProfile.id,
-      title,
-      category: articleDraft.category,
-      summary: articleDraft.summary.trim(),
-      key_takeaway: articleDraft.keyTakeaway.trim(),
-      content,
-      cover_image_name: articleDraft.imageName,
-      cover_image_url: articleImagePreview,
-      read_time: readTime,
-      status: "Published",
-    };
-
-    const { error } = articleId
-      ? await supabase.from("recruiter_articles").update(articlePayload).eq("id", articleId)
-      : await supabase.from("recruiter_articles").insert(articlePayload);
-
-    if (error) {
-      setArticleError(error.message);
-      return;
-    }
-
-    navigate("/recruiter/dashboard/analytics");
-  };
-
-  if (articleLoading) {
-    return (
-      <div className="min-h-[calc(100vh-76px)] bg-[#F6F6F6] flex items-center justify-center">
-        <Loader2 className="h-8 w-8 animate-spin text-[#FF2B2B]" />
-      </div>
-    );
-  }
-
-  if (isEditing && !existingArticle) {
-    return (
-      <div className="container mx-auto px-4 py-10">
-        <div className="bg-white rounded-2xl shadow-sm p-8 text-center">
-          <FileText className="h-10 w-10 text-[#FF2B2B] mx-auto mb-3" />
-          <h1 className="text-2xl font-bold text-[#3A1F1F]">Article not found</h1>
-          <p className="text-sm text-[#8A8A8A] mt-2">The article may have been deleted.</p>
-          <Button className="mt-5 bg-[#FF2B2B] hover:bg-[#e02525] text-white rounded-full" onClick={() => navigate("/recruiter/dashboard/analytics")}>
-            Back to Analytics
-          </Button>
-        </div>
-      </div>
-    );
-  }
-
-  return (
-    <div className="min-h-[calc(100vh-76px)] bg-[#F6F6F6]">
-      <div className="border-b border-gray-100 bg-white sticky top-[73px] z-40">
-        <div className="container mx-auto px-4 py-4 flex flex-col lg:flex-row lg:items-center lg:justify-between gap-4">
-          <div className="flex items-center gap-3 min-w-0">
-            <Button variant="outline" size="icon" className="rounded-full border-gray-200 flex-shrink-0" onClick={() => navigate("/recruiter/dashboard/analytics")}>
-              <ArrowRight className="h-4 w-4 rotate-180" />
-            </Button>
-            <div className="h-10 w-10 rounded-xl bg-red-50 flex items-center justify-center flex-shrink-0">
-              <BookOpen className="h-5 w-5 text-[#FF2B2B]" />
-            </div>
-            <div className="min-w-0">
-              <h1 className="text-xl font-bold text-[#3A1F1F] truncate">{isEditing ? "Edit Article" : "Article Writing Studio"}</h1>
-              <p className="text-xs text-[#8A8A8A]">{articleWordCount} words - {articleReadTime} min read</p>
-            </div>
-          </div>
-
-          <div className="flex items-center gap-2">
-            <Button variant="outline" className="rounded-full" onClick={resetArticleDraft}>Clear</Button>
-            <Button className="bg-[#FF2B2B] hover:bg-[#e02525] text-white rounded-full" onClick={publishArticleDraft} disabled={!canPublishArticle}>
-              <FileText className="h-4 w-4 mr-1.5" /> {isEditing ? "Update Article" : "Publish Article"}
-            </Button>
-          </div>
-        </div>
-      </div>
-
-      <div className="container mx-auto px-4 py-6">
-        {articleError && (
-          <div className="mb-4 rounded-xl border border-red-200 bg-red-50 px-4 py-3 text-sm text-red-700">
-            Article error: {articleError}
-          </div>
-        )}
-        <div className="grid xl:grid-cols-[minmax(0,1fr)_340px] gap-6">
-          <div className="bg-white rounded-2xl shadow-sm border border-gray-100 min-h-[760px]">
-            <div className="max-w-3xl mx-auto px-5 sm:px-12 py-10">
-              <Input
-                value={articleDraft.title}
-                onChange={(event) => setArticleDraft((draft) => ({ ...draft, title: event.target.value }))}
-                className="border-0 border-b border-gray-100 rounded-none px-0 pb-5 h-auto text-3xl sm:text-4xl font-bold text-[#3A1F1F] shadow-none focus-visible:ring-0 placeholder:text-gray-300"
-                placeholder="Give your article a strong title"
-              />
-              <div className="flex flex-wrap items-center gap-3 mt-5 text-sm text-[#8A8A8A]">
-                <Badge className="bg-red-50 text-[#FF2B2B] hover:bg-red-50">{articleDraft.category}</Badge>
-                <span>{recruiterProfile?.company_name || "Your Company"}</span>
-                <span>{articleReadTime} min read</span>
-              </div>
-              {articleImagePreview && (
-                <div className="mt-7 aspect-[16/7] rounded-2xl overflow-hidden border border-gray-100">
-                  <img src={articleImagePreview} alt="Article cover preview" className="w-full h-full object-cover" />
-                </div>
-              )}
-              <Textarea
-                value={articleDraft.content}
-                onChange={(event) => setArticleDraft((draft) => ({ ...draft, content: event.target.value }))}
-                className="mt-8 min-h-[560px] resize-none border-0 rounded-none bg-transparent px-0 text-base sm:text-lg leading-8 text-[#3A1F1F] shadow-none focus-visible:ring-0 placeholder:text-gray-400"
-                placeholder="Start writing your article here..."
-              />
-            </div>
-          </div>
-
-          <aside className="space-y-4 xl:sticky xl:top-[160px] h-fit">
-            <div className="bg-white rounded-2xl p-5 shadow-sm border border-gray-100">
-              <h3 className="font-semibold text-[#3A1F1F] mb-4">Article Settings</h3>
-              <div className="space-y-4">
-                <div>
-                  <label className="block mb-1.5 text-sm font-medium text-[#3A1F1F]">Category</label>
-                  <Select value={articleDraft.category} onValueChange={(category) => setArticleDraft((draft) => ({ ...draft, category }))}>
-                    <SelectTrigger className="bg-[#F6F6F6] border-gray-200 rounded-xl"><SelectValue /></SelectTrigger>
-                    <SelectContent>
-                      {ARTICLE_CATEGORY_OPTIONS.map((category) => (
-                        <SelectItem key={category} value={category}>{category}</SelectItem>
-                      ))}
-                    </SelectContent>
-                  </Select>
-                </div>
-
-                <div>
-                  <label className="block mb-1.5 text-sm font-medium text-[#3A1F1F]">Cover Image</label>
-                  <label className="aspect-video rounded-xl bg-[#F6F6F6] border border-dashed border-gray-300 flex items-center justify-center cursor-pointer hover:bg-red-50 hover:border-red-200 overflow-hidden">
-                    {articleImagePreview ? (
-                      <img src={articleImagePreview} alt="Article cover preview" className="w-full h-full object-cover" />
-                    ) : (
-                      <div className="text-center px-4">
-                        <Upload className="h-8 w-8 text-[#FF2B2B] mx-auto mb-2" />
-                        <p className="text-xs text-[#8A8A8A]">Upload cover image</p>
-                      </div>
-                    )}
-                    <input type="file" accept="image/*" className="hidden" onChange={handleArticleImageUpload} />
-                  </label>
-                  {articleDraft.imageName && <p className="text-xs text-[#8A8A8A] mt-2 truncate">{articleDraft.imageName}</p>}
-                </div>
-
-                <div>
-                  <label className="block mb-1.5 text-sm font-medium text-[#3A1F1F]">Short Summary</label>
-                  <Textarea
-                    value={articleDraft.summary}
-                    onChange={(event) => setArticleDraft((draft) => ({ ...draft, summary: event.target.value }))}
-                    className="bg-[#F6F6F6] border-gray-200 rounded-xl min-h-[120px]"
-                    rows={4}
-                    placeholder="A brief preview for readers"
-                  />
-                </div>
-
-                <div>
-                  <label className="block mb-1.5 text-sm font-medium text-[#3A1F1F]">Key Takeaway</label>
-                  <Textarea
-                    value={articleDraft.keyTakeaway}
-                    onChange={(event) => setArticleDraft((draft) => ({ ...draft, keyTakeaway: event.target.value }))}
-                    className="bg-[#F6F6F6] border-gray-200 rounded-xl min-h-[120px]"
-                    rows={4}
-                    placeholder="The final point readers should remember"
-                  />
-                </div>
-              </div>
-            </div>
-
-            <div className="bg-white rounded-2xl p-5 shadow-sm border border-gray-100">
-              <h3 className="font-semibold text-[#3A1F1F] mb-4">Preview</h3>
-              <Badge className="bg-red-50 text-[#FF2B2B] hover:bg-red-50 mb-3">{articleDraft.category}</Badge>
-              <h4 className="font-bold text-[#3A1F1F] leading-snug">{articleDraft.title || "Your article title will appear here"}</h4>
-              <p className="text-sm text-[#6A6A6A] mt-2 line-clamp-4">
-                {articleDraft.summary || articleDraft.content || "Add a summary or start writing to preview the article card."}
-              </p>
-              <div className="mt-4 pt-4 border-t border-gray-200 text-xs text-[#8A8A8A] flex items-center justify-between">
-                <span>{articleWordCount} words</span>
-                <span>{articleReadTime} min read</span>
-              </div>
-            </div>
-          </aside>
-        </div>
-      </div>
-    </div>
-  );
-}
 
 function CompanyProfilePage() {
   const { recruiterProfile, refreshProfile } = useAuth();

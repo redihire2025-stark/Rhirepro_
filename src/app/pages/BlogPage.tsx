@@ -1,47 +1,15 @@
-import { useEffect, useMemo, useState } from "react";
-import { Menu, ChevronRight, Facebook, Instagram, Twitter, Bell, Star, ArrowRight, MapPin, BookOpen } from "lucide-react";
+import { useState } from "react";
+import { Menu, ChevronRight, Facebook, Instagram, Twitter, Bell, Star, ArrowRight, MapPin } from "lucide-react";
 import { Button } from "../components/ui/button";
 import { Input } from "../components/ui/input";
 import { Sheet, SheetContent, SheetTrigger, SheetTitle, SheetDescription } from "../components/ui/sheet";
-import { useNavigate, useSearchParams } from "react-router";
+import { useNavigate } from "react-router";
 import logoImage from "../../logo/logo.png";
-import { supabase, RecruiterArticle } from "../../lib/supabase";
-
-const ARTICLE_CATEGORY_OPTIONS = [
-  "Career Tips",
-  "Industry Insights",
-  "Recruitment Trends",
-  "Employer Tips",
-  "Job Search",
-  "Workplace Culture",
-  "Remote Work",
-  "AI in Recruitment",
-  "Resume Building",
-  "Interview Preparation",
-  "Hiring Strategy",
-  "Leadership",
-  "Employee Engagement",
-  "Salary Insights",
-  "Freshers Guide",
-];
-
-const shuffleItems = <T,>(items: T[]) => {
-  const shuffled = [...items];
-
-  for (let index = shuffled.length - 1; index > 0; index -= 1) {
-    const randomIndex = Math.floor(Math.random() * (index + 1));
-    [shuffled[index], shuffled[randomIndex]] = [shuffled[randomIndex], shuffled[index]];
-  }
-
-  return shuffled;
-};
 
 export default function BlogPage() {
   const [isMenuOpen, setIsMenuOpen] = useState(false);
   const [email, setEmail] = useState("");
   const navigate = useNavigate();
-  const [searchParams] = useSearchParams();
-  const selectedCategory = searchParams.get("category") || "";
 
   const blogs = [
     {
@@ -87,46 +55,6 @@ export default function BlogPage() {
       category: "Work Trends"
     },
   ];
-  const [publishedArticles, setPublishedArticles] = useState<RecruiterArticle[]>([]);
-
-  useEffect(() => {
-    async function loadPublishedArticles() {
-      const { data } = await supabase
-        .from("recruiter_articles")
-        .select("*")
-        .eq("status", "Published")
-        .order("published_at", { ascending: false, nullsFirst: false })
-        .order("created_at", { ascending: false });
-
-      if (data) setPublishedArticles(data as RecruiterArticle[]);
-    }
-
-    void loadPublishedArticles();
-  }, []);
-
-  const realBlogs = publishedArticles.map((article) => ({
-      id: article.id,
-      title: article.title,
-      description: article.summary || article.content,
-      date: new Date(article.published_at || article.created_at).toLocaleDateString("en-US", { month: "long", day: "numeric", year: "numeric" }),
-      category: article.category,
-      image: article.cover_image_url || "",
-      isDatabaseArticle: true,
-    }));
-  const visibleBlogs = selectedCategory
-    ? realBlogs.filter((blog) => blog.category === selectedCategory)
-    : realBlogs.length > 0
-      ? realBlogs
-      : blogs.map((blog) => ({ ...blog, id: String(blog.id), image: "", isDatabaseArticle: false }));
-  const availableCategories = useMemo(
-    () => shuffleItems(Array.from(
-      new Set([
-        ...ARTICLE_CATEGORY_OPTIONS,
-        ...publishedArticles.map((article) => article.category).filter(Boolean),
-      ])
-    )),
-    [publishedArticles]
-  );
 
   return (
     <div className="min-h-screen bg-[#F6F6F6]">
@@ -223,27 +151,20 @@ export default function BlogPage() {
         <div className="container mx-auto px-4">
           <div className="text-center mb-12">
             <span className="inline-block bg-[#FF2B2B] text-white px-4 py-1 rounded-full text-sm mb-4">
-              {selectedCategory ? selectedCategory : "LATEST ARTICLE"}
+              LATEST ARTICLE
             </span>
             <h2 className="text-4xl md:text-5xl font-bold text-[#3A1F1F] mb-4">
-              {selectedCategory ? `Articles in ${selectedCategory}` : "Discover What's New in Recruitment"}
+              Discover What's New in Recruitment
             </h2>
             <p className="text-lg text-[#8A8A8A] max-w-3xl mx-auto">
               Stay informed with the latest updates, trends, and insights in the recruitment industry that keep you informed.
             </p>
           </div>
           
-          {visibleBlogs.length > 0 ? (
-            <div className="grid md:grid-cols-3 gap-8">
-              {visibleBlogs.map((blog, index) => (
+          <div className="grid md:grid-cols-3 gap-8">
+            {blogs.map((blog, index) => (
               <div key={index} className="bg-white rounded-2xl overflow-hidden shadow-md hover:shadow-xl transition-shadow border border-gray-100">
-                {blog.image ? (
-                  <img src={blog.image} alt={blog.title} className="h-56 w-full object-cover" />
-                ) : (
-                  <div className="bg-[#ECECF4] h-56 flex items-center justify-center">
-                    <BookOpen className="h-10 w-10 text-[#FF2B2B]" />
-                  </div>
-                )}
+                <div className="bg-gray-300 h-56"></div>
                 <div className="p-6">
                   <span className="inline-block bg-[#ECECF4] text-[#3A1F1F] px-3 py-1 rounded-full text-sm mb-3">
                     {blog.category}
@@ -259,17 +180,8 @@ export default function BlogPage() {
                   </Button>
                 </div>
               </div>
-              ))}
-            </div>
-          ) : (
-            <div className="bg-[#ECECF4] rounded-2xl p-10 text-center">
-              <BookOpen className="h-10 w-10 text-[#FF2B2B] mx-auto mb-3" />
-              <h3 className="text-xl font-bold text-[#3A1F1F] mb-2">No articles available</h3>
-              <p className="text-[#8A8A8A]">
-                No articles have been posted under {selectedCategory} yet.
-              </p>
-            </div>
-          )}
+            ))}
+          </div>
         </div>
       </section>
 
@@ -304,22 +216,15 @@ export default function BlogPage() {
             Related Topics You Might Like
           </h2>
           <div className="flex flex-wrap gap-3 justify-center">
-            {availableCategories.length > 0 ? availableCategories.map((topic) => (
+            {["Career Growth", "Interview Tips", "Resume Writing", "Remote Work", "Salary Negotiation", "Networking", "Personal Branding", "Industry Trends"].map((topic, index) => (
               <Button
-                key={topic}
+                key={index}
                 variant="outline"
-                onClick={() => navigate(`/blog?category=${encodeURIComponent(topic)}`)}
-                className={`border-2 rounded-full px-6 ${
-                  selectedCategory === topic
-                    ? "border-[#FF2B2B] bg-[#FF2B2B] text-white"
-                    : "border-gray-300 text-[#3A1F1F] hover:bg-[#FF2B2B] hover:text-white hover:border-[#FF2B2B]"
-                }`}
+                className="border-2 border-gray-300 text-[#3A1F1F] hover:bg-[#FF2B2B] hover:text-white hover:border-[#FF2B2B] rounded-full px-6"
               >
                 {topic}
               </Button>
-            )) : (
-              <p className="text-[#8A8A8A]">No article categories available yet.</p>
-            )}
+            ))}
           </div>
         </div>
       </section>
