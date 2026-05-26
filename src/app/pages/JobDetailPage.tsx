@@ -8,6 +8,7 @@ import logoImage from "../../logo/logo.png";
 import { supabase, type Job as DBJob } from "../../lib/supabase";
 import { isJobVisibleToSeekers } from "../../lib/jobs";
 import { isIndianLocation } from "../../lib/locationData";
+import { useAuth } from "../../lib/auth-context";
 
 function formatSalary(job: DBJob): string {
   if (job.salary_min && job.salary_max && job.salary_type) {
@@ -37,6 +38,7 @@ export default function JobDetailPage() {
   const [loadError, setLoadError] = useState("");
   const navigate = useNavigate();
   const { id } = useParams();
+  const { role } = useAuth();
 
   useEffect(() => {
     let mounted = true;
@@ -119,6 +121,15 @@ export default function JobDetailPage() {
         .join(" | "),
     };
   }, [job]);
+
+  const handleApplyClick = () => {
+    if (role === "jobseeker") {
+      navigate("/jobseeker/dashboard");
+      return;
+    }
+
+    navigate(`/jobseeker/signin?redirect=${encodeURIComponent(`/job/${currentJob?.id || id || ""}`)}`);
+  };
 
   if (loading) {
     return (
@@ -333,7 +344,7 @@ export default function JobDetailPage() {
                   </div>
                 </div>
 
-                <Button className="bg-[#FF2B2B] hover:bg-[#e02525] text-white rounded-full px-12 py-6">
+                <Button className="bg-[#FF2B2B] hover:bg-[#e02525] text-white rounded-full px-12 py-6" onClick={handleApplyClick}>
                   Apply Now
                 </Button>
               </div>
@@ -371,7 +382,7 @@ export default function JobDetailPage() {
                   </p>
                 )}
 
-                <Button className="mt-8 bg-[#FF2B2B] hover:bg-[#e02525] text-white rounded-full px-12 py-6">
+                <Button className="mt-8 bg-[#FF2B2B] hover:bg-[#e02525] text-white rounded-full px-12 py-6" onClick={handleApplyClick}>
                   Apply Now
                 </Button>
               </div>
