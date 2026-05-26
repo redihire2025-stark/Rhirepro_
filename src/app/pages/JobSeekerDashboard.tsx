@@ -3164,6 +3164,24 @@ interface DomainData {
   salaryRange: { entry: string; mid: string; senior: string };
   certifications: Array<{ name: string; provider: string; value: string }>;
 }
+interface TrendingSkillSuggestion {
+  skill: string;
+  demand: DemandLevel;
+  matchingJobs: number;
+  relevanceScore: number;
+  suggestion: string;
+}
+interface RemotiveJob {
+  title?: string;
+  description?: string;
+  category?: string;
+  tags?: string[];
+  candidate_required_location?: string;
+  job_type?: string;
+}
+
+const TRENDING_SKILL_LIMIT = 12;
+const REMOTIVE_JOBS_API_URL = "https://remotive.com/api/remote-jobs";
 
 const DOMAIN_MAP: Record<string, DomainData> = {
   ml: {
@@ -3241,12 +3259,18 @@ const DOMAIN_MAP: Record<string, DomainData> = {
   devops: {
     roleTitle: "DevOps / Cloud Engineer",
     trendingSkills: [
-      { skill: "Kubernetes & Helm Charts", demand: "High" },
-      { skill: "Terraform / OpenTofu (IaC)", demand: "High" },
-      { skill: "GitOps (ArgoCD / Flux)", demand: "High" },
-      { skill: "Platform Engineering / Internal Dev Platforms", demand: "Growing" },
-      { skill: "FinOps / Cloud Cost Optimization", demand: "Growing" },
-      { skill: "eBPF & Advanced Observability", demand: "Medium" },
+      { skill: "DevOps", demand: "High" },
+      { skill: "AWS", demand: "High" },
+      { skill: "Docker", demand: "High" },
+      { skill: "Kubernetes", demand: "High" },
+      { skill: "Terraform", demand: "High" },
+      { skill: "GitHub Actions", demand: "High" },
+      { skill: "CI/CD", demand: "High" },
+      { skill: "Linux", demand: "High" },
+      { skill: "Monitoring", demand: "Growing" },
+      { skill: "Prometheus", demand: "Growing" },
+      { skill: "Grafana", demand: "Growing" },
+      { skill: "DevSecOps", demand: "Growing" },
     ],
     salaryRange: { entry: "6–12 LPA", mid: "15–30 LPA", senior: "30–65 LPA" },
     certifications: [
@@ -3341,25 +3365,139 @@ function getExpTier(expType: string | null, total: string | null): "entry" | "mi
   return "entry";
 }
 
+function normalizeSkillLabel(skill: string): string {
+  return skill.trim().replace(/\s+/g, " ");
+}
+
+function normalizeSkillKey(skill: string): string {
+  return normalizeSkillLabel(skill).toLowerCase();
+}
+
+function seekerHasSkill(userSkills: string[], jobSkill: string): boolean {
+  const target = normalizeSkillKey(jobSkill);
+  if (!target) return true;
+  return userSkills.some((skill) => {
+    const owned = normalizeSkillKey(skill);
+    return owned === target || owned.includes(target) || target.includes(owned);
+  });
+}
+
+function getTrendingDemand(count: number, matchedJobCount: number): DemandLevel {
+  if (count >= Math.max(3, Math.ceil(matchedJobCount * 0.25))) return "High";
+  if (count >= Math.max(2, Math.ceil(matchedJobCount * 0.1))) return "Growing";
+  return "Medium";
+}
+
+function getDemandScore(demand: DemandLevel): number {
+  if (demand === "High") return 2;
+  if (demand === "Growing") return 1;
+  return 0;
+}
+
+function skillMatchesLabel(candidate: string, label: string): boolean {
+  const candidateKey = normalizeSkillKey(candidate);
+  const labelKey = normalizeSkillKey(label);
+  if (!candidateKey || !labelKey) return false;
+  return candidateKey === labelKey || candidateKey.includes(labelKey) || labelKey.includes(candidateKey);
+}
+
+function normalizeSearchText(value: string): string {
+  return value.toLowerCase().replace(/[^a-z0-9+#.]+/g, " ").replace(/\s+/g, " ").trim();
+}
+
+function stripHtml(value: string): string {
+  return value.replace(/<[^>]*>/g, " ");
+}
+
+function getMarketSearchTerm(domain: string, title: string): string {
+  const trimmedTitle = title.trim();
+  if (trimmedTitle) return trimmedTitle;
+
+  const fallbackTerms: Record<string, string> = {
+    ml: "machine learning",
+    data: "data",
+    frontend: "frontend",
+    backend: "backend",
+    devops: "devops",
+    design: "designer",
+    marketing: "marketing",
+    general: "technology",
+  };
+
+  return fallbackTerms[domain] || fallbackTerms.general;
+}
+
+function getSkillSearchTerms(label: string): string[] {
+  const withoutParentheses = label.replace(/\([^)]*\)/g, " ");
+  return Array.from(new Set(
+    [label, withoutParentheses, ...withoutParentheses.split(/[\/&|,]/)]
+      .map((term) => normalizeSearchText(term))
+      .filter((term) => term.length > 1)
+  ));
+}
+
+function skillAppearsInText(text: string, label: string): boolean {
+  const normalizedText = ` ${normalizeSearchText(text)} `;
+  return getSkillSearchTerms(label).some((term) => normalizedText.includes(` ${term} `));
+}
+
+function incrementSkillCount(skillCounts: Map<string, { label: string; count: number }>, label: string) {
+  const key = normalizeSkillKey(label);
+  if (!key) return;
+  const current = skillCounts.get(key);
+  skillCounts.set(key, {
+    label: current?.label || label,
+    count: (current?.count || 0) + 1,
+  });
+}
+
+function getRelevanceScore(options: {
+  skill: string;
+  domainData: DomainData;
+  demand: DemandLevel;
+  matchingJobs: number;
+  totalSignalJobs: number;
+}): number {
+  const domainIndex = options.domainData.trendingSkills.findIndex((item) => skillMatchesLabel(item.skill, options.skill));
+  const domainScore = domainIndex >= 0
+    ? Math.max(3, 6 - Math.floor(domainIndex / 3))
+    : 0;
+  const jobEvidenceScore = options.matchingJobs > 0
+    ? Math.min(2, Math.ceil((options.matchingJobs / Math.max(options.totalSignalJobs, 1)) * 10))
+    : 0;
+
+  return Math.min(10, domainScore + jobEvidenceScore + getDemandScore(options.demand));
+}
+
+async function fetchRemotiveJobs(searchTerm: string): Promise<RemotiveJob[]> {
+  try {
+    const params = new URLSearchParams({ search: searchTerm, limit: "50" });
+    const response = await fetch(`${REMOTIVE_JOBS_API_URL}?${params.toString()}`);
+    if (!response.ok) return [];
+    const payload = await response.json();
+    return Array.isArray(payload?.jobs) ? payload.jobs : [];
+  } catch {
+    return [];
+  }
+}
+
 // ── Career Insights Page ───────────────────────────────────────────────────────
 function InsightsPage() {
   const { profile } = useAuth();
   const [recommendedJobs, setRecommendedJobs] = useState<Array<{
     id: string; title: string; company: string; location: string; salary: string; match: number;
   }>>([]);
+  const [trendingSkillSuggestions, setTrendingSkillSuggestions] = useState<TrendingSkillSuggestion[]>([]);
   const [loadingJobs, setLoadingJobs] = useState(true);
 
   const skills = profile?.skills || [];
-  const titleStr = profile?.current_title || "";
+  const profilePreferences = (profile || {}) as any;
+  const preferredRole = (profilePreferences.desired_job_title || profile?.current_title || "").trim();
+  const titleStr = preferredRole || profile?.current_title || "";
   const domain = detectDomain(skills, titleStr);
   const domainData = DOMAIN_MAP[domain];
   const tier = getExpTier(profile?.experience_type || null, profile?.total_experience || null);
-
-  // Mark skills the user already has
-  const trendingWithMatch = domainData.trendingSkills.map(item => ({
-    ...item,
-    youHaveIt: skills.some(s => item.skill.toLowerCase().includes(s.toLowerCase()) || s.toLowerCase().includes(item.skill.split(" ")[0].toLowerCase())),
-  }));
+  const trendingContextLabel = preferredRole || (domain === "general" ? "profile" : domainData.roleTitle);
 
   // Salary info
   const tierLabel = tier === "entry" ? "Entry Level (0–2 yrs)" : tier === "mid" ? "Mid Level (2–6 yrs)" : "Senior Level (6+ yrs)";
@@ -3367,29 +3505,32 @@ function InsightsPage() {
   const currentSalary = profile?.current_salary || null;
   const expectedSalary = profile?.expected_salary || null;
 
-  // Fetch recommended jobs from DB based on user's skills + title
+  // Fetch recommended jobs and skill demand from DB based on user's skills + preferred role
   useEffect(() => {
     if (!profile) { setLoadingJobs(false); return; }
     async function fetchJobs() {
       setLoadingJobs(true);
-      const { data } = await supabase
-        .from("jobs")
-        .select("id, title, company_name, location, salary_min, salary_max, salary_type, skills, employment_type, status, deadline, deadline_time")
-        .eq("status", "Active")
-        .limit(30);
+      const marketSearchTerm = getMarketSearchTerm(domain, titleStr);
+      const [{ data }, marketJobs] = await Promise.all([
+        supabase
+          .from("jobs")
+          .select("id, title, company_name, location, salary_min, salary_max, salary_type, skills, employment_type, status, deadline, deadline_time")
+          .eq("status", "Active")
+          .limit(30),
+        fetchRemotiveJobs(marketSearchTerm),
+      ]);
 
       if (data) {
         const visibleJobs = data.filter(job => isJobVisibleToSeekers(job));
-        const userSkillsLower = skills.map(s => s.toLowerCase());
+        const userSkillsLower = skills.map(normalizeSkillKey);
         const titleWords = titleStr.toLowerCase().split(/\s+/).filter(w => w.length > 3);
 
         const scored = visibleJobs.map(job => {
           const jobSkills: string[] = job.skills || [];
-          const jobSkillsLower = jobSkills.map((s: string) => s.toLowerCase());
 
           // Skill overlap score (0–70)
           const overlap = userSkillsLower.filter(us =>
-            jobSkillsLower.some(js => js.includes(us) || us.includes(js))
+            jobSkills.some((jobSkill: string) => skillMatchesLabel(us, jobSkill))
           ).length;
           const skillScore = jobSkills.length > 0
             ? Math.round((overlap / Math.max(jobSkills.length, skills.length, 1)) * 70)
@@ -3418,11 +3559,125 @@ function InsightsPage() {
           .slice(0, 5);
 
         setRecommendedJobs(scored);
+
+        const matchedForTrends = visibleJobs.filter((job) => {
+          const searchable = [
+            job.title,
+            job.location || "",
+            job.employment_type || "",
+            ...(job.skills || []),
+          ].join(" ").toLowerCase();
+
+          const roleMatch = titleWords.length === 0 || titleWords.some((word) => searchable.includes(word));
+          const skillMatch = userSkillsLower.length === 0 || (job.skills || []).some((jobSkill: string) =>
+            userSkillsLower.some((userSkill) => skillMatchesLabel(userSkill, jobSkill))
+          );
+
+          return roleMatch || skillMatch;
+        });
+
+        const trendSourceJobs = matchedForTrends.length > 0 ? matchedForTrends : [];
+        const skillCounts = new Map<string, { label: string; count: number }>();
+
+        trendSourceJobs.forEach((job) => {
+          const seenInJob = new Set<string>();
+          (job.skills || []).forEach((skill: string) => {
+            const label = normalizeSkillLabel(skill);
+            const key = normalizeSkillKey(label);
+            if (!key || seenInJob.has(key) || seekerHasSkill(skills, label)) return;
+
+            seenInJob.add(key);
+            incrementSkillCount(skillCounts, label);
+          });
+        });
+
+        marketJobs.forEach((job) => {
+          const searchable = [
+            job.title || "",
+            job.category || "",
+            job.candidate_required_location || "",
+            job.job_type || "",
+            ...(job.tags || []),
+            stripHtml(job.description || ""),
+          ].join(" ");
+          const seenInJob = new Set<string>();
+
+          domainData.trendingSkills.forEach((item) => {
+            const key = normalizeSkillKey(item.skill);
+            if (!key || seenInJob.has(key) || !skillAppearsInText(searchable, item.skill)) return;
+            seenInJob.add(key);
+            incrementSkillCount(skillCounts, item.skill);
+          });
+        });
+
+        const totalSignalJobs = Math.max(trendSourceJobs.length + marketJobs.length, 1);
+        const countedSkills = Array.from(skillCounts.values())
+          .sort((a, b) => b.count - a.count || a.label.localeCompare(b.label))
+          .map(({ label, count }) => {
+            const demand = getTrendingDemand(count, totalSignalJobs);
+            return {
+              skill: label,
+              matchingJobs: count,
+              demand,
+              relevanceScore: getRelevanceScore({
+                skill: label,
+                domainData,
+                demand,
+                matchingJobs: count,
+                totalSignalJobs,
+              }),
+              suggestion: `Learn ${label} to match ${count} more ${trendingContextLabel === "profile" ? "jobs" : `${trendingContextLabel} jobs`}.`,
+            };
+          });
+
+        const domainSuggestions = domainData.trendingSkills.map((item) => {
+          const matchedCount = countedSkills.find((candidate) => skillMatchesLabel(candidate.skill, item.skill))?.matchingJobs || 0;
+          const demand = matchedCount > 0 ? getTrendingDemand(matchedCount, totalSignalJobs) : item.demand;
+          return {
+            skill: item.skill,
+            matchingJobs: matchedCount,
+            demand,
+            relevanceScore: getRelevanceScore({
+              skill: item.skill,
+              domainData,
+              demand,
+              matchingJobs: matchedCount,
+              totalSignalJobs,
+            }),
+            suggestion: `${item.skill} is relevant for ${trendingContextLabel === "profile" ? "your profile" : `${trendingContextLabel} roles`}.`,
+          };
+        });
+
+        const baseSuggestions = domain === "general" && countedSkills.length > 0 ? countedSkills : domainSuggestions;
+        const baseKeys = baseSuggestions.map((item) => item.skill);
+        const extraSuggestions = countedSkills.filter((item) =>
+          !baseKeys.some((baseSkill) => skillMatchesLabel(baseSkill, item.skill))
+        );
+        const dynamicSuggestions = [...baseSuggestions, ...extraSuggestions]
+          .filter((item) => item.relevanceScore >= 5)
+          .sort((a, b) => b.relevanceScore - a.relevanceScore || b.matchingJobs - a.matchingJobs || a.skill.localeCompare(b.skill))
+          .slice(0, TRENDING_SKILL_LIMIT);
+
+        setTrendingSkillSuggestions(dynamicSuggestions);
+      } else {
+        setTrendingSkillSuggestions(domainData.trendingSkills.map((item) => ({
+          skill: item.skill,
+          matchingJobs: 0,
+          demand: item.demand,
+          relevanceScore: getRelevanceScore({
+            skill: item.skill,
+            domainData,
+            demand: item.demand,
+            matchingJobs: 0,
+            totalSignalJobs: 1,
+          }),
+          suggestion: `${item.skill} is relevant for ${trendingContextLabel === "profile" ? "your profile" : `${trendingContextLabel} roles`}.`,
+        })).filter((item) => item.relevanceScore >= 5));
       }
       setLoadingJobs(false);
     }
     fetchJobs();
-  }, [profile?.id]);
+  }, [profile?.id, skills, titleStr, trendingContextLabel, domain, domainData]);
 
   const demandBadge = (d: DemandLevel) => {
     if (d === "High") return "bg-[#FF2B2B] text-white";
@@ -3499,27 +3754,36 @@ function InsightsPage() {
             <Lightbulb className="h-5 w-5 text-[#FF2B2B]" /> Trending Skills
           </h3>
           <p className="text-xs text-[#8A8A8A] mb-4">
-            Based on your {domain === "general" ? "profile" : `${domainData.roleTitle} role`}
+            Based on your {trendingContextLabel === "profile" ? "profile" : `${trendingContextLabel} role`}
             {skills.length > 0 && ` & ${skills.length} skills`}
+            {" | Remotive market API"}
           </p>
-          <div className="space-y-2.5">
-            {trendingWithMatch.map((item, i) => (
-              <div key={i} className="flex items-center justify-between p-3 bg-[#F6F6F6] rounded-xl">
-                <div className="flex items-center gap-2 min-w-0">
-                  {item.youHaveIt && (
-                    <CheckCircle className="h-4 w-4 text-green-500 flex-shrink-0" />
-                  )}
-                  <span className={`text-sm truncate ${item.youHaveIt ? "text-green-700 font-medium" : "text-[#3A1F1F]"}`}>{item.skill}</span>
+          {loadingJobs ? (
+            <div className="flex items-center justify-center py-10 text-[#8A8A8A]">
+              <Loader2 className="h-5 w-5 animate-spin mr-2" /> Finding skill gaps...
+            </div>
+          ) : trendingSkillSuggestions.length > 0 ? (
+            <div className="space-y-2.5">
+              {trendingSkillSuggestions.map((item) => (
+                <div key={item.skill} className="flex items-center justify-between gap-3 p-3 bg-[#F6F6F6] rounded-xl">
+                  <div className="min-w-0">
+                    <span className="block text-sm text-[#3A1F1F] truncate">{item.skill}</span>
+                  </div>
+                  <div className="flex items-center gap-2 flex-shrink-0">
+                    <Badge className={`text-xs ${demandBadge(item.demand)}`}>{item.demand}</Badge>
+                  </div>
                 </div>
-                <div className="flex items-center gap-2 flex-shrink-0">
-                  {item.youHaveIt && <span className="text-xs text-green-600">You have it</span>}
-                  <Badge className={`text-xs ${demandBadge(item.demand)}`}>{item.demand}</Badge>
-                </div>
-              </div>
-            ))}
-          </div>
-          {skills.length === 0 && (
-            <p className="text-xs text-[#8A8A8A] mt-3 text-center">Add skills to your profile to see personalized matches.</p>
+              ))}
+            </div>
+          ) : (
+            <div className="text-center py-8 text-[#8A8A8A]">
+              <CheckCircle className="h-10 w-10 mx-auto mb-2 text-green-200" />
+              <p className="text-sm">
+                {skills.length === 0
+                  ? "Add skills and a preferred role to get personalized learning suggestions."
+                  : "No missing trending skills found for your current profile."}
+              </p>
+            </div>
           )}
         </div>
 
