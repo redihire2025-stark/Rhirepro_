@@ -1116,7 +1116,7 @@ function ProfilePage() {
     else if (googleAvatar) setProfilePic(googleAvatar);
     if (profile?.resume_url) setResumeFile(profile.resume_url);
     if (profile?.about) { setSummary(profile.about); setSummaryForm(profile.about); }
-    if (profile?.skills?.length) setSkills(profile.skills);
+    setSkills(profile?.skills ?? []);
     // Preferences
     if (profile) {
       const p = profile as any;
@@ -1279,7 +1279,15 @@ function ProfilePage() {
     if (s && !alreadySelected) {
       const updated = [...skills, s];
       setSkills(updated);
-      if (profile?.id) await supabase.from("profiles").update({ skills: updated }).eq("id", profile.id);
+      if (profile?.id) {
+        const { error } = await supabase.from("profiles").update({ skills: updated }).eq("id", profile.id);
+        if (error) {
+          console.error("Skills update error:", error.message);
+          setSkills(skills);
+        } else {
+          await refreshProfile();
+        }
+      }
     }
     setSkillSearch("");
     setSkillPickerOpen(false);
@@ -1288,7 +1296,15 @@ function ProfilePage() {
   async function removeSkill(skill: string) {
     const updated = skills.filter(s => s !== skill);
     setSkills(updated);
-    if (profile?.id) await supabase.from("profiles").update({ skills: updated }).eq("id", profile.id);
+    if (profile?.id) {
+      const { error } = await supabase.from("profiles").update({ skills: updated }).eq("id", profile.id);
+      if (error) {
+        console.error("Skills update error:", error.message);
+        setSkills(skills);
+      } else {
+        await refreshProfile();
+      }
+    }
   }
 
   async function saveExp() {
