@@ -1038,13 +1038,13 @@ function FindJobPage() {
                     >
                       <JobShareButton jobId={String(job.id)} title={job.title} className="absolute right-4 top-4" />
                       {job.isDB && (
-                        <div className={`absolute top-3 right-14 rounded-md px-2 py-1 text-[10px] font-semibold leading-tight text-center min-w-[44px] ${matchBadgeClass}`}>
-                          <div>{matchPercentage}%</div>
-                          <div className="font-normal">match</div>
+                        <div className={`absolute top-3 right-16 text-center rounded-xl px-2 py-1 min-w-[44px] ${matchBadgeClass}`}>
+                          <div className="text-sm font-bold leading-none">{matchPercentage}%</div>
+                          <div className="text-[10px] font-medium leading-tight mt-0.5 opacity-80">match</div>
                         </div>
                       )}
-                      <p className="text-xs text-[#8A8A8A] mb-0.5">{job.company}</p>
-                      <h3 className="font-bold text-[#3A1F1F] text-lg mb-2 leading-snug pr-12">{job.title}</h3>
+                      <p className="text-xs text-[#8A8A8A] mb-0.5 pr-24">{job.company}</p>
+                      <h3 className="font-bold text-[#3A1F1F] text-lg mb-2 leading-snug pr-24">{job.title}</h3>
                       <p className="text-[#8A8A8A] text-sm mb-3 line-clamp-2 flex-1">{job.description}</p>
                       <div className="space-y-1 mb-4">
                         <div className="flex items-center text-sm text-[#8A8A8A]">
