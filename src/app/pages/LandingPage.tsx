@@ -14,6 +14,7 @@ import {
   Briefcase,
   TrendingUp,
   Award,
+  BookOpen,
   Facebook,
   Instagram,
   Twitter,
@@ -38,9 +39,10 @@ import {
 import { useNavigate } from "react-router";
 import { ImageWithFallback } from "../components/figma/ImageWithFallback";
 import { useAuth } from "../../lib/auth-context";
+import JobShareButton from "../components/JobShareButton";
 
 import { PLANS } from "../../lib/plans";
-import { supabase, type Job as DBJob } from "../../lib/supabase";
+import { supabase, type Job as DBJob, type RecruiterArticle } from "../../lib/supabase";
 import { isJobVisibleToSeekers } from "../../lib/jobs";
 import { getRecommendedJobs, recordJobInteraction } from "../../lib/jobRecommendations";
 import { isIndianLocation } from "../../lib/locationData";
@@ -541,6 +543,46 @@ export default function LandingPage() {
       category: "Work Trends",
     },
   ];
+  const [publishedArticles, setPublishedArticles] = useState<RecruiterArticle[]>([]);
+
+  useEffect(() => {
+    async function loadPublishedArticles() {
+      const { data } = await supabase
+        .from("recruiter_articles")
+        .select("*")
+        .eq("status", "Published")
+        .order("published_at", { ascending: false, nullsFirst: false })
+        .order("created_at", { ascending: false })
+        .limit(3);
+
+      if (data) setPublishedArticles(data as RecruiterArticle[]);
+    }
+
+    void loadPublishedArticles();
+  }, []);
+
+  const recentPublishedArticles = publishedArticles.slice(0, 3);
+  const landingArticles = recentPublishedArticles.length > 0
+    ? recentPublishedArticles.map((article) => ({
+      id: article.id,
+      title: article.title,
+      description: article.summary || article.content,
+      category: article.category,
+      image: article.cover_image_url || "",
+      isDatabaseArticle: true,
+    }))
+    : blogs.slice(0, 3).map((blog, index) => ({
+      id: String(index + 1),
+      title: blog.title,
+      description: blog.description,
+      category: blog.category,
+      image: [
+        "https://images.unsplash.com/photo-1754885262663-470bb3c5e1f2?crop=entropy&cs=tinysrgb&fit=max&fm=jpg&ixid=M3w3Nzg4Nzd8MHwxfHNlYXJjaHwxfHxjYXJlZXIlMjBncm93dGglMjBwcm9mZXNzaW9uYWwlMjBzdWNjZXNzfGVufDF8fHx8MTc3MjgyMjQ4OXww&ixlib=rb-4.1.0&q=80&w=1080",
+        "https://images.unsplash.com/photo-1758518730162-09a142505bfd?crop=entropy&cs=tinysrgb&fit=max&fm=jpg&ixid=M3w3Nzg4Nzd8MHwxfHNlYXJjaHwxfHx0YWxlbnQlMjBhY3F1aXNpdGlvbiUyMGhpcmluZyUyMHByb2Nlc3N8ZW58MXx8fHwxNzcyODIyNTA4fDA&ixlib=rb-4.1.0&q=80&w=1080",
+        "https://images.unsplash.com/photo-1626065838283-d338b7702fed?crop=entropy&cs=tinysrgb&fit=max&fm=jpg&ixid=M3w3Nzg4Nzd8MHwxfHNlYXJjaHwxfHxyZW1vdGUlMjB3b3JrJTIwaG9tZSUyMG9mZmljZXxlbnwxfHx8fDE3NzI3MTU3NjZ8MA&ixlib=rb-4.1.0&q=80&w=1080",
+      ][index],
+      isDatabaseArticle: false,
+    }));
 
   const faqs = [
     {
@@ -1195,8 +1237,9 @@ export default function LandingPage() {
                 key={job.id}
                 className="bg-white rounded-2xl p-6 shadow-md hover:shadow-lg transition-shadow relative"
               >
+                <JobShareButton jobId={job.id} title={job.title} className="absolute right-5 top-5" />
                 <div className="mb-4 flex items-start justify-between">
-                  <div>
+                  <div className="pr-12">
                     <div className="flex items-center gap-2 mb-1">
                       <span className="text-sm text-[#8A8A8A]">
                         {job.company}
@@ -1207,9 +1250,6 @@ export default function LandingPage() {
                       {job.title}
                     </h3>
                   </div>
-                  {job.featured && (
-                    <div className="w-3 h-3 bg-[#FF2B2B] rounded-full flex-shrink-0"></div>
-                  )}
                 </div>
                 <p className="text-[#8A8A8A] text-sm mb-4">
                   {job.description}
@@ -1272,6 +1312,35 @@ export default function LandingPage() {
           </div>
 
           <div className="grid md:grid-cols-3 gap-8">
+            {landingArticles.map((article) => (
+              <div key={article.id} className="bg-white rounded-2xl overflow-hidden shadow-md hover:shadow-lg transition-shadow border border-gray-100">
+                {article.image ? (
+                  <ImageWithFallback src={article.image} alt={article.title} className="h-56 w-full object-cover" />
+                ) : (
+                  <div className="h-56 w-full bg-[#ECECF4] flex items-center justify-center">
+                    <BookOpen className="h-10 w-10 text-[#FF2B2B]" />
+                  </div>
+                )}
+                <div className="p-6">
+                  <span className="inline-block bg-[#ECECF4] text-[#3A1F1F] px-3 py-1 rounded-full text-sm mb-3">
+                    {article.category}
+                  </span>
+                  <h3 className="text-xl font-bold text-[#3A1F1F] mb-3">{article.title}</h3>
+                  <p className="text-[#8A8A8A] mb-4 line-clamp-3">{article.description}</p>
+                  <Button
+                    variant="link"
+                    className="text-[#FF2B2B] p-0 h-auto font-semibold"
+                    onClick={() => navigate(`/blog/${article.id}`)}
+                  >
+                    Read More{" "}
+                    <ArrowRight className="ml-1 h-4 w-4" />
+                  </Button>
+                </div>
+              </div>
+            ))}
+          </div>
+
+          <div className="hidden">
             <div className="bg-white rounded-2xl overflow-hidden shadow-md hover:shadow-lg transition-shadow border border-gray-100">
               <ImageWithFallback
                 src="https://images.unsplash.com/photo-1690192435015-319c1d5065b2?crop=entropy&cs=tinysrgb&fit=max&fm=jpg&ixid=M3w3Nzg4Nzd8MHwxfHNlYXJjaHwxfHxzb2Z0JTIwc2tplHMlMjwY29tbXVuaWNhdGlvbiUyMHRlYW13b3JrfGVufDF8fHx8MTc3MjgwODE4Nnww&ixlib=rb-4.1.0&q=80&w=1080"

@@ -30,6 +30,7 @@ import FeedbackPopup from "../components/FeedbackPopup";
 import SavedJobsSection from "../components/SavedJobsSection";
 import { AppliedJobWithJob, SavedJobWithJob, getAppliedJobs, getSavedJobs } from "../services/jobService";
 import SavedJobsComparePage from "./SavedJobsComparePage";
+import JobShareButton from "../components/JobShareButton";
 import logoImage from "../../logo/logo.png";
 
 // ── Types ──────────────────────────────────────────────────────────────────────
@@ -560,7 +561,7 @@ export default function JobSeekerDashboard() {
       <header className="bg-white shadow-sm sticky top-0 z-50">
         <div className="container mx-auto px-4 py-4">
           <div className="flex items-center justify-between">
-            <div className="flex items-center gap-3 cursor-pointer" onClick={() => navigate("/")}>
+            <div className="flex items-center gap-3 cursor-pointer" onClick={() => navigate("/jobseeker/dashboard")}>
               <img src={logoImage} alt="RhirePro Logo" className="w-10 h-10" />
               <div className="text-2xl font-bold text-[#3A1F1F]">Rhire<span className="text-[#FF2B2B]">Pro</span></div>
             </div>
@@ -1035,14 +1036,10 @@ function FindJobPage() {
                       }}
                       className={`bg-white rounded-2xl p-5 shadow-sm hover:shadow-md transition-all cursor-pointer relative flex flex-col ${isSelected ? "ring-2 ring-[#FF2B2B]" : ""}`}
                     >
-                      {job.isDB && (
-                        <div className={`absolute top-3 right-3 rounded-md px-2 py-1 text-[10px] font-semibold leading-tight text-center min-w-[44px] ${matchBadgeClass}`}>
-                          <div>{matchPercentage}%</div>
-                          <div className="font-normal">match</div>
-                        </div>
-                      )}
+                      <JobShareButton jobId={String(job.id)} title={job.title} className="absolute right-4 top-4" />
+                      {job.isDB && <div className="absolute top-5 right-16 w-2.5 h-2.5 bg-[#FF2B2B] rounded-full" />}
                       <p className="text-xs text-[#8A8A8A] mb-0.5">{job.company}</p>
-                      <h3 className="font-bold text-[#3A1F1F] text-lg mb-2 leading-snug pr-4">{job.title}</h3>
+                      <h3 className="font-bold text-[#3A1F1F] text-lg mb-2 leading-snug pr-12">{job.title}</h3>
                       <p className="text-[#8A8A8A] text-sm mb-3 line-clamp-2 flex-1">{job.description}</p>
                       <div className="space-y-1 mb-4">
                         <div className="flex items-center text-sm text-[#8A8A8A]">
