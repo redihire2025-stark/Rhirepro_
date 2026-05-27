@@ -28,6 +28,7 @@ import { BarChart, Bar, XAxis, YAxis, CartesianGrid, Tooltip, ResponsiveContaine
 import { Badge } from "../components/ui/badge";
 import FeedbackPopup from "../components/FeedbackPopup";
 import SavedJobsSection from "../components/SavedJobsSection";
+import { fetchGeminiInsights, type GeminiInsightsResult } from "../services/geminiSkillsService";
 import { AppliedJobWithJob, SavedJobWithJob, getAppliedJobs, getSavedJobs } from "../services/jobService";
 import SavedJobsComparePage from "./SavedJobsComparePage";
 import JobShareButton from "../components/JobShareButton";
@@ -3489,8 +3490,12 @@ function InsightsPage() {
   }>>([]);
   const [trendingSkillSuggestions, setTrendingSkillSuggestions] = useState<TrendingSkillSuggestion[]>([]);
   const [loadingJobs, setLoadingJobs] = useState(true);
+  const [aiInsights, setAiInsights] = useState<GeminiInsightsResult | null>(null);
+  const [loadingAI, setLoadingAI] = useState(true);
+
 
   const skills = profile?.skills || [];
+  const skillsKey = [...skills].sort().join(","); // stable string for effect dependency
   const profilePreferences = (profile || {}) as any;
   const preferredRole = (profilePreferences.desired_job_title || profile?.current_title || "").trim();
   const titleStr = preferredRole || profile?.current_title || "";
@@ -3507,18 +3512,25 @@ function InsightsPage() {
 
   // Fetch recommended jobs and skill demand from DB based on user's skills + preferred role
   useEffect(() => {
-    if (!profile) { setLoadingJobs(false); return; }
+    if (!profile) { setLoadingJobs(false); setLoadingAI(false); return; }
+    // Clear stale results immediately so old skills never show while new ones load
+    setTrendingSkillSuggestions([]);
+    setAiInsights(null);
     async function fetchJobs() {
       setLoadingJobs(true);
+      setLoadingAI(true);
       const marketSearchTerm = getMarketSearchTerm(domain, titleStr);
-      const [{ data }, marketJobs] = await Promise.all([
+      const [{ data }, marketJobs, geminiResult] = await Promise.all([
         supabase
           .from("jobs")
           .select("id, title, company_name, location, salary_min, salary_max, salary_type, skills, employment_type, status, deadline, deadline_time")
           .eq("status", "Active")
           .limit(30),
         fetchRemotiveJobs(marketSearchTerm),
+        fetchGeminiInsights(skills),
       ]);
+      setAiInsights(geminiResult);
+      setLoadingAI(false);
 
       if (data) {
         const visibleJobs = data.filter(job => isJobVisibleToSeekers(job));
@@ -3648,36 +3660,43 @@ function InsightsPage() {
           };
         });
 
-        const baseSuggestions = domain === "general" && countedSkills.length > 0 ? countedSkills : domainSuggestions;
-        const baseKeys = baseSuggestions.map((item) => item.skill);
-        const extraSuggestions = countedSkills.filter((item) =>
-          !baseKeys.some((baseSkill) => skillMatchesLabel(baseSkill, item.skill))
-        );
-        const dynamicSuggestions = [...baseSuggestions, ...extraSuggestions]
-          .filter((item) => item.relevanceScore >= 5)
-          .sort((a, b) => b.relevanceScore - a.relevanceScore || b.matchingJobs - a.matchingJobs || a.skill.localeCompare(b.skill))
-          .slice(0, TRENDING_SKILL_LIMIT);
-
-        setTrendingSkillSuggestions(dynamicSuggestions);
+        // Trending skills come exclusively from Gemini — no hardcoded fallback
+        if (geminiResult?.trendingSkills?.length) {
+          const aiSuggestions: TrendingSkillSuggestion[] = geminiResult.trendingSkills
+            .filter((ai) => !seekerHasSkill(skills, ai.skill))
+            .map((ai, idx) => ({
+              skill: ai.skill,
+              demand: ai.demand,
+              matchingJobs: 0,
+              relevanceScore: Math.max(10 - idx, 5),
+              suggestion: ai.reason,
+            }))
+            .slice(0, TRENDING_SKILL_LIMIT);
+          setTrendingSkillSuggestions(aiSuggestions);
+        } else {
+          setTrendingSkillSuggestions([]);
+        }
       } else {
-        setTrendingSkillSuggestions(domainData.trendingSkills.map((item) => ({
-          skill: item.skill,
-          matchingJobs: 0,
-          demand: item.demand,
-          relevanceScore: getRelevanceScore({
-            skill: item.skill,
-            domainData,
-            demand: item.demand,
-            matchingJobs: 0,
-            totalSignalJobs: 1,
-          }),
-          suggestion: `${item.skill} is relevant for ${trendingContextLabel === "profile" ? "your profile" : `${trendingContextLabel} roles`}.`,
-        })).filter((item) => item.relevanceScore >= 5));
+        if (geminiResult?.trendingSkills?.length) {
+          const aiSuggestions: TrendingSkillSuggestion[] = geminiResult.trendingSkills
+            .filter((ai) => !seekerHasSkill(skills, ai.skill))
+            .map((ai, idx) => ({
+              skill: ai.skill,
+              demand: ai.demand,
+              matchingJobs: 0,
+              relevanceScore: Math.max(10 - idx, 5),
+              suggestion: ai.reason,
+            }))
+            .slice(0, TRENDING_SKILL_LIMIT);
+          setTrendingSkillSuggestions(aiSuggestions);
+        } else {
+          setTrendingSkillSuggestions([]);
+        }
       }
       setLoadingJobs(false);
     }
     fetchJobs();
-  }, [profile?.id, skills, titleStr, trendingContextLabel, domain, domainData]);
+  }, [profile?.id, skillsKey, titleStr, trendingContextLabel, domain, domainData]);
 
   const demandBadge = (d: DemandLevel) => {
     if (d === "High") return "bg-[#FF2B2B] text-white";
@@ -3754,9 +3773,8 @@ function InsightsPage() {
             <Lightbulb className="h-5 w-5 text-[#FF2B2B]" /> Trending Skills
           </h3>
           <p className="text-xs text-[#8A8A8A] mb-4">
-            Based on your {trendingContextLabel === "profile" ? "profile" : `${trendingContextLabel} role`}
-            {skills.length > 0 && ` & ${skills.length} skills`}
-            {" | Remotive market API"}
+            Based on your {skills.length > 0 ? `${skills.length} skills` : "profile"}
+            {aiInsights ? " · Groq AI" : " · Remotive market API"}
           </p>
           {loadingJobs ? (
             <div className="flex items-center justify-center py-10 text-[#8A8A8A]">
@@ -3777,11 +3795,11 @@ function InsightsPage() {
             </div>
           ) : (
             <div className="text-center py-8 text-[#8A8A8A]">
-              <CheckCircle className="h-10 w-10 mx-auto mb-2 text-green-200" />
+              <Lightbulb className="h-10 w-10 mx-auto mb-2 text-gray-200" />
               <p className="text-sm">
                 {skills.length === 0
-                  ? "Add skills and a preferred role to get personalized learning suggestions."
-                  : "No missing trending skills found for your current profile."}
+                  ? "Add your skills to get AI-powered trending skill suggestions."
+                  : "AI analysis unavailable — restart the dev server and reload to retry."}
               </p>
             </div>
           )}
@@ -3830,20 +3848,31 @@ function InsightsPage() {
           <h3 className="text-lg font-semibold text-[#3A1F1F] mb-1 flex items-center gap-2">
             <Award className="h-5 w-5 text-[#FF2B2B]" /> Suggested Certifications
           </h3>
-          <p className="text-xs text-[#8A8A8A] mb-4">Tailored for your domain and experience level</p>
-          <div className="space-y-3">
-            {domainData.certifications.map((cert, i) => (
-              <div key={i} className="p-4 bg-[#F6F6F6] rounded-xl">
-                <div className="flex items-start justify-between gap-2">
-                  <div className="min-w-0">
-                    <h4 className="font-semibold text-[#3A1F1F] text-sm leading-snug">{cert.name}</h4>
-                    <p className="text-xs text-[#8A8A8A] mt-0.5">{cert.provider}</p>
+          <p className="text-xs text-[#8A8A8A] mb-4">
+            {aiInsights ? "AI-curated for your skills · Groq AI" : "Tailored for your domain and experience level"}
+          </p>
+          {loadingAI ? (
+            <div className="flex items-center justify-center py-10 text-[#8A8A8A]">
+              <Loader2 className="h-5 w-5 animate-spin mr-2" /> Analysing market certifications...
+            </div>
+          ) : (
+            <div className="space-y-3">
+              {(aiInsights?.certifications ?? domainData.certifications).map((cert, i) => (
+                <div key={i} className="p-4 bg-[#F6F6F6] rounded-xl">
+                  <div className="flex items-start justify-between gap-2">
+                    <div className="min-w-0">
+                      <h4 className="font-semibold text-[#3A1F1F] text-sm leading-snug">{cert.name}</h4>
+                      <p className="text-xs text-[#8A8A8A] mt-0.5">{cert.provider}</p>
+                      {"reason" in cert && cert.reason && (
+                        <p className="text-xs text-blue-600 mt-1 leading-snug">{cert.reason}</p>
+                      )}
+                    </div>
+                    <Badge className={`text-xs flex-shrink-0 ${certBadge(cert.value)}`}>{cert.value}</Badge>
                   </div>
-                  <Badge className={`text-xs flex-shrink-0 ${certBadge(cert.value)}`}>{cert.value}</Badge>
                 </div>
-              </div>
-            ))}
-          </div>
+              ))}
+            </div>
+          )}
         </div>
       </div>
     </div>
