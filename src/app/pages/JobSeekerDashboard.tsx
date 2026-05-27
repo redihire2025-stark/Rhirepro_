@@ -233,6 +233,127 @@ function formatDashboardDescription(job: DBJob): string {
   return "Explore this opportunity and apply now.";
 }
 
+function extractRecommendationTerms(profile: any): string[] {
+  return (Array.isArray(profile?.skills) ? profile.skills : [])
+    .filter((value: unknown): value is string => typeof value === "string")
+    .map((value: string) => value.trim().toLowerCase())
+    .filter((value: string) => value.length >= 2);
+}
+
+function normalizeSkillTokens(skills: string[]): Set<string> {
+  const tokens = new Set<string>();
+  skills.forEach((skill) => {
+    const normalized = skill.toLowerCase().trim();
+    if (!normalized) return;
+    tokens.add(normalized);
+    normalized
+      .split(/[^a-z0-9+#.]+/i)
+      .map((token) => token.trim())
+      .filter((token) => token.length >= 2)
+      .forEach((token) => tokens.add(token));
+  });
+  return tokens;
+}
+
+function expandSkillPhrases(skills: string[]): string[] {
+  return Array.from(
+    new Set(
+      skills
+        .flatMap((skill) =>
+          skill
+            .split(/[,\n;/|]+/)
+            .map((part) => part.trim().toLowerCase())
+            .filter((part) => part.length >= 2)
+        )
+    )
+  );
+}
+
+function normalizeSkillPhrase(value: string): string {
+  return value
+    .toLowerCase()
+    .replace(/\(.*?\)/g, " ")
+    .replace(/[^a-z0-9+#.\s]/g, " ")
+    .replace(/\s+/g, " ")
+    .trim();
+}
+
+function profileMatchesJdSkill(profileSkill: string, jdSkill: string): boolean {
+  const p = normalizeSkillPhrase(profileSkill);
+  const j = normalizeSkillPhrase(jdSkill);
+  if (!p || !j) return false;
+  if (p === j || p.includes(j) || j.includes(p)) return true;
+
+  const pTokens = p.split(" ").filter((t) => t.length >= 2);
+  const jTokens = j.split(" ").filter((t) => t.length >= 2);
+  if (pTokens.length === 0 || jTokens.length === 0) return false;
+
+  const pSet = new Set(pTokens);
+  const overlap = jTokens.filter((t) => pSet.has(t)).length;
+  return overlap >= Math.min(2, jTokens.length);
+}
+
+function getJdSkillMatchPercentage(job: DBJob, profileSkills: string[]): number {
+  const normalizedProfileSkills = Array.from(
+    new Set(
+      profileSkills
+        .map((skill) => skill.trim().toLowerCase())
+        .filter((skill) => skill.length >= 2)
+    )
+  );
+  if (normalizedProfileSkills.length === 0) return 0;
+
+  const rawJobSkills = (job.skills || [])
+    .filter((value): value is string => typeof value === "string")
+    .map((value) => value.trim().toLowerCase())
+    .filter((value) => value.length > 0);
+  const jobSkills = expandSkillPhrases(rawJobSkills);
+  if (jobSkills.length === 0) return 0;
+
+  let matchedJdSkills = 0;
+  for (const jdSkill of jobSkills) {
+    const matched = normalizedProfileSkills.some((profileSkill) => profileMatchesJdSkill(profileSkill, jdSkill));
+    if (matched) matchedJdSkills += 1;
+  }
+
+  return Math.round((matchedJdSkills / jobSkills.length) * 100);
+}
+
+function getMatchBadgeClass(matchPercentage: number): string {
+  if (matchPercentage >= 70) return "bg-green-100 text-green-700";
+  if (matchPercentage >= 40) return "bg-yellow-100 text-yellow-700";
+  return "bg-red-100 text-red-700";
+}
+
+function isRecommendedJobForProfile(job: DBJob, recommendationTerms: string[]): boolean {
+  if (recommendationTerms.length === 0) return false;
+
+  const uniqueProfileSkills = Array.from(
+    new Set(
+      recommendationTerms
+        .map((value) => value.trim().toLowerCase())
+        .filter((value) => value.length >= 2)
+    )
+  );
+
+  const rawJobSkills = (job.skills || [])
+    .filter((value): value is string => typeof value === "string")
+    .map((value) => value.trim().toLowerCase())
+    .filter((value) => value.length > 0);
+
+  const jobSkills = expandSkillPhrases(rawJobSkills);
+  if (jobSkills.length === 0) return false;
+
+  let matchedJdSkillCount = 0;
+  for (const jdSkill of jobSkills) {
+    const hasMatch = uniqueProfileSkills.some((profileSkill) => profileMatchesJdSkill(profileSkill, jdSkill));
+    if (hasMatch) matchedJdSkillCount += 1;
+    if (matchedJdSkillCount >= 3) return true;
+  }
+
+  return false;
+}
+
 const MONTHS = ["Jan","Feb","Mar","Apr","May","Jun","Jul","Aug","Sep","Oct","Nov","Dec"];
 const YEARS = Array.from({ length: 17 }, (_, i) => String(2010 + i));
 const JOBS_PER_PAGE = 12;
@@ -534,6 +655,9 @@ export default function JobSeekerDashboard() {
 function FindJobPage() {
   const { profile } = useAuth();
   const userId = profile?.id;
+  const profileSkills = Array.isArray(profile?.skills)
+    ? profile.skills.filter((value): value is string => typeof value === "string")
+    : [];
   const [searchQuery, setSearchQuery] = useState("");
   const [inputValue, setInputValue] = useState("");
   const [selectedChip, setSelectedChip] = useState<string | null>(null);
@@ -587,6 +711,16 @@ function FindJobPage() {
         .eq("status", "Active");
 
       const trimmedSearch = searchQuery.trim();
+      const shouldShowOnlyRecommended =
+        !trimmedSearch &&
+        !selectedChip &&
+        !locationFilter &&
+        !experienceFilter &&
+        !salaryFilter &&
+        !industryFilter &&
+        !jobTypeFilter &&
+        !remoteFilter;
+
       if (trimmedSearch) {
         const escaped = escapeLikeValue(trimmedSearch);
         query = query.or(
@@ -633,10 +767,11 @@ function FindJobPage() {
 
       const from = (currentPage - 1) * JOBS_PER_PAGE;
       const to = from + JOBS_PER_PAGE - 1;
+      const orderedQuery = query.order("created_at", { ascending: false });
 
-      const { data, error, count } = await query
-        .order("created_at", { ascending: false })
-        .range(from, to);
+      const { data, error, count } = shouldShowOnlyRecommended
+        ? await orderedQuery.limit(300)
+        : await orderedQuery.range(from, to);
 
       if (cancelled) return;
 
@@ -649,8 +784,18 @@ function FindJobPage() {
       }
 
       const visibleJobs = (data || []).filter((job) => isJobVisibleToSeekers(job));
-      setDbJobs(visibleJobs);
-      setTotalJobsCount(count || 0);
+
+      if (shouldShowOnlyRecommended) {
+        const recommendationTerms = extractRecommendationTerms(profile);
+        const recommendedJobs = visibleJobs.filter((job) => isRecommendedJobForProfile(job, recommendationTerms));
+        const pagedRecommendedJobs = recommendedJobs.slice(from, to + 1);
+        setDbJobs(pagedRecommendedJobs);
+        setTotalJobsCount(recommendedJobs.length);
+      } else {
+        setDbJobs(visibleJobs);
+        setTotalJobsCount(count || 0);
+      }
+
       setJobsLoading(false);
     }
 
@@ -668,6 +813,7 @@ function FindJobPage() {
     searchQuery,
     selectedChip,
     salaryFilter,
+    profile,
   ]);
 
   const handleApply = async (job: DBJob) => {
@@ -877,6 +1023,8 @@ function FindJobPage() {
                   const isApplied = appliedJobIds.includes(String(job.id));
                   const isSaved = savedJobIds.includes(String(job.id));
                   const isSelected = selectedJob?.id === job.id;
+                  const matchPercentage = job.isDB ? getJdSkillMatchPercentage(job.dbJob, profileSkills) : 0;
+                  const matchBadgeClass = getMatchBadgeClass(matchPercentage);
                   return (
                     <div
                       key={job.id}
@@ -889,9 +1037,14 @@ function FindJobPage() {
                       className={`bg-white rounded-2xl p-5 shadow-sm hover:shadow-md transition-all cursor-pointer relative flex flex-col ${isSelected ? "ring-2 ring-[#FF2B2B]" : ""}`}
                     >
                       <JobShareButton jobId={String(job.id)} title={job.title} className="absolute right-4 top-4" />
-                      {job.isDB && <div className="absolute top-5 right-16 w-2.5 h-2.5 bg-[#FF2B2B] rounded-full" />}
-                      <p className="text-xs text-[#8A8A8A] mb-0.5">{job.company}</p>
-                      <h3 className="font-bold text-[#3A1F1F] text-lg mb-2 leading-snug pr-12">{job.title}</h3>
+                      {job.isDB && (
+                        <div className={`absolute top-3 right-16 text-center rounded-xl px-2 py-1 min-w-[44px] ${matchBadgeClass}`}>
+                          <div className="text-sm font-bold leading-none">{matchPercentage}%</div>
+                          <div className="text-[10px] font-medium leading-tight mt-0.5 opacity-80">match</div>
+                        </div>
+                      )}
+                      <p className="text-xs text-[#8A8A8A] mb-0.5 pr-24">{job.company}</p>
+                      <h3 className="font-bold text-[#3A1F1F] text-lg mb-2 leading-snug pr-24">{job.title}</h3>
                       <p className="text-[#8A8A8A] text-sm mb-3 line-clamp-2 flex-1">{job.description}</p>
                       <div className="space-y-1 mb-4">
                         <div className="flex items-center text-sm text-[#8A8A8A]">
