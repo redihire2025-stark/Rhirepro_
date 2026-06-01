@@ -42,9 +42,23 @@ Find these in: **Supabase Dashboard → Settings → API**
 
 ```sql
 alter table jobs add column if not exists deadline_time text;
+alter table jobs alter column deadline set default (now() + interval '15 days');
+update jobs set deadline = created_at + interval '15 days' where deadline is null;
 alter table jobs drop constraint if exists jobs_deadline_time_check;
 alter table jobs add constraint jobs_deadline_time_check
   check (deadline_time is null or deadline_time ~ '^([01][0-9]|2[0-3]):[0-5][0-9]$');
+
+alter table notifications add column if not exists job_id uuid references jobs(id) on delete set null;
+alter table notifications add column if not exists notification_key text;
+alter table notifications drop constraint if exists notifications_type_check;
+alter table notifications add constraint notifications_type_check
+  check (type in ('application','message','status_change','job_alert','expiry_warning','expired','reposted'));
+create unique index if not exists notifications_notification_key_idx
+  on notifications(notification_key);
+create index if not exists notifications_user_unread_idx
+  on notifications(user_id, user_type, is_read, created_at desc);
+create index if not exists notifications_job_id_idx
+  on notifications(job_id, created_at desc);
 ```
 
 5. Paste the contents of `supabase/job_expiry_scheduler.sql`

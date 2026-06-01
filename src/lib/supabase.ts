@@ -167,7 +167,9 @@ export interface Notification {
   user_type: "jobseeker" | "recruiter";
   title: string;
   message: string;
-  type: "application" | "message" | "status_change" | "job_alert";
+  type: "application" | "message" | "status_change" | "job_alert" | "expiry_warning" | "expired" | "reposted";
+  job_id: string | null;
+  notification_key: string | null;
   is_read: boolean;
   related_id: string | null;
   created_at: string;

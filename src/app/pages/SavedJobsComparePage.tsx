@@ -266,7 +266,7 @@ export default function SavedJobsComparePage({ forcedState, embedded = false }: 
       { key: "experience", label: "Experience Required", getValue: (job) => formatExperience(job) },
       { key: "skills", label: "Skills Required", getValue: (job) => formatSkills(job) },
       { key: "education", label: "Education", getValue: (job) => formatEducation(job) },
-      { key: "deadline", label: "Application Deadline", getValue: (job) => formatDeadline(job) },
+      { key: "deadline", label: "Expires", getValue: (job) => formatDeadline(job) },
       { key: "status", label: "Job Status", getValue: (job) => getEffectiveJobStatus(job) || "N/A" },
     ],
     [],
