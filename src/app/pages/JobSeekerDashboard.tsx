@@ -5,6 +5,7 @@ import { isJobVisibleToSeekers } from "../../lib/jobs";
 import { recordJobInteraction, recordJobSearch } from "../../lib/jobRecommendations";
 import { useAuth } from "../../lib/auth-context";
 import AppliedJobsSection from "../components/AppliedJobsSection";
+import ResumePreviewDialog, { getStorageObjectFromUrl } from "../components/ResumePreviewDialog";
 import {
   Bell, LogOut, Search, MapPin, DollarSign, Briefcase, Filter, Bookmark,
   User, BarChart3, Lightbulb, Upload, Plus, X, Pencil, Trash2,
@@ -1423,6 +1424,28 @@ function ProfilePage() {
 
   // Resume
   const [resumeFile, setResumeFile] = useState<string | null>(null);
+  const [resumePreview, setResumePreview] = useState<{ url: string; candidateName: string } | null>(null);
+
+  const downloadResume = useCallback(async () => {
+    if (!resumeFile) return;
+
+    const storageObject = getStorageObjectFromUrl(resumeFile);
+    if (!storageObject) {
+      window.open(resumeFile, "_blank", "noopener,noreferrer");
+      return;
+    }
+
+    const { data, error } = await supabase.storage
+      .from(storageObject.bucket)
+      .createSignedUrl(storageObject.path, 10 * 60, { download: true });
+
+    if (error || !data?.signedUrl) {
+      alert(`Resume download failed: ${error?.message || "Unable to open resume."}`);
+      return;
+    }
+
+    window.open(data.signedUrl, "_blank", "noopener,noreferrer");
+  }, [resumeFile]);
 
   // Preferred Settings
   const [preferences, setPreferences] = useState({
@@ -1684,6 +1707,8 @@ function ProfilePage() {
 
       <div className="space-y-6">
         {/* ── Basic Info ── */}
+        <ResumePreviewDialog resume={resumePreview} onClose={() => setResumePreview(null)} />
+
         <div className="bg-white rounded-2xl p-6 shadow-md">
           <div className="flex justify-between items-center mb-4">
             <h3 className="text-xl font-semibold text-[#3A1F1F] flex items-center gap-2"><User className="h-5 w-5 text-[#FF2B2B]" /> Basic Information</h3>
@@ -2163,9 +2188,14 @@ function ProfilePage() {
             <div className="flex items-center justify-between bg-[#F6F6F6] rounded-xl p-4">
               <div className="min-w-0">
                 <p className="font-medium text-[#3A1F1F] truncate">Resume uploaded</p>
-                <a href={resumeFile} target="_blank" rel="noopener noreferrer" className="text-sm text-[#FF2B2B] hover:underline">View / Download</a>
               </div>
               <div className="flex gap-2 flex-shrink-0">
+                <Button variant="outline" size="sm" className="border-gray-200 rounded-full" onClick={() => setResumePreview({ url: resumeFile, candidateName: `${basicInfo.firstName} ${basicInfo.lastName}`.trim() || "Your Resume" })}>
+                  <Eye className="h-4 w-4 mr-1" /> Preview
+                </Button>
+                <button type="button" onClick={downloadResume} className="inline-flex items-center gap-1 px-3 py-2 border border-gray-200 rounded-full text-sm text-[#3A1F1F] hover:bg-white transition-colors">
+                  <Download className="h-4 w-4" /> Download
+                </button>
                 <label className="cursor-pointer">
                   <input type="file" accept=".pdf,.doc,.docx" className="hidden" onChange={async (e) => {
                     const file = e.target.files?.[0];
