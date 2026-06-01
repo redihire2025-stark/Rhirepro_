@@ -14,7 +14,7 @@ import { Sheet, SheetContent, SheetTrigger, SheetTitle, SheetDescription } from 
 import { useNavigate } from "react-router";
 import logoImage from "../../logo/logo.png";
 import { supabase, type Job as DBJob } from "../../lib/supabase";
-import { isJobVisibleToSeekers } from "../../lib/jobs";
+import { formatJobSalary, isJobVisibleToSeekers } from "../../lib/jobs";
 import { useAuth } from "../../lib/auth-context";
 import { getRecommendedJobs, recordJobInteraction, recordJobSearch } from "../../lib/jobRecommendations";
 import { isIndianLocation } from "../../lib/locationData";
@@ -40,19 +40,6 @@ type DisplayJob = {
 };
 
 const JOBS_PER_PAGE = 12;
-
-function formatSalary(job: DBJob): string {
-  if (job.salary_min && job.salary_max && job.salary_type) {
-    return `${job.salary_min}-${job.salary_max} ${job.salary_type}`;
-  }
-  if (job.salary_min && job.salary_type) {
-    return `${job.salary_min}+ ${job.salary_type}`;
-  }
-  if (job.salary_type) {
-    return `${job.salary_type} compensation`;
-  }
-  return "Compensation as per company standards";
-}
 
 function formatLocation(job: DBJob): string {
   if (job.location?.trim()) return job.location;
@@ -138,7 +125,7 @@ export default function JobListingsPage() {
           title: job.title,
           company: job.company_name,
           location: formatLocation(job),
-          salary: formatSalary(job),
+          salary: formatJobSalary(job),
           type: formatType(job),
           description: formatDescription(job),
           category: null,

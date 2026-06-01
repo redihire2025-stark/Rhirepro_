@@ -1,7 +1,7 @@
 import { useState, useMemo, useEffect, useCallback, useRef, type MouseEvent as ReactMouseEvent } from "react";
 import { useNavigate, Routes, Route, Link, useLocation } from "react-router";
 import { supabase, Job as DBJob, Notification } from "../../lib/supabase";
-import { isJobVisibleToSeekers } from "../../lib/jobs";
+import { formatJobSalary, isJobVisibleToSeekers } from "../../lib/jobs";
 import { recordJobInteraction, recordJobSearch } from "../../lib/jobRecommendations";
 import { useAuth } from "../../lib/auth-context";
 import AppliedJobsSection from "../components/AppliedJobsSection";
@@ -203,19 +203,6 @@ function renderNotificationMessage(message: string) {
       </span>
     );
   });
-}
-
-function formatDashboardSalary(job: DBJob): string {
-  if (job.salary_min && job.salary_max && job.salary_type) {
-    return `${job.salary_min}-${job.salary_max} ${job.salary_type}`;
-  }
-  if (job.salary_min && job.salary_type) {
-    return `${job.salary_min}+ ${job.salary_type}`;
-  }
-  if (job.salary_type) {
-    return `${job.salary_type} compensation`;
-  }
-  return "Compensation as per company standards";
 }
 
 function formatDashboardLocation(job: DBJob): string {
@@ -500,7 +487,7 @@ function buildDashboardJob(job: DBJob): DashboardDisplayJob {
     title: job.title,
     company: job.company_name,
     location: formatDashboardLocation(job),
-    salary: formatDashboardSalary(job),
+    salary: formatJobSalary(job),
     salaryMin: job.salary_min || 0,
     type: formatDashboardType(job) as "Full-time" | "Part-time" | "Contract",
     description: formatDashboardDescription(job),
@@ -4253,9 +4240,7 @@ function InsightsPage() {
 
           const match = Math.min(Math.max(skillScore + titleScore + 30, 40), 99);
 
-          const salary = job.salary_min && job.salary_max
-            ? `${job.salary_min}–${job.salary_max} LPA`
-            : "Not disclosed";
+          const salary = formatJobSalary(job as DBJob);
 
           return {
             id: job.id,

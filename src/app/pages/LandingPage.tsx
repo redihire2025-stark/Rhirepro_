@@ -52,7 +52,7 @@ import JobShareButton from "../components/JobShareButton";
 
 import { PLANS } from "../../lib/plans";
 import { supabase, type Job as DBJob, type RecruiterArticle } from "../../lib/supabase";
-import { isJobVisibleToSeekers } from "../../lib/jobs";
+import { formatJobSalary, isJobVisibleToSeekers } from "../../lib/jobs";
 import { getRecommendedJobs, recordJobInteraction } from "../../lib/jobRecommendations";
 import { isIndianLocation } from "../../lib/locationData";
 import {
@@ -76,19 +76,6 @@ type DisplayJob = {
   description: string;
   dbJob?: DBJob;
 };
-
-function formatSalary(job: DBJob): string {
-  if (job.salary_min && job.salary_max && job.salary_type) {
-    return `${job.salary_min}-${job.salary_max} ${job.salary_type}`;
-  }
-  if (job.salary_min && job.salary_type) {
-    return `${job.salary_min}+ ${job.salary_type}`;
-  }
-  if (job.salary_type) {
-    return `${job.salary_type} compensation`;
-  }
-  return "Compensation as per company standards";
-}
 
 function formatLocation(job: DBJob): string {
   if (job.location?.trim()) return job.location;
@@ -426,7 +413,7 @@ export default function LandingPage() {
           title: job.title,
           company: job.company_name,
           location: formatLocation(job),
-          salary: formatSalary(job),
+          salary: formatJobSalary(job),
           type: formatType(job),
           category: null,
           description: formatDescription(job),

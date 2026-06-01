@@ -4,7 +4,7 @@ import { useLocation, useNavigate } from "react-router";
 import { Button } from "../components/ui/button";
 import { Badge } from "../components/ui/badge";
 import { useAuth } from "../../lib/auth-context";
-import { formatJobDeadline, getEffectiveJobStatus } from "../../lib/jobs";
+import { formatJobDeadline, formatJobSalary, getEffectiveJobStatus } from "../../lib/jobs";
 import { supabase } from "../../lib/supabase";
 import { getSavedJobsForCurrentUser, SavedJobWithJob } from "../services/jobService";
 
@@ -42,10 +42,7 @@ const DIFFERENCE_KEYS = new Set<CompareFieldKey>(["salary", "location", "experie
 const SAVED_JOBS_COMPARE_STATE_KEY = "savedJobsCompareState";
 
 function formatSalary(job: NonNullable<SavedJobWithJob["job"]>): string {
-  if (job.salary_min && job.salary_max && job.salary_type) return `${job.salary_min}-${job.salary_max} ${job.salary_type}`;
-  if (job.salary_min && job.salary_type) return `${job.salary_min}+ ${job.salary_type}`;
-  if (job.salary_type) return `${job.salary_type} compensation`;
-  return "N/A";
+  return formatJobSalary(job);
 }
 
 function formatLocation(job: NonNullable<SavedJobWithJob["job"]>): string {
