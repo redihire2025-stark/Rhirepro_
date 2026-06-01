@@ -970,6 +970,53 @@ export default function RecruiterDashboard() {
     fetchNotifications();
   };
 
+  const getRecruiterNotificationPath = useCallback((notification: Notification): string => {
+    const text = `${notification.type} ${notification.title || ""} ${notification.message || ""}`.toLowerCase();
+
+    if (
+      notification.type === "application" ||
+      text.includes("application") ||
+      text.includes("applied") ||
+      text.includes("interview")
+    ) {
+      return "/recruiter/dashboard/applicants";
+    }
+
+    if (
+      notification.type === "reposted" ||
+      notification.type === "expired" ||
+      notification.type === "expiry_warning" ||
+      text.includes("job posted") ||
+      text.includes("reposted") ||
+      text.includes("refreshed") ||
+      text.includes("reactivated") ||
+      text.includes("expired")
+    ) {
+      return "/recruiter/dashboard/manage-jobs";
+    }
+
+    if (text.includes("profile") || text.includes("company")) {
+      return "/recruiter/dashboard/company-profile";
+    }
+
+    return "/recruiter/dashboard";
+  }, []);
+
+  const handleNotificationClick = useCallback(async (notification: Notification) => {
+    if (recruiterProfile?.id && !notification.is_read) {
+      await supabase
+        .from("notifications")
+        .update({ is_read: true })
+        .eq("id", notification.id)
+        .eq("user_id", recruiterProfile.id)
+        .eq("user_type", "recruiter");
+    }
+
+    setNotificationsOpen(false);
+    fetchNotifications();
+    navigate(getRecruiterNotificationPath(notification));
+  }, [fetchNotifications, getRecruiterNotificationPath, navigate, recruiterProfile?.id]);
+
   const notifRef = useRef<HTMLDivElement>(null);
   useEffect(() => {
     const handler = (e: MouseEvent) => {
@@ -1115,7 +1162,7 @@ export default function RecruiterDashboard() {
                         {notifications.length === 0 ? (
                           <p className="text-sm text-[#8A8A8A] text-center py-4">No notifications yet</p>
                         ) : notifications.map((n) => (
-                          <div key={n.id} className={`flex gap-3 p-2 rounded-lg cursor-pointer ${!n.is_read ? "bg-red-50" : "hover:bg-[#F6F6F6]"}`}>
+                          <div key={n.id} onClick={() => handleNotificationClick(n)} className={`flex gap-3 p-2 rounded-lg cursor-pointer ${!n.is_read ? "bg-red-50" : "hover:bg-[#F6F6F6]"}`}>
                             <div className="w-2 h-2 rounded-full mt-1.5 flex-shrink-0 bg-[#FF2B2B]" />
                             <div>
                               <p className="text-sm font-medium text-[#3A1F1F]">{n.title}</p>
