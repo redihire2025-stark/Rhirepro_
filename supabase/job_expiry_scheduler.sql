@@ -13,19 +13,82 @@ set search_path = public
 as $$
 begin
   update public.jobs
-  set status = 'Expired'
-  where status = 'Active'
+  set deadline = created_at + interval '15 days'
+  where deadline is null;
+
+  insert into public.notifications(user_id, user_type, title, message, type, job_id, related_id, notification_key, is_read)
+  select
+    recruiter_id,
+    'recruiter',
+    'Job Expiring Soon',
+    'Your job ''' || title || ''' will expire in 7 days.',
+    'expiry_warning',
+    id,
+    id,
+    'job:' || id || ':expiry_warning:7:' || extract(epoch from deadline)::bigint,
+    false
+  from public.jobs
+  where status in ('Active', 'Paused')
+    and deadline > now() + interval '6 days'
+    and deadline <= now() + interval '7 days'
+  on conflict (notification_key) do nothing;
+
+  insert into public.notifications(user_id, user_type, title, message, type, job_id, related_id, notification_key, is_read)
+  select
+    recruiter_id,
+    'recruiter',
+    'Job Expiring Soon',
+    'Your job ''' || title || ''' will expire in 3 days.',
+    'expiry_warning',
+    id,
+    id,
+    'job:' || id || ':expiry_warning:3:' || extract(epoch from deadline)::bigint,
+    false
+  from public.jobs
+  where status in ('Active', 'Paused')
+    and deadline > now() + interval '2 days'
+    and deadline <= now() + interval '3 days'
+  on conflict (notification_key) do nothing;
+
+  insert into public.notifications(user_id, user_type, title, message, type, job_id, related_id, notification_key, is_read)
+  select
+    recruiter_id,
+    'recruiter',
+    'Job Expiring Tomorrow',
+    'Your job ''' || title || ''' will expire tomorrow.',
+    'expiry_warning',
+    id,
+    id,
+    'job:' || id || ':expiry_warning:1:' || extract(epoch from deadline)::bigint,
+    false
+  from public.jobs
+  where status in ('Active', 'Paused')
+    and deadline > now()
+    and deadline <= now() + interval '1 day'
+  on conflict (notification_key) do nothing;
+
+  insert into public.notifications(user_id, user_type, title, message, type, job_id, related_id, notification_key, is_read)
+  select
+    recruiter_id,
+    'recruiter',
+    'Job Expired',
+    'Your job ''' || title || ''' has expired.',
+    'expired',
+    id,
+    id,
+    'job:' || id || ':expired:' || extract(epoch from deadline)::bigint,
+    false
+  from public.jobs
+  where status in ('Active', 'Paused')
     and deadline is not null
-    and (
-      (deadline at time zone 'Asia/Kolkata')::date < (now() at time zone 'Asia/Kolkata')::date
-      or (
-        (deadline at time zone 'Asia/Kolkata')::date = (now() at time zone 'Asia/Kolkata')::date
-        and (
-          deadline_time is null
-          or deadline_time <= to_char(now() at time zone 'Asia/Kolkata', 'HH24:MI')
-        )
-      )
-    );
+    and deadline <= now()
+  on conflict (notification_key) do nothing;
+
+  update public.jobs
+  set status = 'Expired'
+  where status in ('Active', 'Paused')
+    and deadline is not null
+    and deadline <= now();
 end;
 $$;
 
@@ -57,4 +120,4 @@ select public.mark_expired_jobs();
 -- delete from public.jobs
 -- where status = 'Expired'
 --   and deadline is not null
---   and (deadline at time zone 'Asia/Kolkata')::date < ((now() at time zone 'Asia/Kolkata')::date - 30);
+--   and deadline < now() - interval '30 days';

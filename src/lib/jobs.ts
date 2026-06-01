@@ -1,6 +1,7 @@
 import type { Job } from "./supabase";
 
 const IST_TIME_ZONE = "Asia/Kolkata";
+export const JOB_EXPIRY_DAYS = 15;
 
 function getIstDate(value: Date | string): string {
   return new Date(value).toLocaleDateString("en-CA", {
@@ -33,9 +34,10 @@ export function buildJobDeadlineTimestamp(date: string, time?: string): string |
   return new Date(utcTimestamp).toISOString();
 }
 
-export function getJobDeadlineDateValue(job: Pick<Job, "deadline">): string {
-  if (!job.deadline) return "";
-  return getIstDate(job.deadline);
+export function buildJobExpiryTimestamp(daysFromNow = JOB_EXPIRY_DAYS, now = new Date()): string {
+  const expiry = new Date(now);
+  expiry.setDate(expiry.getDate() + daysFromNow);
+  return expiry.toISOString();
 }
 
 export function formatJobDeadline(job: Pick<Job, "deadline" | "deadline_time">): string {
@@ -65,6 +67,10 @@ export function formatJobDeadline(job: Pick<Job, "deadline" | "deadline_time">):
 export function isJobExpired(job: Pick<Job, "deadline" | "deadline_time">, now = new Date()): boolean {
   if (!job.deadline) return false;
 
+  if (!job.deadline_time && job.deadline.includes("T")) {
+    return new Date(job.deadline).getTime() <= now.getTime();
+  }
+
   const deadlineDate = getIstDate(job.deadline);
   const todayDate = getIstDate(now);
 
@@ -76,6 +82,10 @@ export function isJobExpired(job: Pick<Job, "deadline" | "deadline_time">, now =
 }
 
 export function getEffectiveJobStatus(job: Pick<Job, "status" | "deadline" | "deadline_time">, now = new Date()): Job["status"] {
+  if ((job.status === "Active" || job.status === "Paused") && isJobExpired(job, now)) {
+    return "Expired";
+  }
+
   if (job.status === "Expired" && !isJobExpired(job, now)) {
     return "Active";
   }
@@ -87,8 +97,12 @@ export function isJobVisibleToSeekers(job: Pick<Job, "status" | "deadline" | "de
   return getEffectiveJobStatus(job, now) === "Active" && !isJobExpired(job, now);
 }
 
-export function getRepostedDeadline(daysFromNow = 30, now = new Date()): string {
-  const nextDeadline = new Date(now);
-  nextDeadline.setDate(nextDeadline.getDate() + daysFromNow);
-  return nextDeadline.toISOString().split("T")[0];
+export function getJobDaysRemaining(job: Pick<Job, "deadline">, now = new Date()): number {
+  if (!job.deadline) return 0;
+  const remainingMs = new Date(job.deadline).getTime() - now.getTime();
+  return Math.max(0, Math.ceil(remainingMs / 86400000));
+}
+
+export function getRepostedDeadline(daysFromNow = JOB_EXPIRY_DAYS, now = new Date()): string {
+  return buildJobExpiryTimestamp(daysFromNow, now);
 }
