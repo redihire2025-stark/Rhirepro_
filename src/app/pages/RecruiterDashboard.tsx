@@ -4337,7 +4337,7 @@ function ApplicantsPage() {
                     {modalStage === "Hired" ? (
                       <Button size="sm" variant="outline" disabled className="border-emerald-500 text-emerald-700 bg-emerald-100 ring-1 ring-emerald-300 rounded-full text-xs"><Check className="h-3.5 w-3.5 mr-1" /> Hired</Button>
                     ) : (
-                      <Button size="sm" variant="outline" disabled={disableActions || !canHire} className={`${modalStage === "Hired" ? "border-2 border-emerald-600 bg-emerald-50 text-emerald-700" : "border-emerald-500 text-emerald-600 hover:bg-emerald-50 opacity-40"} rounded-full text-xs ${disabledOpacityClass}`} onClick={() => quickUpdateStatus(profileModal.id, "Hired")}>Hire</Button>
+                      <Button size="sm" variant="outline" disabled={disableActions || !canHire} className={`border-emerald-500 text-emerald-600 hover:bg-emerald-50 opacity-40 rounded-full text-xs ${disabledOpacityClass}`} onClick={() => quickUpdateStatus(profileModal.id, "Hired")}>Hire</Button>
                     )}
                     <Button size="sm" variant="outline" disabled={disableActions || !canReject} className={`${isRejectActive ? "border-2 border-red-600 bg-red-50 text-red-700" : "border-red-400 text-red-500 hover:bg-red-50 opacity-40"} rounded-full text-xs ${disabledOpacityClass} ${fadedAfterHire}`} onClick={() => quickUpdateStatus(profileModal.id, "Rejected")}><ThumbsDown className="h-3.5 w-3.5 mr-1" /> Reject</Button>
                     {modalStage === "Rejected" && (
@@ -4485,6 +4485,7 @@ function AnalyticsPage() {
     reviewed: 0,
     shortlisted: 0,
     interviewScheduled: 0,
+    selectedInInterview: 0,
     offered: 0,
     hired: 0,
   });
@@ -4613,7 +4614,7 @@ function AnalyticsPage() {
           setOfferAcceptanceRate("—");
           setProfileVisitRate("—");
           setApplicationsGrowth("+0%");
-          setFunnelCounts({ reviewed: 0, shortlisted: 0, interviewScheduled: 0, offered: 0, hired: 0 });
+          setFunnelCounts({ reviewed: 0, shortlisted: 0, interviewScheduled: 0, selectedInInterview: 0, offered: 0, hired: 0 });
           return;
         }
 
@@ -4633,15 +4634,21 @@ function AnalyticsPage() {
         setTotalApplications(filteredApplications.length);
         setFunnelCounts(filteredApplications.reduce((counts, application) => {
           const stage = mapApplicationStatusToPipelineStage(application.status);
+          const normalizedStatus = (application.status || "").toLowerCase().trim().replace(/[\s-]+/g, "_");
 
           if (stage === "Screening") counts.reviewed += 1;
           if (stage === "Shortlisted") counts.shortlisted += 1;
           if (stage === "Interview Scheduled") counts.interviewScheduled += 1;
+          if (
+            normalizedStatus === "selected_in_interview" ||
+            normalizedStatus === "interview_selected" ||
+            normalizedStatus === "selected_after_interview"
+          ) counts.selectedInInterview += 1;
           if (stage === "Offered") counts.offered += 1;
           if (stage === "Hired") counts.hired += 1;
 
           return counts;
-        }, { reviewed: 0, shortlisted: 0, interviewScheduled: 0, offered: 0, hired: 0 }));
+        }, { reviewed: 0, shortlisted: 0, interviewScheduled: 0, selectedInInterview: 0, offered: 0, hired: 0 }));
 
         const currentCount = filteredApplications.length;
         const prevCount = prevApplications.length;
@@ -4673,7 +4680,7 @@ function AnalyticsPage() {
         setOfferAcceptanceRate("—");
         setProfileVisitRate("—");
         setApplicationsGrowth("+0%");
-        setFunnelCounts({ reviewed: 0, shortlisted: 0, interviewScheduled: 0, offered: 0, hired: 0 });
+        setFunnelCounts({ reviewed: 0, shortlisted: 0, interviewScheduled: 0, selectedInInterview: 0, offered: 0, hired: 0 });
       }
     }
 
@@ -4760,7 +4767,7 @@ function AnalyticsPage() {
   const metrics = [
     { label: "Total Jobs Posted", value: totalJobsPosted !== null ? `${totalJobsPosted}` : "—", sub: timePeriod === "7d" ? "Last 7 days" : timePeriod === "90d" ? "Last 90 days" : "Last 30 days", icon: Briefcase, color: "text-blue-600", bg: "bg-blue-50" },
     { label: "Total Applications", value: totalApplications !== null ? `${totalApplications}` : "—", sub: `${applicationsGrowth} vs previous ${timePeriod === "7d" ? "7 days" : timePeriod === "90d" ? "90 days" : "30 days"}`, icon: Users, color: "text-green-600", bg: "bg-green-50" },
-    { label: "day hr min", value: avgTimeToHire, sub: "Industry avg: 25 days", icon: Clock, color: "text-purple-600", bg: "bg-purple-50" },
+    { label: "day : hr : min", value: avgTimeToHire, sub: "Industry avg: 25 days", icon: Clock, color: "text-purple-600", bg: "bg-purple-50" },
     { label: "Offer Acceptance Rate", value: offerAcceptanceRate, sub: "+5% vs last quarter", icon: CheckCircle, color: "text-[#FF2B2B]", bg: "bg-red-50" },
     { label: "Job Views", value: jobViews !== null ? jobViews.toLocaleString() : "—", sub: "Across all active jobs", icon: Eye, color: "text-orange-600", bg: "bg-orange-50" },
     { label: "Profile View Rate", value: profileVisitRate, sub: "Profile Appearances", icon: TrendingUp, color: "text-teal-600", bg: "bg-teal-50" },
@@ -4775,16 +4782,14 @@ function AnalyticsPage() {
   ];
 
   const totalApplicationsValue = totalApplications ?? 0;
-  const funnelTarget = 500;
-  const funnelPct = (count: number) => Math.min((count / funnelTarget) * 100, 100);
   const formatFunnelPct = (pct: number) => Number.isInteger(pct) ? String(pct) : pct.toFixed(1);
   const funnelData = [
-    { stage: "Total Applicants", count: totalApplicationsValue, color: "bg-gray-400" },
-    { stage: "Reviewed", count: funnelCounts.reviewed, color: "bg-blue-400" },
-    { stage: "Shortlisted", count: funnelCounts.shortlisted, color: "bg-pink-400" },
-    { stage: "Interview Scheduled", count: funnelCounts.interviewScheduled, color: "bg-purple-400" },
-    { stage: "Offer Given", count: funnelCounts.offered, color: "bg-orange-400" },
-    { stage: "Hired", count: funnelCounts.hired, color: "bg-emerald-500" },
+    { stage: "Total Candidates", count: totalApplicationsValue, color: "#BFDBFE", icon: Users, width: 100 },
+    { stage: "Shortlisted", count: funnelCounts.shortlisted, color: "#A7F3D0", icon: FileText, width: 90 },
+    { stage: "No. of Candidates Interviews", count: funnelCounts.interviewScheduled, color: "#FEF3C7", icon: Calendar, width: 80 },
+    { stage: "Selected in Interview", count: funnelCounts.selectedInInterview, color: "#FED7AA", icon: CheckCircle, width: 70 },
+    { stage: "Offer", count: funnelCounts.offered, color: "#FECACA", icon: Mail, width: 60 },
+    { stage: "Hired", count: funnelCounts.hired, color: "#FCA5A5", icon: User, width: 50 },
   ];
 
   const jobPerformance = jobsData.map(j => ({
@@ -4868,25 +4873,37 @@ function AnalyticsPage() {
 
         {/* Pipeline Funnel */}
         <div className="bg-white rounded-2xl p-6 shadow-sm">
-          <h2 className="font-bold text-[#3A1F1F] mb-4">Hiring Funnel</h2>
-          <div className="space-y-2">
+          <h2 className="text-center text-2xl font-bold text-[#3A1F1F] mb-5">Hiring Funnel</h2>
+          <div className="space-y-2.5">
             {funnelData.map((stage, i) => {
-              const pct = funnelPct(stage.count);
+              const pct = totalApplicationsValue > 0 ? (stage.count / totalApplicationsValue) * 100 : 0;
+              const Icon = stage.icon;
 
               return (
-                <div key={i}>
-                  <div className="flex items-center justify-between text-sm mb-1">
-                    <span className="text-[#3A1F1F]">{stage.stage}</span>
-                    <span className="text-[#8A8A8A] font-medium">{stage.count}</span>
-                  </div>
-                  <div className="h-8 bg-gray-50 rounded-lg overflow-hidden relative">
-                    <div
-                      className={`h-full ${stage.color} rounded-lg transition-all`}
-                      style={{ width: `${pct}%` }}
-                    />
-                    <span className={`absolute left-3 top-1/2 -translate-y-1/2 text-xs font-medium ${pct >= 12 ? "text-white" : "text-[#3A1F1F]"}`}>
-                      {formatFunnelPct(pct)}%
-                    </span>
+                <div
+                  key={stage.stage}
+                  className="relative mx-auto h-[80px] max-w-full overflow-visible"
+                  style={{ width: `${stage.width}%` }}
+                >
+                  <div
+                    className="absolute inset-0 shadow-sm"
+                    style={{
+                      backgroundColor: stage.color,
+                      clipPath: "polygon(0 0, 100% 0, 92% 100%, 8% 100%)",
+                    }}
+                  />
+                  <div className="relative grid h-full grid-cols-[42px_minmax(0,1fr)_68px] items-center gap-2 px-[12%] sm:grid-cols-[50px_minmax(0,1fr)_78px] sm:gap-4">
+                    <div className="flex h-10 w-10 shrink-0 items-center justify-center rounded-full bg-white text-[#FF2B2B] shadow-sm sm:h-12 sm:w-12">
+                      <Icon className="h-5 w-5" />
+                    </div>
+                    <div className="min-w-0">
+                      <p className="text-sm font-bold leading-tight text-[#3A1F1F]">{stage.stage}</p>
+                      <p className="mt-0.5 whitespace-nowrap text-xs font-medium text-[#5A5A5A]">{stage.count} candidates</p>
+                    </div>
+                    <div className="min-w-0 text-right">
+                      <p className="text-lg font-bold leading-none text-[#3A1F1F] sm:text-xl">{formatFunnelPct(pct)}%</p>
+                      <p className="mt-1 text-[11px] font-medium leading-tight text-[#5A5A5A]">of total</p>
+                    </div>
                   </div>
                 </div>
               );

@@ -3535,7 +3535,7 @@ function InsightsPage() {
       if (data) {
         const visibleJobs = data.filter(job => isJobVisibleToSeekers(job));
         const userSkillsLower = skills.map(normalizeSkillKey);
-        const titleWords = titleStr.toLowerCase().split(/\s+/).filter(w => w.length > 3);
+        const titleWords: string[] = titleStr.toLowerCase().split(/\s+/).filter((w: string) => w.length > 3);
 
         const scored = visibleJobs.map(job => {
           const jobSkills: string[] = job.skills || [];
@@ -3550,7 +3550,7 @@ function InsightsPage() {
 
           // Title similarity score (0–30)
           const jobTitleLower = job.title.toLowerCase();
-          const titleScore = titleWords.some(w => jobTitleLower.includes(w)) ? 25 : 0;
+          const titleScore = titleWords.some((w: string) => jobTitleLower.includes(w)) ? 25 : 0;
 
           const match = Math.min(Math.max(skillScore + titleScore + 30, 40), 99);
 
@@ -3857,7 +3857,7 @@ function InsightsPage() {
             </div>
           ) : (
             <div className="space-y-3">
-              {(aiInsights?.certifications ?? domainData.certifications).map((cert, i) => (
+              {(aiInsights?.certifications ?? domainData.certifications).map((cert: { name: string; provider?: string; reason?: string; value: string }, i: number) => (
                 <div key={i} className="p-4 bg-[#F6F6F6] rounded-xl">
                   <div className="flex items-start justify-between gap-2">
                     <div className="min-w-0">
