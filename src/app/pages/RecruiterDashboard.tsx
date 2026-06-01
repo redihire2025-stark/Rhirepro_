@@ -1,7 +1,17 @@
 import { useState, useEffect, useCallback, useRef, useMemo, type ChangeEvent } from "react";
 import { useNavigate, Routes, Route, Link, useLocation, useParams } from "react-router";
 import { supabase, Job, Application, Notification, Profile, WorkExperience, Education as EduType, RecruiterSubscription, RecruiterArticle } from "../../lib/supabase";
-import { buildJobDeadlineTimestamp, formatJobDeadline, getEffectiveJobStatus, getJobDeadlineDateValue, isJobExpired } from "../../lib/jobs";
+import {
+  SALARY_RANGE_OPTIONS,
+  buildJobDeadlineTimestamp,
+  formatJobDeadline,
+  formatJobSalary,
+  getEffectiveJobStatus,
+  getJobDeadlineDateValue,
+  getSalaryRangeFromJob,
+  getSalaryRangeValues,
+  isJobExpired,
+} from "../../lib/jobs";
 import { PLANS, FREE_DAILY_POST_LIMIT, getPlanById, validatePromo, applyPromo } from "../../lib/plans";
 import { INDIA_CITY_OPTIONS } from "../../lib/locationData";
 import { useAuth } from "../../lib/auth-context";
@@ -1620,7 +1630,7 @@ function PostJobPage() {
   const [formData, setFormData] = useState({
     jobTitle: "", jobDescription: "", rolesResponsibilities: "", requirements: "",
     location: "", workMode: "",
-    salaryMin: "", salaryMax: "", salaryType: "LPA",
+    salaryRange: "",
     experienceMin: "", experienceMax: "",
     skills: "", employmentType: "", industry: "",
     openings: "1", education: "", perks: [] as string[], department: "",
@@ -1817,11 +1827,16 @@ function PostJobPage() {
       );
       return;
     }
+    if (!formData.salaryRange) {
+      setPostError("Please select a salary range.");
+      return;
+    }
     setPosting(true);
     try {
       const deadline = buildJobDeadlineTimestamp(formData.applicationDeadline, formData.applicationDeadlineTime);
       const deadlineTime = deadline ? (formData.applicationDeadlineTime || null) : null;
       const skillsArr = formData.skills.split(",").map(s => s.trim()).filter(Boolean);
+      const salaryRange = getSalaryRangeValues(formData.salaryRange);
       const { error } = await supabase.from("jobs").insert({
         recruiter_id: recruiterProfile.id,
         title: formData.jobTitle,
@@ -1831,9 +1846,9 @@ function PostJobPage() {
         company_name: recruiterProfile.company_name || "",
         location: formData.location,
         work_mode: formData.workMode,
-        salary_min: formData.salaryMin ? Number(formData.salaryMin) : null,
-        salary_max: formData.salaryMax ? Number(formData.salaryMax) : null,
-        salary_type: formData.salaryType,
+        salary_min: salaryRange.min,
+        salary_max: salaryRange.max,
+        salary_type: salaryRange.type,
         experience_min: formData.experienceMin ? Number(formData.experienceMin) : null,
         experience_max: formData.experienceMax ? Number(formData.experienceMax) : null,
         employment_type: formData.employmentType,
@@ -1852,7 +1867,7 @@ function PostJobPage() {
       setPostSuccess(true);
       setShowPreview(false);
       setTimeout(() => { setPostSuccess(false); navigate("/recruiter/dashboard/manage-jobs"); }, 2000);
-      setFormData({ jobTitle:"",jobDescription:"",rolesResponsibilities:"",requirements:"",location:"",workMode:"",salaryMin:"",salaryMax:"",salaryType:"LPA",experienceMin:"",experienceMax:"",skills:"",employmentType:"",industry:"",openings:"1",education:"",perks:[],department:"",interviewMode:"",applicationDeadline:"",applicationDeadlineTime:"" });
+      setFormData({ jobTitle:"",jobDescription:"",rolesResponsibilities:"",requirements:"",location:"",workMode:"",salaryRange:"",experienceMin:"",experienceMax:"",skills:"",employmentType:"",industry:"",openings:"1",education:"",perks:[],department:"",interviewMode:"",applicationDeadline:"",applicationDeadlineTime:"" });
       setShowSkillInput(false);
       setSkillPickerOpen(false);
       setSkillSearch("");
@@ -1894,7 +1909,7 @@ function PostJobPage() {
                 <div className="flex flex-wrap gap-3 mt-3 text-sm text-[#5A5A5A]">
                   {formData.location && <span className="flex items-center gap-1"><MapPin className="h-3.5 w-3.5" />{formData.location}</span>}
                   {formData.experienceMin && <span className="flex items-center gap-1"><Briefcase className="h-3.5 w-3.5" />{formData.experienceMin}–{formData.experienceMax} yrs</span>}
-                  {formData.salaryMin && <span className="flex items-center gap-1"><TrendingUp className="h-3.5 w-3.5" />{formData.salaryMin}–{formData.salaryMax} {formData.salaryType}</span>}
+                  {formData.salaryRange && <span className="flex items-center gap-1"><TrendingUp className="h-3.5 w-3.5" />{formData.salaryRange}</span>}
                   {formData.workMode && <span className="flex items-center gap-1"><Globe className="h-3.5 w-3.5" />{formData.workMode}</span>}
                   {formData.employmentType && <span className="flex items-center gap-1"><Clock className="h-3.5 w-3.5" />{formData.employmentType}</span>}
                 </div>
@@ -2026,6 +2041,10 @@ function PostJobPage() {
             setPostError("Please add at least one key skill.");
             setShowSkillInput(true);
             setSkillPickerOpen(true);
+            return;
+          }
+          if (!formData.salaryRange) {
+            setPostError("Please select a salary range.");
             return;
           }
           setPostError("");
@@ -2169,15 +2188,12 @@ function PostJobPage() {
             <div className="grid md:grid-cols-2 gap-4">
               <div>
                 <label className="block mb-1.5 text-sm font-medium text-[#3A1F1F]">Salary Range *</label>
-                <div className="flex gap-2 items-center">
-                  <Input type="number" value={formData.salaryMin} onChange={e => setFormData({ ...formData, salaryMin: e.target.value })} className="bg-[#F6F6F6] border-gray-200 rounded-xl" placeholder="Min" />
-                  <span className="text-[#8A8A8A]">–</span>
-                  <Input type="number" value={formData.salaryMax} onChange={e => setFormData({ ...formData, salaryMax: e.target.value })} className="bg-[#F6F6F6] border-gray-200 rounded-xl" placeholder="Max" />
-                  <Select value={formData.salaryType} onValueChange={v => setFormData({ ...formData, salaryType: v })}>
-                    <SelectTrigger className="w-24 bg-[#F6F6F6] border-gray-200 rounded-xl"><SelectValue /></SelectTrigger>
-                    <SelectContent><SelectItem value="LPA">LPA</SelectItem><SelectItem value="Monthly">Monthly</SelectItem></SelectContent>
-                  </Select>
-                </div>
+                <Select value={formData.salaryRange} onValueChange={v => setFormData({ ...formData, salaryRange: v })}>
+                  <SelectTrigger className="bg-[#F6F6F6] border-gray-200 rounded-xl"><SelectValue placeholder="Select salary range" /></SelectTrigger>
+                  <SelectContent>
+                    {SALARY_RANGE_OPTIONS.map(range => <SelectItem key={range} value={range}>{range}</SelectItem>)}
+                  </SelectContent>
+                </Select>
               </div>
               <div>
                 <label className="block mb-1.5 text-sm font-medium text-[#3A1F1F]">Experience Required *</label>
@@ -2396,7 +2412,7 @@ function ManageJobsPage() {
   const [filter, setFilter] = useState("All");
   const [loading, setLoading] = useState(true);
   const [editingJob, setEditingJob] = useState<Job | null>(null);
-  const [editForm, setEditForm] = useState({ title: "", location: "", salaryMin: "", salaryMax: "", salaryType: "LPA", employmentType: "", workMode: "", openings: "1", skills: "", deadlineDate: "", deadlineTime: "" });
+  const [editForm, setEditForm] = useState({ title: "", location: "", salaryRange: "", employmentType: "", workMode: "", openings: "1", skills: "", deadlineDate: "", deadlineTime: "" });
   const [saving, setSaving] = useState(false);
   const isExpired = useCallback((job: Job) => isJobExpired(job), []);
 
@@ -2405,9 +2421,7 @@ function ManageJobsPage() {
     setEditForm({
       title: job.title,
       location: job.location || "",
-      salaryMin: job.salary_min ? String(job.salary_min) : "",
-      salaryMax: job.salary_max ? String(job.salary_max) : "",
-      salaryType: job.salary_type || "LPA",
+      salaryRange: getSalaryRangeFromJob(job),
       employmentType: job.employment_type || "",
       workMode: job.work_mode || "",
       openings: String(job.openings),
@@ -2419,16 +2433,18 @@ function ManageJobsPage() {
 
   const saveEdit = async () => {
     if (!editingJob) return;
+    if (!editForm.salaryRange) return;
     setSaving(true);
     const skillsArr = editForm.skills.split(",").map(s => s.trim()).filter(Boolean);
     const deadline = buildJobDeadlineTimestamp(editForm.deadlineDate, editForm.deadlineTime);
     const deadlineTime = deadline ? (editForm.deadlineTime || null) : null;
+    const salaryRange = getSalaryRangeValues(editForm.salaryRange);
     await supabase.from("jobs").update({
       title: editForm.title,
       location: editForm.location,
-      salary_min: editForm.salaryMin ? Number(editForm.salaryMin) : null,
-      salary_max: editForm.salaryMax ? Number(editForm.salaryMax) : null,
-      salary_type: editForm.salaryType,
+      salary_min: salaryRange.min,
+      salary_max: salaryRange.max,
+      salary_type: salaryRange.type,
       employment_type: editForm.employmentType,
       work_mode: editForm.workMode,
       openings: Number(editForm.openings) || 1,
@@ -2438,9 +2454,9 @@ function ManageJobsPage() {
     }).eq("id", editingJob.id);
     setJobs(prev => prev.map(j => j.id === editingJob.id ? {
       ...j, title: editForm.title, location: editForm.location,
-      salary_min: editForm.salaryMin ? Number(editForm.salaryMin) : null,
-      salary_max: editForm.salaryMax ? Number(editForm.salaryMax) : null,
-      salary_type: editForm.salaryType, employment_type: editForm.employmentType,
+      salary_min: salaryRange.min,
+      salary_max: salaryRange.max,
+      salary_type: salaryRange.type, employment_type: editForm.employmentType,
       work_mode: editForm.workMode, openings: Number(editForm.openings) || 1,
       skills: skillsArr,
       deadline,
@@ -2546,7 +2562,7 @@ function ManageJobsPage() {
                 <div className="flex items-center gap-4 text-sm text-[#8A8A8A] flex-wrap">
                   <span className="flex items-center gap-1"><MapPin className="h-3.5 w-3.5" />{job.location}</span>
                   <span className="flex items-center gap-1"><Briefcase className="h-3.5 w-3.5" />{job.employment_type}</span>
-                  {job.salary_min && <span className="flex items-center gap-1"><TrendingUp className="h-3.5 w-3.5" />{job.salary_min}–{job.salary_max} {job.salary_type}</span>}
+                  <span className="flex items-center gap-1"><TrendingUp className="h-3.5 w-3.5" />{formatJobSalary(job)}</span>
                   <span className="flex items-center gap-1"><Clock className="h-3.5 w-3.5" />Posted {new Date(job.created_at).toLocaleDateString()}</span>
                   {job.deadline && (
                     <span className="flex items-center gap-1">
@@ -2614,16 +2630,13 @@ function ManageJobsPage() {
               </div>
             </div>
             <div>
-              <label className="block text-sm font-medium text-[#3A1F1F] mb-1">Salary Range</label>
-              <div className="flex gap-2 items-center">
-                <Input type="number" value={editForm.salaryMin} onChange={e => setEditForm(f => ({ ...f, salaryMin: e.target.value }))} className="bg-[#F6F6F6] border-gray-200 rounded-xl" placeholder="Min" />
-                <span className="text-[#8A8A8A]">–</span>
-                <Input type="number" value={editForm.salaryMax} onChange={e => setEditForm(f => ({ ...f, salaryMax: e.target.value }))} className="bg-[#F6F6F6] border-gray-200 rounded-xl" placeholder="Max" />
-                <Select value={editForm.salaryType} onValueChange={v => setEditForm(f => ({ ...f, salaryType: v }))}>
-                  <SelectTrigger className="w-24 bg-[#F6F6F6] border-gray-200 rounded-xl"><SelectValue /></SelectTrigger>
-                  <SelectContent><SelectItem value="LPA">LPA</SelectItem><SelectItem value="Monthly">Monthly</SelectItem></SelectContent>
-                </Select>
-              </div>
+              <label className="block text-sm font-medium text-[#3A1F1F] mb-1">Salary Range *</label>
+              <Select value={editForm.salaryRange} onValueChange={v => setEditForm(f => ({ ...f, salaryRange: v }))}>
+                <SelectTrigger className="bg-[#F6F6F6] border-gray-200 rounded-xl"><SelectValue placeholder="Select salary range" /></SelectTrigger>
+                <SelectContent>
+                  {SALARY_RANGE_OPTIONS.map(range => <SelectItem key={range} value={range}>{range}</SelectItem>)}
+                </SelectContent>
+              </Select>
             </div>
             <div>
               <label className="block text-sm font-medium text-[#3A1F1F] mb-1">Number of Openings</label>
@@ -2642,7 +2655,7 @@ function ManageJobsPage() {
               <p className="text-xs text-[#8A8A8A] mt-1">Leave time empty to keep date-only expiry.</p>
             </div>
             <div className="flex gap-3 pt-2">
-              <Button className="flex-1 bg-[#FF2B2B] hover:bg-[#e02525] text-white rounded-full" onClick={saveEdit} disabled={saving || !editForm.title}>
+              <Button className="flex-1 bg-[#FF2B2B] hover:bg-[#e02525] text-white rounded-full" onClick={saveEdit} disabled={saving || !editForm.title || !editForm.salaryRange}>
                 {saving ? "Saving..." : "Save Changes"}
               </Button>
               <Button variant="outline" className="rounded-full" onClick={() => setEditingJob(null)}>Cancel</Button>

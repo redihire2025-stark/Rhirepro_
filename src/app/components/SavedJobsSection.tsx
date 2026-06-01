@@ -13,6 +13,7 @@ import {
   PaginationPrevious,
 } from "./ui/pagination";
 import { getSavedJobs, removeSavedJob, SavedJobWithJob } from "../services/jobService";
+import { formatJobSalary } from "../../lib/jobs";
 
 const JOBS_PER_PAGE = 12;
 const MAX_COMPARE_JOBS = 3;
@@ -39,10 +40,7 @@ function formatLocation(job: SavedJobWithJob["job"]): string {
 
 function formatSalary(job: SavedJobWithJob["job"]): string {
   if (!job) return "Compensation as per company standards";
-  if (job.salary_min && job.salary_max && job.salary_type) return `${job.salary_min}-${job.salary_max} ${job.salary_type}`;
-  if (job.salary_min && job.salary_type) return `${job.salary_min}+ ${job.salary_type}`;
-  if (job.salary_type) return `${job.salary_type} compensation`;
-  return "Compensation as per company standards";
+  return formatJobSalary(job);
 }
 
 function formatDate(value: string): string {

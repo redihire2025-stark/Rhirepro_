@@ -6,19 +6,9 @@ import { Sheet, SheetContent, SheetTrigger, SheetTitle, SheetDescription } from 
 import { useNavigate, useParams } from "react-router";
 import logoImage from "../../logo/logo.png";
 import { supabase, type Job as DBJob } from "../../lib/supabase";
-import { isJobVisibleToSeekers } from "../../lib/jobs";
+import { formatJobSalary, isJobVisibleToSeekers } from "../../lib/jobs";
 import { isIndianLocation } from "../../lib/locationData";
 import { useAuth } from "../../lib/auth-context";
-
-function formatSalary(job: DBJob): string {
-  if (job.salary_min && job.salary_max && job.salary_type) {
-    return `${job.salary_min}-${job.salary_max} ${job.salary_type}`;
-  }
-  if (job.salary_min && job.salary_type) {
-    return `${job.salary_min}+ ${job.salary_type}`;
-  }
-  return "Salary not disclosed";
-}
 
 function splitBulletContent(value: string | null, fallback: string): string[] {
   if (!value) return [fallback];
@@ -103,7 +93,7 @@ export default function JobDetailPage() {
       title: job.title,
       company: job.company_name,
       location: job.location || "India",
-      salary: formatSalary(job),
+      salary: formatJobSalary(job),
       type: job.employment_type || job.work_mode || "Full-time",
       experience:
         job.experience_min || job.experience_max
@@ -271,7 +261,7 @@ export default function JobDetailPage() {
                         </div>
                         <div className="flex items-center gap-1">
                           <DollarSign className="h-3 w-3 text-[#FF2B2B]" />
-                          {formatSalary(job)}
+                          {formatJobSalary(job)}
                         </div>
                       </div>
                       <Button className="w-full bg-white border border-[#FF2B2B] text-[#FF2B2B] hover:bg-[#FF2B2B] hover:text-white rounded-full text-sm py-2">
