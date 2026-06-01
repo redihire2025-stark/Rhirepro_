@@ -43,6 +43,7 @@ import FeedbackPopup from "../components/FeedbackPopup";
 import InterviewDetailsModal from "../components/InterviewDetailsModal";
 import InterviewFeedbackModal from "../components/InterviewFeedbackModal";
 import OfferDetailsModal from "../components/OfferDetailsModal";
+import ResumePreviewDialog from "../components/ResumePreviewDialog";
 
 const SKILL_OPTIONS = [
   "JavaScript", "TypeScript", "React", "Next.js", "Angular", "Vue.js", "HTML", "CSS", "Tailwind CSS",
@@ -3614,6 +3615,10 @@ function getCandidateInitials(name: string, fallback = "UC") {
     .slice(0, 2) || fallback;
 }
 
+function getResumeUrl(applicant: Pick<Application, "resume_url"> & { profile?: Pick<Profile, "resume_url"> | null }): string | null {
+  return applicant.resume_url || applicant.profile?.resume_url || null;
+}
+
 function ApplicantsPage() {
   const { recruiterProfile } = useAuth();
   const location = useLocation();
@@ -3646,6 +3651,7 @@ function ApplicantsPage() {
   const [feedbackInitialRound, setFeedbackInitialRound] = useState<"L1" | "L2" | "L3" | "HR Round">("L1");
   const [statusUpdateInFlight, setStatusUpdateInFlight] = useState<Set<string>>(new Set());
   const [optimisticStatusByApplicant, setOptimisticStatusByApplicant] = useState<Record<string, Application["status"]>>({});
+  const [resumePreview, setResumePreview] = useState<{ url: string; candidateName: string } | null>(null);
 
   const getEffectiveApplicationStatus = useCallback(
     (applicant: AppWithProfile) => optimisticStatusByApplicant[applicant.id] ?? applicant.status,
@@ -4067,6 +4073,8 @@ function ApplicantsPage() {
 
   const renderStageActions = (applicant: AppWithProfile) => {
     const stage = getEffectiveApplicationStage(applicant);
+    const resumeUrl = getResumeUrl(applicant);
+    const candidateName = getCandidateDisplayName(applicant.profile);
     const isUpdating = statusUpdateInFlight.has(applicant.id);
     const isLockedAfterHire = stage === "Hired";
     const disableActions = isUpdating;
@@ -4507,6 +4515,7 @@ function ApplicantsPage() {
         const edu = p?.education || [];
         const skills = p?.skills || [];
         const matchScore = Math.floor(70 + (profileModal.id.charCodeAt(0) % 25));
+        const modalResumeUrl = getResumeUrl(profileModal);
         return (
           <div className="fixed inset-0 z-50 flex items-center justify-center p-4 bg-black/50" onClick={() => setProfileModal(null)}>
             <div className="bg-white rounded-2xl shadow-2xl w-full max-w-3xl max-h-[90vh] overflow-y-auto" onClick={e => e.stopPropagation()}>
@@ -4678,13 +4687,18 @@ function ApplicantsPage() {
                 )}
 
                 {/* Resume */}
-                {profileModal.resume_url && (
+                {modalResumeUrl && (
                   <div>
                     <h3 className="text-sm font-bold text-[#3A1F1F] mb-2 flex items-center gap-2"><FileText className="h-4 w-4 text-[#FF2B2B]" /> Resume</h3>
-                    <a href={profileModal.resume_url} target="_blank" rel="noreferrer"
-                      className="inline-flex items-center gap-2 px-4 py-2 bg-[#FF2B2B] text-white text-sm rounded-full hover:bg-[#e02525] transition-colors">
-                      <Download className="h-4 w-4" /> Download Resume
-                    </a>
+                    <div className="flex flex-wrap gap-2">
+                      <Button size="sm" variant="outline" className="border-gray-200 rounded-full text-sm" onClick={() => setResumePreview({ url: modalResumeUrl, candidateName: name })}>
+                        <Eye className="h-4 w-4 mr-1" /> Preview Resume
+                      </Button>
+                      <a href={modalResumeUrl} target="_blank" rel="noreferrer" download
+                        className="inline-flex items-center gap-2 px-4 py-2 bg-[#FF2B2B] text-white text-sm rounded-full hover:bg-[#e02525] transition-colors">
+                        <Download className="h-4 w-4" /> Download Resume
+                      </a>
+                    </div>
                   </div>
                 )}
               </div>
@@ -4723,6 +4737,7 @@ function ApplicantsPage() {
         submitting={isSendingInterviewFeedback}
         initialRound={feedbackInitialRound}
       />
+      <ResumePreviewDialog resume={resumePreview} onClose={() => setResumePreview(null)} />
     </div>
   );
 }
