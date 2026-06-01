@@ -587,6 +587,48 @@ export default function JobSeekerDashboard() {
     return () => { supabase.removeChannel(channel); };
   }, [profile?.id, fetchNotifications]);
 
+  const getJobSeekerNotificationPath = useCallback((notification: Notification): string => {
+    const text = `${notification.type} ${notification.title || ""} ${notification.message || ""}`.toLowerCase();
+
+    if (notification.job_id && (notification.type === "job_alert" || text.includes("recommended"))) {
+      return `/job/${notification.job_id}`;
+    }
+
+    if (
+      notification.type === "status_change" ||
+      text.includes("application status") ||
+      text.includes("interview") ||
+      text.includes("offer")
+    ) {
+      return "/jobseeker/dashboard/analytics";
+    }
+
+    if (text.includes("profile")) {
+      return "/jobseeker/dashboard/profile";
+    }
+
+    if (notification.type === "job_alert" || text.includes("recommended") || text.includes("job alert")) {
+      return "/jobseeker/dashboard";
+    }
+
+    return "/jobseeker/dashboard";
+  }, []);
+
+  const handleNotificationClick = useCallback(async (notification: Notification) => {
+    if (profile?.id && !notification.is_read) {
+      await supabase
+        .from("notifications")
+        .update({ is_read: true })
+        .eq("id", notification.id)
+        .eq("user_id", profile.id)
+        .eq("user_type", "jobseeker");
+    }
+
+    setNotificationsOpen(false);
+    fetchNotifications();
+    navigate(getJobSeekerNotificationPath(notification));
+  }, [fetchNotifications, getJobSeekerNotificationPath, navigate, profile?.id]);
+
   const notifRef = useRef<HTMLDivElement>(null);
   useEffect(() => {
     const handler = (e: MouseEvent) => {
@@ -700,7 +742,7 @@ export default function JobSeekerDashboard() {
                         {notifications.length === 0 ? (
                           <p className="text-sm text-[#8A8A8A] text-center py-4">No notifications yet</p>
                         ) : notifications.map((n) => (
-                          <div key={n.id} className={`p-3 rounded-lg ${!n.is_read ? "bg-red-50" : "bg-[#F6F6F6]"}`}>
+                          <div key={n.id} onClick={() => handleNotificationClick(n)} className={`p-3 rounded-lg cursor-pointer ${!n.is_read ? "bg-red-50" : "bg-[#F6F6F6]"}`}>
                             <p className="text-sm font-medium text-[#3A1F1F]">{n.title}</p>
                             <p className="text-xs text-[#8A8A8A] whitespace-pre-wrap break-words">{renderNotificationMessage(n.message)}</p>
                             <p className="text-xs text-[#BABABA] mt-0.5">{new Date(n.created_at).toLocaleString()}</p>
