@@ -3,7 +3,7 @@
 export interface Plan {
   id: string;
   name: string;
-  price: number;           // in rupees
+  price: number;           // base price in rupees, before GST
   period: string;
   dailyJobPosts: number | null; // null = unlimited
   features: string[];
@@ -14,7 +14,7 @@ export const PLANS: Plan[] = [
   {
     id: "basic",
     name: "Basic Plan",
-    price: 320,
+    price: 350,
     period: "month",
     dailyJobPosts: 10,
     features: [
@@ -28,7 +28,7 @@ export const PLANS: Plan[] = [
   {
     id: "standard",
     name: "Standard Plan",
-    price: 950,
+    price: 1000,
     period: "month",
     dailyJobPosts: 50,
     features: [
@@ -43,7 +43,7 @@ export const PLANS: Plan[] = [
   {
     id: "premium",
     name: "Premium Plan",
-    price: 2200,
+    price: 3000,
     period: "month",
     dailyJobPosts: null,
     features: [
@@ -58,6 +58,7 @@ export const PLANS: Plan[] = [
 ];
 
 export const FREE_DAILY_POST_LIMIT = 1;
+export const GST_RATE = 0.18;
 
 export interface ClientPromoCode {
   code: string;
@@ -87,6 +88,26 @@ export function applyPromo(price: number, promo: ClientPromoCode): number {
     return promo.discountValue; // set final price directly
   }
   return Math.max(1, price - promo.discountValue);
+}
+
+export function calculateGst(basePrice: number): number {
+  return Math.round(basePrice * GST_RATE);
+}
+
+export function getPlanPriceBreakdown(plan: Plan, promo?: ClientPromoCode | null) {
+  const basePrice = plan.price;
+  const discountedBasePrice = promo ? applyPromo(basePrice, promo) : basePrice;
+  const discountAmount = basePrice - discountedBasePrice;
+  const gstAmount = calculateGst(basePrice);
+  const totalAmount = discountedBasePrice + gstAmount;
+
+  return {
+    basePrice,
+    discountedBasePrice,
+    discountAmount,
+    gstAmount,
+    totalAmount,
+  };
 }
 
 export function getPlanById(id: string): Plan | undefined {

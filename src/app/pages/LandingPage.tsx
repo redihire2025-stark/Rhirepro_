@@ -50,7 +50,7 @@ import { ImageWithFallback } from "../components/figma/ImageWithFallback";
 import { useAuth } from "../../lib/auth-context";
 import JobShareButton from "../components/JobShareButton";
 
-import { PLANS } from "../../lib/plans";
+import { PLANS, calculateGst } from "../../lib/plans";
 import { supabase, type Job as DBJob, type RecruiterArticle } from "../../lib/supabase";
 import { formatJobSalary, isJobVisibleToSeekers } from "../../lib/jobs";
 import { getRecommendedJobs, recordJobInteraction } from "../../lib/jobRecommendations";
@@ -637,46 +637,7 @@ export default function LandingPage() {
     },
   ];
 
-  const pricingPlans = [
-    {
-      name: "Basic Plan",
-      price: "₹320",
-      period: "month",
-      features: [
-        "10 daily job posts",
-        "Basic Analytics",
-        "Email Support",
-        "1 Team Member",
-      ],
-      popular: false,
-    },
-    {
-      name: "Standard Plan",
-      price: "₹950",
-      period: "month",
-      features: [
-        "50 daily job posts",
-        "100+ job templates",
-        "Advanced Analytics",
-        "Priority Support",
-        "5 Team Members",
-      ],
-      popular: true,
-    },
-    {
-      name: "Premium Plan",
-      price: "₹2200",
-      period: "month",
-      features: [
-        "Unlimited job posts",
-        "Advanced hiring tools",
-        "Dedicated Account Manager",
-        "24/7 Premium Support",
-        "Unlimited Team Members",
-      ],
-      popular: false,
-    },
-  ];
+  const pricingPlans = PLANS;
 
   const stats = [
     { value: "25+", label: "Years Experience" },
@@ -1126,11 +1087,14 @@ export default function LandingPage() {
                   </div>
                   <div className="mb-6">
                     <span className="text-5xl font-bold text-[#3A1F1F]">
-                      {plan.price}
+                      ₹{plan.price}
                     </span>
                     <span className="text-[#8A8A8A]">
                       /{plan.period}
                     </span>
+                    <p className="mt-1 text-xs text-[#8A8A8A]">
+                      + GST ₹{calculateGst(plan.price)}
+                    </p>
                   </div>
                   <Button
                     onClick={(e) => {

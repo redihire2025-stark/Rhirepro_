@@ -12,7 +12,7 @@ import {
   getSalaryRangeValues,
   isJobExpired,
 } from "../../lib/jobs";
-import { PLANS, FREE_DAILY_POST_LIMIT, getPlanById, validatePromo, applyPromo } from "../../lib/plans";
+import { PLANS, FREE_DAILY_POST_LIMIT, getPlanById, validatePromo, getPlanPriceBreakdown } from "../../lib/plans";
 import { INDIA_CITY_OPTIONS } from "../../lib/locationData";
 import { useAuth } from "../../lib/auth-context";
 
@@ -5606,13 +5606,12 @@ function PlansPage() {
 
   const handlePurchase = (planId: string) => {
     const plan = getPlanById(planId)!;
-    const finalPrice = appliedPromo ? applyPromo(plan.price, appliedPromo) : plan.price;
-    const discount = plan.price - finalPrice;
+    const priceBreakdown = getPlanPriceBreakdown(plan, appliedPromo);
     const params = new URLSearchParams({
       plan: planId,
-      amount: String(plan.price),
-      final: String(finalPrice),
-      discount: String(discount),
+      amount: String(priceBreakdown.basePrice),
+      final: String(priceBreakdown.totalAmount),
+      discount: String(priceBreakdown.discountAmount),
       promo: appliedPromo?.code ?? "",
     });
     navigate(`/recruiter/payment?${params.toString()}`);
@@ -5713,8 +5712,8 @@ function PlansPage() {
       <div className="grid md:grid-cols-3 gap-6">
         {PLANS.map(plan => {
           const isCurrentPlan = activeSub?.plan_id === plan.id;
-          const finalPrice = appliedPromo ? applyPromo(plan.price, appliedPromo) : plan.price;
-          const discount = plan.price - finalPrice;
+          const priceBreakdown = getPlanPriceBreakdown(plan, appliedPromo);
+          const { basePrice, discountAmount, gstAmount, totalAmount } = priceBreakdown;
 
           return (
             <div
@@ -5745,14 +5744,15 @@ function PlansPage() {
               {/* Pricing */}
               <div className="mb-1">
                 <div className="flex items-baseline gap-1">
-                  {discount > 0 && (
-                    <span className="text-lg text-[#8A8A8A] line-through">₹{plan.price}</span>
+                  {discountAmount > 0 && (
+                    <span className="text-lg text-[#8A8A8A] line-through">₹{basePrice + gstAmount}</span>
                   )}
-                  <span className="text-4xl font-bold text-[#3A1F1F]">₹{finalPrice}</span>
+                  <span className="text-4xl font-bold text-[#3A1F1F]">₹{basePrice}</span>
                   <span className="text-[#8A8A8A] text-sm">/{plan.period}</span>
                 </div>
-                {discount > 0 && (
-                  <p className="text-xs text-green-600 font-medium">You save ₹{discount}</p>
+                <p className="text-xs text-[#8A8A8A]">+ GST ₹{gstAmount} · Total ₹{totalAmount}</p>
+                {discountAmount > 0 && (
+                  <p className="text-xs text-green-600 font-medium">You save ₹{discountAmount}</p>
                 )}
               </div>
               <p className="text-xs text-[#FF2B2B] font-medium mb-5">
