@@ -1,6 +1,6 @@
 import { useState } from "react";
 import { useNavigate, useSearchParams } from "react-router";
-import { PLANS, PROMO_CODES, validatePromo, applyPromo, getPlanById } from "../../lib/plans";
+import { PLANS, PROMO_CODES, validatePromo, getPlanById, getPlanPriceBreakdown } from "../../lib/plans";
 import { Button } from "../components/ui/button";
 import { Input } from "../components/ui/input";
 import {
@@ -21,8 +21,8 @@ export default function PlanDetailsPage() {
   const [appliedPromo, setAppliedPromo] = useState<typeof PROMO_CODES[0] | null>(null);
   const [promoSuccess, setPromoSuccess] = useState("");
 
-  const finalPrice = appliedPromo ? applyPromo(plan.price, appliedPromo) : plan.price;
-  const discount = plan.price - finalPrice;
+  const priceBreakdown = getPlanPriceBreakdown(plan, appliedPromo);
+  const { basePrice, discountAmount, gstAmount, totalAmount } = priceBreakdown;
 
   const handleApplyPromo = () => {
     const found = validatePromo(promoInput);
@@ -47,9 +47,9 @@ export default function PlanDetailsPage() {
   const handlePurchase = () => {
     const params = new URLSearchParams({
       plan: plan.id,
-      amount: String(plan.price),
-      final: String(finalPrice),
-      discount: String(discount),
+      amount: String(basePrice),
+      final: String(totalAmount),
+      discount: String(discountAmount),
       promo: appliedPromo?.code ?? "",
     });
     navigate(`/recruiter/payment?${params.toString()}`);
@@ -101,9 +101,10 @@ export default function PlanDetailsPage() {
             {/* Plan card */}
             <div className="bg-white rounded-2xl p-6 shadow-md border-2 border-[#FF2B2B]">
               <div className="flex items-baseline gap-1 mb-2">
-                <span className="text-5xl font-bold text-[#3A1F1F]">₹{plan.price}</span>
+                <span className="text-5xl font-bold text-[#3A1F1F]">₹{basePrice}</span>
                 <span className="text-[#8A8A8A]">/{plan.period}</span>
               </div>
+              <p className="text-xs text-[#8A8A8A] mb-3">+ 18% GST</p>
               {plan.dailyJobPosts !== null ? (
                 <p className="text-sm text-[#FF2B2B] font-medium mb-5">
                   Up to {plan.dailyJobPosts} job posts per day
@@ -151,15 +152,19 @@ export default function PlanDetailsPage() {
             {/* Line items */}
             <div className="space-y-3 pb-4 mb-4 border-b border-gray-100">
               <div className="flex justify-between text-sm">
-                <span className="text-[#8A8A8A]">{plan.name} × 1 month</span>
-                <span className="text-[#3A1F1F] font-medium">₹{plan.price}</span>
+                <span className="text-[#8A8A8A]">Plan Price</span>
+                <span className="text-[#3A1F1F] font-medium">₹{basePrice}</span>
               </div>
-              {discount > 0 && (
+              <div className="flex justify-between text-sm">
+                <span className="text-[#8A8A8A]">GST (18%)</span>
+                <span className="text-[#3A1F1F] font-medium">₹{gstAmount}</span>
+              </div>
+              {discountAmount > 0 && (
                 <div className="flex justify-between text-sm">
                   <span className="text-green-600 flex items-center gap-1">
                     <Tag className="h-3.5 w-3.5" /> Promo ({appliedPromo?.code})
                   </span>
-                  <span className="text-green-600 font-medium">−₹{discount}</span>
+                  <span className="text-green-600 font-medium">−₹{discountAmount}</span>
                 </div>
               )}
             </div>
@@ -167,10 +172,10 @@ export default function PlanDetailsPage() {
             <div className="flex justify-between items-baseline mb-6">
               <span className="font-semibold text-[#3A1F1F]">Total Due</span>
               <div className="text-right">
-                {discount > 0 && (
-                  <p className="text-sm text-[#8A8A8A] line-through">₹{plan.price}</p>
+                {discountAmount > 0 && (
+                  <p className="text-sm text-[#8A8A8A] line-through">₹{basePrice + gstAmount}</p>
                 )}
-                <p className="text-3xl font-bold text-[#FF2B2B]">₹{finalPrice}</p>
+                <p className="text-3xl font-bold text-[#FF2B2B]">₹{totalAmount}</p>
                 <p className="text-xs text-[#8A8A8A]">Billed monthly</p>
               </div>
             </div>

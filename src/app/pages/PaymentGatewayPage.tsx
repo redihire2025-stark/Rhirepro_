@@ -2,7 +2,7 @@ import { useState, useCallback } from "react";
 import { useNavigate, useSearchParams } from "react-router";
 import { supabase } from "../../lib/supabase";
 import { useAuth } from "../../lib/auth-context";
-import { getPlanById } from "../../lib/plans";
+import { calculateGst, getPlanById } from "../../lib/plans";
 import { Button } from "../components/ui/button";
 import {
   CheckCircle, XCircle, RefreshCw, ArrowLeft,
@@ -19,11 +19,15 @@ export default function PaymentGatewayPage() {
 
   const planId      = searchParams.get("plan")     ?? "standard";
   const amount      = Number(searchParams.get("amount"))   || 0;
-  const finalAmount = Number(searchParams.get("final"))    || amount;
+  const finalParam  = searchParams.get("final");
+  const finalAmount = finalParam ? Number(finalParam) : 0;
   const discount    = Number(searchParams.get("discount")) || 0;
   const promoCode   = searchParams.get("promo")    ?? "";
 
   const plan = getPlanById(planId);
+  const baseAmount = plan?.price ?? amount;
+  const gstAmount = calculateGst(baseAmount);
+  const displayTotal = finalAmount || baseAmount + gstAmount;
 
   const [status, setStatus] = useState<"idle" | "loading" | "failed" | "success">("idle");
   const [txnRef, setTxnRef] = useState<string>("");
@@ -45,10 +49,10 @@ export default function PaymentGatewayPage() {
           .insert({
             recruiter_id:    recruiterProfile.id,
             plan_id:         planId,
-            amount,
+            amount:          baseAmount,
             promo_code:      promoCode,
             discount_amount: discount,
-            final_amount:    finalAmount,
+            final_amount:    displayTotal,
             status:          "success",
             payment_method:  "test",
             transaction_ref: testRef,
@@ -98,8 +102,8 @@ export default function PaymentGatewayPage() {
         merchantTransactionId,
         recruiter_id:    recruiterProfile.id,
         plan_id:         planId,
-        amount,
-        final_amount:    finalAmount,
+        amount:          baseAmount,
+        final_amount:    displayTotal,
         discount_amount: discount,
         promo_code:      promoCode,
         daily_job_posts: plan?.dailyJobPosts ?? null,
@@ -109,7 +113,7 @@ export default function PaymentGatewayPage() {
 
       const { data, error } = await supabase.functions.invoke("create-order", {
         body: {
-          amount: finalAmount,
+          amount: displayTotal,
           merchantTransactionId,
           redirectUrl,
           recruiter_id: recruiterProfile.id,
@@ -125,7 +129,7 @@ export default function PaymentGatewayPage() {
       console.error("PhonePe init error:", err);
       setStatus("failed");
     }
-  }, [recruiterProfile, planId, amount, finalAmount, discount, promoCode, plan]);
+  }, [recruiterProfile, planId, baseAmount, displayTotal, discount, promoCode, plan]);
 
   if (status === "success") {
     return (
@@ -225,15 +229,15 @@ export default function PaymentGatewayPage() {
             <div className="flex justify-between items-center bg-[#F6F6F6] rounded-xl px-4 py-3">
               <div>
                 <p className="text-xs text-[#8A8A8A]">{plan?.name} · 30 days</p>
-                {discount > 0 && (
-                  <p className="text-xs text-green-600 font-medium">Saved ₹{discount}</p>
-                )}
+                <p className="text-xs text-[#8A8A8A]">Plan Price: ₹{baseAmount}</p>
+                <p className="text-xs text-[#8A8A8A]">GST (18%): ₹{gstAmount}</p>
+                {discount > 0 && <p className="text-xs text-green-600 font-medium">Saved ₹{discount}</p>}
               </div>
               <div className="text-right">
                 {discount > 0 && (
-                  <p className="text-sm text-[#8A8A8A] line-through">₹{amount}</p>
+                  <p className="text-sm text-[#8A8A8A] line-through">₹{baseAmount + gstAmount}</p>
                 )}
-                <p className="text-2xl font-bold text-[#FF2B2B]">₹{finalAmount}</p>
+                <p className="text-2xl font-bold text-[#FF2B2B]">₹{displayTotal}</p>
               </div>
             </div>
 
@@ -250,7 +254,7 @@ export default function PaymentGatewayPage() {
                 </span>
               ) : (
                 <span className="flex items-center gap-2">
-                  <Zap className="h-5 w-5" /> Pay ₹{finalAmount} via PhonePe
+                  <Zap className="h-5 w-5" /> Pay ₹{displayTotal} via PhonePe
                 </span>
               )}
             </Button>
