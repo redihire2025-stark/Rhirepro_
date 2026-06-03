@@ -27,7 +27,7 @@ export default function PlanDetailsPage() {
   const handleApplyPromo = () => {
     const found = validatePromo(promoInput);
     if (!found) {
-      setPromoError("Invalid promo code. Try RHIRE20, HIRE50, or NEWJOIN.");
+      setPromoError("Invalid promo code. Try RHIRE10, RHIRE20, HIRE50, or NEWJOIN.");
       setAppliedPromo(null);
       setPromoSuccess("");
       return;
@@ -224,7 +224,9 @@ export default function PlanDetailsPage() {
               )}
               {!appliedPromo && !promoError && (
                 <p className="text-xs text-[#8A8A8A] mt-1.5">
-                  Try: <span className="font-mono text-[#3A1F1F] cursor-pointer hover:text-[#FF2B2B]" onClick={() => setPromoInput("RHIRE20")}>RHIRE20</span>
+                  Try: <span className="font-mono text-[#3A1F1F] cursor-pointer hover:text-[#FF2B2B]" onClick={() => setPromoInput("RHIRE10")}>RHIRE10</span>
+                  {", "}
+                  <span className="font-mono text-[#3A1F1F] cursor-pointer hover:text-[#FF2B2B]" onClick={() => setPromoInput("RHIRE20")}>RHIRE20</span>
                   {" "}or{" "}
                   <span className="font-mono text-[#3A1F1F] cursor-pointer hover:text-[#FF2B2B]" onClick={() => setPromoInput("NEWJOIN")}>NEWJOIN</span>
                 </p>
