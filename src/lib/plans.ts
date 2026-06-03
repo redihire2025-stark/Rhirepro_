@@ -69,6 +69,7 @@ export interface ClientPromoCode {
 
 // Client-side promo codes for instant validation (mirrors DB seed data)
 export const PROMO_CODES: ClientPromoCode[] = [
+  { code: "RHIRE10", discountType: "percentage", discountValue: 10,  label: "10% off" },
   { code: "RHIRE20", discountType: "percentage", discountValue: 20,  label: "20% off" },
   { code: "HIRE50",  discountType: "percentage", discountValue: 50,  label: "50% off" },
   { code: "NEWJOIN", discountType: "fixed",      discountValue: 100, label: "₹100 off" },

@@ -5594,7 +5594,7 @@ function PlansPage() {
   const handleApplyPromo = () => {
     const found = validatePromo(promoInput);
     if (!found) {
-      setPromoError("Invalid promo code. Try RHIRE20, HIRE50, or NEWJOIN.");
+      setPromoError("Invalid promo code. Try RHIRE10, RHIRE20, HIRE50, or NEWJOIN.");
       setAppliedPromo(null);
       setPromoSuccess("");
       return;
@@ -5692,7 +5692,7 @@ function PlansPage() {
             <Input
               value={promoInput}
               onChange={e => { setPromoInput(e.target.value.toUpperCase()); setPromoError(""); }}
-              placeholder="Enter promo code (e.g. RHIRE20)"
+              placeholder="Enter promo code (e.g. RHIRE10)"
               className="rounded-xl border-gray-200 uppercase font-mono"
               onKeyDown={e => e.key === "Enter" && handleApplyPromo()}
             />
