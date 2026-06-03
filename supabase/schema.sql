@@ -25,6 +25,7 @@ create table if not exists profiles (
   linkedin_url text,
   portfolio_url text,
   about        text,
+  preferred_interview_mode text[],
   otp_code     text,
   otp_expires_at timestamptz,
   created_at   timestamptz default now()
