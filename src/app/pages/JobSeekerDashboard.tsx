@@ -45,6 +45,7 @@ interface DashboardDisplayJob {
   salary: string;
   salaryMin: number;
   type: "Full-time" | "Part-time" | "Contract";
+  interviewMode?: string;
   description: string;
   industry: string;
   experience: string;
@@ -52,6 +53,7 @@ interface DashboardDisplayJob {
   isDB: true;
   dbJob: DBJob;
 }
+
 interface WorkExp {
   id: string; title: string; company: string; location: string;
   startMonth: string; startYear: string; endMonth: string; endYear: string;
@@ -375,6 +377,7 @@ function buildDashboardJob(job: DBJob): DashboardDisplayJob {
     salary: formatJobSalary(job),
     salaryMin: job.salary_min || 0,
     type: formatDashboardType(job) as "Full-time" | "Part-time" | "Contract",
+    interviewMode: job.interview_mode || undefined,
     description: formatDashboardDescription(job),
     industry: job.industry || "",
     experience: "",
@@ -382,6 +385,57 @@ function buildDashboardJob(job: DBJob): DashboardDisplayJob {
     isDB: true,
     dbJob: job,
   };
+}
+
+const PREFERRED_INTERVIEW_MODE_OPTIONS = ["In-Person", "Video Call", "Telephonic", "Walk-in"];
+
+function normalizeInterviewModes(raw: any): string[] {
+  if (raw == null) return [];
+
+  let values: string[] = [];
+
+  if (Array.isArray(raw)) {
+    values = raw.map((x) => (x == null ? "" : String(x)));
+  } else if (typeof raw === "object") {
+    const numericKeys = Object.keys(raw).filter((key) => /^\d+$/.test(key));
+    if (numericKeys.length > 0) {
+      values = numericKeys
+        .map((key) => ({ key: Number(key), value: raw[key] }))
+        .sort((a, b) => a.key - b.key)
+        .map((item) => item.value == null ? "" : String(item.value));
+    } else {
+      values = Object.values(raw).map((x) => (x == null ? "" : String(x)));
+    }
+  } else {
+    const str = String(raw).trim();
+    if (!str) return [];
+    try {
+      const parsed = JSON.parse(str);
+      if (Array.isArray(parsed)) return normalizeInterviewModes(parsed);
+    } catch {
+      const bracketed = str.replace(/^\{|\}$/g, "");
+      return bracketed.split(",").map((s) => s.trim()).filter(Boolean);
+    }
+    values = [str];
+  }
+
+  const normalized = values
+    .map((s) => s.trim())
+    .filter(Boolean)
+    .map((s) => s.replace(/^\[|\]$/g, "").replace(/^"|"$/g, "").trim());
+
+  const normalizedKnown = normalized
+    .map((value) => {
+      const match = PREFERRED_INTERVIEW_MODE_OPTIONS.find(
+        (option) => option.toLowerCase() === value.toLowerCase()
+      );
+      return match ?? value;
+    })
+    .filter(Boolean);
+
+  const uniqueValues = Array.from(new Set(normalizedKnown));
+  const filtered = uniqueValues.filter((value) => PREFERRED_INTERVIEW_MODE_OPTIONS.includes(value));
+  return filtered.length > 0 ? filtered : uniqueValues;
 }
 
 // ── Main Dashboard ─────────────────────────────────────────────────────────────
@@ -672,6 +726,7 @@ function FindJobPage() {
     ? profile.skills.filter((value): value is string => typeof value === "string")
     : [];
   const profileSkillKey = profileSkills.map((skill) => skill.trim().toLowerCase()).sort().join("|");
+  const preferredInterviewModeKey = normalizeInterviewModes(profile?.preferred_interview_mode).join("|");
   const [searchQuery, setSearchQuery] = useState("");
   const [inputValue, setInputValue] = useState("");
   const [selectedChip, setSelectedChip] = useState<string | null>(null);
@@ -758,6 +813,11 @@ function FindJobPage() {
         query = query.neq("work_mode", "Work from Home");
       }
 
+      const preferredInterviewModes = normalizeInterviewModes(profile?.preferred_interview_mode);
+      if (preferredInterviewModes.length > 0) {
+        query = query.in("interview_mode", preferredInterviewModes);
+      }
+
       if (locationFilter === "bengaluru") query = query.ilike("location", "%Bengaluru%");
       if (locationFilter === "mumbai") query = query.ilike("location", "%Mumbai%");
       if (locationFilter === "hyderabad") query = query.ilike("location", "%Hyderabad%");
@@ -835,6 +895,7 @@ function FindJobPage() {
     selectedChip,
     salaryFilter,
     profileSkillKey,
+    preferredInterviewModeKey,
   ]);
 
   const handleApply = async (job: DBJob) => {
@@ -1180,6 +1241,12 @@ function FindJobPage() {
                         : selectedJob.experience || "Not specified"}
                     </p>
                   </div>
+                  {selectedJob.interviewMode ? (
+                    <div>
+                      <p className="text-xs text-[#8A8A8A] mb-0.5">Interview Mode</p>
+                      <p className="font-semibold text-[#3A1F1F] text-sm">{selectedJob.interviewMode}</p>
+                    </div>
+                  ) : null}
                 </div>
 
                 <div className="flex gap-2 mb-6">
@@ -1302,6 +1369,7 @@ function ProfilePage() {
         noticePeriod: p.notice_period || "",
         workAuth: p.work_auth || "",
         willingToRelocate: p.willing_to_relocate || "",
+        preferredInterviewMode: normalizeInterviewModes(p.preferred_interview_mode),
       };
       setPreferences(prefs);
       setPrefsForm(prefs);
@@ -1429,6 +1497,7 @@ function ProfilePage() {
     desiredJobTitle: "", jobType: "",
     preferredLocation: "", expectedSalary: "",
     noticePeriod: "", workAuth: "", willingToRelocate: "",
+    preferredInterviewMode: [] as string[],
   });
   const [editingPrefs, setEditingPrefs] = useState(false);
   const [prefsForm, setPrefsForm] = useState({ ...preferences });
@@ -1473,25 +1542,24 @@ function ProfilePage() {
   async function addSkill(skill: string) {
     const s = skill.trim();
     const alreadySelected = skills.some(existing => existing.toLowerCase() === s.toLowerCase());
-    if (s && !alreadySelected) {
-      const updated = [...skills, s];
-      setSkills(updated);
-      if (profile?.id) {
-        const { error } = await supabase.from("profiles").update({ skills: updated }).eq("id", profile.id);
-        if (error) {
-          console.error("Skills update error:", error.message);
-          setSkills(skills);
-        } else {
-          await refreshProfile();
-        }
+    if (!s || alreadySelected) return;
+
+    const updated = [...skills, s];
+    setSkills(updated);
+
+    if (profile?.id) {
+      const { error } = await supabase.from("profiles").update({ skills: updated }).eq("id", profile.id);
+      if (error) {
+        console.error("Skills update error:", error.message);
+        setSkills(skills);
+      } else {
+        await refreshProfile();
       }
     }
-    setSkillSearch("");
-    setSkillPickerOpen(false);
-    setShowSkillInput(false);
   }
+
   async function removeSkill(skill: string) {
-    const updated = skills.filter(s => s !== skill);
+    const updated = skills.filter((s) => s !== skill);
     setSkills(updated);
     if (profile?.id) {
       const { error } = await supabase.from("profiles").update({ skills: updated }).eq("id", profile.id);
@@ -1717,6 +1785,7 @@ function ProfilePage() {
                     />
                   </div>
                 ))}
+                
                 <div>
                   <label className="block text-sm text-[#3A1F1F] mb-1">Gender</label>
                   <Select value={basicForm.gender} onValueChange={(v) => setBasicForm(f => ({ ...f, gender: v }))}>
@@ -2273,11 +2342,34 @@ function ProfilePage() {
                     </SelectContent>
                   </Select>
                 </div>
+                <div>
+                  <label className="block text-sm text-[#3A1F1F] mb-1">Preferred Interview Mode</label>
+                  <div className="flex gap-2 flex-wrap">
+                    {["In-Person", "Video Call", "Telephonic", "Walk-in"].map((m) => {
+                      const selected = Array.isArray(prefsForm.preferredInterviewMode) && prefsForm.preferredInterviewMode.includes(m);
+                      return (
+                        <button
+                          key={m}
+                          type="button"
+                          onClick={() => setPrefsForm(f => ({
+                            ...f,
+                            preferredInterviewMode: (Array.isArray(f.preferredInterviewMode) ? f.preferredInterviewMode : []).includes(m)
+                              ? (f.preferredInterviewMode as string[]).filter(x => x !== m)
+                              : [...(f.preferredInterviewMode as string[] || []), m]
+                          }))}
+                          className={`px-3 py-1.5 rounded-full text-sm border ${selected ? "bg-[#FF2B2B] text-white border-[#FF2B2B]" : "bg-[#F6F6F6] text-[#3A1F1F] border-gray-200"}`}
+                        >
+                          {m}
+                        </button>
+                      );
+                    })}
+                  </div>
+                </div>
               </div>
               <div className="flex gap-3">
                 <Button className="bg-[#FF2B2B] hover:bg-[#e02525] text-white rounded-full" onClick={async () => {
-                  setPreferences(prefsForm); setEditingPrefs(false);
-                  if (profile?.id) await supabase.from("profiles").update({
+                  if (!profile?.id) return;
+                  const payload: Record<string, any> = {
                     desired_job_title: prefsForm.desiredJobTitle || null,
                     job_type_pref: prefsForm.jobType || null,
                     preferred_location: prefsForm.preferredLocation || null,
@@ -2285,7 +2377,25 @@ function ProfilePage() {
                     notice_period: prefsForm.noticePeriod || null,
                     work_auth: prefsForm.workAuth || null,
                     willing_to_relocate: prefsForm.willingToRelocate || null,
-                  }).eq("id", profile.id);
+                    preferred_interview_mode: Array.isArray(prefsForm.preferredInterviewMode) && prefsForm.preferredInterviewMode.length > 0 ? prefsForm.preferredInterviewMode : null,
+                  };
+
+                  let { error } = await supabase.from("profiles").update(payload).eq("id", profile.id);
+                  if (error && typeof error.message === "string" && error.message.includes("preferred_interview_mode")) {
+                    console.warn("Preferred interview mode column missing in DB schema. Retrying without it.");
+                    delete payload.preferred_interview_mode;
+                    const retry = await supabase.from("profiles").update(payload).eq("id", profile.id);
+                    error = retry.error;
+                  }
+
+                  if (error) {
+                    console.error("Failed to save preferred job settings:", error.message);
+                    alert("Unable to save preferences. Please try again.");
+                    return;
+                  }
+                  await refreshProfile();
+                  setPreferences(prefsForm);
+                  setEditingPrefs(false);
                 }}>Save</Button>
                 <Button variant="outline" className="rounded-full" onClick={() => setEditingPrefs(false)}>Cancel</Button>
               </div>
@@ -2300,6 +2410,7 @@ function ProfilePage() {
                 "Notice Period": preferences.noticePeriod,
                 "Work Authorization": preferences.workAuth,
                 "Willing to Relocate": preferences.willingToRelocate,
+                "Preferred Interview Mode": Array.isArray(preferences.preferredInterviewMode) ? (preferences.preferredInterviewMode.join(", ") || "—") : (preferences.preferredInterviewMode || "—"),
               }).map(([label, value]) => (
                 <div key={label} className="bg-[#F6F6F6] rounded-xl p-3">
                   <p className="text-[#8A8A8A] text-xs mb-1">{label}</p>
