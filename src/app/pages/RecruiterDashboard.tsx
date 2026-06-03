@@ -16,6 +16,7 @@ import {
 } from "../../lib/jobs";
 import { PLANS, FREE_DAILY_POST_LIMIT, getPlanById, validatePromo, getPlanPriceBreakdown } from "../../lib/plans";
 import { INDIA_CITY_OPTIONS } from "../../lib/locationData";
+import { SEARCH_SUGGESTION_DATASET, SKILL_OPTIONS, getSkillSearchTerms, skillsMatch } from "../../lib/skillKeywords";
 import { useAuth } from "../../lib/auth-context";
 import logoImage from "../../logo/logo.png";
 import {
@@ -46,40 +47,6 @@ import InterviewDetailsModal from "../components/InterviewDetailsModal";
 import InterviewFeedbackModal from "../components/InterviewFeedbackModal";
 import OfferDetailsModal from "../components/OfferDetailsModal";
 import ResumePreviewDialog from "../components/ResumePreviewDialog";
-
-const SKILL_OPTIONS = [
-  "JavaScript", "TypeScript", "React", "Next.js", "Angular", "Vue.js", "HTML", "CSS", "Tailwind CSS",
-  "Bootstrap", "Node.js", "Express.js", "NestJS", "Python", "Django", "Flask", "FastAPI", "Java",
-  "Spring Boot", "C", "C++", "C#", ".NET", "PHP", "Laravel", "Ruby", "Ruby on Rails", "Go", "Rust",
-  "Kotlin", "Swift", "Objective-C", "React Native", "Flutter", "Android Development", "iOS Development",
-  "SQL", "MySQL", "PostgreSQL", "MongoDB", "Redis", "Firebase", "Supabase", "Oracle", "SQLite",
-  "GraphQL", "REST API", "Microservices", "System Design", "Data Structures", "Algorithms",
-  "Git", "GitHub", "GitLab", "Docker", "Kubernetes", "Jenkins", "CI/CD", "Linux", "Shell Scripting",
-  "AWS", "Azure", "Google Cloud", "DevOps", "Terraform", "Ansible", "Nginx", "Apache",
-  "Data Analysis", "Data Visualization", "Excel", "Advanced Excel", "Power BI", "Tableau", "Looker",
-  "Python Pandas", "NumPy", "Matplotlib", "Seaborn", "R", "Statistics", "Machine Learning",
-  "Deep Learning", "TensorFlow", "PyTorch", "Scikit-learn", "NLP", "Computer Vision", "Generative AI",
-  "Prompt Engineering", "MLOps", "Data Engineering", "ETL", "Apache Spark", "Hadoop", "Kafka",
-  "Airflow", "Snowflake", "BigQuery", "Redshift",
-  "UI Design", "UX Design", "Figma", "Adobe XD", "Sketch", "Wireframing", "Prototyping",
-  "User Research", "Usability Testing", "Design Systems", "Graphic Design", "Photoshop", "Illustrator",
-  "Canva", "Video Editing", "After Effects", "Premiere Pro", "Motion Graphics",
-  "Digital Marketing", "SEO", "SEM", "Google Ads", "Meta Ads", "Social Media Marketing",
-  "Content Marketing", "Copywriting", "Email Marketing", "Marketing Analytics", "Google Analytics",
-  "CRM", "HubSpot", "Salesforce", "Lead Generation", "Brand Strategy",
-  "Project Management", "Product Management", "Agile", "Scrum", "Jira", "Confluence", "Roadmapping",
-  "Business Analysis", "Requirement Gathering", "Stakeholder Management", "Process Improvement",
-  "QA Testing", "Manual Testing", "Automation Testing", "Selenium", "Cypress", "Playwright",
-  "Jest", "Postman", "API Testing", "Performance Testing", "Security Testing",
-  "Cybersecurity", "Network Security", "Cloud Security", "Penetration Testing", "Ethical Hacking",
-  "SOC", "SIEM", "Risk Management", "Compliance", "ISO 27001",
-  "Accounting", "Financial Analysis", "Financial Modeling", "Tally", "GST", "Taxation", "Auditing",
-  "Budgeting", "Forecasting", "Investment Analysis",
-  "HR Management", "Recruitment", "Talent Acquisition", "Payroll", "Employee Engagement",
-  "Training and Development", "Operations Management", "Supply Chain Management", "Logistics",
-  "Customer Support", "Technical Support", "Sales", "B2B Sales", "Negotiation", "Communication",
-  "Leadership", "Team Management", "Problem Solving", "Critical Thinking", "Presentation Skills",
-];
 
 const DEPARTMENT_OPTIONS = [
   "Engineering",
@@ -1887,8 +1854,8 @@ function PostJobPage() {
     Number(formData.salaryMax) < Number(formData.salaryMin);
   const filteredSkillOptions = useMemo(() => {
     const query = skillSearch.trim().toLowerCase();
-    if (!query) return SKILL_OPTIONS;
-    return SKILL_OPTIONS.filter(skill => skill.toLowerCase().includes(query));
+    const options = query ? SEARCH_SUGGESTION_DATASET : SKILL_OPTIONS;
+    return options.filter(skill => !query || skill.toLowerCase().includes(query)).slice(0, 120);
   }, [skillSearch]);
   const filteredDepartmentOptions = useMemo(() => {
     const query = departmentSearch.trim().toLowerCase();
@@ -2937,7 +2904,13 @@ interface DBCandidate extends Profile {
   education?: EduType[];
 }
 
+type AppliedJdSearchApplication = {
+  profile: DBCandidate | null;
+  job: Job | null;
+};
+
 function SearchCandidatesPage() {
+  const { recruiterProfile } = useAuth();
   // ── Search state ──────────────────────────────────────────
   const [keywords, setKeywords]       = useState("");
   const [location, setLocation]       = useState("");
@@ -2953,6 +2926,8 @@ function SearchCandidatesPage() {
   const [expType, setExpType]         = useState("");
   const [skillTags, setSkillTags]     = useState<string[]>([]);
   const [skillInput, setSkillInput]   = useState("");
+  const [skillSuggestionsOpen, setSkillSuggestionsOpen] = useState(false);
+  const searchKeywordRef = useRef<HTMLDivElement>(null);
 
   const [results, setResults]         = useState<DBCandidate[]>([]);
   const [searching, setSearching]     = useState(false);
@@ -3012,12 +2987,52 @@ function SearchCandidatesPage() {
     return dayMatch ? parseInt(dayMatch[1]) : 999;
   };
 
+  const jdMatchesKeyword = (job: Job | null, keyword: string): boolean => {
+    if (!job) return false;
+    const keywordLower = keyword.trim().toLowerCase();
+    if (!keywordLower) return false;
+
+    const jdText = [
+      job.title,
+      job.company_name,
+      job.industry,
+      job.department,
+      job.description,
+      job.roles_responsibilities,
+      job.requirements,
+      job.education,
+      job.employment_type,
+      ...(job.skills || []),
+    ].filter(Boolean).join(" ").toLowerCase();
+
+    return jdText.includes(keywordLower) || (job.skills || []).some(skill => skillsMatch(skill, keyword));
+  };
+
   // ── Skill tag management ──────────────────────────────────
   const addSkillTag = (tag: string) => {
     const t = tag.trim();
     if (t && !skillTags.includes(t)) setSkillTags(prev => [...prev, t]);
     setSkillInput("");
   };
+
+  const filteredKeywordSuggestions = useMemo(() => {
+    const query = keywords.trim().toLowerCase();
+    if (!query) return [];
+    return SEARCH_SUGGESTION_DATASET
+      .filter(item => item.toLowerCase().includes(query))
+      .slice(0, 12);
+  }, [keywords]);
+
+  useEffect(() => {
+    if (!skillSuggestionsOpen) return;
+    const handleClickOutside = (event: MouseEvent) => {
+      if (!searchKeywordRef.current?.contains(event.target as Node)) {
+        setSkillSuggestionsOpen(false);
+      }
+    };
+    document.addEventListener("mousedown", handleClickOutside);
+    return () => document.removeEventListener("mousedown", handleClickOutside);
+  }, [skillSuggestionsOpen]);
 
   // ── Main search ───────────────────────────────────────────
   const handleSearch = async () => {
@@ -3046,10 +3061,11 @@ function SearchCandidatesPage() {
 
       // Skill keyword also searches the skills array column
       if (keywords.trim()) {
+        const keywordSkillTerms = getSkillSearchTerms(keywords.trim()).slice(0, 12);
         const { data: skillMatches } = await supabase
           .from("profiles")
           .select("*, work_experience(*), education(*)")
-          .contains("skills", [keywords.trim()]);
+          .overlaps("skills", keywordSkillTerms);
         if (skillMatches) {
           const ids = new Set(raw.map(r => r.id));
           (skillMatches as DBCandidate[]).forEach(sm => { if (!ids.has(sm.id)) raw.push(sm); });
@@ -3057,6 +3073,40 @@ function SearchCandidatesPage() {
       }
 
       // ── Client-side filters ──────────────────────────────────────────────────
+      if (keywords.trim()) {
+        let broadSkillQuery = supabase
+          .from("profiles")
+          .select("*, work_experience(*), education(*)");
+        if (location.trim()) broadSkillQuery = broadSkillQuery.ilike("location", `%${location.trim()}%`);
+        if (currentCompany.trim()) broadSkillQuery = broadSkillQuery.ilike("current_company", `%${currentCompany.trim()}%`);
+
+        const { data: broadSkillCandidates } = await broadSkillQuery.limit(1000);
+        if (broadSkillCandidates) {
+          const ids = new Set(raw.map(r => r.id));
+          (broadSkillCandidates as DBCandidate[]).forEach(candidate => {
+            if (!ids.has(candidate.id) && (candidate.skills || []).some(skill => skillsMatch(skill, keywords.trim()))) {
+              raw.push(candidate);
+              ids.add(candidate.id);
+            }
+          });
+        }
+
+        const keywordLower = keywords.trim().toLowerCase();
+        raw = raw.filter(candidate => {
+          const searchableText = [
+            candidate.first_name,
+            candidate.last_name,
+            candidate.headline,
+            candidate.current_title,
+            candidate.current_company,
+            candidate.about,
+            candidate.location,
+          ].filter(Boolean).join(" ").toLowerCase();
+
+          return searchableText.includes(keywordLower) || (candidate.skills || []).some(skill => skillsMatch(skill, keywords.trim()));
+        });
+      }
+
       // Experience type (client-side so null values aren't excluded)
       if (expType) {
         raw = raw.filter(c => {
@@ -3104,8 +3154,8 @@ function SearchCandidatesPage() {
       // Skill tags (all must match)
       raw = raw.filter(c => {
         if (skillTags.length === 0) return true;
-        const cSkills = (c.skills || []).map(s => s.toLowerCase());
-        return skillTags.every(tag => cSkills.some(s => s.includes(tag.toLowerCase())));
+        const cSkills = c.skills || [];
+        return skillTags.every(tag => cSkills.some(s => skillsMatch(s, tag)));
       });
 
       // Sort
@@ -3136,15 +3186,46 @@ function SearchCandidatesPage() {
       {/* ── Top Search Bar (Naukri-style) ── */}
       <div className="bg-white rounded-2xl shadow-md p-4 mb-5">
         <div className="flex gap-3 flex-wrap">
-          <div className="relative flex-1 min-w-[220px]">
+          <div className="relative flex-1 min-w-[220px]" ref={searchKeywordRef}>
             <Search className="absolute left-3 top-1/2 -translate-y-1/2 h-4 w-4 text-[#8A8A8A]" />
             <Input
               value={keywords}
-              onChange={e => setKeywords(e.target.value)}
-              onKeyDown={e => { if (e.key === "Enter") handleSearch(); }}
+              onFocus={() => setSkillSuggestionsOpen(true)}
+              onChange={e => {
+                setKeywords(e.target.value);
+                setSkillSuggestionsOpen(true);
+              }}
+              onKeyDown={e => {
+                if (e.key === "Enter") {
+                  e.preventDefault();
+                  handleSearch();
+                }
+                if (e.key === "Escape") {
+                  setSkillSuggestionsOpen(false);
+                }
+              }}
               className="pl-9 bg-[#F6F6F6] border-gray-200 rounded-xl"
               placeholder="Skills, designation, company name..."
             />
+            {skillSuggestionsOpen && filteredKeywordSuggestions.length > 0 && (
+              <div className="absolute left-0 right-0 top-full z-50 mt-1 overflow-hidden rounded-xl border border-gray-200 bg-white shadow-xl">
+                <div className="max-h-72 overflow-y-auto">
+                  {filteredKeywordSuggestions.map(skill => (
+                    <button
+                      key={skill}
+                      type="button"
+                      onClick={() => {
+                        setKeywords(skill);
+                        setSkillSuggestionsOpen(false);
+                      }}
+                      className="flex w-full items-center px-3 py-2 text-left text-sm text-[#3A1F1F] hover:bg-[#FFF0F0]"
+                    >
+                      <span>{skill}</span>
+                    </button>
+                  ))}
+                </div>
+              </div>
+            )}
           </div>
           <LocationAutocomplete
             value={location}
@@ -3754,8 +3835,8 @@ function ApplicantsPage() {
     })
     .filter(a => {
       if (!skillFilter) return true;
-      const skills = (a.profile?.skills || []).map((s: string) => s.toLowerCase());
-      return skills.some(s => s.includes(skillFilter.toLowerCase()));
+      const skills = a.profile?.skills || [];
+      return skills.some((s: string) => skillsMatch(s, skillFilter));
     });
 
   const updateStatus = async (id: string, newStatus: Application["status"]) => {
