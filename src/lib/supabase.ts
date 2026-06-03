@@ -39,6 +39,7 @@ export interface Profile {
   linkedin_url: string | null;
   portfolio_url: string | null;
   about: string | null;
+  preferred_interview_mode?: string[] | null;
   otp_code: string | null;
   otp_expires_at: string | null;
   created_at: string;

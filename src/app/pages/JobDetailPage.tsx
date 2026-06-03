@@ -114,6 +114,7 @@ export default function JobDetailPage() {
       qualifications: splitBulletContent(job.requirements, "Job requirements will be shared by the recruiter."),
       additionalInfo: [
         job.work_mode ? `Work mode: ${job.work_mode}` : "",
+        job.interview_mode ? `Interview mode: ${job.interview_mode}` : "",
         job.education ? `Education: ${job.education}` : "",
         job.openings ? `Openings: ${job.openings}` : "",
       ]

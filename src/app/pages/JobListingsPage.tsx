@@ -33,6 +33,7 @@ type DisplayJob = {
   location: string;
   salary: string;
   type: string;
+  interviewMode?: string;
   description: string;
   featured: boolean;
   category: JobCategory | null;
@@ -85,6 +86,19 @@ function formatDescription(job: DBJob): string {
   return "Explore this opportunity and apply now.";
 }
 
+function normalizeInterviewMode(raw: unknown): string | null {
+  if (raw == null) return null;
+  const normalized = String(raw).trim().toLowerCase().replace(/[^a-z0-9]/g, "");
+  return normalized || null;
+}
+
+function jobMatchesInterviewModes(job: DBJob, preferredModes: string[]): boolean {
+  if (preferredModes.length === 0) return true;
+  const jobMode = normalizeInterviewMode(job.interview_mode) || normalizeInterviewMode(job.work_mode);
+  if (!jobMode) return false;
+  return preferredModes.some((mode) => normalizeInterviewMode(mode) === jobMode);
+}
+
 export default function JobListingsPage() {
   const [isMenuOpen, setIsMenuOpen] = useState(false);
   const [searchTerm, setSearchTerm] = useState("");
@@ -130,9 +144,15 @@ export default function JobListingsPage() {
 
       const appliedJobIds = (applicationsRes.data || []).map((item) => item.job_id);
       const savedJobIds = (savedRes.data || []).map((item) => item.job_id);
+      const preferredInterviewModes = role === "jobseeker" && Array.isArray(profile?.preferred_interview_mode)
+        ? profile.preferred_interview_mode
+            .map((value) => normalizeInterviewMode(value))
+            .filter((value): value is string => Boolean(value))
+        : [];
 
       const visibleIndianJobs = assignBalancedCategories((data || [])
         .filter((job) => isJobVisibleToSeekers(job) && isIndianLocation(job.location))
+        .filter((job) => jobMatchesInterviewModes(job, preferredInterviewModes))
         .map((job) => ({
           id: job.id,
           title: job.title,
@@ -140,6 +160,7 @@ export default function JobListingsPage() {
           location: formatLocation(job),
           salary: formatSalary(job),
           type: formatType(job),
+          interviewMode: job.interview_mode || undefined,
           description: formatDescription(job),
           category: null,
           featured: false,
@@ -434,6 +455,11 @@ export default function JobListingsPage() {
                     <Clock className="h-4 w-4 mr-2 text-[#FF2B2B]" />
                     {job.type}
                   </div>
+                  {job.interviewMode ? (
+                    <div className="text-sm text-[#8A8A8A]">
+                      Interview mode: <span className="font-medium text-[#3A1F1F]">{job.interviewMode}</span>
+                    </div>
+                  ) : null}
                 </div>
                 <Button className="w-full bg-white border-2 border-[#FF2B2B] text-[#FF2B2B] hover:bg-[#FF2B2B] hover:text-white rounded-full">
                   Apply Now
