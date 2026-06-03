@@ -3,6 +3,7 @@ import { useNavigate, Routes, Route, Link, useLocation } from "react-router";
 import { supabase, Job as DBJob, Notification } from "../../lib/supabase";
 import { isJobVisibleToSeekers } from "../../lib/jobs";
 import { recordJobInteraction, recordJobSearch } from "../../lib/jobRecommendations";
+import { SKILL_OPTIONS, skillsMatch } from "../../lib/skillKeywords";
 import { useAuth } from "../../lib/auth-context";
 import AppliedJobsSection from "../components/AppliedJobsSection";
 import ResumePreviewDialog, { getStorageObjectFromUrl } from "../components/ResumePreviewDialog";
@@ -281,6 +282,8 @@ function normalizeSkillPhrase(value: string): string {
 }
 
 function profileMatchesJdSkill(profileSkill: string, jdSkill: string): boolean {
+  if (skillsMatch(profileSkill, jdSkill)) return true;
+
   const p = normalizeSkillPhrase(profileSkill);
   const j = normalizeSkillPhrase(jdSkill);
   if (!p || !j) return false;
@@ -359,39 +362,18 @@ function isRecommendedJobForProfile(job: DBJob, recommendationTerms: string[]): 
 const MONTHS = ["Jan","Feb","Mar","Apr","May","Jun","Jul","Aug","Sep","Oct","Nov","Dec"];
 const YEARS = Array.from({ length: 17 }, (_, i) => String(2010 + i));
 const JOBS_PER_PAGE = 12;
-const PROFILE_SKILL_OPTIONS = [
-  "JavaScript", "TypeScript", "React", "Next.js", "Angular", "Vue.js", "HTML", "CSS", "Tailwind CSS",
-  "Bootstrap", "Node.js", "Express.js", "NestJS", "Python", "Django", "Flask", "FastAPI", "Java",
-  "Spring Boot", "C", "C++", "C#", ".NET", "PHP", "Laravel", "Ruby", "Ruby on Rails", "Go", "Rust",
-  "Kotlin", "Swift", "Objective-C", "React Native", "Flutter", "Android Development", "iOS Development",
-  "SQL", "MySQL", "PostgreSQL", "MongoDB", "Redis", "Firebase", "Supabase", "Oracle", "SQLite",
-  "GraphQL", "REST API", "Microservices", "System Design", "Data Structures", "Algorithms",
-  "Git", "GitHub", "GitLab", "Docker", "Kubernetes", "Jenkins", "CI/CD", "Linux", "Shell Scripting",
-  "AWS", "Azure", "Google Cloud", "DevOps", "Terraform", "Ansible", "Nginx", "Apache",
-  "Data Analysis", "Data Visualization", "Excel", "Advanced Excel", "Power BI", "Tableau", "Looker",
-  "Python Pandas", "NumPy", "Matplotlib", "Seaborn", "R", "Statistics", "Machine Learning",
-  "Deep Learning", "TensorFlow", "PyTorch", "Scikit-learn", "NLP", "Computer Vision", "Generative AI",
-  "Prompt Engineering", "MLOps", "Data Engineering", "ETL", "Apache Spark", "Hadoop", "Kafka",
-  "Airflow", "Snowflake", "BigQuery", "Redshift",
-  "UI Design", "UX Design", "Figma", "Adobe XD", "Sketch", "Wireframing", "Prototyping",
-  "User Research", "Usability Testing", "Design Systems", "Graphic Design", "Photoshop", "Illustrator",
-  "Canva", "Video Editing", "After Effects", "Premiere Pro", "Motion Graphics",
-  "Digital Marketing", "SEO", "SEM", "Google Ads", "Meta Ads", "Social Media Marketing",
-  "Content Marketing", "Copywriting", "Email Marketing", "Marketing Analytics", "Google Analytics",
-  "CRM", "HubSpot", "Salesforce", "Lead Generation", "Brand Strategy",
-  "Project Management", "Product Management", "Agile", "Scrum", "Jira", "Confluence", "Roadmapping",
-  "Business Analysis", "Requirement Gathering", "Stakeholder Management", "Process Improvement",
-  "QA Testing", "Manual Testing", "Automation Testing", "Selenium", "Cypress", "Playwright",
-  "Jest", "Postman", "API Testing", "Performance Testing", "Security Testing",
-  "Cybersecurity", "Network Security", "Cloud Security", "Penetration Testing", "Ethical Hacking",
-  "SOC", "SIEM", "Risk Management", "Compliance", "ISO 27001",
-  "Accounting", "Financial Analysis", "Financial Modeling", "Tally", "GST", "Taxation", "Auditing",
-  "Budgeting", "Forecasting", "Investment Analysis",
-  "HR Management", "Recruitment", "Talent Acquisition", "Payroll", "Employee Engagement",
-  "Training and Development", "Operations Management", "Supply Chain Management", "Logistics",
-  "Customer Support", "Technical Support", "Sales", "B2B Sales", "Negotiation", "Communication",
-  "Leadership", "Team Management", "Problem Solving", "Critical Thinking", "Presentation Skills",
-];
+const DEFAULT_RECOMMENDATION_FETCH_LIMIT = 120;
+const JOBS_QUERY_TIMEOUT_MS = 12000;
+const PROFILE_SKILL_OPTIONS = SKILL_OPTIONS;
+
+function withTimeout<T>(promise: PromiseLike<T>, timeoutMs: number, message: string): Promise<T> {
+  let timeoutId: ReturnType<typeof setTimeout>;
+  const timeoutPromise = new Promise<never>((_, reject) => {
+    timeoutId = setTimeout(() => reject(new Error(message)), timeoutMs);
+  });
+
+  return Promise.race([Promise.resolve(promise), timeoutPromise]).finally(() => clearTimeout(timeoutId));
+}
 
 function escapeLikeValue(value: string): string {
   return value.replace(/[%_,]/g, (match) => `\\${match}`);
@@ -702,6 +684,7 @@ function FindJobPage() {
   const profileSkills = Array.isArray(profile?.skills)
     ? profile.skills.filter((value): value is string => typeof value === "string")
     : [];
+  const profileSkillKey = profileSkills.map((skill) => skill.trim().toLowerCase()).sort().join("|");
   const [searchQuery, setSearchQuery] = useState("");
   const [inputValue, setInputValue] = useState("");
   const [selectedChip, setSelectedChip] = useState<string | null>(null);
@@ -813,9 +796,14 @@ function FindJobPage() {
       const to = from + JOBS_PER_PAGE - 1;
       const orderedQuery = query.order("created_at", { ascending: false });
 
-      const { data, error, count } = shouldShowOnlyRecommended
-        ? await orderedQuery.limit(300)
-        : await orderedQuery.range(from, to);
+      const { data, error, count } = await withTimeout(
+        shouldShowOnlyRecommended ? orderedQuery.limit(DEFAULT_RECOMMENDATION_FETCH_LIMIT) : orderedQuery.range(from, to),
+        JOBS_QUERY_TIMEOUT_MS,
+        "Jobs request timed out",
+      ).catch((error) => {
+        console.error("Unable to load jobs:", error);
+        return { data: null, error, count: 0 };
+      });
 
       if (cancelled) return;
 
@@ -830,7 +818,9 @@ function FindJobPage() {
       const visibleJobs = (data || []).filter((job) => isJobVisibleToSeekers(job));
 
       if (shouldShowOnlyRecommended) {
-        const recommendationTerms = extractRecommendationTerms(profile);
+        const recommendationTerms = profileSkills
+          .map((skill) => skill.trim().toLowerCase())
+          .filter((skill) => skill.length >= 2);
         const recommendedJobs = visibleJobs.filter((job) => isRecommendedJobForProfile(job, recommendationTerms));
         const pagedRecommendedJobs = recommendedJobs.slice(from, to + 1);
         setDbJobs(pagedRecommendedJobs);
@@ -857,7 +847,7 @@ function FindJobPage() {
     searchQuery,
     selectedChip,
     salaryFilter,
-    profile,
+    profileSkillKey,
   ]);
 
   const handleApply = async (job: DBJob) => {
@@ -1476,8 +1466,9 @@ function ProfilePage() {
   const completionColor = completion >= 80 ? "bg-green-500" : completion >= 50 ? "bg-yellow-500" : "bg-[#FF2B2B]";
   const filteredSkillOptions = useMemo(() => {
     const query = skillSearch.trim().toLowerCase();
-    if (!query) return PROFILE_SKILL_OPTIONS;
-    return PROFILE_SKILL_OPTIONS.filter(skill => skill.toLowerCase().includes(query));
+    return PROFILE_SKILL_OPTIONS
+      .filter(skill => !query || skill.toLowerCase().includes(query))
+      .slice(0, 80);
   }, [skillSearch]);
 
   useEffect(() => {
@@ -2190,7 +2181,7 @@ function ProfilePage() {
                 <p className="font-medium text-[#3A1F1F] truncate">Resume uploaded</p>
               </div>
               <div className="flex gap-2 flex-shrink-0">
-                <Button variant="outline" size="sm" className="border-gray-200 rounded-full" onClick={() => setResumePreview({ url: resumeFile, candidateName: `${basicInfo.firstName} ${basicInfo.lastName}`.trim() || "Your Resume" })}>
+                <Button variant="outline" size="sm" className="border-gray-200 rounded-full" onClick={() => setResumePreview({ url: resumeFile, candidateName: basicInfo.name.trim() || "Your Resume" })}>
                   <Eye className="h-4 w-4 mr-1" /> Preview
                 </Button>
                 <button type="button" onClick={downloadResume} className="inline-flex items-center gap-1 px-3 py-2 border border-gray-200 rounded-full text-sm text-[#3A1F1F] hover:bg-white transition-colors">
@@ -3235,7 +3226,7 @@ interface DomainData {
   roleTitle: string;
   trendingSkills: Array<{ skill: string; demand: DemandLevel; youHaveIt?: boolean }>;
   salaryRange: { entry: string; mid: string; senior: string };
-  certifications: Array<{ name: string; provider: string; value: string }>;
+  certifications: Array<{ name: string; provider: string; value: string; reason?: string }>;
 }
 interface TrendingSkillSuggestion {
   skill: string;
@@ -3252,6 +3243,7 @@ interface RemotiveJob {
   candidate_required_location?: string;
   job_type?: string;
 }
+type CertificationSuggestion = { name: string; provider: string; value: string; reason?: string };
 
 const TRENDING_SKILL_LIMIT = 12;
 const REMOTIVE_JOBS_API_URL = "https://remotive.com/api/remote-jobs";
@@ -3566,15 +3558,18 @@ function InsightsPage() {
   const [loadingAI, setLoadingAI] = useState(true);
 
 
-  const skills = profile?.skills || [];
+  const skills: string[] = Array.isArray(profile?.skills)
+    ? profile.skills.filter((skill): skill is string => typeof skill === "string")
+    : [];
   const skillsKey = [...skills].sort().join(","); // stable string for effect dependency
   const profilePreferences = (profile || {}) as any;
-  const preferredRole = (profilePreferences.desired_job_title || profile?.current_title || "").trim();
-  const titleStr = preferredRole || profile?.current_title || "";
+  const preferredRole = String(profilePreferences.desired_job_title || profile?.current_title || "").trim();
+  const titleStr = preferredRole || String(profile?.current_title || "");
   const domain = detectDomain(skills, titleStr);
   const domainData = DOMAIN_MAP[domain];
   const tier = getExpTier(profile?.experience_type || null, profile?.total_experience || null);
   const trendingContextLabel = preferredRole || (domain === "general" ? "profile" : domainData.roleTitle);
+  const certificationSuggestions: CertificationSuggestion[] = aiInsights?.certifications ?? domainData.certifications;
 
   // Salary info
   const tierLabel = tier === "entry" ? "Entry Level (0–2 yrs)" : tier === "mid" ? "Mid Level (2–6 yrs)" : "Senior Level (6+ yrs)";
@@ -3607,7 +3602,7 @@ function InsightsPage() {
       if (data) {
         const visibleJobs = data.filter(job => isJobVisibleToSeekers(job));
         const userSkillsLower = skills.map(normalizeSkillKey);
-        const titleWords = titleStr.toLowerCase().split(/\s+/).filter(w => w.length > 3);
+        const titleWords = titleStr.toLowerCase().split(/\s+/).filter((word: string) => word.length > 3);
 
         const scored = visibleJobs.map(job => {
           const jobSkills: string[] = job.skills || [];
@@ -3622,7 +3617,7 @@ function InsightsPage() {
 
           // Title similarity score (0–30)
           const jobTitleLower = job.title.toLowerCase();
-          const titleScore = titleWords.some(w => jobTitleLower.includes(w)) ? 25 : 0;
+          const titleScore = titleWords.some((word: string) => jobTitleLower.includes(word)) ? 25 : 0;
 
           const match = Math.min(Math.max(skillScore + titleScore + 30, 40), 99);
 
@@ -3652,7 +3647,7 @@ function InsightsPage() {
             ...(job.skills || []),
           ].join(" ").toLowerCase();
 
-          const roleMatch = titleWords.length === 0 || titleWords.some((word) => searchable.includes(word));
+          const roleMatch = titleWords.length === 0 || titleWords.some((word: string) => searchable.includes(word));
           const skillMatch = userSkillsLower.length === 0 || (job.skills || []).some((jobSkill: string) =>
             userSkillsLower.some((userSkill) => skillMatchesLabel(userSkill, jobSkill))
           );
@@ -3929,13 +3924,13 @@ function InsightsPage() {
             </div>
           ) : (
             <div className="space-y-3">
-              {(aiInsights?.certifications ?? domainData.certifications).map((cert, i) => (
+              {certificationSuggestions.map((cert, i) => (
                 <div key={i} className="p-4 bg-[#F6F6F6] rounded-xl">
                   <div className="flex items-start justify-between gap-2">
                     <div className="min-w-0">
                       <h4 className="font-semibold text-[#3A1F1F] text-sm leading-snug">{cert.name}</h4>
                       <p className="text-xs text-[#8A8A8A] mt-0.5">{cert.provider}</p>
-                      {"reason" in cert && cert.reason && (
+                      {cert.reason && (
                         <p className="text-xs text-blue-600 mt-1 leading-snug">{cert.reason}</p>
                       )}
                     </div>
