@@ -1,7 +1,7 @@
 import { useState, useEffect, useCallback, useRef, useMemo, type ChangeEvent } from "react";
 import { useNavigate, Routes, Route, Link, useLocation, useParams } from "react-router";
 import { supabase, Job, Application, Notification, Profile, WorkExperience, Education as EduType, RecruiterSubscription, RecruiterArticle } from "../../lib/supabase";
-import { buildJobDeadlineTimestamp, formatJobDeadline, getEffectiveJobStatus, getJobDeadlineDateValue, isJobExpired } from "../../lib/jobs";
+import { buildJobExpiryTimestamp, formatJobDeadline, getEffectiveJobStatus, getJobDaysRemaining, JOB_EXPIRY_DAYS } from "../../lib/jobs";
 import { PLANS, FREE_DAILY_POST_LIMIT, getPlanById, validatePromo, applyPromo } from "../../lib/plans";
 import { INDIA_CITY_OPTIONS } from "../../lib/locationData";
 import { useAuth } from "../../lib/auth-context";
@@ -926,16 +926,24 @@ export default function RecruiterDashboard() {
 
   const fetchNotifications = useCallback(async () => {
     if (!recruiterProfile?.id) return;
-    const { data } = await supabase
-      .from("notifications")
-      .select("*")
-      .eq("user_id", recruiterProfile.id)
-      .eq("user_type", "recruiter")
-      .order("created_at", { ascending: false })
-      .limit(10);
+    const [{ data }, { count }] = await Promise.all([
+      supabase
+        .from("notifications")
+        .select("*")
+        .eq("user_id", recruiterProfile.id)
+        .eq("user_type", "recruiter")
+        .order("created_at", { ascending: false })
+        .limit(20),
+      supabase
+        .from("notifications")
+        .select("id", { count: "exact", head: true })
+        .eq("user_id", recruiterProfile.id)
+        .eq("user_type", "recruiter")
+        .eq("is_read", false),
+    ]);
     if (data) {
       setNotifications(data);
-      setUnreadCount(data.filter((n: Notification) => !n.is_read).length);
+      setUnreadCount(count || 0);
     }
   }, [recruiterProfile?.id]);
 
@@ -957,7 +965,7 @@ export default function RecruiterDashboard() {
 
   const markAllRead = async () => {
     if (!recruiterProfile?.id) return;
-    await supabase.from("notifications").update({ is_read: true }).eq("user_id", recruiterProfile.id);
+    await supabase.from("notifications").update({ is_read: true }).eq("user_id", recruiterProfile.id).eq("user_type", "recruiter");
     fetchNotifications();
   };
 
@@ -1623,7 +1631,7 @@ function PostJobPage() {
     experienceMin: "", experienceMax: "",
     skills: "", employmentType: "", industry: "",
     openings: "1", education: "", perks: [] as string[], department: "",
-    interviewMode: "", applicationDeadline: "", applicationDeadlineTime: "",
+    interviewMode: "",
   });
 
   // Fetch active subscription and today's post count
@@ -1818,8 +1826,7 @@ function PostJobPage() {
     }
     setPosting(true);
     try {
-      const deadline = buildJobDeadlineTimestamp(formData.applicationDeadline, formData.applicationDeadlineTime);
-      const deadlineTime = deadline ? (formData.applicationDeadlineTime || null) : null;
+      const deadline = buildJobExpiryTimestamp();
       const skillsArr = formData.skills.split(",").map(s => s.trim()).filter(Boolean);
       const { error } = await supabase.from("jobs").insert({
         recruiter_id: recruiterProfile.id,
@@ -1844,14 +1851,14 @@ function PostJobPage() {
         interview_mode: formData.interviewMode,
         openings: Number(formData.openings) || 1,
         deadline,
-        deadline_time: deadlineTime,
+        deadline_time: null,
         status: "Active",
       });
       if (error) throw error;
       setPostSuccess(true);
       setShowPreview(false);
       setTimeout(() => { setPostSuccess(false); navigate("/recruiter/dashboard/manage-jobs"); }, 2000);
-      setFormData({ jobTitle:"",jobDescription:"",rolesResponsibilities:"",requirements:"",location:"",workMode:"",salaryMin:"",salaryMax:"",salaryType:"LPA",experienceMin:"",experienceMax:"",skills:"",employmentType:"",industry:"",openings:"1",education:"",perks:[],department:"",interviewMode:"",applicationDeadline:"",applicationDeadlineTime:"" });
+      setFormData({ jobTitle:"",jobDescription:"",rolesResponsibilities:"",requirements:"",location:"",workMode:"",salaryMin:"",salaryMax:"",salaryType:"LPA",experienceMin:"",experienceMax:"",skills:"",employmentType:"",industry:"",openings:"1",education:"",perks:[],department:"",interviewMode:"" });
       setShowSkillInput(false);
       setSkillPickerOpen(false);
       setSkillSearch("");
@@ -1941,17 +1948,10 @@ function PostJobPage() {
               {formData.department && <div><p className="text-xs text-[#8A8A8A]">Department</p><p className="text-sm font-medium text-[#3A1F1F]">{formData.department}</p></div>}
               {formData.industry && <div><p className="text-xs text-[#8A8A8A]">Industry</p><p className="text-sm font-medium text-[#3A1F1F]">{formData.industry}</p></div>}
               {formData.interviewMode && <div><p className="text-xs text-[#8A8A8A]">Interview Mode</p><p className="text-sm font-medium text-[#3A1F1F]">{formData.interviewMode}</p></div>}
-              {formData.applicationDeadline && (
-                <div>
-                  <p className="text-xs text-[#8A8A8A]">Apply By</p>
-                  <p className="text-sm font-medium text-[#3A1F1F]">
-                    {formatJobDeadline({
-                      deadline: buildJobDeadlineTimestamp(formData.applicationDeadline, formData.applicationDeadlineTime),
-                      deadline_time: formData.applicationDeadlineTime || null,
-                    })}
-                  </p>
-                </div>
-              )}
+              <div>
+                <p className="text-xs text-[#8A8A8A]">Expires</p>
+                <p className="text-sm font-medium text-[#3A1F1F]">{JOB_EXPIRY_DAYS} days after posting</p>
+              </div>
             </div>
           </div>
         </div>
@@ -2367,16 +2367,6 @@ function PostJobPage() {
             </div>
           </div>
 
-          {/* Application Deadline */}
-          <div>
-            <label className="block mb-1.5 text-sm font-medium text-[#3A1F1F]">Application Deadline</label>
-            <div className="flex flex-wrap gap-3">
-              <Input type="date" value={formData.applicationDeadline} onChange={e => setFormData({ ...formData, applicationDeadline: e.target.value })} className="bg-[#F6F6F6] border-gray-200 rounded-xl w-auto" />
-              <Input type="time" value={formData.applicationDeadlineTime} onChange={e => setFormData({ ...formData, applicationDeadlineTime: e.target.value })} className="bg-[#F6F6F6] border-gray-200 rounded-xl w-auto" />
-            </div>
-            <p className="text-xs text-[#8A8A8A] mt-1">Leave time empty to keep the current date-only expiry behavior.</p>
-          </div>
-
           <Button type="submit" className="w-full bg-[#FF2B2B] hover:bg-[#e02525] text-white rounded-full py-6 text-base font-semibold">
             Preview Job Before Posting →
           </Button>
@@ -2395,9 +2385,9 @@ function ManageJobsPage() {
   const [filter, setFilter] = useState("All");
   const [loading, setLoading] = useState(true);
   const [editingJob, setEditingJob] = useState<Job | null>(null);
-  const [editForm, setEditForm] = useState({ title: "", location: "", salaryMin: "", salaryMax: "", salaryType: "LPA", employmentType: "", workMode: "", openings: "1", skills: "", deadlineDate: "", deadlineTime: "" });
+  const [editForm, setEditForm] = useState({ title: "", location: "", salaryMin: "", salaryMax: "", salaryType: "LPA", employmentType: "", workMode: "", openings: "1", skills: "" });
   const [saving, setSaving] = useState(false);
-  const isExpired = useCallback((job: Job) => isJobExpired(job), []);
+  const [refreshingJobId, setRefreshingJobId] = useState<string | null>(null);
 
   const openEdit = (job: Job) => {
     setEditingJob(job);
@@ -2411,8 +2401,6 @@ function ManageJobsPage() {
       workMode: job.work_mode || "",
       openings: String(job.openings),
       skills: (job.skills || []).join(", "),
-      deadlineDate: getJobDeadlineDateValue(job),
-      deadlineTime: job.deadline_time || "",
     });
   };
 
@@ -2420,8 +2408,6 @@ function ManageJobsPage() {
     if (!editingJob) return;
     setSaving(true);
     const skillsArr = editForm.skills.split(",").map(s => s.trim()).filter(Boolean);
-    const deadline = buildJobDeadlineTimestamp(editForm.deadlineDate, editForm.deadlineTime);
-    const deadlineTime = deadline ? (editForm.deadlineTime || null) : null;
     await supabase.from("jobs").update({
       title: editForm.title,
       location: editForm.location,
@@ -2432,8 +2418,6 @@ function ManageJobsPage() {
       work_mode: editForm.workMode,
       openings: Number(editForm.openings) || 1,
       skills: skillsArr,
-      deadline,
-      deadline_time: deadlineTime,
     }).eq("id", editingJob.id);
     setJobs(prev => prev.map(j => j.id === editingJob.id ? {
       ...j, title: editForm.title, location: editForm.location,
@@ -2442,8 +2426,6 @@ function ManageJobsPage() {
       salary_type: editForm.salaryType, employment_type: editForm.employmentType,
       work_mode: editForm.workMode, openings: Number(editForm.openings) || 1,
       skills: skillsArr,
-      deadline,
-      deadline_time: deadlineTime,
     } : j));
     setSaving(false);
     setEditingJob(null);
@@ -2463,20 +2445,22 @@ function ManageJobsPage() {
         const { count } = await supabase.from("applications").select("*", { count: "exact", head: true }).eq("job_id", job.id);
         return { ...job, applicant_count: count || 0 };
       }));
-      const repairedJobs = withCounts.map(job => ({
-        ...job,
-        status: getEffectiveJobStatus(job),
-      }));
+      const repairedJobs = withCounts.map(job => ({ ...job, status: getEffectiveJobStatus(job) }));
+      const staleActiveExpiredIds = withCounts
+        .filter(job => (job.status === "Active" || job.status === "Paused") && getEffectiveJobStatus(job) === "Expired")
+        .map(job => job.id);
       const staleExpiredIds = withCounts
         .filter(job => job.status === "Expired" && getEffectiveJobStatus(job) === "Active")
         .map(job => job.id);
 
-      if (staleExpiredIds.length > 0) {
-        await supabase
-          .from("jobs")
-          .update({ status: "Active" })
-          .in("id", staleExpiredIds);
-      }
+      await Promise.all([
+        staleActiveExpiredIds.length > 0
+          ? supabase.from("jobs").update({ status: "Expired" }).in("id", staleActiveExpiredIds)
+          : Promise.resolve(),
+        staleExpiredIds.length > 0
+          ? supabase.from("jobs").update({ status: "Active" }).in("id", staleExpiredIds)
+          : Promise.resolve(),
+      ]);
 
       setJobs(repairedJobs);
     }
@@ -2485,8 +2469,7 @@ function ManageJobsPage() {
 
   useEffect(() => { fetchJobs(); }, [fetchJobs]);
 
-  const visibleJobs = jobs.filter(j => getEffectiveJobStatus(j) !== "Expired" && !isExpired(j));
-  const filtered = filter === "All" ? visibleJobs : visibleJobs.filter(j => getEffectiveJobStatus(j) === filter);
+  const filtered = filter === "All" ? jobs : jobs.filter(j => getEffectiveJobStatus(j) === filter);
 
   const toggleStatus = async (id: string, currentStatus: string) => {
     const newStatus = currentStatus === "Active" ? "Paused" : "Active";
@@ -2494,10 +2477,55 @@ function ManageJobsPage() {
     setJobs(prev => prev.map(j => j.id === id ? { ...j, status: newStatus as "Active" | "Paused" | "Closed" | "Expired" } : j));
   };
 
-  const deleteJob = async (id: string) => {
-    if (!confirm("Delete this job? This will also remove all applications.")) return;
-    await supabase.from("jobs").delete().eq("id", id);
-    setJobs(prev => prev.filter(j => j.id !== id));
+  const refreshJob = async (job: Job) => {
+    const deadline = buildJobExpiryTimestamp();
+    setRefreshingJobId(job.id);
+    const { error } = await supabase
+      .from("jobs")
+      .update({ deadline, deadline_time: null, status: "Active" })
+      .eq("id", job.id);
+    setRefreshingJobId(null);
+
+    if (error) return;
+
+    const repostMessage = `Your job '${job.title}' has been successfully reposted and is active for another ${JOB_EXPIRY_DAYS} days.`;
+    const { error: notificationError } = await supabase.from("notifications").upsert({
+      user_id: job.recruiter_id,
+      user_type: "recruiter",
+      title: "Job Reposted",
+      message: repostMessage,
+      type: "reposted",
+      job_id: job.id,
+      related_id: job.id,
+      notification_key: `job:${job.id}:reposted:${Math.floor(new Date(deadline).getTime() / 1000)}`,
+      is_read: false,
+    }, { onConflict: "notification_key" });
+
+    if (notificationError) {
+      console.error("Failed to create repost notification:", notificationError.message);
+      await supabase.from("notifications").insert({
+        user_id: job.recruiter_id,
+        user_type: "recruiter",
+        title: "Job Reposted",
+        message: repostMessage,
+        type: "job_alert",
+        related_id: job.id,
+        is_read: false,
+      });
+    }
+
+    setJobs(prev => prev.map(j => j.id === job.id ? {
+      ...j,
+      deadline,
+      deadline_time: null,
+      status: "Active",
+    } : j));
+  };
+
+  const closeJob = async (id: string) => {
+    if (!confirm("Close this job? Applicant history will stay attached to this job.")) return;
+    await supabase.from("jobs").update({ status: "Closed" }).eq("id", id);
+    setJobs(prev => prev.map(j => j.id === id ? { ...j, status: "Closed" } : j));
   };
 
   return (
@@ -2506,7 +2534,7 @@ function ManageJobsPage() {
         <h1 className="text-3xl font-bold text-[#3A1F1F]">Manage Jobs</h1>
         <div className="flex gap-3">
           <div className="flex gap-1 bg-white rounded-full p-1 shadow-sm">
-            {["All", "Active", "Paused"].map(f => (
+            {["All", "Active", "Paused", "Expired", "Closed"].map(f => (
               <button key={f} onClick={() => setFilter(f)} className={`px-4 py-1.5 rounded-full text-sm transition-colors ${filter === f ? "bg-[#FF2B2B] text-white" : "text-[#8A8A8A] hover:text-[#3A1F1F]"}`}>{f}</button>
             ))}
           </div>
@@ -2550,17 +2578,23 @@ function ManageJobsPage() {
                   {job.deadline && (
                     <span className="flex items-center gap-1">
                       <Calendar className="h-3.5 w-3.5" />
-                      Apply by {formatJobDeadline(job)}
+                      Expires {formatJobDeadline(job)} ({getJobDaysRemaining(job)} day{getJobDaysRemaining(job) === 1 ? "" : "s"} left)
                     </span>
                   )}
                 </div>
               </div>
               <div className="flex gap-2">
-                <Button variant="outline" size="icon" className="border-gray-200 rounded-full" onClick={() => toggleStatus(job.id, effectiveStatus)} title={effectiveStatus === "Active" ? "Pause" : "Activate"}>
-                  {effectiveStatus === "Active" ? <Pause className="h-4 w-4 text-[#8A8A8A]" /> : <RefreshCw className="h-4 w-4 text-green-500" />}
-                </Button>
+                {effectiveStatus === "Expired" ? (
+                  <Button variant="outline" size="icon" className="border-gray-200 rounded-full" onClick={() => refreshJob(job)} disabled={refreshingJobId === job.id} title={`Refresh for ${JOB_EXPIRY_DAYS} days`}>
+                    <RefreshCw className={`h-4 w-4 text-green-500 ${refreshingJobId === job.id ? "animate-spin" : ""}`} />
+                  </Button>
+                ) : (
+                  <Button variant="outline" size="icon" className="border-gray-200 rounded-full" onClick={() => toggleStatus(job.id, effectiveStatus)} title={effectiveStatus === "Active" ? "Pause" : "Activate"}>
+                    {effectiveStatus === "Active" ? <Pause className="h-4 w-4 text-[#8A8A8A]" /> : <RefreshCw className="h-4 w-4 text-green-500" />}
+                  </Button>
+                )}
                 <Button variant="outline" size="icon" className="border-gray-200 rounded-full" onClick={() => openEdit(job)} title="Edit Job"><Edit className="h-4 w-4 text-[#3A1F1F]" /></Button>
-                <Button variant="outline" size="icon" className="border-gray-200 rounded-full" onClick={() => deleteJob(job.id)}><Trash2 className="h-4 w-4 text-[#FF2B2B]" /></Button>
+                <Button variant="outline" size="icon" className="border-gray-200 rounded-full" onClick={() => closeJob(job.id)} title="Close Job"><Trash2 className="h-4 w-4 text-[#FF2B2B]" /></Button>
               </div>
             </div>
             <div className="grid grid-cols-3 gap-4 mt-4 pt-4 border-t border-gray-100">
@@ -2631,14 +2665,6 @@ function ManageJobsPage() {
             <div>
               <label className="block text-sm font-medium text-[#3A1F1F] mb-1">Key Skills (comma separated)</label>
               <Input value={editForm.skills} onChange={e => setEditForm(f => ({ ...f, skills: e.target.value }))} className="bg-[#F6F6F6] border-gray-200 rounded-xl" placeholder="Python, SQL, React" />
-            </div>
-            <div>
-              <label className="block text-sm font-medium text-[#3A1F1F] mb-1">Application Deadline</label>
-              <div className="flex flex-wrap gap-3">
-                <Input type="date" value={editForm.deadlineDate} onChange={e => setEditForm(f => ({ ...f, deadlineDate: e.target.value }))} className="bg-[#F6F6F6] border-gray-200 rounded-xl w-auto" />
-                <Input type="time" value={editForm.deadlineTime} onChange={e => setEditForm(f => ({ ...f, deadlineTime: e.target.value }))} className="bg-[#F6F6F6] border-gray-200 rounded-xl w-auto" />
-              </div>
-              <p className="text-xs text-[#8A8A8A] mt-1">Leave time empty to keep date-only expiry.</p>
             </div>
             <div className="flex gap-3 pt-2">
               <Button className="flex-1 bg-[#FF2B2B] hover:bg-[#e02525] text-white rounded-full" onClick={saveEdit} disabled={saving || !editForm.title}>
