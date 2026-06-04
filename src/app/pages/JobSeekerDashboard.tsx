@@ -6,7 +6,7 @@ import { recordJobInteraction, recordJobSearch } from "../../lib/jobRecommendati
 import { SKILL_OPTIONS, skillsMatch } from "../../lib/skillKeywords";
 import { useAuth } from "../../lib/auth-context";
 import AppliedJobsSection from "../components/AppliedJobsSection";
-import ResumePreviewDialog, { getStorageObjectFromUrl } from "../components/ResumePreviewDialog";
+import ResumePreviewDialog, { getStorageObjectFromUrl, buildPreviewUrl } from "../components/ResumePreviewDialog";
 import {
   Bell, LogOut, Search, MapPin, DollarSign, Briefcase, Filter, Bookmark,
   User, BarChart3, Lightbulb, Upload, Plus, X, Pencil, Trash2,
@@ -2730,7 +2730,18 @@ function ProfilePage({ onPendingPrefsChange }: { onPendingPrefsChange?: (pending
                 <p className="font-medium text-[#3A1F1F] truncate">Resume uploaded</p>
               </div>
               <div className="flex gap-2 flex-shrink-0">
-                <Button variant="outline" size="sm" className="border-gray-200 rounded-full" onClick={() => setResumePreview({ url: resumeFile, candidateName: basicInfo.name.trim() || "Your Resume" })}>
+                <Button variant="outline" size="sm" className="border-gray-200 rounded-full" onClick={async () => {
+                  if (!resumeFile) return;
+                  const newTab = window.open('', '_blank');
+                  if (!newTab) return;
+                  let resolvedUrl = resumeFile;
+                  const obj = getStorageObjectFromUrl(resumeFile);
+                  if (obj) {
+                    const { data } = await supabase.storage.from(obj.bucket).createSignedUrl(obj.path, 10 * 60);
+                    if (data?.signedUrl) resolvedUrl = data.signedUrl;
+                  }
+                  newTab.location.href = buildPreviewUrl(resolvedUrl) || resolvedUrl;
+                }}>
                   <Eye className="h-4 w-4 mr-1" /> Preview
                 </Button>
                 <button type="button" onClick={downloadResume} className="inline-flex items-center gap-1 px-3 py-2 border border-gray-200 rounded-full text-sm text-[#3A1F1F] hover:bg-white transition-colors">
@@ -3673,28 +3684,18 @@ function AnalyticsPage() {
   const handleOpenOfferPreview = useCallback(async () => {
     if (!selectedOfferJob) return;
     setOfferFileError(null);
+    const newTab = window.open('', '_blank');
+    if (!newTab) return;
     setResolvingOfferFile(true);
     const url = await resolveOfferLetterUrl(selectedOfferJob);
     setResolvingOfferFile(false);
     if (!url) {
+      newTab.close();
       setOfferFileError("Offer file is unavailable. Ask recruiter to re-upload the offer letter.");
       return;
     }
-    if (canInlinePreview && !isOfficeOfferFile(offerFileName)) {
-      try {
-        const response = await fetch(url);
-        if (!response.ok) throw new Error("Preview fetch failed");
-        const blob = await response.blob();
-        const blobUrl = URL.createObjectURL(blob);
-        setOfferPreviewUrl(blobUrl);
-      } catch {
-        setOfferPreviewUrl(url);
-      }
-    } else {
-      setOfferPreviewUrl(url);
-    }
-    setIsOfferPreviewOpen(true);
-  }, [canInlinePreview, offerFileName, resolveOfferLetterUrl, selectedOfferJob]);
+    newTab.location.href = getOfferPreviewSrc(url, offerFileName);
+  }, [offerFileName, resolveOfferLetterUrl, selectedOfferJob]);
 
   const handleDownloadOffer = useCallback(async () => {
     if (!selectedOfferJob) return;

@@ -46,7 +46,8 @@ import FeedbackPopup from "../components/FeedbackPopup";
 import InterviewDetailsModal from "../components/InterviewDetailsModal";
 import InterviewFeedbackModal from "../components/InterviewFeedbackModal";
 import OfferDetailsModal from "../components/OfferDetailsModal";
-import ResumePreviewDialog from "../components/ResumePreviewDialog";
+import ResumePreviewDialog, { getStorageObjectFromUrl, buildPreviewUrl } from "../components/ResumePreviewDialog";
+import JobShareButton from "../components/JobShareButton";
 
 const DEPARTMENT_OPTIONS = [
   "Engineering",
@@ -2795,6 +2796,7 @@ function ManageJobsPage() {
                 </div>
               </div>
               <div className="flex gap-2">
+                <JobShareButton jobId={job.id} title={job.title} className="relative" />
                 {effectiveStatus === "Expired" ? (
                   <Button variant="outline" size="icon" className="border-gray-200 rounded-full" onClick={() => refreshJob(job)} disabled={refreshingJobId === job.id} title={`Refresh for ${JOB_EXPIRY_DAYS} days`}>
                     <RefreshCw className={`h-4 w-4 text-green-500 ${refreshingJobId === job.id ? "animate-spin" : ""}`} />
@@ -4782,7 +4784,17 @@ function ApplicantsPage() {
                   <div>
                     <h3 className="text-sm font-bold text-[#3A1F1F] mb-2 flex items-center gap-2"><FileText className="h-4 w-4 text-[#FF2B2B]" /> Resume</h3>
                     <div className="flex flex-wrap gap-2">
-                      <Button size="sm" variant="outline" className="border-gray-200 rounded-full text-sm" onClick={() => setResumePreview({ url: modalResumeUrl, candidateName: name })}>
+                      <Button size="sm" variant="outline" className="border-gray-200 rounded-full text-sm" onClick={async () => {
+                        const newTab = window.open('', '_blank');
+                        if (!newTab) return;
+                        let resolvedUrl = modalResumeUrl;
+                        const obj = getStorageObjectFromUrl(modalResumeUrl);
+                        if (obj) {
+                          const { data } = await supabase.storage.from(obj.bucket).createSignedUrl(obj.path, 10 * 60);
+                          if (data?.signedUrl) resolvedUrl = data.signedUrl;
+                        }
+                        newTab.location.href = buildPreviewUrl(resolvedUrl) || resolvedUrl;
+                      }}>
                         <Eye className="h-4 w-4 mr-1" /> Preview Resume
                       </Button>
                       <a href={modalResumeUrl} target="_blank" rel="noreferrer" download

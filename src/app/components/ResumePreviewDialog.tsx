@@ -43,7 +43,7 @@ export function getStorageObjectFromUrl(url: string): { bucket: string; path: st
   }
 }
 
-function buildPreviewUrl(url: string): string | null {
+export function buildPreviewUrl(url: string): string | null {
   const kind = getResumePreviewKind(url);
   if (kind === "pdf") return url;
   if (kind === "office") return `https://view.officeapps.live.com/op/embed.aspx?src=${encodeURIComponent(url)}`;
