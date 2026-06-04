@@ -9,6 +9,7 @@ import { supabase, type Job as DBJob } from "../../lib/supabase";
 import { formatJobSalary, isJobVisibleToSeekers } from "../../lib/jobs";
 import { isIndianLocation } from "../../lib/locationData";
 import { useAuth } from "../../lib/auth-context";
+import { SafeHtml } from "../components/ui/safe-html";
 
 function splitBulletContent(value: string | null, fallback: string): string[] {
   if (!value) return [fallback];
@@ -102,6 +103,8 @@ export default function JobDetailPage() {
       description: job.description || "Detailed description will be shared by the recruiter.",
       responsibilities: splitBulletContent(job.roles_responsibilities, "Role responsibilities will be shared by the recruiter."),
       qualifications: splitBulletContent(job.requirements, "Job requirements will be shared by the recruiter."),
+      rawResponsibilities: job.roles_responsibilities,
+      rawQualifications: job.requirements,
       additionalInfo: [
         job.work_mode ? `Work mode: ${job.work_mode}` : "",
         job.interview_mode ? `Interview mode: ${job.interview_mode}` : "",
@@ -343,29 +346,41 @@ export default function JobDetailPage() {
               {/* Job Description */}
               <div className="bg-white rounded-2xl p-8 shadow-md">
                 <h3 className="text-2xl font-bold text-[#3A1F1F] mb-4">Job Description :</h3>
-                <p className="text-[#8A8A8A] leading-relaxed mb-6">
-                  {currentJob.description}
-                </p>
+                <div className="text-[#8A8A8A] leading-relaxed mb-6 [&_ul]:list-disc [&_ul]:pl-5 [&_ol]:list-decimal [&_ol]:pl-5 [&_h2]:text-base [&_h2]:font-bold [&_h2]:mt-2 [&_h2]:mb-1 [&_h3]:text-sm [&_h3]:font-bold [&_h3]:mt-1.5 [&_h3]:mb-1 [&_a]:text-[#FF2B2B] [&_a]:underline">
+                  <SafeHtml content={currentJob.description} />
+                </div>
 
                 <h3 className="text-2xl font-bold text-[#3A1F1F] mb-4 mt-8">Key Responsibilities:</h3>
-                <ul className="space-y-3 mb-6">
-                  {currentJob.responsibilities.map((item, index) => (
-                    <li key={index} className="flex items-start gap-3">
-                      <div className="w-2 h-2 bg-[#FF2B2B] rounded-full mt-2 flex-shrink-0"></div>
-                      <span className="text-[#8A8A8A]">{item}</span>
-                    </li>
-                  ))}
-                </ul>
+                {currentJob.rawResponsibilities && /<[a-z][\s\S]*>/i.test(currentJob.rawResponsibilities) ? (
+                  <div className="text-[#8A8A8A] leading-relaxed mb-6 [&_ul]:list-disc [&_ul]:pl-5 [&_ol]:list-decimal [&_ol]:pl-5 [&_h2]:text-base [&_h2]:font-bold [&_h2]:mt-2 [&_h2]:mb-1 [&_h3]:text-sm [&_h3]:font-bold [&_h3]:mt-1.5 [&_h3]:mb-1 [&_a]:text-[#FF2B2B] [&_a]:underline">
+                    <SafeHtml content={currentJob.rawResponsibilities} />
+                  </div>
+                ) : (
+                  <ul className="space-y-3 mb-6">
+                    {currentJob.responsibilities.map((item, index) => (
+                      <li key={index} className="flex items-start gap-3">
+                        <div className="w-2 h-2 bg-[#FF2B2B] rounded-full mt-2 flex-shrink-0"></div>
+                        <span className="text-[#8A8A8A]">{item}</span>
+                      </li>
+                    ))}
+                  </ul>
+                )}
 
                 <h3 className="text-2xl font-bold text-[#3A1F1F] mb-4 mt-8">Qualifications:</h3>
-                <ul className="space-y-3 mb-6">
-                  {currentJob.qualifications.map((item, index) => (
-                    <li key={index} className="flex items-start gap-3">
-                      <div className="w-2 h-2 bg-[#FF2B2B] rounded-full mt-2 flex-shrink-0"></div>
-                      <span className="text-[#8A8A8A]">{item}</span>
-                    </li>
-                  ))}
-                </ul>
+                {currentJob.rawQualifications && /<[a-z][\s\S]*>/i.test(currentJob.rawQualifications) ? (
+                  <div className="text-[#8A8A8A] leading-relaxed mb-6 [&_ul]:list-disc [&_ul]:pl-5 [&_ol]:list-decimal [&_ol]:pl-5 [&_h2]:text-base [&_h2]:font-bold [&_h2]:mt-2 [&_h2]:mb-1 [&_h3]:text-sm [&_h3]:font-bold [&_h3]:mt-1.5 [&_h3]:mb-1 [&_a]:text-[#FF2B2B] [&_a]:underline">
+                    <SafeHtml content={currentJob.rawQualifications} />
+                  </div>
+                ) : (
+                  <ul className="space-y-3 mb-6">
+                    {currentJob.qualifications.map((item, index) => (
+                      <li key={index} className="flex items-start gap-3">
+                        <div className="w-2 h-2 bg-[#FF2B2B] rounded-full mt-2 flex-shrink-0"></div>
+                        <span className="text-[#8A8A8A]">{item}</span>
+                      </li>
+                    ))}
+                  </ul>
+                )}
 
                 {currentJob.additionalInfo && (
                   <p className="text-[#8A8A8A] text-sm italic mt-8">

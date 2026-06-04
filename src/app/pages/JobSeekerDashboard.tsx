@@ -16,6 +16,7 @@ import {
 } from "lucide-react";
 import { Button } from "../components/ui/button";
 import { Input } from "../components/ui/input";
+import { SafeHtml } from "../components/ui/safe-html";
 import {
   Pagination,
   PaginationContent,
@@ -1127,7 +1128,7 @@ function FindJobPage() {
                       )}
                       <p className="text-xs text-[#8A8A8A] mb-0.5 pr-24">{job.company}</p>
                       <h3 className="font-bold text-[#3A1F1F] text-lg mb-2 leading-snug pr-24">{job.title}</h3>
-                      <p className="text-[#8A8A8A] text-sm mb-3 line-clamp-2 flex-1">{job.description}</p>
+                      <p className="text-[#8A8A8A] text-sm mb-3 line-clamp-2 flex-1">{stripHtml(job.description)}</p>
                       <div className="space-y-1 mb-4">
                         <div className="flex items-center text-sm text-[#8A8A8A]">
                           <MapPin className="h-3.5 w-3.5 mr-1.5 text-[#FF2B2B] shrink-0" />{job.location}
@@ -1270,7 +1271,10 @@ function FindJobPage() {
                 </div>
 
                 <h3 className="text-base font-bold text-[#3A1F1F] mb-2">Job Description :</h3>
-                <p className="text-[#8A8A8A] text-sm leading-relaxed mb-5">{selectedJob.description}</p>
+                <SafeHtml
+                  content={selectedJob.description}
+                  className="text-[#8A8A8A] text-sm leading-relaxed mb-5 [&_ul]:list-disc [&_ul]:pl-5 [&_ol]:list-decimal [&_ol]:pl-5 [&_h2]:text-base [&_h2]:font-bold [&_h2]:mt-2 [&_h2]:mb-1 [&_h3]:text-sm [&_h3]:font-bold [&_h3]:mt-1.5 [&_h3]:mb-1 [&_a]:text-[#FF2B2B] [&_a]:underline"
+                />
 
                 {selectedJob.dbJob?.skills && selectedJob.dbJob.skills.length > 0 && (
                   <>
@@ -2527,7 +2531,7 @@ function EduForm({ form, setForm, onSave, onCancel }: {
         </div>
         <div>
           <label className="block text-sm text-[#3A1F1F] mb-1">Field of Study</label>
-          <Input value={form.field} onChange={(e) => setForm({ ...form, field: e.target.value })} className="bg-white border-gray-200 rounded-xl" placeholder="e.g. Computer Science" />
+          <Input value={form.field} onChange={(e) => setForm({ ...form, field: e.target.value })} className="bg-white border-gray-200 rounded-xl" placeholder="Field of study" />
         </div>
         <div className="md:col-span-2">
           <label className="block text-sm text-[#3A1F1F] mb-1">College / University *</label>
@@ -2549,7 +2553,7 @@ function EduForm({ form, setForm, onSave, onCancel }: {
         </div>
         <div>
           <label className="block text-sm text-[#3A1F1F] mb-1">Score (CGPA / %)</label>
-          <Input value={form.score} onChange={(e) => setForm({ ...form, score: e.target.value })} className="bg-white border-gray-200 rounded-xl" placeholder="e.g. 3.8 CGPA or 85%" />
+          <Input value={form.score} onChange={(e) => setForm({ ...form, score: e.target.value })} className="bg-white border-gray-200 rounded-xl" placeholder="Score" />
         </div>
       </div>
       <div className="flex gap-3">
@@ -2619,7 +2623,7 @@ function CertForm({ form, setForm, onSave, onCancel }: {
         </div>
         <div>
           <label className="block text-sm text-[#3A1F1F] mb-1">Issuing Organization</label>
-          <Input value={form.issuer} onChange={(e) => setForm({ ...form, issuer: e.target.value })} className="bg-white border-gray-200 rounded-xl" placeholder="e.g. Google, Coursera" />
+          <Input value={form.issuer} onChange={(e) => setForm({ ...form, issuer: e.target.value })} className="bg-white border-gray-200 rounded-xl" placeholder="Issuer name" />
         </div>
         <div>
           <label className="block text-sm text-[#3A1F1F] mb-1">Issue Date</label>
