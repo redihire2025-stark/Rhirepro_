@@ -137,11 +137,11 @@ export default function RecruiterSignUp() {
           <form onSubmit={handleSubmit} className="space-y-4">
             <div>
               <label className="block mb-1.5 text-sm font-medium text-[#3A1F1F]">Your Name *</label>
-              <Input value={formData.recruiterName} onChange={e => setFormData({ ...formData, recruiterName: e.target.value })} className="bg-[#F6F6F6] border-gray-200 rounded-xl" placeholder="Anita Rao" required />
+              <Input value={formData.recruiterName} onChange={e => setFormData({ ...formData, recruiterName: e.target.value })} className="bg-[#F6F6F6] border-gray-200 rounded-xl" placeholder="Enter your name" required />
             </div>
             <div>
               <label className="block mb-1.5 text-sm font-medium text-[#3A1F1F]">Company Name *</label>
-              <Input value={formData.companyName} onChange={e => setFormData({ ...formData, companyName: e.target.value })} className="bg-[#F6F6F6] border-gray-200 rounded-xl" placeholder="TechCorp Inc." required />
+              <Input value={formData.companyName} onChange={e => setFormData({ ...formData, companyName: e.target.value })} className="bg-[#F6F6F6] border-gray-200 rounded-xl" placeholder="Enter company name" required />
             </div>
             <div className="grid grid-cols-2 gap-3">
               <div>
@@ -165,11 +165,11 @@ export default function RecruiterSignUp() {
             </div>
             <div>
               <label className="block mb-1.5 text-sm font-medium text-[#3A1F1F]">Work Email *</label>
-              <Input type="email" value={formData.email} onChange={e => setFormData({ ...formData, email: e.target.value })} className="bg-[#F6F6F6] border-gray-200 rounded-xl" placeholder="hr@company.com" required autoComplete="email" />
+              <Input type="email" value={formData.email} onChange={e => setFormData({ ...formData, email: e.target.value })} className="bg-[#F6F6F6] border-gray-200 rounded-xl" placeholder="Enter work email" required autoComplete="email" />
             </div>
             <div>
               <label className="block mb-1.5 text-sm font-medium text-[#3A1F1F]">Phone</label>
-              <Input type="tel" value={formData.phone} onChange={e => setFormData({ ...formData, phone: e.target.value })} className="bg-[#F6F6F6] border-gray-200 rounded-xl" placeholder="+91 22 6789 0123" />
+              <Input type="tel" value={formData.phone} onChange={e => setFormData({ ...formData, phone: e.target.value })} className="bg-[#F6F6F6] border-gray-200 rounded-xl" placeholder="Enter phone number" />
             </div>
             <div>
               <label className="block mb-1.5 text-sm font-medium text-[#3A1F1F]">Password *</label>

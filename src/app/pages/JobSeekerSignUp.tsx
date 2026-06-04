@@ -180,7 +180,7 @@ export default function JobSeekerSignUp() {
                   value={formData.firstName}
                   onChange={e => setFormData({ ...formData, firstName: e.target.value })}
                   className="bg-[#F6F6F6] border-gray-200 rounded-xl"
-                  placeholder="Arjun"
+                  placeholder="Enter first name"
                   required
                 />
               </div>
@@ -190,7 +190,7 @@ export default function JobSeekerSignUp() {
                   value={formData.lastName}
                   onChange={e => setFormData({ ...formData, lastName: e.target.value })}
                   className="bg-[#F6F6F6] border-gray-200 rounded-xl"
-                  placeholder="Mehta"
+                  placeholder="Enter last name"
                   required
                 />
               </div>
@@ -221,7 +221,7 @@ export default function JobSeekerSignUp() {
                 value={formData.email}
                 onChange={e => setFormData({ ...formData, email: e.target.value })}
                 className="bg-[#F6F6F6] border-gray-200 rounded-xl"
-                placeholder="you@email.com"
+                placeholder="Enter email"
                 required
                 autoComplete="email"
               />
@@ -234,7 +234,7 @@ export default function JobSeekerSignUp() {
                 value={formData.mobile}
                 onChange={e => setFormData({ ...formData, mobile: e.target.value })}
                 className="bg-[#F6F6F6] border-gray-200 rounded-xl"
-                placeholder="+91 98765 43210"
+                placeholder="Enter mobile number"
                 required
               />
             </div>

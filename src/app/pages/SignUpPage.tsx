@@ -227,7 +227,7 @@ export default function SignUpPage() {
                     <UserCircle className="absolute left-3 top-1/2 -translate-y-1/2 h-5 w-5 text-[#8A8A8A]" />
                     <Input type="text" value={formData.name} onChange={e => set("name", e.target.value)}
                       className="pl-10 bg-[#ECECF4] border-0 rounded-xl py-5 focus-visible:ring-2 focus-visible:ring-[#FF2B2B]"
-                      placeholder={userType === "recruiter" ? "Anita Rao" : "Arjun Mehta"} required />
+                      placeholder={userType === "recruiter" ? "Enter your name" : "Enter full name"} required />
                   </div>
                 </div>
 
@@ -258,7 +258,7 @@ export default function SignUpPage() {
                       <Building2 className="absolute left-3 top-1/2 -translate-y-1/2 h-5 w-5 text-[#8A8A8A]" />
                       <Input type="text" value={formData.company} onChange={e => set("company", e.target.value)}
                         className="pl-10 bg-[#ECECF4] border-0 rounded-xl py-5 focus-visible:ring-2 focus-visible:ring-[#FF2B2B]"
-                        placeholder="TechCorp Inc." required />
+                        placeholder="Enter company name" required />
                     </div>
                   </div>
                 )}
