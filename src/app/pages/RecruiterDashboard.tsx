@@ -44,7 +44,8 @@ import FeedbackPopup from "../components/FeedbackPopup";
 import InterviewDetailsModal from "../components/InterviewDetailsModal";
 import InterviewFeedbackModal from "../components/InterviewFeedbackModal";
 import OfferDetailsModal from "../components/OfferDetailsModal";
-import ResumePreviewDialog from "../components/ResumePreviewDialog";
+import ResumePreviewDialog, { getStorageObjectFromUrl, buildPreviewUrl } from "../components/ResumePreviewDialog";
+import JobShareButton from "../components/JobShareButton";
 
 const DEPARTMENT_OPTIONS = [
   "Engineering",
@@ -2785,6 +2786,7 @@ function ManageJobsPage() {
                 </div>
               </div>
               <div className="flex gap-2">
+                <JobShareButton jobId={job.id} title={job.title} className="relative" />
                 {effectiveStatus === "Expired" ? (
                   <Button variant="outline" size="icon" className="border-gray-200 rounded-full" onClick={() => refreshJob(job)} disabled={refreshingJobId === job.id} title={`Refresh for ${JOB_EXPIRY_DAYS} days`}>
                     <RefreshCw className={`h-4 w-4 text-green-500 ${refreshingJobId === job.id ? "animate-spin" : ""}`} />
@@ -4692,7 +4694,7 @@ function ApplicantsPage() {
                     {modalStage === "Hired" ? (
                       <Button size="sm" variant="outline" disabled className="border-emerald-500 text-emerald-700 bg-emerald-100 ring-1 ring-emerald-300 rounded-full text-xs"><Check className="h-3.5 w-3.5 mr-1" /> Hired</Button>
                     ) : (
-                      <Button size="sm" variant="outline" disabled={disableActions || !canHire} className={`${modalStage === "Hired" ? "border-2 border-emerald-600 bg-emerald-50 text-emerald-700" : "border-emerald-500 text-emerald-600 hover:bg-emerald-50 opacity-40"} rounded-full text-xs ${disabledOpacityClass}`} onClick={() => quickUpdateStatus(profileModal.id, "Hired")}>Hire</Button>
+                      <Button size="sm" variant="outline" disabled={disableActions || !canHire} className={`border-emerald-500 text-emerald-600 hover:bg-emerald-50 opacity-40 rounded-full text-xs ${disabledOpacityClass}`} onClick={() => quickUpdateStatus(profileModal.id, "Hired")}>Hire</Button>
                     )}
                     <Button size="sm" variant="outline" disabled={disableActions || !canReject} className={`${isRejectActive ? "border-2 border-red-600 bg-red-50 text-red-700" : "border-red-400 text-red-500 hover:bg-red-50 opacity-40"} rounded-full text-xs ${disabledOpacityClass} ${fadedAfterHire}`} onClick={() => quickUpdateStatus(profileModal.id, "Rejected")}><ThumbsDown className="h-3.5 w-3.5 mr-1" /> Reject</Button>
                     {modalStage === "Rejected" && (
@@ -4772,7 +4774,17 @@ function ApplicantsPage() {
                   <div>
                     <h3 className="text-sm font-bold text-[#3A1F1F] mb-2 flex items-center gap-2"><FileText className="h-4 w-4 text-[#FF2B2B]" /> Resume</h3>
                     <div className="flex flex-wrap gap-2">
-                      <Button size="sm" variant="outline" className="border-gray-200 rounded-full text-sm" onClick={() => setResumePreview({ url: modalResumeUrl, candidateName: name })}>
+                      <Button size="sm" variant="outline" className="border-gray-200 rounded-full text-sm" onClick={async () => {
+                        const newTab = window.open('', '_blank');
+                        if (!newTab) return;
+                        let resolvedUrl = modalResumeUrl;
+                        const obj = getStorageObjectFromUrl(modalResumeUrl);
+                        if (obj) {
+                          const { data } = await supabase.storage.from(obj.bucket).createSignedUrl(obj.path, 10 * 60);
+                          if (data?.signedUrl) resolvedUrl = data.signedUrl;
+                        }
+                        newTab.location.href = buildPreviewUrl(resolvedUrl) || resolvedUrl;
+                      }}>
                         <Eye className="h-4 w-4 mr-1" /> Preview Resume
                       </Button>
                       <a href={modalResumeUrl} target="_blank" rel="noreferrer" download
