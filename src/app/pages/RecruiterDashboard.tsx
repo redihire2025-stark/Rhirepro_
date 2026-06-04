@@ -31,6 +31,8 @@ import {
 import { Button } from "../components/ui/button";
 import { Input } from "../components/ui/input";
 import { Textarea } from "../components/ui/textarea";
+import { RichTextEditor } from "../components/ui/rich-text-editor";
+import { SafeHtml } from "../components/ui/safe-html";
 import { Select, SelectContent, SelectItem, SelectTrigger, SelectValue } from "../components/ui/select";
 import { Badge } from "../components/ui/badge";
 import {
@@ -2116,19 +2118,28 @@ function PostJobPage() {
             {formData.jobDescription && (
               <div>
                 <h2 className="text-base font-semibold text-[#3A1F1F] mb-2">About the Role</h2>
-                <p className="text-sm text-[#5A5A5A] leading-relaxed whitespace-pre-line">{formData.jobDescription}</p>
+                <SafeHtml
+                  content={formData.jobDescription}
+                  className="text-sm text-[#5A5A5A] leading-relaxed [&_ul]:list-disc [&_ul]:pl-5 [&_ol]:list-decimal [&_ol]:pl-5 [&_h2]:text-base [&_h2]:font-bold [&_h2]:mt-2 [&_h2]:mb-1 [&_h3]:text-sm [&_h3]:font-bold [&_h3]:mt-1.5 [&_h3]:mb-1 [&_a]:text-[#FF2B2B] [&_a]:underline"
+                />
               </div>
             )}
             {formData.rolesResponsibilities && (
               <div>
                 <h2 className="text-base font-semibold text-[#3A1F1F] mb-2">Roles & Responsibilities</h2>
-                <div className="text-sm text-[#5A5A5A] leading-relaxed whitespace-pre-line">{formData.rolesResponsibilities}</div>
+                <SafeHtml
+                  content={formData.rolesResponsibilities}
+                  className="text-sm text-[#5A5A5A] leading-relaxed [&_ul]:list-disc [&_ul]:pl-5 [&_ol]:list-decimal [&_ol]:pl-5 [&_h2]:text-base [&_h2]:font-bold [&_h2]:mt-2 [&_h2]:mb-1 [&_h3]:text-sm [&_h3]:font-bold [&_h3]:mt-1.5 [&_h3]:mb-1 [&_a]:text-[#FF2B2B] [&_a]:underline"
+                />
               </div>
             )}
             {formData.requirements && (
               <div>
                 <h2 className="text-base font-semibold text-[#3A1F1F] mb-2">Requirements</h2>
-                <div className="text-sm text-[#5A5A5A] leading-relaxed whitespace-pre-line">{formData.requirements}</div>
+                <SafeHtml
+                  content={formData.requirements}
+                  className="text-sm text-[#5A5A5A] leading-relaxed [&_ul]:list-disc [&_ul]:pl-5 [&_ol]:list-decimal [&_ol]:pl-5 [&_h2]:text-base [&_h2]:font-bold [&_h2]:mt-2 [&_h2]:mb-1 [&_h3]:text-sm [&_h3]:font-bold [&_h3]:mt-1.5 [&_h3]:mb-1 [&_a]:text-[#FF2B2B] [&_a]:underline"
+                />
               </div>
             )}
             <div className="grid grid-cols-2 md:grid-cols-4 gap-4 pt-2 border-t border-gray-100">
@@ -2209,6 +2220,10 @@ function PostJobPage() {
         {postError && <div className="bg-red-50 border border-red-200 text-red-700 rounded-xl p-4 mb-4 text-sm">{postError}</div>}
         <form onSubmit={e => {
           e.preventDefault();
+          if (!formData.jobDescription.replace(/<[^>]*>/g, "").trim()) {
+            setPostError("Please fill out the 'About the Role' field.");
+            return;
+          }
           if (selectedSkills.length === 0) {
             setPostError("Please add at least one key skill.");
             setShowSkillInput(true);
@@ -2232,7 +2247,7 @@ function PostJobPage() {
             <div className="grid md:grid-cols-2 gap-4">
               <div className="md:col-span-2">
                 <label className="block mb-1.5 text-sm font-medium text-[#3A1F1F]">Job Title *</label>
-                <Input value={formData.jobTitle} onChange={e => setFormData({ ...formData, jobTitle: e.target.value })} className="bg-[#F6F6F6] border-gray-200 rounded-xl" placeholder="e.g. Senior Data Analyst" required />
+                <Input value={formData.jobTitle} onChange={e => setFormData({ ...formData, jobTitle: e.target.value })} className="bg-[#F6F6F6] border-gray-200 rounded-xl" placeholder="Enter job title" required />
               </div>
               <div>
                 <label className="block mb-1.5 text-sm font-medium text-[#3A1F1F]">Department</label>
@@ -2528,31 +2543,27 @@ function PostJobPage() {
             <div className="space-y-4">
               <div>
                 <label className="block mb-1.5 text-sm font-medium text-[#3A1F1F]">About the Role *</label>
-                <Textarea value={formData.jobDescription} onChange={e => setFormData({ ...formData, jobDescription: e.target.value })} className="bg-[#F6F6F6] border-gray-200 rounded-xl" rows={4} placeholder="Brief overview of the role and what the candidate will be working on..." required />
+                <RichTextEditor
+                  value={formData.jobDescription}
+                  onChange={val => setFormData({ ...formData, jobDescription: val })}
+                  placeholder="Brief overview of the role and what the candidate will be working on..."
+                />
               </div>
               <div>
                 <label className="block mb-1.5 text-sm font-medium text-[#3A1F1F]">Roles & Responsibilities</label>
-                <Textarea
+                <RichTextEditor
                   value={formData.rolesResponsibilities}
-                  onChange={e => handleBulletListChange("rolesResponsibilities", e.target.value)}
-                  onKeyDown={e => handleBulletListKeyDown("rolesResponsibilities", e)}
-                  className="bg-[#F6F6F6] border-gray-200 rounded-xl"
-                  rows={6}
-                  placeholder={"• Lead end-to-end development of features\n• Collaborate with cross-functional teams\n• Review code and mentor junior developers\n• Drive technical decisions and architecture"}
+                  onChange={val => setFormData({ ...formData, rolesResponsibilities: val })}
+                  placeholder="Enter roles & responsibilities..."
                 />
-                <p className="text-xs text-[#8A8A8A] mt-1">Enter each point on a new line (press Enter after each point). Bullets will be added automatically.</p>
               </div>
               <div>
                 <label className="block mb-1.5 text-sm font-medium text-[#3A1F1F]">Requirements / Qualifications</label>
-                <Textarea
+                <RichTextEditor
                   value={formData.requirements}
-                  onChange={e => handleBulletListChange("requirements", e.target.value)}
-                  onKeyDown={e => handleBulletListKeyDown("requirements", e)}
-                  className="bg-[#F6F6F6] border-gray-200 rounded-xl"
-                  rows={5}
-                  placeholder={"• 3+ years of experience with React and Node.js\n• Strong understanding of REST APIs\n• Experience with cloud platforms (AWS/GCP)\n• Excellent communication skills"}
+                  onChange={val => setFormData({ ...formData, requirements: val })}
+                  placeholder="Enter requirements & qualifications..."
                 />
-                <p className="text-xs text-[#8A8A8A] mt-1">Enter each point on a new line (press Enter after each point). Bullets will be added automatically.</p>
               </div>
             </div>
           </div>
@@ -2884,7 +2895,7 @@ function ManageJobsPage() {
             </div>
             <div>
               <label className="block text-sm font-medium text-[#3A1F1F] mb-1">Key Skills (comma separated)</label>
-              <Input value={editForm.skills} onChange={e => setEditForm(f => ({ ...f, skills: e.target.value }))} className="bg-[#F6F6F6] border-gray-200 rounded-xl" placeholder="Python, SQL, React" />
+              <Input value={editForm.skills} onChange={e => setEditForm(f => ({ ...f, skills: e.target.value }))} className="bg-[#F6F6F6] border-gray-200 rounded-xl" placeholder="Enter required skills" />
             </div>
             <div className="flex gap-3 pt-2">
               <Button className="flex-1 bg-[#FF2B2B] hover:bg-[#e02525] text-white rounded-full" onClick={saveEdit} disabled={saving || !editForm.title || !editForm.salaryMin || !editForm.salaryMax || isEditSalaryRangeInvalid}>
@@ -3349,7 +3360,7 @@ function SearchCandidatesPage() {
           {/* Current Company */}
           <div className="px-4 py-3 border-b border-gray-100">
             <p className="text-xs font-semibold text-[#3A1F1F] mb-2 uppercase tracking-wide">Current Company</p>
-            <Input value={currentCompany} onChange={e => setCurrentCompany(e.target.value)} className="bg-[#F6F6F6] border-gray-200 rounded-lg text-xs h-8" placeholder="e.g. Infosys" />
+            <Input value={currentCompany} onChange={e => setCurrentCompany(e.target.value)} className="bg-[#F6F6F6] border-gray-200 rounded-lg text-xs h-8" placeholder="Enter company name" />
           </div>
 
           {/* Skills */}
@@ -4331,7 +4342,7 @@ function ApplicantsPage() {
               <LocationAutocomplete
                 value={locationFilter}
                 onChange={setLocationFilter}
-                placeholder="e.g. Bengaluru"
+                placeholder="Enter location"
                 inputClassName="text-sm h-9"
               />
             </div>
@@ -4360,7 +4371,7 @@ function ApplicantsPage() {
             </div>
             <div>
               <label className="block text-xs font-medium text-[#5A5A5A] mb-1.5">Skill</label>
-              <Input value={skillFilter} onChange={e => setSkillFilter(e.target.value)} className="bg-[#F6F6F6] border-gray-200 rounded-xl text-sm h-9" placeholder="e.g. Python" />
+              <Input value={skillFilter} onChange={e => setSkillFilter(e.target.value)} className="bg-[#F6F6F6] border-gray-200 rounded-xl text-sm h-9" placeholder="Enter skill" />
             </div>
           </div>
         </div>
@@ -5958,16 +5969,16 @@ function CompanyProfilePage() {
           <div className="grid md:grid-cols-2 gap-4">
             <div>
               <label className="block mb-1.5 text-sm font-medium text-[#3A1F1F]">Company Name *</label>
-              <Input value={profile.companyName} onChange={e => setProfile({ ...profile, companyName: e.target.value })} className="bg-[#F6F6F6] border-gray-200 rounded-xl" />
+              <Input value={profile.companyName} onChange={e => setProfile({ ...profile, companyName: e.target.value })} className="bg-[#F6F6F6] border-gray-200 rounded-xl" placeholder="Enter company name" />
             </div>
             <div>
               <label className="block mb-1.5 text-sm font-medium text-[#3A1F1F]">Tagline</label>
-              <Input value={profile.tagline} onChange={e => setProfile({ ...profile, tagline: e.target.value })} className="bg-[#F6F6F6] border-gray-200 rounded-xl" placeholder="Your company motto" />
+              <Input value={profile.tagline} onChange={e => setProfile({ ...profile, tagline: e.target.value })} className="bg-[#F6F6F6] border-gray-200 rounded-xl" placeholder="Enter company tagline" />
             </div>
             <div>
               <label className="block mb-1.5 text-sm font-medium text-[#3A1F1F]">Industry *</label>
               <Select value={profile.industry} onValueChange={v => setProfile({ ...profile, industry: v })}>
-                <SelectTrigger className="bg-[#F6F6F6] border-gray-200 rounded-xl"><SelectValue /></SelectTrigger>
+                <SelectTrigger className="bg-[#F6F6F6] border-gray-200 rounded-xl"><SelectValue placeholder="Select industry" /></SelectTrigger>
                 <SelectContent>
                   {["IT / Software", "BFSI", "Manufacturing", "Healthcare", "Education", "E-commerce", "Consulting"].map(i => <SelectItem key={i} value={i}>{i}</SelectItem>)}
                 </SelectContent>
@@ -5993,11 +6004,11 @@ function CompanyProfilePage() {
             </div>
             <div>
               <label className="block mb-1.5 text-sm font-medium text-[#3A1F1F]">Founded Year</label>
-              <Input value={profile.founded} onChange={e => setProfile({ ...profile, founded: e.target.value })} className="bg-[#F6F6F6] border-gray-200 rounded-xl" placeholder="e.g. 2010" />
+              <Input value={profile.founded} onChange={e => setProfile({ ...profile, founded: e.target.value })} className="bg-[#F6F6F6] border-gray-200 rounded-xl" placeholder="Enter founded year" />
             </div>
             <div>
               <label className="block mb-1.5 text-sm font-medium text-[#3A1F1F]">Your Name (HR Contact)</label>
-              <Input value={profile.recruiterName} onChange={e => setProfile({ ...profile, recruiterName: e.target.value })} className="bg-[#F6F6F6] border-gray-200 rounded-xl" placeholder="e.g. Anita Rao" />
+              <Input value={profile.recruiterName} onChange={e => setProfile({ ...profile, recruiterName: e.target.value })} className="bg-[#F6F6F6] border-gray-200 rounded-xl" placeholder="Enter contact name" />
             </div>
           </div>
         </div>
@@ -6040,7 +6051,7 @@ function CompanyProfilePage() {
             </div>
             <div>
               <label className="block mb-1.5 text-sm font-medium text-[#3A1F1F]">Phone</label>
-              <Input value={profile.phone} onChange={e => setProfile({ ...profile, phone: e.target.value })} className="bg-[#F6F6F6] border-gray-200 rounded-xl" placeholder="+91 22 6789 0123" />
+              <Input value={profile.phone} onChange={e => setProfile({ ...profile, phone: e.target.value })} className="bg-[#F6F6F6] border-gray-200 rounded-xl" placeholder="Enter phone number" />
             </div>
           </div>
         </div>

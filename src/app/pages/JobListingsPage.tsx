@@ -55,10 +55,14 @@ function formatType(job: DBJob): string {
   return "Full-time";
 }
 
+function stripHtml(value: string): string {
+  return value.replace(/<[^>]*>/g, " ").replace(/\s+/g, " ").trim();
+}
+
 function formatDescription(job: DBJob): string {
-  if (job.description?.trim()) return job.description;
-  if (job.roles_responsibilities?.trim()) return job.roles_responsibilities;
-  if (job.requirements?.trim()) return job.requirements;
+  if (job.description?.trim()) return stripHtml(job.description);
+  if (job.roles_responsibilities?.trim()) return stripHtml(job.roles_responsibilities);
+  if (job.requirements?.trim()) return stripHtml(job.requirements);
 
   const parts = [
     job.department?.trim(),
