@@ -1,4 +1,4 @@
-import { useState, useMemo, useEffect, useCallback, useRef } from "react";
+import { useState, useMemo, useEffect, useCallback, useRef, type MouseEvent as ReactMouseEvent } from "react";
 import { useNavigate, Routes, Route, Link, useLocation } from "react-router";
 import { supabase, Job as DBJob, Notification } from "../../lib/supabase";
 import { isJobVisibleToSeekers } from "../../lib/jobs";
@@ -14,6 +14,8 @@ import {
 } from "lucide-react";
 import { Button } from "../components/ui/button";
 import { Input } from "../components/ui/input";
+import { Popover, PopoverContent, PopoverTrigger } from "../components/ui/popover";
+import { Calendar } from "../components/ui/calendar";
 import {
   Pagination,
   PaginationContent,
@@ -59,6 +61,7 @@ interface Education {
   id: string; degree: string; field: string; college: string;
   startYear: string; endYear: string; score: string;
 }
+type EducationForm = Omit<Education, "id"> & { customField?: string };
 interface Project {
   id: number; name: string; url: string; startYear: string; endYear: string; description: string;
 }
@@ -279,6 +282,30 @@ function normalizeSkillPhrase(value: string): string {
     .trim();
 }
 
+function parseLocalDate(value: string): Date | null {
+  const date = new Date(value);
+  return Number.isNaN(date.getTime()) ? null : date;
+}
+
+function toIsoDate(date: Date): string {
+  return `${date.getFullYear()}-${String(date.getMonth() + 1).padStart(2, "0")}-${String(date.getDate()).padStart(2, "0")}`;
+}
+
+function normalizeDateValue(value: string): string {
+  const date = parseLocalDate(value);
+  return date ? toIsoDate(date) : "";
+}
+
+function formatDateDisplay(value: string): string {
+  const date = parseLocalDate(value);
+  if (!date) return value;
+  return date.toLocaleDateString("en-IN", {
+    day: "numeric",
+    month: "short",
+    year: "numeric",
+  });
+}
+
 function profileMatchesJdSkill(profileSkill: string, jdSkill: string): boolean {
   const p = normalizeSkillPhrase(profileSkill);
   const j = normalizeSkillPhrase(jdSkill);
@@ -358,6 +385,46 @@ function isRecommendedJobForProfile(job: DBJob, recommendationTerms: string[]): 
 const MONTHS = ["Jan","Feb","Mar","Apr","May","Jun","Jul","Aug","Sep","Oct","Nov","Dec"];
 const YEARS = Array.from({ length: 17 }, (_, i) => String(2010 + i));
 const JOBS_PER_PAGE = 12;
+type EducationCatalog = Record<string, string[]>;
+
+const EDUCATION_CATALOG_API_URL = "https://gist.githubusercontent.com/shoaibmarif/5a303afd2f074c20a7dff0a21f7a5992/raw/TypeofDegree.json";
+const DEFAULT_EDUCATION_DEGREE_OPTIONS = ["Not Educated"];
+const DEFAULT_EDUCATION_SPECIALIZATION_OPTIONS: EducationCatalog = {
+  "Not Educated": [],
+};
+
+function uniqueStrings(values: string[]): string[] {
+  return Array.from(new Set(values.map((value) => value.trim()).filter(Boolean)));
+}
+
+function normalizeApiDegreeName(value: string): string {
+  return value
+    .replace(/\s+/g, " ")
+    .replace(/^Bachelor of Technology$/i, "B.Tech / B.E.")
+    .replace(/^Bachelor of Engineering$/i, "B.Tech / B.E.")
+    .replace(/^Master of Technology$/i, "M.Tech / M.E.")
+    .replace(/^Master of Engineering$/i, "M.Tech / M.E.")
+    .trim();
+}
+
+async function fetchEducationCatalog(): Promise<{ degreeOptions: string[]; specializationOptions: EducationCatalog }> {
+  const response = await fetch(EDUCATION_CATALOG_API_URL);
+  if (!response.ok) throw new Error("Unable to load education catalog");
+
+  const apiDegrees = (await response.json() as Array<{ degree?: string }>)
+    .map((item) => normalizeApiDegreeName(item.degree || ""))
+    .filter(Boolean);
+
+  const specializationOptions: EducationCatalog = { ...DEFAULT_EDUCATION_SPECIALIZATION_OPTIONS };
+  for (const degree of apiDegrees) {
+    if (!specializationOptions[degree]) specializationOptions[degree] = [];
+  }
+
+  return {
+    degreeOptions: uniqueStrings([...DEFAULT_EDUCATION_DEGREE_OPTIONS, ...apiDegrees]),
+    specializationOptions,
+  };
+}
 const PROFILE_SKILL_OPTIONS = [
   "JavaScript", "TypeScript", "React", "Next.js", "Angular", "Vue.js", "HTML", "CSS", "Tailwind CSS",
   "Bootstrap", "Node.js", "Express.js", "NestJS", "Python", "Django", "Flask", "FastAPI", "Java",
@@ -391,6 +458,28 @@ const PROFILE_SKILL_OPTIONS = [
   "Customer Support", "Technical Support", "Sales", "B2B Sales", "Negotiation", "Communication",
   "Leadership", "Team Management", "Problem Solving", "Critical Thinking", "Presentation Skills",
 ];
+
+function splitPreferredJobTitles(value: string): string[] {
+  return Array.from(
+    new Set(
+      value
+        .split(",")
+        .map((title) => title.trim())
+        .filter(Boolean)
+    )
+  );
+}
+
+function joinPreferredJobTitles(titles: string[]): string {
+  return titles.map((title) => title.trim()).filter(Boolean).join(", ");
+}
+
+type PreferredJobSuggestion = {
+  title: string;
+  openings: number;
+  companies: string[];
+  departments: string[];
+};
 
 function escapeLikeValue(value: string): string {
   return value.replace(/[%_,]/g, (match) => `\\${match}`);
@@ -470,6 +559,7 @@ export default function JobSeekerDashboard() {
   const [notificationsOpen, setNotificationsOpen] = useState(false);
   const [notifications, setNotifications] = useState<Notification[]>([]);
   const [unreadCount, setUnreadCount] = useState(0);
+  const [profilePrefsHasUnsavedChanges, setProfilePrefsHasUnsavedChanges] = useState(false);
 
   const fetchNotifications = useCallback(async () => {
     if (!profile?.id) return;
@@ -515,6 +605,15 @@ export default function JobSeekerDashboard() {
   const handleSignOut = async () => {
     await signOut();
     navigate("/");
+  };
+
+  const handleDashboardLinkClick = (event: ReactMouseEvent<HTMLAnchorElement>, to: string) => {
+    if (activeTab === "profile" && profilePrefsHasUnsavedChanges && to !== "/jobseeker/dashboard/profile") {
+      const confirmed = window.confirm("You have unsaved preferred job settings. Leave this page without saving?");
+      if (!confirmed) {
+        event.preventDefault();
+      }
+    }
   };
 
   const googleMeta = user?.user_metadata || {};
@@ -573,7 +672,7 @@ export default function JobSeekerDashboard() {
                 { label: "Job Analytics", tab: "analytics", to: "/jobseeker/dashboard/analytics" },
                 { label: "Career Insights", tab: "insights", to: "/jobseeker/dashboard/insights" },
               ].map(({ label, tab, to }) => (
-                <Link key={tab} to={to}>
+                <Link key={tab} to={to} onClick={(event) => handleDashboardLinkClick(event, to)}>
                   <Button
                     variant={activeTab === tab ? "default" : "ghost"}
                     className={activeTab === tab ? "bg-[#FF2B2B] hover:bg-[#e02525] rounded-full" : "rounded-full"}
@@ -644,7 +743,7 @@ export default function JobSeekerDashboard() {
       <Routes>
         <Route index element={<FindJobPage />} />
         <Route path="saved-jobs/compare" element={<SavedJobsComparePage />} />
-        <Route path="profile" element={<ProfilePage />} />
+        <Route path="profile" element={<ProfilePage onPendingPrefsChange={setProfilePrefsHasUnsavedChanges} />} />
         <Route path="analytics" element={<AnalyticsPage />} />
         <Route path="insights" element={<InsightsPage />} />
       </Routes>
@@ -1216,7 +1315,7 @@ function FindJobPage() {
 }
 
 // ── Profile Page ───────────────────────────────────────────────────────────────
-function ProfilePage() {
+function ProfilePage({ onPendingPrefsChange }: { onPendingPrefsChange?: (pending: boolean) => void }) {
   const { profile, user, loading: authLoading, refreshProfile } = useAuth();
   // Basic Info — synced from DB via useEffect below
   const [basicInfo, setBasicInfo] = useState({
@@ -1227,6 +1326,7 @@ function ProfilePage() {
   const [profilePic, setProfilePic] = useState<string | null>(null);
   const [editingBasic, setEditingBasic] = useState(false);
   const [basicForm, setBasicForm] = useState({ ...basicInfo });
+  const [dobPickerOpen, setDobPickerOpen] = useState(false);
 
   // Summary
   const [summary, setSummary] = useState("");
@@ -1239,6 +1339,12 @@ function ProfilePage() {
   const [skillPickerOpen, setSkillPickerOpen] = useState(false);
   const [skillSearch, setSkillSearch] = useState("");
   const skillFieldRef = useRef<HTMLDivElement>(null);
+  const [preferredJobPickerOpen, setPreferredJobPickerOpen] = useState(false);
+  const [preferredJobSearch, setPreferredJobSearch] = useState("");
+  const [preferredJobOptions, setPreferredJobOptions] = useState<string[]>([]);
+  const [preferredJobOptionsLoading, setPreferredJobOptionsLoading] = useState(false);
+  const [preferredJobOptionsError, setPreferredJobOptionsError] = useState("");
+  const preferredJobFieldRef = useRef<HTMLDivElement>(null);
 
   // Sync profile data from DB when it loads, fallback to user metadata
   useEffect(() => {
@@ -1284,7 +1390,7 @@ function ProfilePage() {
         willingToRelocate: p.willing_to_relocate || "",
       };
       setPreferences(prefs);
-      setPrefsForm(prefs);
+      setPrefsForm(profile.id ? loadPrefsDraft(profile.id, prefs) : prefs);
     }
     // Languages
     if ((profile as any)?.languages?.length) {
@@ -1300,11 +1406,31 @@ function ProfilePage() {
   const [expForm, setExpForm] = useState<Omit<WorkExp,"id">>(emptyExp);
 
   // Education
-  const emptyEdu = { degree: "", field: "", college: "", startYear: "2016", endYear: "2020", score: "" };
+  const emptyEdu: EducationForm = { degree: "", field: "", college: "", startYear: "2016", endYear: "2020", score: "", customField: "" };
   const [education, setEducation] = useState<Education[]>([]);
   const [showAddEdu, setShowAddEdu] = useState(false);
   const [editingEduId, setEditingEduId] = useState<string | null>(null);
-  const [eduForm, setEduForm] = useState<Omit<Education,"id">>(emptyEdu);
+  const [eduForm, setEduForm] = useState<EducationForm>(emptyEdu);
+  const [educationDegreeOptions, setEducationDegreeOptions] = useState(DEFAULT_EDUCATION_DEGREE_OPTIONS);
+  const [educationSpecializationOptions, setEducationSpecializationOptions] = useState<EducationCatalog>(DEFAULT_EDUCATION_SPECIALIZATION_OPTIONS);
+
+  useEffect(() => {
+    let isMounted = true;
+    fetchEducationCatalog()
+      .then(({ degreeOptions, specializationOptions }) => {
+        if (!isMounted) return;
+        setEducationDegreeOptions(degreeOptions);
+        setEducationSpecializationOptions(specializationOptions);
+      })
+      .catch(() => {
+        if (!isMounted) return;
+        setEducationDegreeOptions(DEFAULT_EDUCATION_DEGREE_OPTIONS);
+        setEducationSpecializationOptions(DEFAULT_EDUCATION_SPECIALIZATION_OPTIONS);
+      });
+    return () => {
+      isMounted = false;
+    };
+  }, []);
 
   // Load work experience and education from DB
   useEffect(() => {
@@ -1391,6 +1517,69 @@ function ProfilePage() {
   const [editingPrefs, setEditingPrefs] = useState(false);
   const [prefsForm, setPrefsForm] = useState({ ...preferences });
 
+  const isPrefsDirty = useMemo(
+    () => JSON.stringify(prefsForm) !== JSON.stringify(preferences),
+    [prefsForm, preferences],
+  );
+
+  const getPrefsDraftKey = (profileId: string) => `jobseeker_profile_prefs_draft_${profileId}`;
+
+  const loadPrefsDraft = useCallback((profileId: string, fallback: typeof prefsForm) => {
+    if (!profileId) return fallback;
+    try {
+      const raw = window.localStorage.getItem(getPrefsDraftKey(profileId));
+      if (!raw) return fallback;
+      const parsed = JSON.parse(raw);
+      if (parsed && typeof parsed === "object") {
+        return {
+          ...fallback,
+          ...parsed,
+        };
+      }
+    } catch {
+      // ignore malformed drafts
+    }
+    return fallback;
+  }, []);
+
+  const savePrefsDraft = useCallback((profileId: string, draft: typeof prefsForm) => {
+    if (!profileId) return;
+    try {
+      window.localStorage.setItem(getPrefsDraftKey(profileId), JSON.stringify(draft));
+    } catch {
+      // ignore storage failures
+    }
+  }, []);
+
+  const clearPrefsDraft = useCallback((profileId: string) => {
+    if (!profileId) return;
+    try {
+      window.localStorage.removeItem(getPrefsDraftKey(profileId));
+    } catch {
+      // ignore storage failures
+    }
+  }, []);
+
+  useEffect(() => {
+    if (!profile?.id) return;
+    onPendingPrefsChange?.(editingPrefs && isPrefsDirty);
+  }, [editingPrefs, isPrefsDirty, onPendingPrefsChange, profile?.id]);
+
+  useEffect(() => {
+    if (!profile?.id || !editingPrefs) return;
+    savePrefsDraft(profile.id, prefsForm);
+  }, [editingPrefs, prefsForm, profile?.id, savePrefsDraft]);
+
+  useEffect(() => {
+    if (!editingPrefs || !isPrefsDirty) return;
+    const handleBeforeUnload = (event: BeforeUnloadEvent) => {
+      event.preventDefault();
+      event.returnValue = "";
+    };
+    window.addEventListener("beforeunload", handleBeforeUnload);
+    return () => window.removeEventListener("beforeunload", handleBeforeUnload);
+  }, [editingPrefs, isPrefsDirty]);
+
   // ── Completion ────────────────────────────────────────────────────────────
   const completion = useMemo(() => {
     let score = 0;
@@ -1414,6 +1603,23 @@ function ProfilePage() {
     if (!query) return PROFILE_SKILL_OPTIONS;
     return PROFILE_SKILL_OPTIONS.filter(skill => skill.toLowerCase().includes(query));
   }, [skillSearch]);
+  const selectedPreferredJobTitles = useMemo(
+    () => splitPreferredJobTitles(prefsForm.desiredJobTitle),
+    [prefsForm.desiredJobTitle],
+  );
+  const filteredPreferredJobOptions = useMemo(() => {
+    const query = preferredJobSearch.trim().toLowerCase();
+    const selected = new Set(selectedPreferredJobTitles.map((title) => title.toLowerCase()));
+    return preferredJobOptions.filter((title) => {
+      const matches = !query || title.toLowerCase().includes(query);
+      return matches && !selected.has(title.toLowerCase());
+    });
+  }, [preferredJobOptions, preferredJobSearch, selectedPreferredJobTitles]);
+
+  const dobDisplayValue = basicForm.dob ? formatDateDisplay(basicForm.dob) : "";
+  const today = new Date();
+  const earliestAllowedDob = new Date(today);
+  earliestAllowedDob.setFullYear(earliestAllowedDob.getFullYear() - 100);
 
   useEffect(() => {
     if (!skillPickerOpen) return;
@@ -1425,6 +1631,61 @@ function ProfilePage() {
     document.addEventListener("mousedown", handleClickOutside);
     return () => document.removeEventListener("mousedown", handleClickOutside);
   }, [skillPickerOpen]);
+  useEffect(() => {
+    if (!preferredJobPickerOpen) return;
+    const handleClickOutside = (event: MouseEvent) => {
+      if (!preferredJobFieldRef.current?.contains(event.target as Node)) {
+        setPreferredJobPickerOpen(false);
+      }
+    };
+    document.addEventListener("mousedown", handleClickOutside);
+    return () => document.removeEventListener("mousedown", handleClickOutside);
+  }, [preferredJobPickerOpen]);
+  useEffect(() => {
+    if (!editingPrefs || !preferredJobPickerOpen) return;
+
+    let cancelled = false;
+    const timer = window.setTimeout(async () => {
+      setPreferredJobOptionsLoading(true);
+      setPreferredJobOptionsError("");
+
+      const query = preferredJobSearch.trim();
+      let request = supabase
+        .from("jobs")
+        .select("title")
+        .eq("status", "Active")
+        .order("created_at", { ascending: false })
+        .limit(60);
+
+      if (query) {
+        request = request.ilike("title", `%${escapeLikeValue(query)}%`);
+      }
+
+      const { data, error } = await request;
+      if (cancelled) return;
+
+      setPreferredJobOptionsLoading(false);
+      if (error) {
+        setPreferredJobOptions([]);
+        setPreferredJobOptionsError("Unable to load role suggestions.");
+        return;
+      }
+
+      const titles = Array.from(
+        new Set(
+          (data || [])
+            .map((job) => (job.title || "").trim())
+            .filter(Boolean)
+        )
+      );
+      setPreferredJobOptions(titles);
+    }, 250);
+
+    return () => {
+      cancelled = true;
+      window.clearTimeout(timer);
+    };
+  }, [editingPrefs, preferredJobPickerOpen, preferredJobSearch]);
 
   // ── Helpers ───────────────────────────────────────────────────────────────
   async function addSkill(skill: string) {
@@ -1459,6 +1720,29 @@ function ProfilePage() {
         await refreshProfile();
       }
     }
+  }
+
+  function addPreferredJobTitle(title: string) {
+    const nextTitle = title.trim();
+    if (!nextTitle) return;
+    const currentTitles = splitPreferredJobTitles(prefsForm.desiredJobTitle);
+    if (currentTitles.some((existing) => existing.toLowerCase() === nextTitle.toLowerCase())) {
+      setPreferredJobSearch("");
+      return;
+    }
+    setPrefsForm((form) => ({
+      ...form,
+      desiredJobTitle: joinPreferredJobTitles([...currentTitles, nextTitle]),
+    }));
+    setPreferredJobSearch("");
+    setPreferredJobPickerOpen(true);
+  }
+
+  function removePreferredJobTitle(title: string) {
+    const updated = splitPreferredJobTitles(prefsForm.desiredJobTitle).filter(
+      (currentTitle) => currentTitle.toLowerCase() !== title.toLowerCase(),
+    );
+    setPrefsForm((form) => ({ ...form, desiredJobTitle: joinPreferredJobTitles(updated) }));
   }
 
   async function saveExp() {
@@ -1497,35 +1781,73 @@ function ProfilePage() {
   }
   function cancelExp() { setEditingExpId(null); setShowAddExp(false); setExpForm(emptyExp); }
 
+  function getEducationFormField(degree: string, field: string) {
+    const validOptions = educationSpecializationOptions[degree] || [];
+    if (validOptions.includes(field)) return { field, customField: "" };
+    if (field && validOptions.length > 0) return { field: "Others", customField: field };
+    return { field, customField: "" };
+  }
+
   async function saveEdu() {
-    if (!eduForm.degree || !eduForm.college) return;
+    if (!eduForm.degree) return;
+    if (eduForm.degree !== "Not Educated" && !eduForm.college) return;
+    if (eduForm.field === "Others" && !eduForm.customField?.trim()) return;
+
+    const effectiveField = eduForm.field === "Others" ? eduForm.customField?.trim() || "" : eduForm.field;
     if (editingEduId !== null) {
-      setEducation(prev => prev.map(e => e.id === editingEduId ? { ...eduForm, id: e.id } : e));
+      setEducation(prev => prev.map(e => e.id === editingEduId ? {
+        id: e.id,
+        degree: eduForm.degree,
+        field: effectiveField,
+        college: eduForm.college,
+        startYear: eduForm.startYear,
+        endYear: eduForm.endYear,
+        score: eduForm.score,
+      } : e));
       setEditingEduId(null);
       if (profile?.id) {
         await supabase.from("education").update({
-          institution: eduForm.college, degree: eduForm.degree, field: eduForm.field,
-          start_year: eduForm.startYear, end_year: eduForm.endYear, score: eduForm.score,
+          institution: eduForm.college,
+          degree: eduForm.degree,
+          field: effectiveField,
+          start_year: eduForm.startYear,
+          end_year: eduForm.endYear,
+          score: eduForm.score,
         }).eq("id", editingEduId).eq("profile_id", profile.id);
       }
     } else {
       let newId = String(Date.now());
       if (profile?.id) {
         const { data } = await supabase.from("education").insert({
-          profile_id: profile.id, institution: eduForm.college, degree: eduForm.degree,
-          field: eduForm.field, start_year: eduForm.startYear, end_year: eduForm.endYear,
+          profile_id: profile.id,
+          institution: eduForm.college,
+          degree: eduForm.degree,
+          field: effectiveField,
+          start_year: eduForm.startYear,
+          end_year: eduForm.endYear,
           score: eduForm.score,
         }).select("id").single();
         if (data?.id) newId = data.id;
       }
-      setEducation(prev => [...prev, { ...eduForm, id: newId }]);
+      setEducation(prev => [...prev, {
+        id: newId,
+        degree: eduForm.degree,
+        field: effectiveField,
+        college: eduForm.college,
+        startYear: eduForm.startYear,
+        endYear: eduForm.endYear,
+        score: eduForm.score,
+      }]);
       setShowAddEdu(false);
     }
+
     setEduForm(emptyEdu);
   }
+
   function editEdu(edu: Education) {
+    const { field, customField } = getEducationFormField(edu.degree, edu.field);
     setEditingEduId(edu.id);
-    setEduForm({ degree: edu.degree, field: edu.field, college: edu.college, startYear: edu.startYear, endYear: edu.endYear, score: edu.score });
+    setEduForm({ degree: edu.degree, field, customField, college: edu.college, startYear: edu.startYear, endYear: edu.endYear, score: edu.score });
     setShowAddEdu(false);
   }
   function cancelEdu() { setEditingEduId(null); setShowAddEdu(false); setEduForm(emptyEdu); }
@@ -1661,7 +1983,6 @@ function ProfilePage() {
                   { label: "Phone *", key: "phone" },
                   { label: "Email *", key: "email" },
                   { label: "Location *", key: "location" },
-                  { label: "Date of Birth", key: "dob" },
                 ].map(({ label, key }) => (
                   <div key={key}>
                     <label className="block text-sm text-[#3A1F1F] mb-1">{label}</label>
@@ -1672,6 +1993,33 @@ function ProfilePage() {
                     />
                   </div>
                 ))}
+                <div>
+                  <label className="block text-sm text-[#3A1F1F] mb-1">Date of Birth</label>
+                  <Popover open={dobPickerOpen} onOpenChange={setDobPickerOpen}>
+                    <PopoverTrigger asChild>
+                      <Input
+                        value={dobDisplayValue}
+                        placeholder="Select Date of Birth"
+                        readOnly
+                        className="bg-[#F6F6F6] border-gray-200 rounded-xl cursor-pointer"
+                      />
+                    </PopoverTrigger>
+                    <PopoverContent align="start" side="bottom" className="p-0 mt-2 w-auto">
+                      <Calendar
+                        mode="single"
+                        selected={parseLocalDate(basicForm.dob) || undefined}
+                        onSelect={(date) => {
+                          setBasicForm((form) => ({
+                            ...form,
+                            dob: date ? toIsoDate(date) : "",
+                          }));
+                          if (date) setDobPickerOpen(false);
+                        }}
+                        disabled={{ after: today, before: earliestAllowedDob }}
+                      />
+                    </PopoverContent>
+                  </Popover>
+                </div>
                 <div>
                   <label className="block text-sm text-[#3A1F1F] mb-1">Gender</label>
                   <Select value={basicForm.gender} onValueChange={(v) => setBasicForm(f => ({ ...f, gender: v }))}>
@@ -1784,7 +2132,7 @@ function ProfilePage() {
                 </div>
               </div>
               <div className="grid md:grid-cols-3 gap-3 text-sm text-[#8A8A8A]">
-                {basicInfo.dob && <span><strong className="text-[#3A1F1F]">DOB:</strong> {basicInfo.dob}</span>}
+                {basicInfo.dob && <span><strong className="text-[#3A1F1F]">DOB:</strong> {formatDateDisplay(basicInfo.dob)}</span>}
                 {basicInfo.gender && <span><strong className="text-[#3A1F1F]">Gender:</strong> {basicInfo.gender}</span>}
                 {basicInfo.maritalStatus && <span><strong className="text-[#3A1F1F]">Status:</strong> {basicInfo.maritalStatus}</span>}
               </div>
@@ -1981,7 +2329,14 @@ function ProfilePage() {
             {education.map((edu) => (
               <div key={edu.id}>
                 {editingEduId === edu.id ? (
-                  <EduForm form={eduForm} setForm={setEduForm} onSave={saveEdu} onCancel={cancelEdu} />
+                  <EduForm
+                    form={eduForm}
+                    setForm={setEduForm}
+                    onSave={saveEdu}
+                    onCancel={cancelEdu}
+                    degreeOptions={educationDegreeOptions}
+                    specializationOptionsByDegree={educationSpecializationOptions}
+                  />
                 ) : (
                   <div className="border-l-2 border-[#FF2B2B] pl-4 flex justify-between">
                     <div>
@@ -1998,7 +2353,16 @@ function ProfilePage() {
               </div>
             ))}
             {education.length === 0 && !showAddEdu && <p className="text-[#8A8A8A] text-sm italic">No education added yet.</p>}
-            {showAddEdu && <EduForm form={eduForm} setForm={setEduForm} onSave={saveEdu} onCancel={cancelEdu} />}
+            {showAddEdu && (
+              <EduForm
+                form={eduForm}
+                setForm={setEduForm}
+                onSave={saveEdu}
+                onCancel={cancelEdu}
+                degreeOptions={educationDegreeOptions}
+                specializationOptionsByDegree={educationSpecializationOptions}
+              />
+            )}
           </div>
         </div>
 
@@ -2180,7 +2544,17 @@ function ProfilePage() {
           <div className="flex justify-between items-center mb-4">
             <h3 className="text-xl font-semibold text-[#3A1F1F] flex items-center gap-2"><Briefcase className="h-5 w-5 text-[#FF2B2B]" /> Preferred Job Settings</h3>
             {!editingPrefs && (
-              <Button variant="ghost" size="sm" className="text-[#FF2B2B]" onClick={() => { setPrefsForm({ ...preferences }); setEditingPrefs(true); }}>
+              <Button
+                variant="ghost"
+                size="sm"
+                className="text-[#FF2B2B]"
+                onClick={() => {
+                  setPrefsForm(profile?.id ? loadPrefsDraft(profile.id, preferences) : { ...preferences });
+                  setPreferredJobSearch("");
+                  setPreferredJobPickerOpen(false);
+                  setEditingPrefs(true);
+                }}
+              >
                 <Pencil className="h-4 w-4 mr-1" /> Edit
               </Button>
             )}
@@ -2189,8 +2563,94 @@ function ProfilePage() {
           {editingPrefs ? (
             <div className="space-y-4">
               <div className="grid md:grid-cols-2 gap-4">
+                <div className="md:col-span-2" ref={preferredJobFieldRef}>
+                  <label className="block text-sm text-[#3A1F1F] mb-1">Desired Job Title</label>
+                  <div className="relative">
+                    <div className="min-h-11 rounded-xl border border-gray-200 bg-[#F6F6F6] px-3 py-2">
+                      <div className="flex flex-wrap gap-2">
+                        {selectedPreferredJobTitles.map((title) => (
+                          <span key={title} className="flex items-center gap-1 rounded-full bg-white px-3 py-1 text-sm font-medium text-[#3A1F1F] shadow-sm">
+                            {title}
+                            <button
+                              type="button"
+                              onClick={() => removePreferredJobTitle(title)}
+                              className="text-[#8A8A8A] hover:text-[#FF2B2B]"
+                              aria-label={`Remove ${title}`}
+                            >
+                              <X className="h-3 w-3" />
+                            </button>
+                          </span>
+                        ))}
+                        <div className="relative min-w-[220px] flex-1">
+                          <Search className="absolute left-0 top-1/2 h-4 w-4 -translate-y-1/2 text-[#8A8A8A]" />
+                          <input
+                            value={preferredJobSearch}
+                            onFocus={() => setPreferredJobPickerOpen(true)}
+                            onChange={(e) => {
+                              setPreferredJobSearch(e.target.value);
+                              setPreferredJobPickerOpen(true);
+                            }}
+                            onKeyDown={(e) => {
+                              if (e.key === "Enter") {
+                                e.preventDefault();
+                                addPreferredJobTitle(filteredPreferredJobOptions[0] || preferredJobSearch);
+                              }
+                              if (e.key === "Escape") setPreferredJobPickerOpen(false);
+                            }}
+                            className="h-7 w-full bg-transparent pl-6 pr-7 text-sm text-[#3A1F1F] outline-none placeholder:text-[#8A8A8A]"
+                            placeholder={selectedPreferredJobTitles.length > 0 ? "Search another role" : "Search desired roles"}
+                          />
+                          <button
+                            type="button"
+                            onClick={() => setPreferredJobPickerOpen((open) => !open)}
+                            className="absolute right-1 top-1/2 -translate-y-1/2 text-[#8A8A8A] hover:text-[#3A1F1F]"
+                            aria-label="Toggle desired role suggestions"
+                          >
+                            <ChevronsUpDown className="h-4 w-4" />
+                          </button>
+                        </div>
+                      </div>
+                    </div>
+                    {preferredJobPickerOpen && (
+                      <div className="absolute left-0 right-0 top-full z-[80] mt-2 overflow-hidden rounded-xl border border-gray-200 bg-white shadow-xl">
+                        <div className="max-h-72 overflow-y-auto p-1">
+                          {preferredJobOptionsLoading ? (
+                            <div className="flex items-center gap-2 rounded-lg px-3 py-2 text-sm text-[#8A8A8A]">
+                              <Loader2 className="h-4 w-4 animate-spin text-[#FF2B2B]" />
+                              <span>Loading role suggestions...</span>
+                            </div>
+                          ) : preferredJobOptionsError ? (
+                            <div className="rounded-lg px-3 py-2 text-sm text-red-600">{preferredJobOptionsError}</div>
+                          ) : filteredPreferredJobOptions.length === 0 && preferredJobSearch.trim() ? (
+                            <button
+                              type="button"
+                              onClick={() => addPreferredJobTitle(preferredJobSearch)}
+                              className="flex w-full items-center gap-2 rounded-lg px-3 py-2 text-left text-sm text-[#3A1F1F] hover:bg-[#FFF0F0]"
+                            >
+                              <Plus className="h-4 w-4 text-[#FF2B2B]" />
+                              <span>Use "{preferredJobSearch.trim()}"</span>
+                            </button>
+                          ) : filteredPreferredJobOptions.length === 0 ? (
+                            <div className="rounded-lg px-3 py-2 text-sm text-[#8A8A8A]">No role suggestions found.</div>
+                          ) : (
+                            filteredPreferredJobOptions.map((title) => (
+                              <button
+                                key={title}
+                                type="button"
+                                onClick={() => addPreferredJobTitle(title)}
+                                className="flex w-full items-center gap-2 rounded-lg px-3 py-2 text-left text-sm text-[#3A1F1F] hover:bg-[#FFF0F0]"
+                              >
+                                <Check className="h-4 w-4 opacity-0" />
+                                <span>{title}</span>
+                              </button>
+                            ))
+                          )}
+                        </div>
+                      </div>
+                    )}
+                  </div>
+                </div>
                 {[
-                  { label: "Desired Job Title", key: "desiredJobTitle" },
                   { label: "Preferred Location", key: "preferredLocation" },
                   { label: "Expected Salary", key: "expectedSalary" },
                   { label: "Notice Period", key: "noticePeriod" },
@@ -2226,24 +2686,37 @@ function ProfilePage() {
               </div>
               <div className="flex gap-3">
                 <Button className="bg-[#FF2B2B] hover:bg-[#e02525] text-white rounded-full" onClick={async () => {
-                  setPreferences(prefsForm); setEditingPrefs(false);
-                  if (profile?.id) await supabase.from("profiles").update({
-                    desired_job_title: prefsForm.desiredJobTitle || null,
-                    job_type_pref: prefsForm.jobType || null,
-                    preferred_location: prefsForm.preferredLocation || null,
-                    expected_salary: prefsForm.expectedSalary || null,
-                    notice_period: prefsForm.noticePeriod || null,
-                    work_auth: prefsForm.workAuth || null,
-                    willing_to_relocate: prefsForm.willingToRelocate || null,
-                  }).eq("id", profile.id);
+                  const normalizedPrefs = {
+                    ...prefsForm,
+                    desiredJobTitle: joinPreferredJobTitles(splitPreferredJobTitles(prefsForm.desiredJobTitle)),
+                  };
+                  setPreferences(normalizedPrefs);
+                  setEditingPrefs(false);
+                  if (profile?.id) {
+                    await supabase.from("profiles").update({
+                      desired_job_title: normalizedPrefs.desiredJobTitle || null,
+                      job_type_pref: normalizedPrefs.jobType || null,
+                      preferred_location: normalizedPrefs.preferredLocation || null,
+                      expected_salary: normalizedPrefs.expectedSalary || null,
+                      notice_period: normalizedPrefs.noticePeriod || null,
+                      work_auth: normalizedPrefs.workAuth || null,
+                      willing_to_relocate: normalizedPrefs.willingToRelocate || null,
+                    }).eq("id", profile.id);
+                    clearPrefsDraft(profile.id);
+                  }
                 }}>Save</Button>
-                <Button variant="outline" className="rounded-full" onClick={() => setEditingPrefs(false)}>Cancel</Button>
+                <Button variant="outline" className="rounded-full" onClick={() => {
+                  if (profile?.id) clearPrefsDraft(profile.id);
+                  setPreferredJobPickerOpen(false);
+                  setPreferredJobSearch("");
+                  setEditingPrefs(false);
+                }}>Cancel</Button>
               </div>
             </div>
           ) : (
             <div className="grid md:grid-cols-2 gap-4 text-sm">
               {Object.entries({
-                "Desired Role": preferences.desiredJobTitle,
+                "Desired Roles": preferences.desiredJobTitle,
                 "Job Type": preferences.jobType,
                 "Preferred Location": preferences.preferredLocation,
                 "Expected Salary": preferences.expectedSalary,
@@ -2335,49 +2808,112 @@ function ExpForm({ form, setForm, onSave, onCancel }: {
   );
 }
 
-function EduForm({ form, setForm, onSave, onCancel }: {
-  form: Omit<Education,"id">;
-  setForm: (f: Omit<Education,"id">) => void;
+function EduForm({ form, setForm, onSave, onCancel, degreeOptions, specializationOptionsByDegree }: {
+  form: EducationForm;
+  setForm: (f: EducationForm) => void;
   onSave: () => void;
   onCancel: () => void;
+  degreeOptions: string[];
+  specializationOptionsByDegree: EducationCatalog;
 }) {
+  const specializationOptions = specializationOptionsByDegree[form.degree] || [];
+  const educationDetailsDisabled = form.degree === "Not Educated";
+  const fieldInputValue = form.customField || form.field;
+
   return (
     <div className="bg-[#F6F6F6] rounded-xl p-5 space-y-4 border border-gray-200">
       <div className="grid md:grid-cols-2 gap-4">
         <div>
           <label className="block text-sm text-[#3A1F1F] mb-1">Degree *</label>
-          <Select value={form.degree} onValueChange={(v) => setForm({ ...form, degree: v })}>
+          <Select
+            value={form.degree}
+            onValueChange={(v) => {
+              const nextSpecializations = specializationOptionsByDegree[v] || [];
+              setForm({
+                ...form,
+                degree: v,
+                field: nextSpecializations.includes(form.field) ? form.field : "",
+                customField: form.field === "Others" && nextSpecializations.includes("Others") ? form.customField : "",
+                college: v === "Not Educated" ? "" : form.college,
+                score: v === "Not Educated" ? "" : form.score,
+              });
+            }}
+          >
             <SelectTrigger className="bg-white border-gray-200 rounded-xl"><SelectValue placeholder="Select degree" /></SelectTrigger>
             <SelectContent>
-              {["High School","Diploma","B.Tech / B.E.","B.Sc","B.Com","B.A.","MBA","M.Tech / M.E.","M.Sc","M.A.","Ph.D","Other"].map(d => <SelectItem key={d} value={d}>{d}</SelectItem>)}
+              {degreeOptions.map(d => <SelectItem key={d} value={d}>{d}</SelectItem>)}
             </SelectContent>
           </Select>
         </div>
-        <div>
-          <label className="block text-sm text-[#3A1F1F] mb-1">Field of Study</label>
-          <Input value={form.field} onChange={(e) => setForm({ ...form, field: e.target.value })} className="bg-white border-gray-200 rounded-xl" placeholder="e.g. Computer Science" />
+        <div className={specializationOptions.length === 0 ? "md:col-span-2" : ""}>
+          <label className="block text-sm text-[#3A1F1F] mb-1">Field of Study / Specialization</label>
+          {specializationOptions.length > 0 ? (
+            <Select
+              value={form.field}
+              onValueChange={(v) => setForm({ ...form, field: v, customField: v === "Others" ? form.customField : "" })}
+              disabled={!form.degree}
+            >
+              <SelectTrigger className="bg-white border-gray-200 rounded-xl disabled:opacity-60">
+                <SelectValue placeholder={form.degree ? "Select specialization" : "Select degree first"} />
+              </SelectTrigger>
+              <SelectContent>
+                {specializationOptions.map(s => <SelectItem key={s} value={s}>{s}</SelectItem>) }
+              </SelectContent>
+            </Select>
+          ) : (
+            <Input
+              value={fieldInputValue}
+              onChange={(e) => setForm({ ...form, field: e.target.value, customField: "" })}
+              className="bg-white border-gray-200 rounded-xl"
+              disabled={!form.degree || educationDetailsDisabled}
+              placeholder={form.degree ? "Enter specialization" : "Select degree first"}
+            />
+          )}
         </div>
+        {form.field === "Others" && specializationOptions.length > 0 && !educationDetailsDisabled && (
+          <div className="md:col-span-2">
+            <label className="block text-sm text-[#3A1F1F] mb-1">Enter Your Specialization *</label>
+            <Input
+              value={form.customField || ""}
+              onChange={(e) => setForm({ ...form, customField: e.target.value })}
+              className="bg-white border-gray-200 rounded-xl"
+              autoFocus
+            />
+          </div>
+        )}
         <div className="md:col-span-2">
-          <label className="block text-sm text-[#3A1F1F] mb-1">College / University *</label>
-          <Input value={form.college} onChange={(e) => setForm({ ...form, college: e.target.value })} className="bg-white border-gray-200 rounded-xl" autoFocus />
+          <label className="block text-sm text-[#3A1F1F] mb-1">School / College / University {educationDetailsDisabled ? "" : "*"}</label>
+          <Input
+            value={form.college}
+            onChange={(e) => setForm({ ...form, college: e.target.value })}
+            className="bg-white border-gray-200 rounded-xl"
+            disabled={educationDetailsDisabled}
+            autoFocus
+          />
         </div>
         <div>
           <label className="block text-sm text-[#3A1F1F] mb-1">Start Year</label>
-          <Select value={form.startYear} onValueChange={(v) => setForm({ ...form, startYear: v })}>
-            <SelectTrigger className="bg-white border-gray-200 rounded-xl"><SelectValue /></SelectTrigger>
+          <Select value={form.startYear} onValueChange={(v) => setForm({ ...form, startYear: v })} disabled={educationDetailsDisabled}>
+            <SelectTrigger className="bg-white border-gray-200 rounded-xl disabled:opacity-60"><SelectValue /></SelectTrigger>
             <SelectContent>{YEARS.map(y => <SelectItem key={y} value={y}>{y}</SelectItem>)}</SelectContent>
           </Select>
         </div>
         <div>
           <label className="block text-sm text-[#3A1F1F] mb-1">End Year</label>
-          <Select value={form.endYear} onValueChange={(v) => setForm({ ...form, endYear: v })}>
-            <SelectTrigger className="bg-white border-gray-200 rounded-xl"><SelectValue /></SelectTrigger>
+          <Select value={form.endYear} onValueChange={(v) => setForm({ ...form, endYear: v })} disabled={educationDetailsDisabled}>
+            <SelectTrigger className="bg-white border-gray-200 rounded-xl disabled:opacity-60"><SelectValue /></SelectTrigger>
             <SelectContent>{YEARS.map(y => <SelectItem key={y} value={y}>{y}</SelectItem>)}</SelectContent>
           </Select>
         </div>
         <div>
           <label className="block text-sm text-[#3A1F1F] mb-1">Score (CGPA / %)</label>
-          <Input value={form.score} onChange={(e) => setForm({ ...form, score: e.target.value })} className="bg-white border-gray-200 rounded-xl" placeholder="e.g. 3.8 CGPA or 85%" />
+          <Input
+            value={form.score}
+            onChange={(e) => setForm({ ...form, score: e.target.value })}
+            className="bg-white border-gray-200 rounded-xl"
+            placeholder="e.g. 3.8 CGPA or 85%"
+            disabled={educationDetailsDisabled}
+          />
         </div>
       </div>
       <div className="flex gap-3">

@@ -5,8 +5,7 @@ import { buildJobDeadlineTimestamp, formatJobDeadline, getEffectiveJobStatus, ge
 import { PLANS, FREE_DAILY_POST_LIMIT, getPlanById, validatePromo, applyPromo } from "../../lib/plans";
 import { INDIA_CITY_OPTIONS } from "../../lib/locationData";
 import { useAuth } from "../../lib/auth-context";
-
-const logoImage = new URL("../../logo/logo.png", import.meta.url).href;
+import logoImage from "../../logo/logo.png";
 import {
   Bell, LogOut, Plus, Edit, Pause, Trash2, User, Upload, Building2,
   Search, Filter, Download, Mail, Phone, MapPin, Calendar, Clock,
@@ -4882,7 +4881,7 @@ function AnalyticsPage() {
               return (
                 <div
                   key={stage.stage}
-                  className="relative mx-auto h-[80px] max-w-full overflow-visible"
+                  className="relative mx-auto h-[68px] max-w-full overflow-visible"
                   style={{ width: `${stage.width}%` }}
                 >
                   <div
@@ -4892,9 +4891,9 @@ function AnalyticsPage() {
                       clipPath: "polygon(0 0, 100% 0, 92% 100%, 8% 100%)",
                     }}
                   />
-                  <div className="relative grid h-full grid-cols-[42px_minmax(0,1fr)_68px] items-center gap-2 px-[12%] sm:grid-cols-[50px_minmax(0,1fr)_78px] sm:gap-4">
-                    <div className="flex h-10 w-10 shrink-0 items-center justify-center rounded-full bg-white text-[#FF2B2B] shadow-sm sm:h-12 sm:w-12">
-                      <Icon className="h-5 w-5" />
+                  <div className="relative grid h-full grid-cols-[38px_minmax(0,1fr)_68px] items-center gap-2 px-[12%] sm:grid-cols-[44px_minmax(0,1fr)_78px] sm:gap-4">
+                    <div className="flex h-9 w-9 shrink-0 items-center justify-center rounded-full bg-white text-[#FF2B2B] shadow-sm sm:h-11 sm:w-11">
+                      <Icon className="h-4 w-4 sm:h-5 sm:w-5" />
                     </div>
                     <div className="min-w-0">
                       <p className="text-sm font-bold leading-tight text-[#3A1F1F]">{stage.stage}</p>
