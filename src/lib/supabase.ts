@@ -121,14 +121,21 @@ export interface Application {
   recruiter_id: string;
   status:
     | "Applied"
-    | "Screening"
+    | "Under Review"
     | "Shortlisted"
     | "Interview Scheduled"
+    | "Interview Completed"
+    | "Interview Selected"
+    | "Interview Rejected"
     | "Offered"
+    | "Joined"
     | "Rejected"
-    | "Hired"
+    | "On Hold"
+    // Legacy values (backward compatibility)
     | "New"
-    | "Reviewed";
+    | "Reviewed"
+    | "Screening"
+    | "Hired";
   cover_letter: string | null;
   resume_url: string | null;
   applied_at: string;
