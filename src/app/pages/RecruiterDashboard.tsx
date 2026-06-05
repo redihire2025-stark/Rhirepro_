@@ -5546,11 +5546,15 @@ function CompanyProfilePage() {
   const [profile, setProfile] = useState({
     companyName: "", industry: "", companySize: "", type: "", founded: "",
     description: "", website: "", location: "", linkedin: "", cin: "",
-    tagline: "", phone: "", recruiterName: "",
+    tagline: "", phone: "", recruiterName: "", logoUrl: "", coverImageUrl: "", coverImageName: "",
   });
   const [saved, setSaved] = useState(false);
   const [saving, setSaving] = useState(false);
+  const [uploadingAsset, setUploadingAsset] = useState<"logo" | "cover" | null>(null);
   const [saveError, setSaveError] = useState("");
+  const [brandingError, setBrandingError] = useState("");
+  const logoInputRef = useRef<HTMLInputElement>(null);
+  const coverInputRef = useRef<HTMLInputElement>(null);
 
   const companyCompletion = useMemo(() => {
     let score = 0;
@@ -5582,9 +5586,72 @@ function CompanyProfilePage() {
         tagline: recruiterProfile.tagline || "",
         phone: recruiterProfile.phone || "",
         recruiterName: recruiterProfile.recruiter_name || "",
+        logoUrl: recruiterProfile.logo_url || "",
+        coverImageUrl: recruiterProfile.cover_image_url || "",
+        coverImageName: recruiterProfile.cover_image_name || "",
       });
     }
   }, [recruiterProfile]);
+
+  const handleBrandingUpload = async (asset: "logo" | "cover", event: ChangeEvent<HTMLInputElement>) => {
+    const file = event.target.files?.[0];
+    event.currentTarget.value = "";
+    if (!file || !recruiterProfile?.id) return;
+
+    if (!file.type.startsWith("image/")) {
+      setBrandingError("Please choose an image file.");
+      return;
+    }
+
+    if (file.size > 5 * 1024 * 1024) {
+      setBrandingError("Image must be smaller than 5 MB.");
+      return;
+    }
+
+    setUploadingAsset(asset);
+    setBrandingError("");
+
+    const localPreviewUrl = URL.createObjectURL(file);
+    setProfile((current) => asset === "logo"
+      ? { ...current, logoUrl: localPreviewUrl }
+      : { ...current, coverImageUrl: localPreviewUrl, coverImageName: file.name });
+
+    try {
+      const extension = file.name.split(".").pop()?.toLowerCase().replace(/[^a-z0-9]/g, "") || "png";
+      const filePath = `recruiter-branding/${recruiterProfile.id}/${asset}-${Date.now()}.${extension}`;
+      const { error: uploadError } = await supabase.storage
+        .from("avatars")
+        .upload(filePath, file, {
+          cacheControl: "3600",
+          contentType: file.type,
+          upsert: false,
+        });
+
+      if (uploadError) throw uploadError;
+
+      const { data: urlData } = supabase.storage.from("avatars").getPublicUrl(filePath);
+      const publicUrl = urlData.publicUrl;
+      const updatePayload = asset === "logo"
+        ? { logo_url: publicUrl }
+        : { cover_image_url: publicUrl, cover_image_name: file.name };
+      const { error: updateError } = await supabase
+        .from("recruiter_profiles")
+        .update(updatePayload)
+        .eq("id", recruiterProfile.id);
+
+      if (updateError) throw updateError;
+
+      setProfile((current) => asset === "logo"
+        ? { ...current, logoUrl: publicUrl }
+        : { ...current, coverImageUrl: publicUrl, coverImageName: file.name });
+      await refreshProfile();
+    } catch (err: unknown) {
+      setBrandingError(err instanceof Error ? err.message : `Failed to upload ${asset === "logo" ? "logo" : "cover photo"}.`);
+    } finally {
+      URL.revokeObjectURL(localPreviewUrl);
+      setUploadingAsset(null);
+    }
+  };
 
   const handleSave = async () => {
     if (!recruiterProfile?.id) return;
@@ -5667,26 +5734,66 @@ function CompanyProfilePage() {
       <div className="space-y-6">
         {/* Logo & Cover */}
         <div className="bg-white rounded-2xl overflow-hidden shadow-sm">
-          <div className="h-32 bg-gradient-to-r from-[#3A1F1F] to-[#FF2B2B] relative">
-            <Button size="sm" variant="outline" className="absolute right-4 top-4 bg-white/80 border-0 rounded-full text-xs">
-              <Upload className="h-3.5 w-3.5 mr-1" /> Cover Photo
+          <div className="h-40 sm:h-48 bg-gradient-to-r from-[#3A1F1F] to-[#FF2B2B] relative overflow-hidden">
+            {profile.coverImageUrl && (
+              <img src={profile.coverImageUrl} alt="Company cover" className="absolute inset-0 h-full w-full object-cover" />
+            )}
+            <div className="absolute inset-0 bg-gradient-to-r from-[#3A1F1F]/35 to-[#FF2B2B]/20" />
+            <input
+              ref={coverInputRef}
+              type="file"
+              accept="image/*"
+              className="hidden"
+              onChange={(event) => handleBrandingUpload("cover", event)}
+            />
+            <Button
+              size="sm"
+              variant="outline"
+              className="absolute right-4 top-4 bg-white/90 border-0 rounded-full text-xs"
+              disabled={uploadingAsset === "cover"}
+              onClick={() => coverInputRef.current?.click()}
+            >
+              {uploadingAsset === "cover" ? <Loader2 className="h-3.5 w-3.5 mr-1 animate-spin" /> : <Upload className="h-3.5 w-3.5 mr-1" />}
+              Cover Photo
             </Button>
           </div>
-          <div className="px-6 pb-6">
-            <div className="flex items-end gap-4 -mt-10">
-              <div className="w-20 h-20 bg-[#FF2B2B] rounded-2xl border-4 border-white flex items-center justify-center shadow-lg">
-                <Building2 className="h-10 w-10 text-white" />
+          <div className="px-5 sm:px-6 pb-6 min-h-[128px]">
+            <div className="flex flex-col sm:flex-row sm:items-start gap-4 -mt-12 relative z-10">
+              <div className="w-24 h-24 bg-[#FF2B2B] rounded-2xl border-4 border-white flex items-center justify-center shadow-lg overflow-hidden flex-shrink-0">
+                {profile.logoUrl ? (
+                  <img src={profile.logoUrl} alt={`${profile.companyName || "Company"} logo`} className="h-full w-full object-cover" />
+                ) : (
+                  <Building2 className="h-10 w-10 text-white" />
+                )}
               </div>
-              <div className="pb-2 flex-1">
-                <h2 className="text-xl font-bold text-[#3A1F1F]">{profile.companyName}</h2>
-                <p className="text-sm text-[#8A8A8A]">{profile.tagline}</p>
+              <div className="pt-1 sm:pt-14 flex-1 min-w-0">
+                <h2 className="text-xl font-bold text-[#3A1F1F] truncate">{profile.companyName || "Company Name"}</h2>
+                <p className="text-sm text-[#8A8A8A] truncate">{profile.tagline || "Add a tagline to introduce your company"}</p>
               </div>
-              <div className="pb-2">
-                <Button size="sm" className="bg-[#FF2B2B] hover:bg-[#e02525] text-white rounded-full text-xs">
-                  <Upload className="h-3.5 w-3.5 mr-1" /> Upload Logo
+              <div className="pt-1 sm:pt-14 sm:flex-shrink-0">
+                <input
+                  ref={logoInputRef}
+                  type="file"
+                  accept="image/*"
+                  className="hidden"
+                  onChange={(event) => handleBrandingUpload("logo", event)}
+                />
+                <Button
+                  size="sm"
+                  className="bg-[#FF2B2B] hover:bg-[#e02525] text-white rounded-full text-xs"
+                  disabled={uploadingAsset === "logo"}
+                  onClick={() => logoInputRef.current?.click()}
+                >
+                  {uploadingAsset === "logo" ? <Loader2 className="h-3.5 w-3.5 mr-1 animate-spin" /> : <Upload className="h-3.5 w-3.5 mr-1" />}
+                  Upload Logo
                 </Button>
               </div>
             </div>
+            {brandingError && (
+              <div className="mt-4 rounded-xl border border-red-200 bg-red-50 px-4 py-3 text-sm text-red-700">
+                {brandingError}
+              </div>
+            )}
           </div>
         </div>
 

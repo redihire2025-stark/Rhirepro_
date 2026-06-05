@@ -71,6 +71,8 @@ create table if not exists recruiter_profiles (
   website             text,
   location            text,
   logo_url            text,
+  cover_image_url     text,
+  cover_image_name    text,
   tagline             text,
   linkedin_url        text,
   cin                 text,
