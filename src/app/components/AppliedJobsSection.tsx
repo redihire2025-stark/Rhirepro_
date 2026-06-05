@@ -23,19 +23,22 @@ interface AppliedJobsSectionProps {
   onOfferDetailsOpen?: (job: AppliedJobWithJob) => void;
 }
 
-const PIPELINE_STAGES = ["Applied", "Profile Viewed", "Shortlisted", "Interview", "Offer"] as const;
+const PIPELINE_STAGES = ["Applied", "Under Review", "Shortlisted", "Interview Scheduled", "Interview Completed", "Interview Selected", "Interview Rejected", "Offer"] as const;
 const INTERVIEW_ROUNDS = ["L1", "L2", "L3", "HR"] as const;
 
 const STATUS_BADGE_CLASS: Record<string, string> = {
   applied: "bg-slate-100 text-slate-700",
-  "profile viewed": "bg-blue-100 text-blue-700",
+  "under review": "bg-blue-100 text-blue-700",
   shortlisted: "bg-pink-100 text-pink-700",
-  interview: "bg-purple-100 text-purple-700",
   "interview scheduled": "bg-purple-100 text-purple-700",
+  "interview completed": "bg-indigo-100 text-indigo-700",
+  "interview selected": "bg-teal-100 text-teal-700",
+  "interview rejected": "bg-red-100 text-red-700",
   offer: "bg-orange-100 text-orange-700",
   offered: "bg-orange-100 text-orange-700",
   hired: "bg-emerald-100 text-emerald-700",
   rejected: "bg-red-100 text-red-700",
+  "on hold": "bg-amber-100 text-amber-700",
 };
 
 const PIPELINE_STAGE_CLASS: Record<(typeof PIPELINE_STAGES)[number], { completed: string; pending: string; connector: string }> = {
@@ -44,7 +47,7 @@ const PIPELINE_STAGE_CLASS: Record<(typeof PIPELINE_STAGES)[number], { completed
     pending: "bg-[#EEF0F4] text-[#98A2B3]",
     connector: "bg-[#FF2B2B]",
   },
-  "Profile Viewed": {
+  "Under Review": {
     completed: "bg-[#FF2B2B] text-white",
     pending: "bg-[#EEF0F4] text-[#98A2B3]",
     connector: "bg-[#FF2B2B]",
@@ -54,7 +57,22 @@ const PIPELINE_STAGE_CLASS: Record<(typeof PIPELINE_STAGES)[number], { completed
     pending: "bg-[#EEF0F4] text-[#98A2B3]",
     connector: "bg-[#FF2B2B]",
   },
-  Interview: {
+  "Interview Scheduled": {
+    completed: "bg-[#FF2B2B] text-white",
+    pending: "bg-[#EEF0F4] text-[#98A2B3]",
+    connector: "bg-[#FF2B2B]",
+  },
+  "Interview Completed": {
+    completed: "bg-[#FF2B2B] text-white",
+    pending: "bg-[#EEF0F4] text-[#98A2B3]",
+    connector: "bg-[#FF2B2B]",
+  },
+  "Interview Selected": {
+    completed: "bg-[#FF2B2B] text-white",
+    pending: "bg-[#EEF0F4] text-[#98A2B3]",
+    connector: "bg-[#FF2B2B]",
+  },
+  "Interview Rejected": {
     completed: "bg-[#FF2B2B] text-white",
     pending: "bg-[#EEF0F4] text-[#98A2B3]",
     connector: "bg-[#FF2B2B]",
@@ -66,36 +84,48 @@ const PIPELINE_STAGE_CLASS: Record<(typeof PIPELINE_STAGES)[number], { completed
   },
 };
 
-function normalizeStatus(status: AppliedJobWithJob["status"]): "new" | "reviewed" | "shortlisted" | "interview" | "offered" | "hired" | "rejected" {
+function normalizeStatus(status: AppliedJobWithJob["status"]): "new" | "reviewed" | "shortlisted" | "interview_scheduled" | "interview_completed" | "interview_selected" | "interview_rejected" | "offered" | "hired" | "rejected" | "on_hold" {
   const normalized = (status || "").toLowerCase().trim().replace(/[\s-]+/g, "_");
   if (normalized === "rejected") return "rejected";
   if (normalized === "hired" || normalized === "hire" || normalized === "joined") return "hired";
   if (normalized === "offered" || normalized === "offer_given") return "offered";
-  if (normalized === "interview_scheduled" || normalized === "interview") return "interview";
+  if (normalized === "interview_rejected") return "interview_rejected";
+  if (normalized === "interview_selected") return "interview_selected";
+  if (normalized === "interview_completed") return "interview_completed";
+  if (normalized === "interview_scheduled" || normalized === "interview") return "interview_scheduled";
   if (normalized === "shortlisted") return "shortlisted";
-  if (normalized === "screening" || normalized === "reviewed") return "reviewed";
+  if (normalized === "screening" || normalized === "reviewed" || normalized === "under_review") return "reviewed";
+  if (normalized === "on_hold") return "on_hold";
   return "new";
 }
 
 function getStatusBadge(status: AppliedJobWithJob["status"]) {
   const normalized = normalizeStatus(status);
-  if (normalized === "reviewed") return { label: "Profile Viewed", className: STATUS_BADGE_CLASS["profile viewed"] };
+  if (normalized === "reviewed") return { label: "Under Review", className: STATUS_BADGE_CLASS["under review"] };
   if (normalized === "shortlisted") return { label: "Shortlisted", className: STATUS_BADGE_CLASS.shortlisted };
-  if (normalized === "interview") return { label: "Interview Scheduled", className: STATUS_BADGE_CLASS["interview scheduled"] };
+  if (normalized === "interview_scheduled") return { label: "Interview Scheduled", className: STATUS_BADGE_CLASS["interview scheduled"] };
+  if (normalized === "interview_completed") return { label: "Interview Completed", className: STATUS_BADGE_CLASS["interview completed"] };
+  if (normalized === "interview_selected") return { label: "Interview Selected", className: STATUS_BADGE_CLASS["interview selected"] };
+  if (normalized === "interview_rejected") return { label: "Interview Rejected", className: STATUS_BADGE_CLASS["interview rejected"] };
   if (normalized === "offered") return { label: "Offer Received", className: STATUS_BADGE_CLASS.offered };
-  if (normalized === "hired") return { label: "Hired", className: STATUS_BADGE_CLASS.hired };
+  if (normalized === "hired") return { label: "Joined", className: STATUS_BADGE_CLASS.hired };
   if (normalized === "rejected") return { label: "Rejected", className: STATUS_BADGE_CLASS.rejected };
+  if (normalized === "on_hold") return { label: "On Hold", className: STATUS_BADGE_CLASS["on hold"] };
   return { label: "Applied", className: STATUS_BADGE_CLASS.applied };
 }
 
 function getCompletedStageCount(status: AppliedJobWithJob["status"]): number {
   const normalized = normalizeStatus(status);
   if (normalized === "rejected") return 0;
-  if (normalized === "hired") return 5;
-  if (normalized === "offered") return 5;
-  if (normalized === "interview") return 4;
+  if (normalized === "hired") return 8;
+  if (normalized === "offered") return 8;
+  if (normalized === "interview_rejected") return 7;
+  if (normalized === "interview_selected") return 6;
+  if (normalized === "interview_completed") return 5;
+  if (normalized === "interview_scheduled") return 4;
   if (normalized === "shortlisted") return 3;
   if (normalized === "reviewed") return 2;
+  if (normalized === "on_hold") return 2;
   return 1;
 }
 
@@ -250,6 +280,7 @@ export default function AppliedJobsSection({ userId, compact = false, onJobsLoad
         const completedCount = getCompletedStageCount(application.status);
         const isRejected = normalizeStatus(application.status) === "rejected";
         const isHired = normalizeStatus(application.status) === "hired";
+        const isOnHold = normalizeStatus(application.status) === "on_hold";
 
         return (
           <div
@@ -274,17 +305,18 @@ export default function AppliedJobsSection({ userId, compact = false, onJobsLoad
               </div>
             </div>
 
-            {!isRejected && !isHired ? (
-              <div className="mt-4 overflow-x-auto [scrollbar-width:none] [&::-webkit-scrollbar]:hidden">
-                <div className="inline-flex min-w-full items-center">
+            {!isRejected && !isHired && !isOnHold ? (
+              <div className="mt-4">
+                <div className="flex flex-wrap items-center gap-y-2">
                   {PIPELINE_STAGES.map((stage, index) => {
                     const completed = index < completedCount;
                     const connectorCompleted = index < completedCount - 1;
-                    const isInterviewStage = stage === "Interview";
+                    const isInterviewStage = stage === "Interview Scheduled" || stage === "Interview Completed";
                     const isOfferStage = stage === "Offer";
-                    const isInterviewScheduled = normalizeStatus(application.status) === "interview";
+                    const isInterviewScheduled = normalizeStatus(application.status) === "interview_scheduled";
+                    const isInterviewCompleted = normalizeStatus(application.status) === "interview_completed";
                     const isOffered = normalizeStatus(application.status) === "offered";
-                    const isInterviewActive = isInterviewStage && isInterviewScheduled;
+                    const isInterviewActive = (stage === "Interview Scheduled" && isInterviewScheduled) || (stage === "Interview Completed" && isInterviewCompleted);
                     const isOfferActive = isOfferStage && isOffered;
                     const handleInterviewClick = () => {
                       setSelectedInterviewRound(null);
@@ -296,7 +328,7 @@ export default function AppliedJobsSection({ userId, compact = false, onJobsLoad
                     };
 
                     return (
-                      <div key={stage} className="flex items-center">
+                      <div key={stage} className="flex items-center flex-shrink-0">
                         {isInterviewActive || isOfferActive ? (
                           <div className="inline-flex items-center gap-1.5">
                             <button
@@ -404,6 +436,12 @@ export default function AppliedJobsSection({ userId, compact = false, onJobsLoad
                 <span className="h-[5px] flex-1 rounded-full bg-red-200/80" />
                 <span className="text-sm text-[#FF2B2B]">Application not moved forward</span>
                 <span className="h-[5px] flex-1 rounded-full bg-red-200/80" />
+              </div>
+            ) : isOnHold ? (
+              <div className="mt-5 flex items-center gap-2">
+                <span className="h-[5px] flex-1 rounded-full bg-amber-200/80" />
+                <span className="text-sm text-amber-600">Application is on hold</span>
+                <span className="h-[5px] flex-1 rounded-full bg-amber-200/80" />
               </div>
             ) : (
               <div className="mt-5 flex items-center gap-2">
