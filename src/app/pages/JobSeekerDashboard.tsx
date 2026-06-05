@@ -2666,6 +2666,7 @@ function AnalyticsPage() {
   const [selectedOfferJob, setSelectedOfferJob] = useState<AppliedJobWithJob | null>(null);
   const [selectedOfferDetails, setSelectedOfferDetails] = useState<OfferPanelDetails | null>(null);
   const [analyticsLoading, setAnalyticsLoading] = useState(true);
+  const [appliedJobsFilter, setAppliedJobsFilter] = useState<string | undefined>(undefined);
   const [compareState, setCompareState] = useState<{
     fromSavedJobs: true;
     selectedJobIds: string[];
@@ -2872,10 +2873,10 @@ function AnalyticsPage() {
   }, [appliedJobs]);
 
   const stats = [
-    { label: "Applied Jobs",       value: appliedJobs.length,                                                Icon: Briefcase },
-    { label: "Profile Views",      value: 0,                                                                 Icon: User },
-    { label: "Recruiter Searches", value: 0,                                                                 Icon: Search },
-    { label: "Interviews",         value: appliedJobs.filter(j => j.displayStatus === "interview").length,    Icon: Bell },
+    { label: "Applied Jobs",       value: appliedJobs.length,                                                Icon: Briefcase, action: () => { setAppliedJobsFilter(undefined); setActiveTab("applied"); } },
+    { label: "Profile Views",      value: 0,                                                                 Icon: User,      action: () => navigate("/jobseeker/dashboard/profile") },
+    { label: "Recruiter Searches", value: 0,                                                                 Icon: Search,    action: () => navigate("/jobseeker/dashboard/profile") },
+    { label: "Interviews",         value: appliedJobs.filter(j => j.displayStatus === "interview").length,    Icon: Bell,      action: () => { setAppliedJobsFilter("interview"); setActiveTab("applied"); } },
   ];
 
   const tabs = [
@@ -3041,8 +3042,12 @@ function AnalyticsPage() {
 
       {/* Stats Row */}
       <div className="grid grid-cols-2 md:grid-cols-4 gap-4 mb-6">
-        {stats.map(({ label, value, Icon }) => (
-          <div key={label} className="bg-white rounded-2xl border border-gray-100 p-4 shadow-[0_2px_8px_rgba(16,24,40,0.08)] flex items-center gap-3">
+        {stats.map(({ label, value, Icon, action }) => (
+          <div
+            key={label}
+            onClick={action}
+            className="bg-white rounded-2xl border border-gray-100 p-4 shadow-[0_2px_8px_rgba(16,24,40,0.08)] flex items-center gap-3 cursor-pointer hover:shadow-md transition-all duration-200"
+          >
             <div className="w-10 h-10 bg-red-50 rounded-full flex items-center justify-center shrink-0">
               <Icon className="h-[18px] w-[18px] text-[#FF2B2B]" />
             </div>
@@ -3064,14 +3069,21 @@ function AnalyticsPage() {
             {tabs.map(({ key, label }) => (
               <button
                 key={key}
-                onClick={() => setActiveTab(key)}
+                onClick={() => {
+                  setActiveTab(key);
+                  if (key === "applied") {
+                    setAppliedJobsFilter(undefined);
+                  }
+                }}
                 className={`px-5 py-2 rounded-full text-sm font-medium border transition-colors duration-200 ${
                   activeTab === key
                     ? "bg-[#FF2B2B] text-white border-[#FF2B2B]"
                     : "bg-[#F8FAFC] text-[#3A1F1F] border-gray-200 hover:bg-white"
                 }`}
               >
-                {label}
+                {key === "applied" && appliedJobsFilter === "interview"
+                  ? `${label} (Filtered)`
+                  : label}
               </button>
             ))}
           </div>
@@ -3083,6 +3095,7 @@ function AnalyticsPage() {
               onJobsLoaded={setAppliedJobs}
               onInterviewDetailsOpen={setSelectedInterviewJob}
               onOfferDetailsOpen={setSelectedOfferJob}
+              filterStatus={appliedJobsFilter}
             />
           )}
           {/* Saved Jobs */}

@@ -81,11 +81,11 @@ describe('Router — route definitions', () => {
     expect(getChildPaths()).toContain('*');
   });
 
-  it('has 15 child routes total', () => {
+  it('has 26 child routes total', () => {
     // /, /signin, /signup, /jobs, /job/:id, /services, /blog, /blog/:id,
     // /jobseeker/signin, /jobseeker/signup, /recruiter/signin, /recruiter/signup,
     // /jobseeker/dashboard/*, /recruiter/dashboard/*, *
-    expect(getChildPaths().length).toBe(15);
+    expect(getChildPaths().length).toBe(26);
   });
 
   it('each child route has a Component', () => {

@@ -1254,6 +1254,12 @@ function DashboardOverview() {
   }>>([]);
   const [pipelineLoading, setPipelineLoading] = useState(true);
   const [pipelineError, setPipelineError] = useState("");
+  const [upcomingInterviews, setUpcomingInterviews] = useState<Array<{
+    name: string;
+    role: string;
+    time: string;
+    type: string;
+  }>>([]);
 
   const recruiterCompletion = useMemo(() => {
     if (!recruiterProfile) return 0;
@@ -1369,6 +1375,67 @@ function DashboardOverview() {
         setRecentApplicants([]);
       }
 
+      let fetchedInterviews: any[] = [];
+      try {
+        const { data, error } = await supabase
+          .from("applications")
+          .select(`
+            id,
+            status,
+            applied_at,
+            job:jobs(title),
+            profile:profiles(first_name, last_name),
+            interview_details:interview_details(updated_at, meeting_url)
+          `)
+          .eq("recruiter_id", recruiterProfile.id)
+          .eq("status", "Interview Scheduled")
+          .order("applied_at", { ascending: false })
+          .limit(3);
+
+        if (!error && data) {
+          fetchedInterviews = data;
+        } else {
+          const { data: fallbackData } = await supabase
+            .from("applications")
+            .select(`
+              id,
+              status,
+              applied_at,
+              job:jobs(title),
+              profile:profiles(first_name, last_name)
+            `)
+            .eq("recruiter_id", recruiterProfile.id)
+            .eq("status", "Interview Scheduled")
+            .order("applied_at", { ascending: false })
+            .limit(3);
+          if (fallbackData) {
+            fetchedInterviews = fallbackData;
+          }
+        }
+      } catch (err) {
+        console.error("Failed to load upcoming interviews:", err);
+      }
+
+      const formatted = fetchedInterviews.map(app => {
+        const firstName = app.profile?.first_name || "";
+        const lastName = app.profile?.last_name || "";
+        const fullName = `${firstName} ${lastName}`.trim() || "Candidate";
+        const role = app.job?.title || "Applicant";
+        const meetingUrl = app.interview_details?.meeting_url;
+        const type = meetingUrl ? "Video Call" : "In-Person";
+
+        const dateObj = app.interview_details?.updated_at ? new Date(app.interview_details.updated_at) : new Date(app.applied_at);
+        const time = dateObj.toLocaleDateString("en-IN", { day: "numeric", month: "short" }) + ", " + dateObj.toLocaleTimeString("en-IN", { hour: "numeric", minute: "2-digit" });
+
+        return {
+          name: fullName,
+          role,
+          time,
+          type
+        };
+      });
+      setUpcomingInterviews(formatted);
+
       const { count: totalApps } = await supabase.from("applications").select("*", { count: "exact", head: true }).eq("recruiter_id", recruiterProfile.id);
       const { count: interviews } = await supabase.from("applications").select("*", { count: "exact", head: true }).eq("recruiter_id", recruiterProfile.id).eq("status", "Interview Scheduled");
       const { count: filled } = await supabase.from("applications").select("*", { count: "exact", head: true }).eq("recruiter_id", recruiterProfile.id).eq("status", "Offered");
@@ -1445,16 +1512,10 @@ function DashboardOverview() {
   })();
 
   const stats = [
-    { label: "Active Jobs", value: String(activeJobs || dbJobs.length || "—"), change: "Live postings", icon: Briefcase, color: "text-blue-600", bg: "bg-blue-50" },
-    { label: "Total Applicants", value: String(totalApplicantsCount || "—"), change: "Across all jobs", icon: Users, color: "text-green-600", bg: "bg-green-50" },
-    { label: "Interviews Scheduled", value: String(interviewsScheduledCount || "—"), change: "Next: Today 3PM", icon: Calendar, color: "text-purple-600", bg: "bg-purple-50" },
-    { label: "Positions Filled", value: String(positionsFilledCount || "—"), change: "This month", icon: CheckCircle, color: "text-[#FF2B2B]", bg: "bg-red-50" },
-  ];
-
-  const upcomingInterviews = [
-    { name: "Sneha Verma", role: "Product Designer", time: "Today, 3:00 PM", type: "Video Call" },
-    { name: "Arjun Mehta", role: "Senior Data Analyst", time: "Tomorrow, 11:00 AM", type: "In-Person" },
-    { name: "Rohan Gupta", role: "Marketing Manager", time: "Mar 12, 2:00 PM", type: "Video Call" },
+    { label: "Active Jobs", value: String(activeJobs || dbJobs.length || "—"), change: "Live postings", icon: Briefcase, color: "text-blue-600", bg: "bg-blue-50", path: "/recruiter/dashboard/manage-jobs" },
+    { label: "Total Applicants", value: String(totalApplicantsCount || "—"), change: "Across all jobs", icon: Users, color: "text-green-600", bg: "bg-green-50", path: "/recruiter/dashboard/applicants" },
+    { label: "Interviews Scheduled", value: String(interviewsScheduledCount || "—"), change: "Next: Today 3PM", icon: Calendar, color: "text-purple-600", bg: "bg-purple-50", path: "/recruiter/dashboard/applicants?status=Interview Scheduled" },
+    { label: "Positions Filled", value: String(positionsFilledCount || "—"), change: "This month", icon: CheckCircle, color: "text-[#FF2B2B]", bg: "bg-red-50", path: "/recruiter/dashboard/applicants?status=Joined" },
   ];
 
   return (
@@ -1532,7 +1593,11 @@ function DashboardOverview() {
       {/* Stats */}
       <div className="grid grid-cols-2 md:grid-cols-4 gap-4">
         {stats.map((s, i) => (
-          <div key={i} className="bg-white rounded-2xl p-5 shadow-sm">
+          <div
+            key={i}
+            onClick={() => s.path && navigate(s.path)}
+            className="bg-white rounded-2xl p-5 shadow-sm cursor-pointer hover:shadow-md transition-all duration-200"
+          >
             <div className={`w-10 h-10 ${s.bg} rounded-xl flex items-center justify-center mb-3`}>
               <s.icon className={`h-5 w-5 ${s.color}`} />
             </div>
@@ -1620,21 +1685,25 @@ function DashboardOverview() {
             <Button variant="ghost" size="sm" className="text-[#FF2B2B] text-xs" onClick={() => navigate("/recruiter/dashboard/applicants")}>View All</Button>
           </div>
           <div className="space-y-3">
-            {upcomingInterviews.map((iv, i) => (
-              <div key={i} className="flex items-center gap-3 p-3 bg-[#F6F6F6] rounded-xl">
-                <div className="w-10 h-10 bg-[#FF2B2B] rounded-full flex items-center justify-center text-white text-xs font-bold flex-shrink-0">
-                  {iv.name.split(" ").map(n => n[0]).join("")}
+            {upcomingInterviews.length === 0 ? (
+              <p className="text-sm text-[#8A8A8A] text-center py-4">No upcoming interviews scheduled</p>
+            ) : (
+              upcomingInterviews.map((iv, i) => (
+                <div key={i} className="flex items-center gap-3 p-3 bg-[#F6F6F6] rounded-xl">
+                  <div className="w-10 h-10 bg-[#FF2B2B] rounded-full flex items-center justify-center text-white text-xs font-bold flex-shrink-0">
+                    {iv.name.split(" ").filter(Boolean).map(n => n[0]).join("")}
+                  </div>
+                  <div className="flex-1">
+                    <p className="text-sm font-medium text-[#3A1F1F]">{iv.name}</p>
+                    <p className="text-xs text-[#8A8A8A]">{iv.role}</p>
+                  </div>
+                  <div className="text-right">
+                    <p className="text-xs font-medium text-[#3A1F1F]">{iv.time}</p>
+                    <Badge className="bg-purple-100 text-purple-700 text-xs mt-0.5">{iv.type}</Badge>
+                  </div>
                 </div>
-                <div className="flex-1">
-                  <p className="text-sm font-medium text-[#3A1F1F]">{iv.name}</p>
-                  <p className="text-xs text-[#8A8A8A]">{iv.role}</p>
-                </div>
-                <div className="text-right">
-                  <p className="text-xs font-medium text-[#3A1F1F]">{iv.time}</p>
-                  <Badge className="bg-purple-100 text-purple-700 text-xs mt-0.5">{iv.type}</Badge>
-                </div>
-              </div>
-            ))}
+              ))
+            )}
           </div>
         </div>
       </div>
@@ -4085,7 +4154,7 @@ function ApplicantsPage() {
         {messageBtn}
         <Button size="sm" variant="outline" disabled={disableActions || !canShortlist} className={`${isShortlistActive ? "border-2 border-pink-600 bg-pink-50 text-pink-700" : "border-pink-500 text-pink-600 hover:bg-pink-50 opacity-40"} rounded-full text-xs h-7 ${shortlistDisabledClass} ${fadedAfterHire}`} onClick={() => void quickUpdateStatus(applicant.id, "Shortlisted")}><ThumbsUp className="h-3.5 w-3.5 mr-1" /> Shortlist</Button>
         <Button size="sm" variant="outline" disabled={disableActions || !canInterview} className={`${isInterviewActive ? "border-2 border-purple-600 bg-purple-50 text-purple-700" : "border-purple-400 text-purple-600 hover:bg-purple-50 opacity-40"} rounded-full text-xs h-7 ${interviewDisabledClass} ${fadedAfterHire}`} onClick={() => handleInterviewStatusRequest(applicant)}><Video className="h-3.5 w-3.5 mr-1" /> {stage === "Interview Scheduled" ? "Schedule Next Round" : "Interview"}</Button>
-        {stage === "Interview Scheduled" && (
+        {(stage === "Interview Scheduled" || stage === "Interview Completed") && (
           <Button size="sm" variant="outline" disabled={disableActions} className={`border-purple-300 text-purple-700 hover:bg-purple-50 rounded-full text-xs h-7 ${disabledOpacityClass} ${fadedAfterHire}`} onClick={() => void handleInterviewFeedbackRequest(applicant)}>
             Add Feedback
           </Button>
@@ -4601,7 +4670,7 @@ function ApplicantsPage() {
                     <Button size="sm" variant="outline" className="border-2 border-gray-400 bg-gray-50 text-[#3A1F1F] hover:bg-gray-100 rounded-full text-xs" onClick={() => { if (profileModal.profile?.email) window.location.href = `mailto:${profileModal.profile.email}`; }}><Mail className="h-3.5 w-3.5 mr-1" /> Message</Button>
                     <Button size="sm" variant="outline" disabled={disableActions || !canShortlist} className={`${isShortlistActive ? "border-2 border-pink-600 bg-pink-50 text-pink-700" : "border-pink-500 text-pink-600 hover:bg-pink-50 opacity-40"} rounded-full text-xs ${shortlistDisabledClass} ${fadedAfterHire}`} onClick={() => quickUpdateStatus(profileModal.id, "Shortlisted")}><ThumbsUp className="h-3.5 w-3.5 mr-1" /> Shortlist</Button>
                     <Button size="sm" variant="outline" disabled={disableActions || !canInterview} className={`${isInterviewActive ? "border-2 border-purple-600 bg-purple-50 text-purple-700" : "border-purple-400 text-purple-600 hover:bg-purple-50 opacity-40"} rounded-full text-xs ${interviewDisabledClass} ${fadedAfterHire}`} onClick={() => handleInterviewStatusRequest(profileModal)}><Video className="h-3.5 w-3.5 mr-1" /> {modalStage === "Interview Scheduled" ? "Schedule Next Round" : "Interview"}</Button>
-                    {modalStage === "Interview Scheduled" && (
+                    {(modalStage === "Interview Scheduled" || modalStage === "Interview Completed") && (
                       <Button size="sm" variant="outline" disabled={disableActions} className={`border-purple-300 text-purple-700 hover:bg-purple-50 rounded-full text-xs ${disabledOpacityClass} ${fadedAfterHire}`} onClick={() => void handleInterviewFeedbackRequest(profileModal)}>
                         Add Feedback
                       </Button>

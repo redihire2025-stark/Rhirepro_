@@ -21,6 +21,7 @@ interface AppliedJobsSectionProps {
   onJobsLoaded?: (jobs: AppliedJobWithJob[]) => void;
   onInterviewDetailsOpen?: (job: AppliedJobWithJob) => void;
   onOfferDetailsOpen?: (job: AppliedJobWithJob) => void;
+  filterStatus?: string;
 }
 
 const PIPELINE_STAGES = ["Applied", "Under Review", "Shortlisted", "Interview Scheduled", "Interview Completed", "Interview Selected", "Interview Rejected", "Offer"] as const;
@@ -141,13 +142,24 @@ function formatDate(value: string): string {
   });
 }
 
-export default function AppliedJobsSection({ userId, compact = false, onJobsLoaded, onInterviewDetailsOpen, onOfferDetailsOpen }: AppliedJobsSectionProps) {
+export default function AppliedJobsSection({ userId, compact = false, onJobsLoaded, onInterviewDetailsOpen, onOfferDetailsOpen, filterStatus }: AppliedJobsSectionProps) {
   const [appliedJobs, setAppliedJobs] = useState<AppliedJobWithJob[]>([]);
   const [loading, setLoading] = useState(true);
   const [error, setError] = useState("");
   const [currentPage, setCurrentPage] = useState(1);
   const [interviewDetailsFor, setInterviewDetailsFor] = useState<AppliedJobWithJob | null>(null);
   const [selectedInterviewRound, setSelectedInterviewRound] = useState<AppliedJobWithJob["interviews"][number] | null>(null);
+
+  const filteredJobs = useMemo(() => {
+    if (!filterStatus) return appliedJobs;
+    if (filterStatus === "interview") {
+      return appliedJobs.filter(j => {
+        const nStatus = normalizeStatus(j.status);
+        return ["interview_scheduled", "interview_completed", "interview_selected", "interview_rejected"].includes(nStatus);
+      });
+    }
+    return appliedJobs;
+  }, [appliedJobs, filterStatus]);
 
   useEffect(() => {
     const currentUserId = userId;
@@ -235,10 +247,10 @@ export default function AppliedJobsSection({ userId, compact = false, onJobsLoad
     };
   }, [onJobsLoaded, userId]);
 
-  const totalPages = Math.max(1, Math.ceil(appliedJobs.length / JOBS_PER_PAGE));
+  const totalPages = Math.max(1, Math.ceil(filteredJobs.length / JOBS_PER_PAGE));
   const paginatedJobs = useMemo(
-    () => appliedJobs.slice((currentPage - 1) * JOBS_PER_PAGE, currentPage * JOBS_PER_PAGE),
-    [appliedJobs, currentPage],
+    () => filteredJobs.slice((currentPage - 1) * JOBS_PER_PAGE, currentPage * JOBS_PER_PAGE),
+    [filteredJobs, currentPage],
   );
 
   useEffect(() => {
@@ -267,6 +279,15 @@ export default function AppliedJobsSection({ userId, compact = false, onJobsLoad
       <div className={`${compact ? "py-8" : "bg-white rounded-2xl p-12 shadow-md"} text-center`}>
         <Briefcase className="h-12 w-12 text-gray-300 mx-auto mb-3" />
         <p className="text-[#8A8A8A]">No applied jobs found</p>
+      </div>
+    );
+  }
+
+  if (filteredJobs.length === 0) {
+    return (
+      <div className={`${compact ? "py-8" : "bg-white rounded-2xl p-12 shadow-md"} text-center`}>
+        <Briefcase className="h-12 w-12 text-gray-300 mx-auto mb-3" />
+        <p className="text-[#8A8A8A]">No interview-related applications found</p>
       </div>
     );
   }
@@ -313,10 +334,17 @@ export default function AppliedJobsSection({ userId, compact = false, onJobsLoad
                     const connectorCompleted = index < completedCount - 1;
                     const isInterviewStage = stage === "Interview Scheduled" || stage === "Interview Completed";
                     const isOfferStage = stage === "Offer";
-                    const isInterviewScheduled = normalizeStatus(application.status) === "interview_scheduled";
-                    const isInterviewCompleted = normalizeStatus(application.status) === "interview_completed";
-                    const isOffered = normalizeStatus(application.status) === "offered";
-                    const isInterviewActive = (stage === "Interview Scheduled" && isInterviewScheduled) || (stage === "Interview Completed" && isInterviewCompleted);
+                    const nStatus = normalizeStatus(application.status);
+                    const isInterviewScheduled = nStatus === "interview_scheduled";
+                    const isInterviewCompleted = nStatus === "interview_completed";
+                    const isInterviewSelected = nStatus === "interview_selected";
+                    const isInterviewRejected = nStatus === "interview_rejected";
+                    const isOffered = nStatus === "offered";
+                    const isHired = nStatus === "hired";
+
+                    const isInterviewActive =
+                      (stage === "Interview Scheduled" && isInterviewScheduled) ||
+                      (stage === "Interview Completed" && (isInterviewCompleted || isInterviewSelected || isInterviewRejected || isOffered || isHired));
                     const isOfferActive = isOfferStage && isOffered;
                     const handleInterviewClick = () => {
                       setSelectedInterviewRound(null);
@@ -366,7 +394,7 @@ export default function AppliedJobsSection({ userId, compact = false, onJobsLoad
                                   const latestRoundIndex = latestScheduledRound
                                     ? INTERVIEW_ROUNDS.indexOf(latestScheduledRound as (typeof INTERVIEW_ROUNDS)[number])
                                     : -1;
-                                  const hasRound = latestRoundIndex >= 0 && roundIndex <= latestRoundIndex;
+
                                   const mappedInterview = [...scheduledRounds]
                                     .reverse()
                                     .find((item) => {
@@ -375,40 +403,51 @@ export default function AppliedJobsSection({ userId, compact = false, onJobsLoad
                                       return normalizedRound === roundLabel;
                                     }) || null;
 
-                                  const isLatestRound = hasRound && latestScheduledRound === roundLabel;
+                                  const isCompletedStatus = ["interview_completed", "interview_selected", "interview_rejected", "offered", "hired"].includes(nStatus);
+                                  const isFilled = isCompletedStatus || (latestRoundIndex >= 0 && roundIndex <= latestRoundIndex);
+                                  const hasDetails = mappedInterview !== null;
 
-                                  if (!hasRound) {
-                                    return (
-                                      <span
-                                        key={`${application.id}-round-${roundLabel}`}
-                                        className="inline-flex h-5 min-w-5 items-center justify-center rounded-full bg-[#EEF0F4] px-1 text-[10px] font-semibold leading-none text-[#98A2B3]"
-                                        aria-label={`${roundLabel} not scheduled`}
-                                        title={`${roundLabel} not scheduled`}
-                                      >
-                                        {roundLabel}
-                                      </span>
-                                    );
+                                  if (isFilled) {
+                                    if (hasDetails) {
+                                      return (
+                                        <button
+                                          key={`${application.id}-${mappedInterview.updated_at || roundLabel}-${roundIndex}`}
+                                          type="button"
+                                          onClick={() => {
+                                            setSelectedInterviewRound(mappedInterview);
+                                            setInterviewDetailsFor(application);
+                                            onInterviewDetailsOpen?.(application);
+                                          }}
+                                          className="inline-flex h-5 min-w-5 items-center justify-center rounded-full bg-[#FF2B2B] px-1 text-[10px] font-semibold leading-none text-white hover:bg-[#e02525] animate-interview-cta"
+                                          title={`View ${roundLabel} details`}
+                                          aria-label={`View ${roundLabel} details`}
+                                        >
+                                          {roundLabel}
+                                        </button>
+                                      );
+                                    } else {
+                                      return (
+                                        <span
+                                          key={`${application.id}-round-${roundLabel}`}
+                                          className="inline-flex h-5 min-w-5 items-center justify-center rounded-full bg-[#FF2B2B] px-1 text-[10px] font-semibold leading-none text-white"
+                                          aria-label={`${roundLabel} completed`}
+                                          title={`${roundLabel} completed`}
+                                        >
+                                          {roundLabel}
+                                        </span>
+                                      );
+                                    }
                                   }
 
                                   return (
-                                    <button
-                                      key={`${application.id}-${mappedInterview?.updated_at || roundLabel}-${roundIndex}`}
-                                      type="button"
-                                      onClick={() => {
-                                        const detailInterview = mappedInterview || scheduledRounds[scheduledRounds.length - 1] || null;
-                                        if (!detailInterview) return;
-                                        setSelectedInterviewRound(detailInterview);
-                                        setInterviewDetailsFor(application);
-                                        onInterviewDetailsOpen?.(application);
-                                      }}
-                                      className={`inline-flex h-5 min-w-5 items-center justify-center rounded-full bg-[#FF2B2B] px-1 text-[10px] font-semibold leading-none text-white hover:bg-[#e02525] ${
-                                        hasRound ? "animate-interview-cta" : ""
-                                      }`}
-                                      title={`View ${roundLabel} details`}
-                                      aria-label={`View ${roundLabel} details`}
+                                    <span
+                                      key={`${application.id}-round-${roundLabel}`}
+                                      className="inline-flex h-5 min-w-5 items-center justify-center rounded-full bg-[#EEF0F4] px-1 text-[10px] font-semibold leading-none text-[#98A2B3]"
+                                      aria-label={`${roundLabel} not scheduled`}
+                                      title={`${roundLabel} not scheduled`}
                                     >
                                       {roundLabel}
-                                    </button>
+                                    </span>
                                   );
                                 })}
                               </div>
