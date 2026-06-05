@@ -2,12 +2,20 @@ import { useState } from "react";
 import { useNavigate, Link, useLocation } from "react-router";
 
 const logoImage = new URL("../../logo/logo.png", import.meta.url).href;
-import { Eye, EyeOff, Loader2, CheckCircle } from "lucide-react";
+import { Eye, EyeOff, Loader2, CheckCircle, RefreshCw, ShieldCheck, Mail } from "lucide-react";
 import { Button } from "../components/ui/button";
 import { Input } from "../components/ui/input";
 import { RadioGroup, RadioGroupItem } from "../components/ui/radio-group";
 import { Label } from "../components/ui/label";
 import { supabase } from "../../lib/supabase";
+import { sendOTPEmail } from "../../lib/email";
+
+function generateOTP() {
+  return Math.floor(100000 + Math.random() * 900000).toString();
+}
+
+type PendingOTP = { code: string; expiresAt: number };
+const OTP_EXPIRY_MS = 10 * 60 * 1000;
 
 const GoogleIcon = () => (
   <svg className="w-5 h-5 mr-2" viewBox="0 0 24 24">
@@ -30,8 +38,12 @@ export default function JobSeekerSignUp() {
   });
   const [showPassword, setShowPassword] = useState(false);
   const [loading, setLoading] = useState(false);
+  const [resendLoading, setResendLoading] = useState(false);
   const [error, setError] = useState("");
   const [success, setSuccess] = useState(false);
+  const [step, setStep] = useState<"signup" | "otp">("signup");
+  const [otp, setOtp] = useState("");
+  const [pendingOTP, setPendingOTP] = useState<PendingOTP | null>(null);
   const navigate = useNavigate();
   const location = useLocation();
   const redirectTo = new URLSearchParams(location.search).get("redirect");
@@ -52,8 +64,26 @@ export default function JobSeekerSignUp() {
 
     setLoading(true);
     try {
-      // 1. Create auth user with role metadata
-      const { data: authData, error: signUpError } = await supabase.auth.signUp({
+      const generatedOTP = generateOTP();
+      await sendOTPEmail(formData.email, generatedOTP, [formData.firstName, formData.lastName].filter(Boolean).join(" "));
+
+      setPendingOTP({ code: generatedOTP, expiresAt: Date.now() + OTP_EXPIRY_MS });
+      setOtp("");
+      setStep("otp");
+    } catch (err: unknown) {
+      const message = err instanceof Error ? err.message : "Failed to send OTP.";
+      if (message.includes("already registered")) {
+        setError("An account with this email already exists. Please sign in.");
+      } else {
+        setError(message);
+      }
+    } finally {
+      setLoading(false);
+    }
+  };
+
+  const createAccount = async () => {
+    const { data: authData, error: signUpError } = await supabase.auth.signUp({
         email: formData.email,
         password: formData.password,
         options: {
@@ -69,42 +99,72 @@ export default function JobSeekerSignUp() {
 
       if (signUpError) throw signUpError;
       if (!authData.user) throw new Error("Failed to create account.");
+      if (authData.user.identities?.length === 0) {
+        throw new Error("An account with this email already exists. Please sign in.");
+      }
 
-      // 2. Insert profile row
-      const { error: profileError } = await supabase.from("profiles").insert({
+      const { error: profileError } = await supabase.from("profiles").upsert({
         id: authData.user.id,
         email: formData.email,
         first_name: formData.firstName,
         last_name: formData.lastName,
         phone: formData.mobile,
         experience_type: formData.experience as "fresher" | "experienced",
-      });
+      }, { onConflict: "id", ignoreDuplicates: true });
 
       if (profileError && profileError.code !== "23505") {
         // Log for debugging, but don't block — user_metadata has the data as fallback
         console.warn("Profile insert error (non-fatal):", profileError.message, profileError.code);
       }
 
-      // Check if a session was auto-created (email confirmation disabled)
       const { data: { session } } = await supabase.auth.getSession();
       if (session) {
-        // Already signed in — go straight to dashboard
         navigate(safeRedirectTo);
         return;
       }
 
       setSuccess(true);
       setTimeout(() => navigate(`/jobseeker/signin${redirectTo ? `?redirect=${encodeURIComponent(safeRedirectTo)}` : ""}`), 3000);
-    } catch (err: unknown) {
-      const message = err instanceof Error ? err.message : "Sign up failed.";
-      if (message.includes("already registered")) {
-        setError("An account with this email already exists. Please sign in.");
-      } else {
-        setError(message);
+  };
+
+  const handleVerifyOTP = async (e: React.FormEvent) => {
+    e.preventDefault();
+    setError("");
+    setLoading(true);
+    try {
+      if (!pendingOTP || pendingOTP.expiresAt < Date.now()) {
+        throw new Error("OTP has expired. Please request a new one.");
       }
+      if (pendingOTP.code !== otp.trim()) throw new Error("Invalid OTP. Please try again.");
+
+      await createAccount();
+      setPendingOTP(null);
+    } catch (err: unknown) {
+      setError(err instanceof Error ? err.message : "OTP verification failed.");
     } finally {
       setLoading(false);
     }
+  };
+
+  const handleResendOTP = async () => {
+    setError("");
+    setResendLoading(true);
+    try {
+      const newOTP = generateOTP();
+      await sendOTPEmail(formData.email, newOTP, [formData.firstName, formData.lastName].filter(Boolean).join(" "));
+      setPendingOTP({ code: newOTP, expiresAt: Date.now() + OTP_EXPIRY_MS });
+    } catch {
+      setError("Failed to resend OTP. Please try again.");
+    } finally {
+      setResendLoading(false);
+    }
+  };
+
+  const handleBackToSignup = () => {
+    setOtp("");
+    setError("");
+    setPendingOTP(null);
+    setStep("signup");
   };
 
   const handleGoogleSignUp = async () => {
@@ -144,6 +204,86 @@ export default function JobSeekerSignUp() {
             <div className="bg-[#FF2B2B] h-full rounded-full animate-pulse w-full" />
           </div>
           <p className="text-xs text-[#8A8A8A]">Redirecting to Sign In...</p>
+        </div>
+      </div>
+    );
+  }
+
+  if (step === "otp") {
+    return (
+      <div className="min-h-screen bg-gradient-to-br from-[#F6F6F6] to-[#FFE8E8] flex items-center justify-center p-4">
+        <div className="w-full max-w-md">
+          <div className="text-center mb-8">
+            <Link to="/" className="inline-flex flex-col items-center gap-1">
+              <div className="flex items-center gap-2">
+                <img src={logoImage} alt="RhirePro" className="w-10 h-10" />
+                <div className="text-3xl font-bold text-[#3A1F1F]">
+                  Rhire<span className="text-[#FF2B2B]">Pro</span>
+                </div>
+              </div>
+              <p className="text-sm text-[#8A8A8A]">Find your dream job</p>
+            </Link>
+          </div>
+
+          <div className="bg-white rounded-2xl p-8 shadow-xl">
+            <div className="w-16 h-16 bg-green-50 rounded-full flex items-center justify-center mx-auto mb-5">
+              <ShieldCheck className="h-8 w-8 text-green-500" />
+            </div>
+            <h2 className="text-2xl font-bold text-[#3A1F1F] mb-1 text-center">OTP Verification</h2>
+            <p className="text-[#8A8A8A] mb-6 text-sm text-center">
+              Enter the 6-digit code sent to<br />
+              <strong className="text-[#3A1F1F]">{formData.email}</strong>
+            </p>
+
+            {error && (
+              <div className="bg-red-50 border border-red-200 text-red-700 rounded-xl p-3 mb-4 text-sm">{error}</div>
+            )}
+
+            <form onSubmit={handleVerifyOTP} className="space-y-4">
+              <div className="bg-blue-50 border border-blue-200 rounded-xl p-3 text-sm text-blue-700 flex items-start gap-3">
+                <Mail className="h-4 w-4 mt-0.5 flex-shrink-0" />
+                <p>OTP sent to <strong>{formData.email}</strong>. Check your inbox - valid for 10 minutes.</p>
+              </div>
+              <div>
+                <label className="block mb-1.5 text-sm font-medium text-[#3A1F1F] text-center">Enter OTP</label>
+                <Input
+                  type="text"
+                  value={otp}
+                  onChange={e => setOtp(e.target.value.replace(/\D/g, "").slice(0, 6))}
+                  className="bg-[#F6F6F6] border-gray-200 rounded-xl text-center text-2xl tracking-widest"
+                  placeholder="------"
+                  maxLength={6}
+                  required
+                  autoFocus
+                />
+              </div>
+              <Button
+                type="submit"
+                disabled={loading || resendLoading || otp.length < 6}
+                className="w-full bg-[#FF2B2B] hover:bg-[#e02525] text-white rounded-full py-6"
+              >
+                {loading ? <><Loader2 className="mr-2 h-4 w-4 animate-spin" /> Verifying...</> : "Verify Account"}
+              </Button>
+              <div className="flex items-center justify-between">
+                <button
+                  type="button"
+                  onClick={handleBackToSignup}
+                  disabled={loading || resendLoading}
+                  className="text-sm text-[#8A8A8A] hover:text-[#3A1F1F] disabled:opacity-50"
+                >
+                  ← Back
+                </button>
+                <button
+                  type="button"
+                  onClick={handleResendOTP}
+                  disabled={loading || resendLoading}
+                  className="text-sm text-[#FF2B2B] hover:underline flex items-center gap-1 disabled:opacity-50"
+                >
+                  {resendLoading ? <><Loader2 className="h-3 w-3 animate-spin" /> Resending...</> : <><RefreshCw className="h-3 w-3" /> Resend OTP</>}
+                </button>
+              </div>
+            </form>
+          </div>
         </div>
       </div>
     );
