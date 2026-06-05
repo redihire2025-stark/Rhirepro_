@@ -2,16 +2,15 @@ import { useState, useEffect, useCallback, useRef, useMemo, type ChangeEvent } f
 import { useNavigate, Routes, Route, Link, useLocation, useParams } from "react-router";
 import { supabase, Job, Application, Notification, Profile, WorkExperience, Education as EduType, RecruiterSubscription, RecruiterArticle } from "../../lib/supabase";
 import {
-  SALARY_RANGE_OPTIONS,
+  SALARY_AMOUNT_OPTIONS,
   buildJobDeadlineTimestamp,
   buildJobExpiryTimestamp,
   formatJobDeadline,
   formatJobSalary,
+  formatSalaryRangeFromValues,
   getEffectiveJobStatus,
   getJobDaysRemaining,
   getJobDeadlineDateValue,
-  getSalaryRangeFromJob,
-  getSalaryRangeValues,
   isJobExpired,
   JOB_EXPIRY_DAYS,
 } from "../../lib/jobs";
@@ -289,6 +288,166 @@ function LocationAutocomplete({
 }
 
 // ─── Types ──────────────────────────────────────────────────────────────────
+
+function SalaryCombobox({
+  value,
+  onChange,
+  placeholder,
+}: {
+  value: string;
+  onChange: (value: string) => void;
+  placeholder: string;
+}) {
+  const [open, setOpen] = useState(false);
+  const [search, setSearch] = useState("");
+  const wrapperRef = useRef<HTMLDivElement>(null);
+  const formatSalaryAmount = (amount: number) => {
+    if (amount >= 5000000) return "₹50,00,000+";
+    return new Intl.NumberFormat("en-IN", {
+      style: "currency",
+      currency: "INR",
+      maximumFractionDigits: 0,
+    }).format(amount);
+  };
+  const selectedOption = SALARY_AMOUNT_OPTIONS.find(option => String(option.value) === value);
+  const selectedLabel = selectedOption?.label ?? (value ? formatSalaryAmount(Number(value)) : "");
+  const displayValue = open ? search : selectedLabel;
+
+  useEffect(() => {
+    if (!open) setSearch(selectedLabel);
+  }, [open, selectedLabel]);
+
+  useEffect(() => {
+    if (!open) return;
+    const handleClickOutside = (event: MouseEvent) => {
+      if (!wrapperRef.current?.contains(event.target as Node)) {
+        setOpen(false);
+      }
+    };
+    document.addEventListener("mousedown", handleClickOutside);
+    return () => document.removeEventListener("mousedown", handleClickOutside);
+  }, [open]);
+
+  const filteredOptions = useMemo(() => {
+    const query = search.replace(/\D/g, "");
+    if (!query) return SALARY_AMOUNT_OPTIONS;
+
+    const addOption = (
+      map: Map<number, { value: number; label: string; score: number }>,
+      amount: number,
+      score: number,
+    ) => {
+      if (!Number.isFinite(amount) || amount < 0 || amount > 5000000) return;
+      const existing = map.get(amount);
+      if (!existing || score < existing.score) {
+        map.set(amount, { value: amount, label: formatSalaryAmount(amount), score });
+      }
+    };
+
+    const matchingOptions = SALARY_AMOUNT_OPTIONS.filter(option => {
+      const normalizedLabel = option.label.toLowerCase().replace(/[₹,\s]/g, "");
+      return normalizedLabel.includes(query) || String(option.value).includes(query);
+    });
+
+    const typedNumber = Number(query);
+    const optionMap = new Map<number, { value: number; label: string; score: number }>();
+
+    if (typedNumber === 0) addOption(optionMap, 0, 0);
+    if (typedNumber >= 50000) addOption(optionMap, typedNumber, 0);
+    if (typedNumber > 0 && typedNumber <= 50) addOption(optionMap, typedNumber * 100000, 1);
+    if (typedNumber > 0 && typedNumber < 100000) addOption(optionMap, typedNumber * 100, 2);
+    if (typedNumber > 0 && typedNumber < 10000) addOption(optionMap, typedNumber * 1000, 3);
+
+    matchingOptions.forEach(option => addOption(optionMap, option.value, 4));
+
+    if (typedNumber > 0) {
+      const target = typedNumber >= 50000
+        ? typedNumber
+        : typedNumber <= 50
+          ? typedNumber * 100000
+          : typedNumber * 100;
+      SALARY_AMOUNT_OPTIONS
+        .map(option => ({ ...option, distance: Math.abs(option.value - target) }))
+        .sort((a, b) => a.distance - b.distance)
+        .slice(0, 4)
+        .forEach((option, index) => addOption(optionMap, option.value, 5 + index));
+    }
+
+    return Array.from(optionMap.values())
+      .sort((a, b) => a.score - b.score || a.value - b.value)
+      .slice(0, 8);
+  }, [search]);
+
+  const selectSalary = (option: (typeof SALARY_AMOUNT_OPTIONS)[number]) => {
+    onChange(String(option.value));
+    setSearch(option.label);
+    setOpen(false);
+  };
+
+  return (
+    <div className="relative flex-1" ref={wrapperRef}>
+      <div className="relative">
+        <Input
+          value={displayValue}
+          inputMode="numeric"
+          onFocus={() => {
+            setSearch(selectedLabel);
+            setOpen(true);
+          }}
+          onChange={e => {
+            setSearch(e.target.value.replace(/\D/g, ""));
+            if (value) onChange("");
+            setOpen(true);
+          }}
+          onKeyDown={e => {
+            if (e.key === "Enter") {
+              e.preventDefault();
+              if (filteredOptions[0]) selectSalary(filteredOptions[0]);
+            }
+            if (e.key === "Escape") setOpen(false);
+          }}
+          className="h-10 rounded-xl border-gray-200 bg-[#F6F6F6] pr-10 text-[#3A1F1F]"
+          placeholder={placeholder}
+        />
+        <button
+          type="button"
+          onClick={() => {
+            setSearch(selectedLabel);
+            setOpen(current => !current);
+          }}
+          className="absolute right-3 top-1/2 -translate-y-1/2 text-[#8A8A8A] hover:text-[#3A1F1F]"
+        >
+          <ChevronDown className="h-4 w-4" />
+        </button>
+      </div>
+      {open && (
+        <div className="absolute left-0 right-0 top-full z-[90] mt-2 overflow-hidden rounded-xl border border-gray-200 bg-white shadow-xl">
+          <div className="max-h-72 overflow-y-auto p-1">
+            {filteredOptions.length === 0 ? (
+              <div className="px-3 py-3 text-sm text-[#8A8A8A]">No salary found.</div>
+            ) : (
+              filteredOptions.map(option => {
+                const optionValue = String(option.value);
+                const selected = optionValue === value;
+                return (
+                  <button
+                    key={option.value}
+                    type="button"
+                    onClick={() => selectSalary(option)}
+                    className="flex w-full items-center gap-2 rounded-lg px-3 py-2 text-left text-sm text-[#3A1F1F] hover:bg-[#FFF0F0]"
+                  >
+                    <Check className={`h-4 w-4 ${selected ? "text-[#FF2B2B] opacity-100" : "opacity-0"}`} />
+                    <span>{option.label}</span>
+                  </button>
+                );
+              })
+            )}
+          </div>
+        </div>
+      )}
+    </div>
+  );
+}
 
 interface Experience {
   company: string;
@@ -1640,7 +1799,7 @@ function PostJobPage() {
   const [formData, setFormData] = useState({
     jobTitle: "", jobDescription: "", rolesResponsibilities: "", requirements: "",
     location: "", workMode: "",
-    salaryRange: "",
+    salaryMin: "", salaryMax: "",
     experienceMin: "", experienceMax: "",
     skills: "", employmentType: "", industry: "",
     openings: "1", education: "", perks: [] as string[], department: "",
@@ -1686,6 +1845,9 @@ function PostJobPage() {
     () => formData.skills.split(",").map(s => s.trim()).filter(Boolean),
     [formData.skills],
   );
+  const isSalaryRangeInvalid =
+    Boolean(formData.salaryMin && formData.salaryMax) &&
+    Number(formData.salaryMax) < Number(formData.salaryMin);
   const filteredSkillOptions = useMemo(() => {
     const query = skillSearch.trim().toLowerCase();
     if (!query) return SKILL_OPTIONS;
@@ -1837,15 +1999,18 @@ function PostJobPage() {
       );
       return;
     }
-    if (!formData.salaryRange) {
-      setPostError("Please select a salary range.");
+    if (!formData.salaryMin || !formData.salaryMax) {
+      setPostError("Please select both minimum and maximum salary.");
+      return;
+    }
+    if (isSalaryRangeInvalid) {
+      setPostError("Maximum salary must be greater than or equal to minimum salary.");
       return;
     }
     setPosting(true);
     try {
       const deadline = buildJobExpiryTimestamp();
       const skillsArr = formData.skills.split(",").map(s => s.trim()).filter(Boolean);
-      const salaryRange = getSalaryRangeValues(formData.salaryRange);
       const { error } = await supabase.from("jobs").insert({
         recruiter_id: recruiterProfile.id,
         title: formData.jobTitle,
@@ -1855,9 +2020,9 @@ function PostJobPage() {
         company_name: recruiterProfile.company_name || "",
         location: formData.location,
         work_mode: formData.workMode,
-        salary_min: salaryRange.min,
-        salary_max: salaryRange.max,
-        salary_type: salaryRange.type,
+        salary_min: Number(formData.salaryMin),
+        salary_max: Number(formData.salaryMax),
+        salary_type: "LPA",
         experience_min: formData.experienceMin ? Number(formData.experienceMin) : null,
         experience_max: formData.experienceMax ? Number(formData.experienceMax) : null,
         employment_type: formData.employmentType,
@@ -1876,7 +2041,7 @@ function PostJobPage() {
       setPostSuccess(true);
       setShowPreview(false);
       setTimeout(() => { setPostSuccess(false); navigate("/recruiter/dashboard/manage-jobs"); }, 2000);
-      setFormData({ jobTitle:"",jobDescription:"",rolesResponsibilities:"",requirements:"",location:"",workMode:"",salaryRange:"",experienceMin:"",experienceMax:"",skills:"",employmentType:"",industry:"",openings:"1",education:"",perks:[],department:"",interviewMode:"" });
+      setFormData({ jobTitle:"",jobDescription:"",rolesResponsibilities:"",requirements:"",location:"",workMode:"",salaryMin:"",salaryMax:"",experienceMin:"",experienceMax:"",skills:"",employmentType:"",industry:"",openings:"1",education:"",perks:[],department:"",interviewMode:"" });
       setShowSkillInput(false);
       setSkillPickerOpen(false);
       setSkillSearch("");
@@ -1918,7 +2083,7 @@ function PostJobPage() {
                 <div className="flex flex-wrap gap-3 mt-3 text-sm text-[#5A5A5A]">
                   {formData.location && <span className="flex items-center gap-1"><MapPin className="h-3.5 w-3.5" />{formData.location}</span>}
                   {formData.experienceMin && <span className="flex items-center gap-1"><Briefcase className="h-3.5 w-3.5" />{formData.experienceMin}–{formData.experienceMax} yrs</span>}
-                  {formData.salaryRange && <span className="flex items-center gap-1"><TrendingUp className="h-3.5 w-3.5" />{formData.salaryRange}</span>}
+                  {formData.salaryMin && formData.salaryMax && <span className="flex items-center gap-1"><TrendingUp className="h-3.5 w-3.5" />{formatSalaryRangeFromValues(formData.salaryMin, formData.salaryMax)}</span>}
                   {formData.workMode && <span className="flex items-center gap-1"><Globe className="h-3.5 w-3.5" />{formData.workMode}</span>}
                   {formData.employmentType && <span className="flex items-center gap-1"><Clock className="h-3.5 w-3.5" />{formData.employmentType}</span>}
                 </div>
@@ -2045,8 +2210,12 @@ function PostJobPage() {
             setSkillPickerOpen(true);
             return;
           }
-          if (!formData.salaryRange) {
-            setPostError("Please select a salary range.");
+          if (!formData.salaryMin || !formData.salaryMax) {
+            setPostError("Please select both minimum and maximum salary.");
+            return;
+          }
+          if (isSalaryRangeInvalid) {
+            setPostError("Maximum salary must be greater than or equal to minimum salary.");
             return;
           }
           setPostError("");
@@ -2189,13 +2358,23 @@ function PostJobPage() {
             <h2 className="text-lg font-semibold text-[#3A1F1F] mb-4">Salary & Experience</h2>
             <div className="grid md:grid-cols-2 gap-4">
               <div>
-                <label className="block mb-1.5 text-sm font-medium text-[#3A1F1F]">Salary Range *</label>
-                <Select value={formData.salaryRange} onValueChange={v => setFormData({ ...formData, salaryRange: v })}>
-                  <SelectTrigger className="bg-[#F6F6F6] border-gray-200 rounded-xl"><SelectValue placeholder="Select salary range" /></SelectTrigger>
-                  <SelectContent>
-                    {SALARY_RANGE_OPTIONS.map(range => <SelectItem key={range} value={range}>{range}</SelectItem>)}
-                  </SelectContent>
-                </Select>
+                <label className="block mb-1.5 text-sm font-medium text-[#3A1F1F]">Salary Offered *</label>
+                <div className="flex gap-2 items-center">
+                  <SalaryCombobox
+                    value={formData.salaryMin}
+                    onChange={v => setFormData({ ...formData, salaryMin: v })}
+                    placeholder="Search or Select"
+                  />
+                  <span className="text-[#8A8A8A]">–</span>
+                  <SalaryCombobox
+                    value={formData.salaryMax}
+                    onChange={v => setFormData({ ...formData, salaryMax: v })}
+                    placeholder="Search or Select"
+                  />
+                </div>
+                {isSalaryRangeInvalid && (
+                  <p className="text-xs text-red-500 mt-1.5">Maximum salary must be greater than or equal to minimum salary.</p>
+                )}
               </div>
               <div>
                 <label className="block mb-1.5 text-sm font-medium text-[#3A1F1F]">Experience Required *</label>
@@ -2404,16 +2583,24 @@ function ManageJobsPage() {
   const [filter, setFilter] = useState("All");
   const [loading, setLoading] = useState(true);
   const [editingJob, setEditingJob] = useState<Job | null>(null);
-  const [editForm, setEditForm] = useState({ title: "", location: "", salaryRange: "", employmentType: "", workMode: "", openings: "1", skills: "" });
+  const [editForm, setEditForm] = useState({ title: "", location: "", salaryMin: "", salaryMax: "", employmentType: "", workMode: "", openings: "1", skills: "" });
   const [saving, setSaving] = useState(false);
   const [refreshingJobId, setRefreshingJobId] = useState<string | null>(null);
+  const isEditSalaryRangeInvalid =
+    Boolean(editForm.salaryMin && editForm.salaryMax) &&
+    Number(editForm.salaryMax) < Number(editForm.salaryMin);
+  const getSalaryFormValue = (value: number | null) => {
+    if (value == null) return "";
+    return String(value >= 1000 ? value : value * 100000);
+  };
 
   const openEdit = (job: Job) => {
     setEditingJob(job);
     setEditForm({
       title: job.title,
       location: job.location || "",
-      salaryRange: getSalaryRangeFromJob(job),
+      salaryMin: getSalaryFormValue(job.salary_min),
+      salaryMax: getSalaryFormValue(job.salary_max),
       employmentType: job.employment_type || "",
       workMode: job.work_mode || "",
       openings: String(job.openings),
@@ -2423,16 +2610,17 @@ function ManageJobsPage() {
 
   const saveEdit = async () => {
     if (!editingJob) return;
-    if (!editForm.salaryRange) return;
+    if (!editForm.salaryMin || !editForm.salaryMax) return;
+    if (isEditSalaryRangeInvalid) return;
     setSaving(true);
     const skillsArr = editForm.skills.split(",").map(s => s.trim()).filter(Boolean);
-    const salaryRange = getSalaryRangeValues(editForm.salaryRange);
+
     await supabase.from("jobs").update({
       title: editForm.title,
       location: editForm.location,
-      salary_min: salaryRange.min,
-      salary_max: salaryRange.max,
-      salary_type: salaryRange.type,
+      salary_min: Number(editForm.salaryMin),
+      salary_max: Number(editForm.salaryMax),
+      salary_type: "LPA",
       employment_type: editForm.employmentType,
       work_mode: editForm.workMode,
       openings: Number(editForm.openings) || 1,
@@ -2440,9 +2628,9 @@ function ManageJobsPage() {
     }).eq("id", editingJob.id);
     setJobs(prev => prev.map(j => j.id === editingJob.id ? {
       ...j, title: editForm.title, location: editForm.location,
-      salary_min: salaryRange.min,
-      salary_max: salaryRange.max,
-      salary_type: salaryRange.type, employment_type: editForm.employmentType,
+      salary_min: Number(editForm.salaryMin),
+      salary_max: Number(editForm.salaryMax),
+      salary_type: "LPA", employment_type: editForm.employmentType,
       work_mode: editForm.workMode, openings: Number(editForm.openings) || 1,
       skills: skillsArr,
     } : j));
@@ -2666,13 +2854,23 @@ function ManageJobsPage() {
               </div>
             </div>
             <div>
-              <label className="block text-sm font-medium text-[#3A1F1F] mb-1">Salary Range *</label>
-              <Select value={editForm.salaryRange} onValueChange={v => setEditForm(f => ({ ...f, salaryRange: v }))}>
-                <SelectTrigger className="bg-[#F6F6F6] border-gray-200 rounded-xl"><SelectValue placeholder="Select salary range" /></SelectTrigger>
-                <SelectContent>
-                  {SALARY_RANGE_OPTIONS.map(range => <SelectItem key={range} value={range}>{range}</SelectItem>)}
-                </SelectContent>
-              </Select>
+              <label className="block text-sm font-medium text-[#3A1F1F] mb-1">Salary Offered *</label>
+              <div className="flex gap-2 items-center">
+                <SalaryCombobox
+                  value={editForm.salaryMin}
+                  onChange={v => setEditForm(f => ({ ...f, salaryMin: v }))}
+                  placeholder="Search or Select"
+                />
+                <span className="text-[#8A8A8A]">–</span>
+                <SalaryCombobox
+                  value={editForm.salaryMax}
+                  onChange={v => setEditForm(f => ({ ...f, salaryMax: v }))}
+                  placeholder="Search or Select"
+                />
+              </div>
+              {isEditSalaryRangeInvalid && (
+                <p className="text-xs text-red-500 mt-1.5">Maximum salary must be greater than or equal to minimum salary.</p>
+              )}
             </div>
             <div>
               <label className="block text-sm font-medium text-[#3A1F1F] mb-1">Number of Openings</label>
@@ -2683,7 +2881,7 @@ function ManageJobsPage() {
               <Input value={editForm.skills} onChange={e => setEditForm(f => ({ ...f, skills: e.target.value }))} className="bg-[#F6F6F6] border-gray-200 rounded-xl" placeholder="Python, SQL, React" />
             </div>
             <div className="flex gap-3 pt-2">
-              <Button className="flex-1 bg-[#FF2B2B] hover:bg-[#e02525] text-white rounded-full" onClick={saveEdit} disabled={saving || !editForm.title || !editForm.salaryRange}>
+              <Button className="flex-1 bg-[#FF2B2B] hover:bg-[#e02525] text-white rounded-full" onClick={saveEdit} disabled={saving || !editForm.title || !editForm.salaryMin || !editForm.salaryMax || isEditSalaryRangeInvalid}>
                 {saving ? "Saving..." : "Save Changes"}
               </Button>
               <Button variant="outline" className="rounded-full" onClick={() => setEditingJob(null)}>Cancel</Button>

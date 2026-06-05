@@ -3,65 +3,54 @@ import type { Job } from "./supabase";
 const IST_TIME_ZONE = "Asia/Kolkata";
 export const JOB_EXPIRY_DAYS = 15;
 
-export const SALARY_RANGE_OPTIONS = [
-  "Below ₹2 LPA",
-  "₹2-4 LPA",
-  "₹4-6 LPA",
-  "₹6-10 LPA",
-  "₹10-15 LPA",
-  "₹15-20 LPA",
-  "Above ₹20 LPA",
+export const SALARY_AMOUNT_OPTIONS = [
+  { value: 0, label: "₹0" },
+  { value: 50000, label: "₹50,000" },
+  { value: 100000, label: "₹1,00,000" },
+  { value: 200000, label: "₹2,00,000" },
+  { value: 300000, label: "₹3,00,000" },
+  { value: 400000, label: "₹4,00,000" },
+  { value: 500000, label: "₹5,00,000" },
+  { value: 600000, label: "₹6,00,000" },
+  { value: 800000, label: "₹8,00,000" },
+  { value: 1000000, label: "₹10,00,000" },
+  { value: 1200000, label: "₹12,00,000" },
+  { value: 1500000, label: "₹15,00,000" },
+  { value: 2000000, label: "₹20,00,000" },
+  { value: 2500000, label: "₹25,00,000" },
+  { value: 3000000, label: "₹30,00,000" },
+  { value: 4000000, label: "₹40,00,000" },
+  { value: 5000000, label: "₹50,00,000+" },
 ] as const;
 
-export type SalaryRangeOption = (typeof SALARY_RANGE_OPTIONS)[number];
-
-const SALARY_RANGE_VALUES: Record<SalaryRangeOption, { min: number | null; max: number | null }> = {
-  "Below ₹2 LPA": { min: null, max: 2 },
-  "₹2-4 LPA": { min: 2, max: 4 },
-  "₹4-6 LPA": { min: 4, max: 6 },
-  "₹6-10 LPA": { min: 6, max: 10 },
-  "₹10-15 LPA": { min: 10, max: 15 },
-  "₹15-20 LPA": { min: 15, max: 20 },
-  "Above ₹20 LPA": { min: 20, max: null },
-};
-
-export function getSalaryRangeValues(range: string): { min: number | null; max: number | null; type: "LPA" } {
-  const values = SALARY_RANGE_VALUES[range as SalaryRangeOption] ?? { min: null, max: null };
-  return { ...values, type: "LPA" };
+function formatLpaValue(value: number): string {
+  const lpa = value >= 1000 ? value / 100000 : value;
+  return Number.isInteger(lpa) ? String(lpa) : lpa.toFixed(1).replace(/\.0$/, "");
 }
 
-export function getSalaryRangeFromJob(job: Pick<Job, "salary_min" | "salary_max" | "salary_type">): string {
-  if (job.salary_type !== "LPA") return "";
+export function formatSalaryRangeFromValues(
+  salaryMin: number | string | null | undefined,
+  salaryMax: number | string | null | undefined
+): string {
+  const min = salaryMin === "" || salaryMin == null ? null : Number(salaryMin);
+  const max = salaryMax === "" || salaryMax == null ? null : Number(salaryMax);
 
-  const match = SALARY_RANGE_OPTIONS.find((range) => {
-    const values = SALARY_RANGE_VALUES[range];
-    return values.min === job.salary_min && values.max === job.salary_max;
-  });
+  if (min == null && max == null) return "Salary not disclosed";
+  if (min != null && Number.isNaN(min)) return "Salary not disclosed";
+  if (max != null && Number.isNaN(max)) return "Salary not disclosed";
 
-  return match ?? "";
+  if (min != null && max != null) {
+    if (min === max) return `₹${formatLpaValue(min)} LPA`;
+    return `₹${formatLpaValue(min)}–${formatLpaValue(max)} LPA${max >= 5000000 ? "+" : ""}`;
+  }
+
+  if (max != null) return `Below ₹${formatLpaValue(max)} LPA${max >= 5000000 ? "+" : ""}`;
+  return `Above ₹${formatLpaValue(min!)} LPA`;
 }
 
 export function formatJobSalary(job: Pick<Job, "salary_min" | "salary_max" | "salary_type">): string {
-  const selectedRange = getSalaryRangeFromJob(job);
-  if (selectedRange) return selectedRange;
-
-  if (job.salary_type === "LPA" && job.salary_max && !job.salary_min) {
-    return `Below ₹${job.salary_max} LPA`;
-  }
-
-  if (job.salary_type === "LPA" && job.salary_min && !job.salary_max) {
-    return `Above ₹${job.salary_min} LPA`;
-  }
-
-  if (job.salary_min && job.salary_max && job.salary_type) {
-    return `${job.salary_min}-${job.salary_max} ${job.salary_type}`;
-  }
-
-  if (job.salary_min && job.salary_type) {
-    return `${job.salary_min}+ ${job.salary_type}`;
-  }
-
-  return "Salary not disclosed";
+  if (job.salary_type !== "LPA") return "Salary not disclosed";
+  return formatSalaryRangeFromValues(job.salary_min, job.salary_max);
 }
 
 function getIstDate(value: Date | string): string {
