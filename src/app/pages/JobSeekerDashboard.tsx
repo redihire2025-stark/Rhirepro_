@@ -66,7 +66,7 @@ interface Project {
   id: number; name: string; url: string; startYear: string; endYear: string; description: string;
 }
 interface Certification {
-  id: number; name: string; issuer: string; issueDate: string; credentialId: string;
+  id: number; name: string; issuer: string; issueDate: string; expiryDate: string; noExpiry: boolean; credentialId: string;
 }
 interface Language { id: number; language: string; proficiency: string; }
 interface OfferPanelDetails {
@@ -1436,7 +1436,11 @@ function ProfilePage({ onPendingPrefsChange }: { onPendingPrefsChange?: (pending
   useEffect(() => {
     if (!profile?.id) return;
     supabase.from("work_experience").select("*").eq("profile_id", profile.id).order("created_at", { ascending: false })
-      .then(({ data }) => {
+      .then(({ data, error }) => {
+        if (error) {
+          console.error("Error loading work experience:", error.message);
+          return;
+        }
         if (data && data.length > 0) {
           setExperiences(data.map(e => {
             const startParts = (e.start_date || "").split(" ");
@@ -1455,9 +1459,14 @@ function ProfilePage({ onPendingPrefsChange }: { onPendingPrefsChange?: (pending
             };
           }));
         }
-      });
+      })
+      .catch((err) => console.error("Unexpected error loading work experience:", err));
     supabase.from("education").select("*").eq("profile_id", profile.id).order("created_at", { ascending: false })
-      .then(({ data }) => {
+      .then(({ data, error }) => {
+        if (error) {
+          console.error("Error loading education:", error.message);
+          return;
+        }
         if (data && data.length > 0) {
           setEducation(data.map(e => ({
             id: e.id, degree: e.degree, field: e.field || "",
@@ -1465,25 +1474,37 @@ function ProfilePage({ onPendingPrefsChange }: { onPendingPrefsChange?: (pending
             endYear: e.end_year || "", score: e.score || "",
           })));
         }
-      });
+      })
+      .catch((err) => console.error("Unexpected error loading education:", err));
     supabase.from("projects").select("*").eq("profile_id", profile.id).order("created_at", { ascending: false })
-      .then(({ data }) => {
+      .then(({ data, error }) => {
+        if (error) {
+          console.error("Error loading projects:", error.message);
+          return;
+        }
         if (data && data.length > 0) {
           setProjects(data.map(p => ({
             id: p.id, name: p.name, url: p.url || "",
             startYear: p.start_year || "", endYear: p.end_year || "", description: p.description || "",
           })));
         }
-      });
+      })
+      .catch((err) => console.error("Unexpected error loading projects:", err));
     supabase.from("certifications").select("*").eq("profile_id", profile.id).order("created_at", { ascending: false })
-      .then(({ data }) => {
+      .then(({ data, error }) => {
+        if (error) {
+          console.error("Error loading certifications:", error.message);
+          return;
+        }
         if (data && data.length > 0) {
           setCertifications(data.map(c => ({
             id: c.id, name: c.name, issuer: c.issuer || "",
-            issueDate: c.issue_date || "", credentialId: c.credential_id || "",
+            issueDate: c.issue_date || "", expiryDate: c.expiry_date || "",
+            noExpiry: Boolean(c.no_expiry), credentialId: c.credential_id || "",
           })));
         }
-      });
+      })
+      .catch((err) => console.error("Unexpected error loading certifications:", err));
   }, [profile?.id]);
 
   // Projects
@@ -1494,7 +1515,7 @@ function ProfilePage({ onPendingPrefsChange }: { onPendingPrefsChange?: (pending
   const [projForm, setProjForm] = useState<Omit<Project,"id">>(emptyProj);
 
   // Certifications
-  const emptyCert = { name: "", issuer: "", issueDate: "", credentialId: "" };
+  const emptyCert = { name: "", issuer: "", issueDate: "", expiryDate: "", noExpiry: false, credentialId: "" };
   const [certifications, setCertifications] = useState<Certification[]>([]);
   const [showAddCert, setShowAddCert] = useState(false);
   const [editingCertId, setEditingCertId] = useState<number | null>(null);
@@ -1753,20 +1774,29 @@ function ProfilePage({ onPendingPrefsChange }: { onPendingPrefsChange?: (pending
       setExperiences(prev => prev.map(e => e.id === editingExpId ? { ...expForm, id: e.id } : e));
       setEditingExpId(null);
       if (profile?.id) {
-        await supabase.from("work_experience").update({
+        const { error } = await supabase.from("work_experience").update({
           company: expForm.company, title: expForm.title, location: expForm.location,
           start_date: startDate, end_date: endDate,
           is_current: expForm.current, description: expForm.description,
         }).eq("id", editingExpId).eq("profile_id", profile.id);
+        if (error) {
+          console.error("Experience update error:", error.message);
+          alert("Failed to save experience. Please try again.");
+        }
       }
     } else {
       let newId = String(Date.now());
       if (profile?.id) {
-        const { data } = await supabase.from("work_experience").insert({
+        const { data, error } = await supabase.from("work_experience").insert({
           profile_id: profile.id, company: expForm.company, title: expForm.title,
           location: expForm.location, start_date: startDate, end_date: endDate,
           is_current: expForm.current, description: expForm.description,
         }).select("id").single();
+        if (error) {
+          console.error("Experience insert error:", error.message);
+          alert("Failed to save experience. Please try again.");
+          return;
+        }
         if (data?.id) newId = data.id;
       }
       setExperiences(prev => [...prev, { ...expForm, id: newId }]);
@@ -1806,7 +1836,7 @@ function ProfilePage({ onPendingPrefsChange }: { onPendingPrefsChange?: (pending
       } : e));
       setEditingEduId(null);
       if (profile?.id) {
-        await supabase.from("education").update({
+        const { error } = await supabase.from("education").update({
           institution: eduForm.college,
           degree: eduForm.degree,
           field: effectiveField,
@@ -1814,11 +1844,15 @@ function ProfilePage({ onPendingPrefsChange }: { onPendingPrefsChange?: (pending
           end_year: eduForm.endYear,
           score: eduForm.score,
         }).eq("id", editingEduId).eq("profile_id", profile.id);
+        if (error) {
+          console.error("Education update error:", error.message);
+          alert("Failed to save education. Please try again.");
+        }
       }
     } else {
       let newId = String(Date.now());
       if (profile?.id) {
-        const { data } = await supabase.from("education").insert({
+        const { data, error } = await supabase.from("education").insert({
           profile_id: profile.id,
           institution: eduForm.college,
           degree: eduForm.degree,
@@ -1827,6 +1861,11 @@ function ProfilePage({ onPendingPrefsChange }: { onPendingPrefsChange?: (pending
           end_year: eduForm.endYear,
           score: eduForm.score,
         }).select("id").single();
+        if (error) {
+          console.error("Education insert error:", error.message);
+          alert("Failed to save education. Please try again.");
+          return;
+        }
         if (data?.id) newId = data.id;
       }
       setEducation(prev => [...prev, {
@@ -1857,17 +1896,28 @@ function ProfilePage({ onPendingPrefsChange }: { onPendingPrefsChange?: (pending
     if (editingProjId !== null) {
       setProjects(prev => prev.map(p => p.id === editingProjId ? { ...projForm, id: p.id } : p));
       setEditingProjId(null);
-      if (profile?.id) await supabase.from("projects").update({
-        name: projForm.name, url: projForm.url, start_year: projForm.startYear,
-        end_year: projForm.endYear, description: projForm.description,
-      }).eq("id", editingProjId).eq("profile_id", profile.id);
+      if (profile?.id) {
+        const { error } = await supabase.from("projects").update({
+          name: projForm.name, url: projForm.url, start_year: projForm.startYear,
+          end_year: projForm.endYear, description: projForm.description,
+        }).eq("id", editingProjId).eq("profile_id", profile.id);
+        if (error) {
+          console.error("Project update error:", error.message);
+          alert("Failed to save project. Please try again.");
+        }
+      }
     } else {
       let newId = Date.now();
       if (profile?.id) {
-        const { data } = await supabase.from("projects").insert({
+        const { data, error } = await supabase.from("projects").insert({
           profile_id: profile.id, name: projForm.name, url: projForm.url,
           start_year: projForm.startYear, end_year: projForm.endYear, description: projForm.description,
         }).select("id").single();
+        if (error) {
+          console.error("Project insert error:", error.message);
+          alert("Failed to save project. Please try again.");
+          return;
+        }
         if (data?.id) newId = data.id;
       }
       setProjects(prev => [...prev, { ...projForm, id: newId }]);
@@ -1887,17 +1937,30 @@ function ProfilePage({ onPendingPrefsChange }: { onPendingPrefsChange?: (pending
     if (editingCertId !== null) {
       setCertifications(prev => prev.map(c => c.id === editingCertId ? { ...certForm, id: c.id } : c));
       setEditingCertId(null);
-      if (profile?.id) await supabase.from("certifications").update({
-        name: certForm.name, issuer: certForm.issuer,
-        issue_date: certForm.issueDate, credential_id: certForm.credentialId,
-      }).eq("id", editingCertId).eq("profile_id", profile.id);
+      if (profile?.id) {
+        const { error } = await supabase.from("certifications").update({
+          name: certForm.name, issuer: certForm.issuer,
+          issue_date: certForm.issueDate, expiry_date: certForm.noExpiry ? null : certForm.expiryDate,
+          no_expiry: certForm.noExpiry, credential_id: certForm.credentialId,
+        }).eq("id", editingCertId).eq("profile_id", profile.id);
+        if (error) {
+          console.error("Certification update error:", error.message);
+          alert("Failed to save certification. Please try again.");
+        }
+      }
     } else {
       let newId = Date.now();
       if (profile?.id) {
-        const { data } = await supabase.from("certifications").insert({
+        const { data, error } = await supabase.from("certifications").insert({
           profile_id: profile.id, name: certForm.name, issuer: certForm.issuer,
-          issue_date: certForm.issueDate, credential_id: certForm.credentialId,
+          issue_date: certForm.issueDate, expiry_date: certForm.noExpiry ? null : certForm.expiryDate,
+          no_expiry: certForm.noExpiry, credential_id: certForm.credentialId,
         }).select("id").single();
+        if (error) {
+          console.error("Certification insert error:", error.message);
+          alert("Failed to save certification. Please try again.");
+          return;
+        }
         if (data?.id) newId = data.id;
       }
       setCertifications(prev => [...prev, { ...certForm, id: newId }]);
@@ -1907,7 +1970,14 @@ function ProfilePage({ onPendingPrefsChange }: { onPendingPrefsChange?: (pending
   }
   function editCert(cert: Certification) {
     setEditingCertId(cert.id);
-    setCertForm({ name: cert.name, issuer: cert.issuer, issueDate: cert.issueDate, credentialId: cert.credentialId });
+    setCertForm({
+      name: cert.name,
+      issuer: cert.issuer,
+      issueDate: cert.issueDate,
+      expiryDate: cert.expiryDate,
+      noExpiry: cert.noExpiry,
+      credentialId: cert.credentialId,
+    });
     setShowAddCert(false);
   }
   function cancelCert() { setEditingCertId(null); setShowAddCert(false); setCertForm(emptyCert); }
@@ -1917,9 +1987,15 @@ function ProfilePage({ onPendingPrefsChange }: { onPendingPrefsChange?: (pending
     const updated = [...languages, { ...langForm, id: Date.now() }];
     setLanguages(updated);
     setLangForm({ language: "", proficiency: "Beginner" }); setShowAddLang(false);
-    if (profile?.id) await supabase.from("profiles").update({
-      languages: updated.map(l => ({ language: l.language, proficiency: l.proficiency }))
-    }).eq("id", profile.id);
+    if (profile?.id) {
+      const { error } = await supabase.from("profiles").update({
+        languages: updated.map(l => ({ language: l.language, proficiency: l.proficiency }))
+      }).eq("id", profile.id);
+      if (error) {
+        console.error("Language update error:", error.message);
+        alert("Failed to save language. Please try again.");
+      }
+    }
   }
 
   // ── Render ────────────────────────────────────────────────────────────────
@@ -2162,7 +2238,15 @@ function ProfilePage({ onPendingPrefsChange }: { onPendingPrefsChange?: (pending
               <div className="flex gap-3">
                 <Button className="bg-[#FF2B2B] hover:bg-[#e02525] text-white rounded-full" onClick={async () => {
                   setSummary(summaryForm); setEditingSummary(false);
-                  if (profile?.id) await supabase.from("profiles").update({ about: summaryForm }).eq("id", profile.id);
+                  if (profile?.id) {
+                    const { error } = await supabase.from("profiles").update({ about: summaryForm }).eq("id", profile.id);
+                    if (error) {
+                      console.error("Summary update error:", error.message);
+                      alert("Failed to save summary. Please try again.");
+                    } else {
+                      await refreshProfile();
+                    }
+                  }
                 }}>Save</Button>
                 <Button variant="outline" className="rounded-full" onClick={() => setEditingSummary(false)}>Cancel</Button>
               </div>
@@ -2304,7 +2388,16 @@ function ProfilePage({ onPendingPrefsChange }: { onPendingPrefsChange?: (pending
                     </div>
                     <div className="flex gap-1 shrink-0 ml-4">
                       <Button variant="ghost" size="icon" className="h-8 w-8 text-[#8A8A8A] hover:text-[#FF2B2B]" onClick={() => editExp(exp)}><Pencil className="h-4 w-4" /></Button>
-                      <Button variant="ghost" size="icon" className="h-8 w-8 text-[#8A8A8A] hover:text-red-600" onClick={async () => { setExperiences(p => p.filter(e => e.id !== exp.id)); if (profile?.id) await supabase.from("work_experience").delete().eq("id", exp.id).eq("profile_id", profile.id); }}><Trash2 className="h-4 w-4" /></Button>
+                      <Button variant="ghost" size="icon" className="h-8 w-8 text-[#8A8A8A] hover:text-red-600" onClick={async () => { 
+                        setExperiences(p => p.filter(e => e.id !== exp.id)); 
+                        if (profile?.id) {
+                          const { error } = await supabase.from("work_experience").delete().eq("id", exp.id).eq("profile_id", profile.id);
+                          if (error) {
+                            console.error("Experience delete error:", error.message);
+                            setExperiences(p => p.concat(exp));
+                          }
+                        }
+                      }}><Trash2 className="h-4 w-4" /></Button>
                     </div>
                   </div>
                 )}
@@ -2346,7 +2439,16 @@ function ProfilePage({ onPendingPrefsChange }: { onPendingPrefsChange?: (pending
                     </div>
                     <div className="flex gap-1 shrink-0 ml-4">
                       <Button variant="ghost" size="icon" className="h-8 w-8 text-[#8A8A8A] hover:text-[#FF2B2B]" onClick={() => editEdu(edu)}><Pencil className="h-4 w-4" /></Button>
-                      <Button variant="ghost" size="icon" className="h-8 w-8 text-[#8A8A8A] hover:text-red-600" onClick={async () => { setEducation(p => p.filter(e => e.id !== edu.id)); if (profile?.id) await supabase.from("education").delete().eq("id", edu.id).eq("profile_id", profile.id); }}><Trash2 className="h-4 w-4" /></Button>
+                      <Button variant="ghost" size="icon" className="h-8 w-8 text-[#8A8A8A] hover:text-red-600" onClick={async () => { 
+                        setEducation(p => p.filter(e => e.id !== edu.id)); 
+                        if (profile?.id) {
+                          const { error } = await supabase.from("education").delete().eq("id", edu.id).eq("profile_id", profile.id);
+                          if (error) {
+                            console.error("Education delete error:", error.message);
+                            setEducation(p => p.concat(edu));
+                          }
+                        }
+                      }}><Trash2 className="h-4 w-4" /></Button>
                     </div>
                   </div>
                 )}
@@ -2420,6 +2522,7 @@ function ProfilePage({ onPendingPrefsChange }: { onPendingPrefsChange?: (pending
                       {cert.issuer && <p className="text-[#8A8A8A] text-sm">{cert.issuer}</p>}
                       <p className="text-[#8A8A8A] text-xs mt-0.5">
                         {cert.issueDate && `Issued: ${cert.issueDate}`}
+                        {(cert.noExpiry || cert.expiryDate) && `${cert.issueDate ? " • " : ""}${cert.noExpiry ? "No Expiry" : `Expires: ${cert.expiryDate}`}`}
                         {cert.credentialId && ` • ID: ${cert.credentialId}`}
                       </p>
                     </div>
@@ -2452,7 +2555,13 @@ function ProfilePage({ onPendingPrefsChange }: { onPendingPrefsChange?: (pending
                 <button onClick={async () => {
                   const updated = languages.filter(l => l.id !== lang.id);
                   setLanguages(updated);
-                  if (profile?.id) await supabase.from("profiles").update({ languages: updated.map(l => ({ language: l.language, proficiency: l.proficiency })) }).eq("id", profile.id);
+                  if (profile?.id) {
+                    const { error } = await supabase.from("profiles").update({ languages: updated.map(l => ({ language: l.language, proficiency: l.proficiency })) }).eq("id", profile.id);
+                    if (error) {
+                      console.error("Language delete error:", error.message);
+                      setLanguages(languages);
+                    }
+                  }
                 }} className="ml-1 text-[#8A8A8A] hover:text-[#FF2B2B]"><X className="h-3 w-3" /></button>
               </div>
             ))}
@@ -2498,18 +2607,28 @@ function ProfilePage({ onPendingPrefsChange }: { onPendingPrefsChange?: (pending
                     if (uploadError) { alert("Resume upload failed: " + uploadError.message); return; }
                     if (uploadData) {
                       const { data: urlData } = supabase.storage.from("resumes").getPublicUrl(filePath);
-                      await supabase.from("profiles").update({ resume_url: urlData.publicUrl }).eq("id", profile.id);
+                      const { error: dbError } = await supabase.from("profiles").update({ resume_url: urlData.publicUrl }).eq("id", profile.id);
+                      if (dbError) {
+                        console.error("Resume DB update error:", dbError.message);
+                        alert("Failed to save resume. Please try again.");
+                        return;
+                      }
                       setResumeFile(urlData.publicUrl);
-                      refreshProfile();
+                      await refreshProfile();
                     }
                   }} />
                   <Button variant="outline" size="sm" className="border-[#FF2B2B] text-[#FF2B2B] rounded-full" asChild><span><Pencil className="h-4 w-4 mr-1" /> Replace</span></Button>
                 </label>
                 <Button variant="ghost" size="sm" className="text-red-500 rounded-full" onClick={async () => {
                   if (!profile) return;
-                  await supabase.from("profiles").update({ resume_url: null }).eq("id", profile.id);
+                  const { error } = await supabase.from("profiles").update({ resume_url: null }).eq("id", profile.id);
+                  if (error) {
+                    console.error("Resume delete error:", error.message);
+                    alert("Failed to delete resume. Please try again.");
+                    return;
+                  }
                   setResumeFile(null);
-                  refreshProfile();
+                  await refreshProfile();
                 }}><Trash2 className="h-4 w-4" /></Button>
               </div>
             </div>
@@ -2693,7 +2812,7 @@ function ProfilePage({ onPendingPrefsChange }: { onPendingPrefsChange?: (pending
                   setPreferences(normalizedPrefs);
                   setEditingPrefs(false);
                   if (profile?.id) {
-                    await supabase.from("profiles").update({
+                    const { error } = await supabase.from("profiles").update({
                       desired_job_title: normalizedPrefs.desiredJobTitle || null,
                       job_type_pref: normalizedPrefs.jobType || null,
                       preferred_location: normalizedPrefs.preferredLocation || null,
@@ -2702,7 +2821,13 @@ function ProfilePage({ onPendingPrefsChange }: { onPendingPrefsChange?: (pending
                       work_auth: normalizedPrefs.workAuth || null,
                       willing_to_relocate: normalizedPrefs.willingToRelocate || null,
                     }).eq("id", profile.id);
-                    clearPrefsDraft(profile.id);
+                    if (error) {
+                      console.error("Preferences update error:", error.message);
+                      alert("Failed to save preferences. Please try again.");
+                    } else {
+                      clearPrefsDraft(profile.id);
+                      await refreshProfile();
+                    }
                   }
                 }}>Save</Button>
                 <Button variant="outline" className="rounded-full" onClick={() => {
@@ -2988,6 +3113,25 @@ function CertForm({ form, setForm, onSave, onCancel }: {
         <div>
           <label className="block text-sm text-[#3A1F1F] mb-1">Issue Date</label>
           <Input type="month" value={form.issueDate} onChange={(e) => setForm({ ...form, issueDate: e.target.value })} className="bg-white border-gray-200 rounded-xl" />
+        </div>
+        <div>
+          <label className="block text-sm text-[#3A1F1F] mb-1">Certification Expiry Date</label>
+          <Input
+            type="month"
+            value={form.expiryDate}
+            onChange={(e) => setForm({ ...form, expiryDate: e.target.value })}
+            disabled={form.noExpiry}
+            className="bg-white border-gray-200 rounded-xl disabled:cursor-not-allowed disabled:bg-gray-100"
+          />
+          <label className="mt-2 flex items-center gap-2 text-sm text-[#3A1F1F]">
+            <input
+              type="checkbox"
+              checked={form.noExpiry}
+              onChange={(e) => setForm({ ...form, noExpiry: e.target.checked, expiryDate: e.target.checked ? "" : form.expiryDate })}
+              className="accent-[#FF2B2B]"
+            />
+            No Expiry / N/A
+          </label>
         </div>
         <div>
           <label className="block text-sm text-[#3A1F1F] mb-1">Credential ID</label>
