@@ -453,263 +453,7 @@ interface Candidate {
 
 // ─── Mock Data ───────────────────────────────────────────────────────────────
 
-const candidatesData: Candidate[] = [
-  {
-    id: 1,
-    name: "Arjun Mehta",
-    initials: "AM",
-    headline: "Senior Data Analyst | Python | SQL | Power BI",
-    totalExp: "5 years 3 months",
-    currentCompany: "Infosys Ltd.",
-    currentTitle: "Data Analyst",
-    location: "Bengaluru, Karnataka",
-    email: "arjun.mehta@email.com",
-    phone: "+91 98765 43210",
-    noticePeriod: "30 days",
-    currentSalary: "12 LPA",
-    expectedSalary: "18 LPA",
-    skills: ["Python", "SQL", "Power BI", "Tableau", "Machine Learning", "Pandas", "NumPy"],
-    appliedFor: "Senior Data Analyst",
-    appliedDate: "2 days ago",
-    status: "Applied",
-    matchScore: 92,
-    resumeScore: 88,
-    experience: [
-      {
-        company: "Infosys Ltd.",
-        title: "Data Analyst",
-        from: "Jan 2022",
-        to: "Present",
-        current: true,
-        location: "Bengaluru",
-        description: "Led end-to-end data pipeline development, reduced reporting time by 40%. Managed dashboards for 3 business units using Power BI and Tableau."
-      },
-      {
-        company: "Wipro Technologies",
-        title: "Junior Data Analyst",
-        from: "Jun 2020",
-        to: "Dec 2021",
-        current: false,
-        location: "Hyderabad",
-        description: "Worked on ETL processes, SQL optimisation and built automated reporting systems. Collaborated with cross-functional teams."
-      },
-      {
-        company: "StartupXYZ",
-        title: "Data Science Intern",
-        from: "Jan 2020",
-        to: "May 2020",
-        current: false,
-        location: "Pune",
-        description: "Developed predictive models using Python. Performed EDA on large datasets."
-      }
-    ],
-    education: [
-      {
-        institution: "IIT Bombay",
-        degree: "B.Tech",
-        field: "Computer Science & Engineering",
-        from: "2016",
-        to: "2020",
-        score: "8.6 CGPA"
-      }
-    ]
-  },
-  {
-    id: 2,
-    name: "Priya Sharma",
-    initials: "PS",
-    headline: "ML Engineer | Deep Learning | TensorFlow | NLP",
-    totalExp: "6 years 1 month",
-    currentCompany: "Google India Pvt. Ltd.",
-    currentTitle: "Machine Learning Engineer",
-    location: "Hyderabad, Telangana",
-    email: "priya.sharma@email.com",
-    phone: "+91 87654 32109",
-    noticePeriod: "60 days",
-    currentSalary: "28 LPA",
-    expectedSalary: "38 LPA",
-    skills: ["Python", "TensorFlow", "PyTorch", "NLP", "Deep Learning", "Kubernetes", "MLOps"],
-    appliedFor: "Senior Data Analyst",
-    appliedDate: "1 week ago",
-    status: "Under Review",
-    matchScore: 87,
-    resumeScore: 94,
-    experience: [
-      {
-        company: "Google India Pvt. Ltd.",
-        title: "Machine Learning Engineer",
-        from: "Mar 2021",
-        to: "Present",
-        current: true,
-        location: "Hyderabad",
-        description: "Designed and deployed large-scale NLP models serving 10M+ users. Improved model accuracy by 15% using advanced fine-tuning techniques."
-      },
-      {
-        company: "Microsoft IDC",
-        title: "Software Engineer II",
-        from: "Jul 2019",
-        to: "Feb 2021",
-        current: false,
-        location: "Hyderabad",
-        description: "Built ML pipelines for Azure Cognitive Services. Developed APIs serving enterprise clients."
-      },
-      {
-        company: "Amazon India",
-        title: "SDE Intern",
-        from: "May 2018",
-        to: "Jul 2018",
-        current: false,
-        location: "Bengaluru",
-        description: "Worked on recommendation engine improvements for Amazon.in."
-      }
-    ],
-    education: [
-      {
-        institution: "IIT Delhi",
-        degree: "M.Tech",
-        field: "Artificial Intelligence",
-        from: "2018",
-        to: "2019",
-        score: "9.1 CGPA"
-      },
-      {
-        institution: "NIT Warangal",
-        degree: "B.Tech",
-        field: "Electronics & Communication",
-        from: "2014",
-        to: "2018",
-        score: "8.9 CGPA"
-      }
-    ]
-  },
-  {
-    id: 3,
-    name: "Rohan Gupta",
-    initials: "RG",
-    headline: "Marketing Manager | Growth Hacking | SEO | Performance Marketing",
-    totalExp: "4 years 8 months",
-    currentCompany: "Zomato",
-    currentTitle: "Marketing Manager",
-    location: "New Delhi, NCR",
-    email: "rohan.gupta@email.com",
-    phone: "+91 76543 21098",
-    noticePeriod: "45 days",
-    currentSalary: "15 LPA",
-    expectedSalary: "22 LPA",
-    skills: ["SEO", "Google Ads", "Meta Ads", "Content Strategy", "Analytics", "CRM", "A/B Testing"],
-    appliedFor: "Marketing Manager",
-    appliedDate: "3 days ago",
-    status: "Shortlisted",
-    matchScore: 95,
-    resumeScore: 91,
-    experience: [
-      {
-        company: "Zomato",
-        title: "Marketing Manager",
-        from: "Apr 2022",
-        to: "Present",
-        current: true,
-        location: "Gurugram",
-        description: "Managed ₹2Cr monthly marketing budget. Drove 35% increase in app installs through performance campaigns. Led a team of 8 marketing specialists."
-      },
-      {
-        company: "Swiggy",
-        title: "Digital Marketing Executive",
-        from: "Sep 2020",
-        to: "Mar 2022",
-        current: false,
-        location: "Bengaluru",
-        description: "Ran multi-channel campaigns across Google, Meta, and YouTube. Achieved 40% reduction in CPA."
-      },
-      {
-        company: "MakeMyTrip",
-        title: "Marketing Intern",
-        from: "Jan 2020",
-        to: "Jun 2020",
-        current: false,
-        location: "New Delhi",
-        description: "Assisted in SEO audits and content calendar management."
-      }
-    ],
-    education: [
-      {
-        institution: "IIM Lucknow",
-        degree: "MBA",
-        field: "Marketing & Strategy",
-        from: "2018",
-        to: "2020",
-        score: "3.8/4.0 GPA"
-      },
-      {
-        institution: "Delhi University",
-        degree: "B.Com (Hons.)",
-        field: "Commerce",
-        from: "2015",
-        to: "2018",
-        score: "87%"
-      }
-    ]
-  },
-  {
-    id: 4,
-    name: "Sneha Verma",
-    initials: "SV",
-    headline: "UI/UX Designer | Figma | Design Systems | User Research",
-    totalExp: "3 years 5 months",
-    currentCompany: "Flipkart",
-    currentTitle: "Product Designer",
-    location: "Bengaluru, Karnataka",
-    email: "sneha.verma@email.com",
-    phone: "+91 65432 10987",
-    noticePeriod: "30 days",
-    currentSalary: "14 LPA",
-    expectedSalary: "20 LPA",
-    skills: ["Figma", "Adobe XD", "Prototyping", "User Research", "Design Systems", "Wireframing", "Usability Testing"],
-    appliedFor: "Product Designer",
-    appliedDate: "5 days ago",
-    status: "Interview Scheduled",
-    matchScore: 89,
-    resumeScore: 86,
-    experience: [
-      {
-        company: "Flipkart",
-        title: "Product Designer",
-        from: "Nov 2022",
-        to: "Present",
-        current: true,
-        location: "Bengaluru",
-        description: "Redesigned checkout flow increasing conversion by 22%. Led design system overhaul covering 200+ components. Collaborated with PM and engineering teams."
-      },
-      {
-        company: "PayTM",
-        title: "UI/UX Designer",
-        from: "Oct 2021",
-        to: "Oct 2022",
-        current: false,
-        location: "Noida",
-        description: "Created high-fidelity prototypes for PayTM Money app. Conducted 50+ user interviews and usability sessions."
-      }
-    ],
-    education: [
-      {
-        institution: "NID Ahmedabad",
-        degree: "M.Des",
-        field: "Interaction Design",
-        from: "2019",
-        to: "2021",
-        score: "First Class"
-      },
-      {
-        institution: "Pune University",
-        degree: "B.E.",
-        field: "Information Technology",
-        from: "2015",
-        to: "2019",
-        score: "8.2 CGPA"
-      }
-    ]
-  }
-];
+
 
 const jobsData = [
   { id: 1, title: "Senior Data Analyst", applicants: 45, views: 1240, status: "Active", posted: "2 days ago", location: "Bengaluru", type: "Full-time", salary: "15-25 LPA", pipeline: { new: 12, reviewed: 18, shortlisted: 9, interview: 4, offered: 2 } },
@@ -3177,14 +2921,16 @@ function SearchCandidatesPage() {
         .from("profiles")
         .select("*, work_experience(*), education(*)");
 
-      // Server-side: keyword search across text columns
+      // Server-side: keyword search across text columns (token-based)
       if (keywords.trim()) {
-        const kw = keywords.trim();
-        q = q.or(
-          `first_name.ilike.%${kw}%,last_name.ilike.%${kw}%,` +
-          `headline.ilike.%${kw}%,current_title.ilike.%${kw}%,` +
-          `current_company.ilike.%${kw}%,about.ilike.%${kw}%`
-        );
+        const tokens = keywords.trim().toLowerCase().split(/\s+/).filter(Boolean);
+        tokens.forEach(token => {
+          q = q.or(
+            `first_name.ilike.%${token}%,last_name.ilike.%${token}%,` +
+            `headline.ilike.%${token}%,current_title.ilike.%${token}%,` +
+            `current_company.ilike.%${token}%,about.ilike.%${token}%`
+          );
+        });
       }
       // Server-side: location
       if (location.trim()) q = q.ilike("location", `%${location.trim()}%`);
@@ -3195,14 +2941,17 @@ function SearchCandidatesPage() {
 
       // Skill keyword also searches the skills array column
       if (keywords.trim()) {
-        const keywordSkillTerms = getSkillSearchTerms(keywords.trim()).slice(0, 12);
-        const { data: skillMatches } = await supabase
-          .from("profiles")
-          .select("*, work_experience(*), education(*)")
-          .overlaps("skills", keywordSkillTerms);
-        if (skillMatches) {
-          const ids = new Set(raw.map(r => r.id));
-          (skillMatches as DBCandidate[]).forEach(sm => { if (!ids.has(sm.id)) raw.push(sm); });
+        const tokens = keywords.trim().toLowerCase().split(/\s+/).filter(Boolean);
+        const allSkillTerms = tokens.flatMap(token => getSkillSearchTerms(token)).slice(0, 30);
+        if (allSkillTerms.length > 0) {
+          const { data: skillMatches } = await supabase
+            .from("profiles")
+            .select("*, work_experience(*), education(*)")
+            .overlaps("skills", allSkillTerms);
+          if (skillMatches) {
+            const ids = new Set(raw.map(r => r.id));
+            (skillMatches as DBCandidate[]).forEach(sm => { if (!ids.has(sm.id)) raw.push(sm); });
+          }
         }
       }
 
@@ -3217,15 +2966,21 @@ function SearchCandidatesPage() {
         const { data: broadSkillCandidates } = await broadSkillQuery.limit(1000);
         if (broadSkillCandidates) {
           const ids = new Set(raw.map(r => r.id));
+          const tokens = keywords.trim().toLowerCase().split(/\s+/).filter(Boolean);
           (broadSkillCandidates as DBCandidate[]).forEach(candidate => {
-            if (!ids.has(candidate.id) && (candidate.skills || []).some(skill => skillsMatch(skill, keywords.trim()))) {
-              raw.push(candidate);
-              ids.add(candidate.id);
+            if (!ids.has(candidate.id)) {
+              const hasSkillMatch = (candidate.skills || []).some(skill => 
+                tokens.some(token => skillsMatch(skill, token))
+              );
+              if (hasSkillMatch) {
+                raw.push(candidate);
+                ids.add(candidate.id);
+              }
             }
           });
         }
 
-        const keywordLower = keywords.trim().toLowerCase();
+        const tokens = keywords.trim().toLowerCase().split(/\s+/).filter(Boolean);
         raw = raw.filter(candidate => {
           const searchableText = [
             candidate.first_name,
@@ -3237,7 +2992,10 @@ function SearchCandidatesPage() {
             candidate.location,
           ].filter(Boolean).join(" ").toLowerCase();
 
-          return searchableText.includes(keywordLower) || (candidate.skills || []).some(skill => skillsMatch(skill, keywords.trim()));
+          return tokens.every(token =>
+            searchableText.includes(token) ||
+            (candidate.skills || []).some(skill => skillsMatch(skill, token))
+          );
         });
       }
 
@@ -3312,6 +3070,10 @@ function SearchCandidatesPage() {
       setSearching(false);
     }
   };
+
+  useEffect(() => {
+    handleSearch();
+  }, []);
 
   const clearAllFilters = () => {
     setExpMin(""); setExpMax(""); setCurSalMin(""); setCurSalMax("");
@@ -3561,11 +3323,10 @@ function SearchCandidatesPage() {
 
               <div className="space-y-3">
                 {results.map(c => {
-                  const name = `${c.first_name || ""} ${c.last_name || ""}`.trim() || "Unknown";
-                  const initials = name.split(" ").map(n => n[0]).join("").toUpperCase().slice(0, 2);
+                  const name = getCandidateDisplayName(c);
+                  const initials = getCandidateInitials(name);
                   const skills = c.skills || [];
                   const workExp = c.work_experience || [];
-                  const matchScore = Math.floor(72 + (c.id.charCodeAt(0) % 23));
 
                   // Normalize experience display — use stored text or compute from work history
                   const expYrs = parseExp(c);
@@ -3604,10 +3365,6 @@ function SearchCandidatesPage() {
                                     <span> at <span className="text-[#FF2B2B] font-medium">{c.current_company || workExp[0].company}</span></span>
                                   )}
                                 </p>
-                              </div>
-                              <div className="bg-green-50 border border-green-100 rounded-xl px-3 py-1 text-center flex-shrink-0">
-                                <div className="text-base font-bold text-green-600">{matchScore}%</div>
-                                <div className="text-xs text-[#8A8A8A]">Match</div>
                               </div>
                             </div>
 
@@ -3675,12 +3432,11 @@ function SearchCandidatesPage() {
       {/* ── Full Profile Modal (Naukri-style) ── */}
       {profileModal && (() => {
         const c = profileModal;
-        const name = `${c.first_name || ""} ${c.last_name || ""}`.trim() || "Unknown";
-        const initials = name.split(" ").map(n => n[0]).join("").toUpperCase().slice(0, 2);
+        const name = getCandidateDisplayName(c);
+        const initials = getCandidateInitials(name);
         const workExp = c.work_experience || [];
         const eduList = c.education || [];
         const skills = c.skills || [];
-        const matchScore = Math.floor(72 + (c.id.charCodeAt(0) % 23));
         return (
           <div className="fixed inset-0 z-50 flex items-center justify-center p-4 bg-black/50" onClick={() => setProfileModal(null)}>
             <div className="bg-white rounded-2xl shadow-2xl w-full max-w-3xl max-h-[90vh] overflow-y-auto" onClick={e => e.stopPropagation()}>
@@ -3699,10 +3455,6 @@ function SearchCandidatesPage() {
                       {c.headline || c.current_title}
                       {c.current_company && <span> · {c.current_company}</span>}
                     </p>
-                  </div>
-                  <div className="bg-white/20 border border-white/30 rounded-xl px-3 py-1.5 text-center flex-shrink-0">
-                    <div className="text-lg font-bold text-white">{matchScore}%</div>
-                    <div className="text-xs text-white/70">Match</div>
                   </div>
                 </div>
               </div>
@@ -5304,11 +5056,11 @@ function AnalyticsPage() {
         setFunnelCounts(filteredApplications.reduce((counts, application) => {
           const stage = mapApplicationStatusToPipelineStage(application.status);
 
-          if (stage === "Screening") counts.reviewed += 1;
+          if (stage === "Under Review") counts.reviewed += 1;
           if (stage === "Shortlisted") counts.shortlisted += 1;
           if (stage === "Interview Scheduled") counts.interviewScheduled += 1;
           if (stage === "Offered") counts.offered += 1;
-          if (stage === "Hired") counts.hired += 1;
+          if (stage === "Joined") counts.hired += 1;
 
           return counts;
         }, { reviewed: 0, shortlisted: 0, interviewScheduled: 0, offered: 0, hired: 0 }));
