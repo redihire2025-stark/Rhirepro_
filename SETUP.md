@@ -106,6 +106,14 @@ Just open the app and sign up with these emails. The sign-up form automatically 
 3. Create bucket: `resumes` (private)
 4. Create bucket: `offer-letters` (private)
 
+The `avatars` bucket is also used for recruiter company logos and cover photos. Existing databases should also include these recruiter branding columns:
+
+```sql
+alter table public.recruiter_profiles
+  add column if not exists cover_image_url text,
+  add column if not exists cover_image_name text;
+```
+
 Set storage policies:
 ```sql
 -- avatars: public read, authenticated write

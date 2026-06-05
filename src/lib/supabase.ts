@@ -57,6 +57,8 @@ export interface RecruiterProfile {
   website: string | null;
   location: string | null;
   logo_url: string | null;
+  cover_image_url: string | null;
+  cover_image_name: string | null;
   tagline: string | null;
   linkedin_url: string | null;
   cin: string | null;
