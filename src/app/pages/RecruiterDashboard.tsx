@@ -302,12 +302,9 @@ function SalaryCombobox({
   const [search, setSearch] = useState("");
   const wrapperRef = useRef<HTMLDivElement>(null);
   const formatSalaryAmount = (amount: number) => {
-    if (amount >= 5000000) return "₹50,00,000+";
-    return new Intl.NumberFormat("en-IN", {
-      style: "currency",
-      currency: "INR",
-      maximumFractionDigits: 0,
-    }).format(amount);
+    const lpa = amount >= 1000 ? amount / 100000 : amount;
+    const label = Number.isInteger(lpa) ? String(lpa) : lpa.toFixed(1).replace(/\.0$/, "");
+    return `${label} LPA${lpa >= 50 ? "+" : ""}`;
   };
   const selectedOption = SALARY_AMOUNT_OPTIONS.find(option => String(option.value) === value);
   const selectedLabel = selectedOption?.label ?? (value ? formatSalaryAmount(Number(value)) : "");
@@ -337,7 +334,7 @@ function SalaryCombobox({
       amount: number,
       score: number,
     ) => {
-      if (!Number.isFinite(amount) || amount < 0 || amount > 5000000) return;
+      if (!Number.isFinite(amount) || amount < 0 || amount > 50) return;
       const existing = map.get(amount);
       if (!existing || score < existing.score) {
         map.set(amount, { value: amount, label: formatSalaryAmount(amount), score });
@@ -345,7 +342,7 @@ function SalaryCombobox({
     };
 
     const matchingOptions = SALARY_AMOUNT_OPTIONS.filter(option => {
-      const normalizedLabel = option.label.toLowerCase().replace(/[₹,\s]/g, "");
+      const normalizedLabel = option.label.toLowerCase().replace(/\s/g, "");
       return normalizedLabel.includes(query) || String(option.value).includes(query);
     });
 
@@ -353,24 +350,16 @@ function SalaryCombobox({
     const optionMap = new Map<number, { value: number; label: string; score: number }>();
 
     if (typedNumber === 0) addOption(optionMap, 0, 0);
-    if (typedNumber >= 50000) addOption(optionMap, typedNumber, 0);
-    if (typedNumber > 0 && typedNumber <= 50) addOption(optionMap, typedNumber * 100000, 1);
-    if (typedNumber > 0 && typedNumber < 100000) addOption(optionMap, typedNumber * 100, 2);
-    if (typedNumber > 0 && typedNumber < 10000) addOption(optionMap, typedNumber * 1000, 3);
+    if (typedNumber > 0 && typedNumber <= 50) addOption(optionMap, typedNumber, 0);
 
-    matchingOptions.forEach(option => addOption(optionMap, option.value, 4));
+    matchingOptions.forEach(option => addOption(optionMap, option.value, 1));
 
     if (typedNumber > 0) {
-      const target = typedNumber >= 50000
-        ? typedNumber
-        : typedNumber <= 50
-          ? typedNumber * 100000
-          : typedNumber * 100;
       SALARY_AMOUNT_OPTIONS
-        .map(option => ({ ...option, distance: Math.abs(option.value - target) }))
+        .map(option => ({ ...option, distance: Math.abs(option.value - typedNumber) }))
         .sort((a, b) => a.distance - b.distance)
         .slice(0, 4)
-        .forEach((option, index) => addOption(optionMap, option.value, 5 + index));
+        .forEach((option, index) => addOption(optionMap, option.value, 2 + index));
     }
 
     return Array.from(optionMap.values())
@@ -2591,7 +2580,7 @@ function ManageJobsPage() {
     Number(editForm.salaryMax) < Number(editForm.salaryMin);
   const getSalaryFormValue = (value: number | null) => {
     if (value == null) return "";
-    return String(value >= 1000 ? value : value * 100000);
+    return String(value >= 1000 ? value / 100000 : value);
   };
 
   const openEdit = (job: Job) => {

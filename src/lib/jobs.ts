@@ -4,28 +4,31 @@ const IST_TIME_ZONE = "Asia/Kolkata";
 export const JOB_EXPIRY_DAYS = 15;
 
 export const SALARY_AMOUNT_OPTIONS = [
-  { value: 0, label: "₹0" },
-  { value: 50000, label: "₹50,000" },
-  { value: 100000, label: "₹1,00,000" },
-  { value: 200000, label: "₹2,00,000" },
-  { value: 300000, label: "₹3,00,000" },
-  { value: 400000, label: "₹4,00,000" },
-  { value: 500000, label: "₹5,00,000" },
-  { value: 600000, label: "₹6,00,000" },
-  { value: 800000, label: "₹8,00,000" },
-  { value: 1000000, label: "₹10,00,000" },
-  { value: 1200000, label: "₹12,00,000" },
-  { value: 1500000, label: "₹15,00,000" },
-  { value: 2000000, label: "₹20,00,000" },
-  { value: 2500000, label: "₹25,00,000" },
-  { value: 3000000, label: "₹30,00,000" },
-  { value: 4000000, label: "₹40,00,000" },
-  { value: 5000000, label: "₹50,00,000+" },
+  { value: 0, label: "0 LPA" },
+  { value: 1, label: "1 LPA" },
+  { value: 2, label: "2 LPA" },
+  { value: 3, label: "3 LPA" },
+  { value: 4, label: "4 LPA" },
+  { value: 5, label: "5 LPA" },
+  { value: 6, label: "6 LPA" },
+  { value: 8, label: "8 LPA" },
+  { value: 10, label: "10 LPA" },
+  { value: 12, label: "12 LPA" },
+  { value: 15, label: "15 LPA" },
+  { value: 20, label: "20 LPA" },
+  { value: 25, label: "25 LPA" },
+  { value: 30, label: "30 LPA" },
+  { value: 40, label: "40 LPA" },
+  { value: 50, label: "50 LPA+" },
 ] as const;
 
 function formatLpaValue(value: number): string {
   const lpa = value >= 1000 ? value / 100000 : value;
   return Number.isInteger(lpa) ? String(lpa) : lpa.toFixed(1).replace(/\.0$/, "");
+}
+
+function isAtLeast50Lpa(value: number): boolean {
+  return (value >= 1000 ? value / 100000 : value) >= 50;
 }
 
 export function formatSalaryRangeFromValues(
@@ -40,12 +43,12 @@ export function formatSalaryRangeFromValues(
   if (max != null && Number.isNaN(max)) return "Salary not disclosed";
 
   if (min != null && max != null) {
-    if (min === max) return `₹${formatLpaValue(min)} LPA`;
-    return `₹${formatLpaValue(min)}–${formatLpaValue(max)} LPA${max >= 5000000 ? "+" : ""}`;
+    if (min === max) return `${formatLpaValue(min)} LPA`;
+    return `${formatLpaValue(min)}-${formatLpaValue(max)} LPA${isAtLeast50Lpa(max) ? "+" : ""}`;
   }
 
-  if (max != null) return `Below ₹${formatLpaValue(max)} LPA${max >= 5000000 ? "+" : ""}`;
-  return `Above ₹${formatLpaValue(min!)} LPA`;
+  if (max != null) return `Below ${formatLpaValue(max)} LPA${isAtLeast50Lpa(max) ? "+" : ""}`;
+  return `Above ${formatLpaValue(min!)} LPA`;
 }
 
 export function formatJobSalary(job: Pick<Job, "salary_min" | "salary_max" | "salary_type">): string {
