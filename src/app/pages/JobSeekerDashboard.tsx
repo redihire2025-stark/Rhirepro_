@@ -742,9 +742,9 @@ function FindJobPage() {
       if (experienceFilter === "mid") query = query.gte("experience_min", 2).lte("experience_min", 5);
       if (experienceFilter === "senior") query = query.gte("experience_min", 5);
 
-      if (salaryFilter === "0-50") query = query.lt("salary_min", 50000);
-      if (salaryFilter === "50-100") query = query.gte("salary_min", 50000).lt("salary_min", 100000);
-      if (salaryFilter === "100+") query = query.gte("salary_min", 100000);
+      if (salaryFilter === "0-10") query = query.lt("salary_min", 10);
+      if (salaryFilter === "10-25") query = query.gte("salary_min", 10).lt("salary_min", 25);
+      if (salaryFilter === "25+") query = query.gte("salary_min", 25);
 
       if (industryFilter === "healthcare") query = query.ilike("industry", "%Healthcare%");
       if (industryFilter === "finance") query = query.ilike("industry", "%BFSI%");
@@ -953,7 +953,7 @@ function FindJobPage() {
               { label: "Experience", value: experienceFilter, onChange: setExperienceFilter,
                 options: [["entry","Entry Level"],["mid","Mid Level"],["senior","Senior"]] },
               { label: "Salary Range", value: salaryFilter, onChange: setSalaryFilter,
-                options: [["0-50","$0 – $50k"],["50-100","$50k – $100k"],["100+","$100k+"]] },
+                options: [["0-10","0-10 LPA"],["10-25","10-25 LPA"],["25+","25+ LPA"]] },
               { label: "Industry", value: industryFilter, onChange: setIndustryFilter,
                 options: [["tech","Technology"],["finance","Finance"],["healthcare","Healthcare"],["marketing","Marketing"],["design","Design"],["media","Media"]] },
               { label: "Job Type", value: jobTypeFilter, onChange: setJobTypeFilter,
@@ -3522,7 +3522,7 @@ function InsightsPage() {
       if (data) {
         const visibleJobs = data.filter(job => isJobVisibleToSeekers(job));
         const userSkillsLower = skills.map(normalizeSkillKey);
-        const titleWords = titleStr.toLowerCase().split(/\s+/).filter(w => w.length > 3);
+        const titleWords: string[] = titleStr.toLowerCase().split(/\s+/).filter((w: string) => w.length > 3);
 
         const scored = visibleJobs.map(job => {
           const jobSkills: string[] = job.skills || [];
@@ -3842,20 +3842,24 @@ function InsightsPage() {
             </div>
           ) : (
             <div className="space-y-3">
-              {(aiInsights?.certifications ?? domainData.certifications).map((cert, i) => (
-                <div key={i} className="p-4 bg-[#F6F6F6] rounded-xl">
-                  <div className="flex items-start justify-between gap-2">
-                    <div className="min-w-0">
-                      <h4 className="font-semibold text-[#3A1F1F] text-sm leading-snug">{cert.name}</h4>
-                      <p className="text-xs text-[#8A8A8A] mt-0.5">{cert.provider}</p>
-                      {"reason" in cert && cert.reason && (
-                        <p className="text-xs text-blue-600 mt-1 leading-snug">{cert.reason}</p>
-                      )}
+              {(aiInsights?.certifications ?? domainData.certifications).map((cert, i) => {
+                const reason = "reason" in cert && typeof cert.reason === "string" ? cert.reason : "";
+
+                return (
+                  <div key={i} className="p-4 bg-[#F6F6F6] rounded-xl">
+                    <div className="flex items-start justify-between gap-2">
+                      <div className="min-w-0">
+                        <h4 className="font-semibold text-[#3A1F1F] text-sm leading-snug">{cert.name}</h4>
+                        <p className="text-xs text-[#8A8A8A] mt-0.5">{cert.provider}</p>
+                        {reason && (
+                          <p className="text-xs text-blue-600 mt-1 leading-snug">{reason}</p>
+                        )}
+                      </div>
+                      <Badge className={`text-xs flex-shrink-0 ${certBadge(cert.value)}`}>{cert.value}</Badge>
                     </div>
-                    <Badge className={`text-xs flex-shrink-0 ${certBadge(cert.value)}`}>{cert.value}</Badge>
                   </div>
-                </div>
-              ))}
+                );
+              })}
             </div>
           )}
         </div>
