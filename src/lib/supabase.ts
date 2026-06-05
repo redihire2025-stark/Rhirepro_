@@ -42,6 +42,8 @@ export interface Profile {
   preferred_interview_mode?: string[] | null;
   otp_code: string | null;
   otp_expires_at: string | null;
+  profile_views?: number | null;
+  recruiter_searches?: number | null;
   created_at: string;
 }
 

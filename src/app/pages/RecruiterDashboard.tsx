@@ -1436,13 +1436,14 @@ function DashboardOverview() {
       });
       setUpcomingInterviews(formatted);
 
-      const { count: totalApps } = await supabase.from("applications").select("*", { count: "exact", head: true }).eq("recruiter_id", recruiterProfile.id);
-      const { count: interviews } = await supabase.from("applications").select("*", { count: "exact", head: true }).eq("recruiter_id", recruiterProfile.id).eq("status", "Interview Scheduled");
-      const { count: filled } = await supabase.from("applications").select("*", { count: "exact", head: true }).eq("recruiter_id", recruiterProfile.id).eq("status", "Offered");
+      const mergedApps = Array.from(merged.values());
+      const totalApps = mergedApps.length;
+      const interviews = mergedApps.filter(app => mapApplicationStatusToPipelineStage(app.status) === "Interview Scheduled").length;
+      const filled = mergedApps.filter(app => mapApplicationStatusToPipelineStage(app.status) === "Joined").length;
 
-      setTotalApplicantsCount(totalApps || 0);
-      setInterviewsScheduledCount(interviews || 0);
-      setPositionsFilledCount(filled || 0);
+      setTotalApplicantsCount(totalApps);
+      setInterviewsScheduledCount(interviews);
+      setPositionsFilledCount(filled);
 
       setPipelineLoading(false);
     };
@@ -1512,10 +1513,10 @@ function DashboardOverview() {
   })();
 
   const stats = [
-    { label: "Active Jobs", value: String(activeJobs || dbJobs.length || "—"), change: "Live postings", icon: Briefcase, color: "text-blue-600", bg: "bg-blue-50", path: "/recruiter/dashboard/manage-jobs" },
-    { label: "Total Applicants", value: String(totalApplicantsCount || "—"), change: "Across all jobs", icon: Users, color: "text-green-600", bg: "bg-green-50", path: "/recruiter/dashboard/applicants" },
-    { label: "Interviews Scheduled", value: String(interviewsScheduledCount || "—"), change: "Next: Today 3PM", icon: Calendar, color: "text-purple-600", bg: "bg-purple-50", path: "/recruiter/dashboard/applicants?status=Interview Scheduled" },
-    { label: "Positions Filled", value: String(positionsFilledCount || "—"), change: "This month", icon: CheckCircle, color: "text-[#FF2B2B]", bg: "bg-red-50", path: "/recruiter/dashboard/applicants?status=Joined" },
+    { label: "Active Jobs", value: String(activeJobs), change: "Live postings", icon: Briefcase, color: "text-blue-600", bg: "bg-blue-50", path: "/recruiter/dashboard/manage-jobs" },
+    { label: "Total Applicants", value: String(totalApplicantsCount), change: "Across all jobs", icon: Users, color: "text-green-600", bg: "bg-green-50", path: "/recruiter/dashboard/applicants" },
+    { label: "Interviews Scheduled", value: String(interviewsScheduledCount), change: "Next: Today 3PM", icon: Calendar, color: "text-purple-600", bg: "bg-purple-50", path: "/recruiter/dashboard/applicants?status=Interview Scheduled" },
+    { label: "Positions Filled", value: String(positionsFilledCount), change: "This month", icon: CheckCircle, color: "text-[#FF2B2B]", bg: "bg-red-50", path: "/recruiter/dashboard/applicants?status=Joined" },
   ];
 
   return (
@@ -2711,7 +2712,12 @@ function ManageJobsPage() {
             <div className="flex justify-between items-start flex-wrap gap-3">
               <div className="flex-1">
                 <div className="flex items-center gap-2 mb-1">
-                  <h3 className="text-xl font-semibold text-[#3A1F1F]">{job.title}</h3>
+                  <h3
+                    className="text-xl font-semibold text-[#3A1F1F] cursor-pointer hover:text-[#FF2B2B] hover:underline transition-all duration-200"
+                    onClick={() => navigate(`/recruiter/dashboard/applicants?job=${encodeURIComponent(job.title)}`)}
+                  >
+                    {job.title}
+                  </h3>
                   <Badge className={badgeClass}>{effectiveStatus}</Badge>
                 </div>
                 <div className="flex items-center gap-4 text-sm text-[#8A8A8A] flex-wrap">
@@ -2738,12 +2744,21 @@ function ManageJobsPage() {
                     {effectiveStatus === "Active" ? <Pause className="h-4 w-4 text-[#8A8A8A]" /> : <RefreshCw className="h-4 w-4 text-green-500" />}
                   </Button>
                 )}
+                <Button variant="outline" size="icon" className="border-gray-200 rounded-full" onClick={() => navigate(`/recruiter/dashboard/applicants?job=${encodeURIComponent(job.title)}`)} title="View Applicants">
+                  <Users className="h-4 w-4 text-[#FF2B2B]" />
+                </Button>
                 <Button variant="outline" size="icon" className="border-gray-200 rounded-full" onClick={() => openEdit(job)} title="Edit Job"><Edit className="h-4 w-4 text-[#3A1F1F]" /></Button>
                 <Button variant="outline" size="icon" className="border-gray-200 rounded-full" onClick={() => closeJob(job.id)} title="Close Job"><Trash2 className="h-4 w-4 text-[#FF2B2B]" /></Button>
               </div>
             </div>
             <div className="grid grid-cols-3 gap-4 mt-4 pt-4 border-t border-gray-100">
-              <div className="text-center"><div className="text-xl font-bold text-[#3A1F1F]">{(job as any).applicant_count ?? 0}</div><div className="text-xs text-[#8A8A8A]">Applicants</div></div>
+              <div
+                className="text-center cursor-pointer group"
+                onClick={() => navigate(`/recruiter/dashboard/applicants?job=${encodeURIComponent(job.title)}`)}
+              >
+                <div className="text-xl font-bold text-[#3A1F1F] group-hover:text-[#FF2B2B] transition-all duration-200">{(job as any).applicant_count ?? 0}</div>
+                <div className="text-xs text-[#8A8A8A] group-hover:underline">Applicants</div>
+              </div>
               <div className="text-center"><div className="text-xl font-bold text-blue-600">{job.views ?? 0}</div><div className="text-xs text-[#8A8A8A]">Job Views</div></div>
               <div className="text-center"><div className="text-xl font-bold text-green-600">{job.openings}</div><div className="text-xs text-[#8A8A8A]">Openings</div></div>
             </div>
@@ -3091,6 +3106,15 @@ function SearchCandidatesPage() {
       else if (sortBy === "salary_asc") raw.sort((a, b) => parseSal(a.expected_salary) - parseSal(b.expected_salary));
       else if (sortBy === "recent") raw.sort((a, b) => new Date(b.created_at).getTime() - new Date(a.created_at).getTime());
 
+      if (raw.length > 0) {
+        const candidateIds = raw.map(c => c.id).filter(Boolean);
+        if (candidateIds.length > 0) {
+          void supabase.rpc("increment_recruiter_searches", { target_profile_ids: candidateIds }).then(({ error }) => {
+            if (error) console.warn("Failed to increment recruiter searches (migration might not be run):", error.message);
+          });
+        }
+      }
+
       setResults(raw);
     } finally {
       setSearching(false);
@@ -3426,7 +3450,14 @@ function SearchCandidatesPage() {
 
                         {/* Actions */}
                         <div className="flex gap-2 mt-3 pt-3 border-t border-gray-100 flex-wrap">
-                          <Button size="sm" onClick={() => setProfileModal(c)} className="bg-[#FF2B2B] hover:bg-[#e02525] text-white rounded-full text-xs h-7">
+                          <Button size="sm" onClick={() => {
+                            setProfileModal(c);
+                            if (c?.id) {
+                              void supabase.rpc("increment_profile_views", { target_profile_id: c.id }).then(({ error }) => {
+                                if (error) console.warn("Failed to increment profile views (migration might not be run):", error.message);
+                              });
+                            }
+                          }} className="bg-[#FF2B2B] hover:bg-[#e02525] text-white rounded-full text-xs h-7">
                             <Eye className="h-3.5 w-3.5 mr-1" /> View Full Profile
                           </Button>
                           <Button size="sm" variant={shortlisted.has(c.id) ? "default" : "outline"} className={shortlisted.has(c.id) ? "bg-pink-600 hover:bg-pink-700 text-white rounded-full text-xs h-7" : "border-pink-500 text-pink-600 hover:bg-pink-50 rounded-full text-xs h-7"} onClick={() => toggleShortlist(c.id)}>
@@ -3646,7 +3677,10 @@ function ApplicantsPage() {
     const queryStatus = new URLSearchParams(window.location.search).get("status");
     return queryStatus || "All";
   });
-  const [jobFilter, setJobFilter] = useState("All");
+  const [jobFilter, setJobFilter] = useState(() => {
+    const queryJob = new URLSearchParams(window.location.search).get("job");
+    return queryJob || "All";
+  });
   const [searchTerm, setSearchTerm] = useState("");
   const [sortBy, setSortBy] = useState("recent");
   const [expandedCareer, setExpandedCareer] = useState<string | null>(null);
@@ -3660,6 +3694,8 @@ function ApplicantsPage() {
   const [noticePeriodFilter, setNoticePeriodFilter] = useState("");
   const [skillFilter, setSkillFilter] = useState("");
   const [showFilters, setShowFilters] = useState(false);
+  const [skillDropdownOpen, setSkillDropdownOpen] = useState(false);
+  const skillFilterRef = useRef<HTMLDivElement>(null);
   const [interviewModalApplicant, setInterviewModalApplicant] = useState<AppWithProfile | null>(null);
   const [feedbackModalApplicant, setFeedbackModalApplicant] = useState<AppWithProfile | null>(null);
   const [offerModalApplicant, setOfferModalApplicant] = useState<AppWithProfile | null>(null);
@@ -3706,10 +3742,32 @@ function ApplicantsPage() {
   const statuses = ["All", ...PIPELINE_STAGES];
   const jobTitles = ["All", ...Array.from(new Set(applicants.map(a => a.job?.title).filter(Boolean)))];
 
+  const filteredFilterSkillOptions = useMemo(() => {
+    const query = skillFilter.trim().toLowerCase();
+    const options = query ? SEARCH_SUGGESTION_DATASET : SKILL_OPTIONS;
+    return options.filter(skill => !query || skill.toLowerCase().includes(query)).slice(0, 50);
+  }, [skillFilter]);
+
   useEffect(() => {
     const queryStatus = new URLSearchParams(location.search).get("status") || "All";
     if (statuses.includes(queryStatus)) setStatusFilter(queryStatus);
   }, [location.search]);
+
+  useEffect(() => {
+    const queryJob = new URLSearchParams(location.search).get("job") || "All";
+    setJobFilter(queryJob);
+  }, [location.search]);
+
+  useEffect(() => {
+    if (!skillDropdownOpen) return;
+    const handleClickOutside = (event: MouseEvent) => {
+      if (!skillFilterRef.current?.contains(event.target as Node)) {
+        setSkillDropdownOpen(false);
+      }
+    };
+    document.addEventListener("mousedown", handleClickOutside);
+    return () => document.removeEventListener("mousedown", handleClickOutside);
+  }, [skillDropdownOpen]);
 
   const parseExpYears = (exp: string | null) => {
     if (!exp) return 0;
@@ -3766,6 +3824,17 @@ function ApplicantsPage() {
       return skills.some((s: string) => skillsMatch(s, skillFilter));
     });
 
+  const sortedApplicants = useMemo(() => {
+    return [...filtered].sort((a, b) => {
+      if (sortBy === "match") {
+        const scoreA = Math.floor(70 + (a.id.charCodeAt(0) % 25));
+        const scoreB = Math.floor(70 + (b.id.charCodeAt(0) % 25));
+        return scoreB - scoreA;
+      }
+      return new Date(b.applied_at).getTime() - new Date(a.applied_at).getTime();
+    });
+  }, [filtered, sortBy]);
+
   const updateStatus = async (id: string, newStatus: Application["status"]) => {
     const statusWriteAttempts: Record<Application["status"], string[]> = {
       Applied: ["Applied", "New", "applied"],
@@ -3813,6 +3882,11 @@ function ApplicantsPage() {
       }
       return { ...applicant };
     });
+    if (applicant.profile_id) {
+      void supabase.rpc("increment_profile_views", { target_profile_id: applicant.profile_id }).then(({ error }) => {
+        if (error) console.warn("Failed to increment profile views (migration might not be run):", error.message);
+      });
+    }
   };
 
   const handleInterviewStatusRequest = (applicant: AppWithProfile) => {
@@ -4183,7 +4257,7 @@ function ApplicantsPage() {
   const exportCSV = () => {
     const rows = [
       ["Name", "Email", "Phone", "Job", "Status", "Applied At", "Experience", "Skills"],
-      ...filtered.map(a => {
+      ...sortedApplicants.map(a => {
         const p = a.profile;
         const name = getCandidateDisplayName(p);
         return [
@@ -4315,9 +4389,51 @@ function ApplicantsPage() {
                 </SelectContent>
               </Select>
             </div>
-            <div>
+            <div className="relative" ref={skillFilterRef}>
               <label className="block text-xs font-medium text-[#5A5A5A] mb-1.5">Skill</label>
-              <Input value={skillFilter} onChange={e => setSkillFilter(e.target.value)} className="bg-[#F6F6F6] border-gray-200 rounded-xl text-sm h-9" placeholder="Enter skill" />
+              <div className="relative">
+                <Input
+                  value={skillFilter}
+                  onChange={e => {
+                    setSkillFilter(e.target.value);
+                    setSkillDropdownOpen(true);
+                  }}
+                  onFocus={() => setSkillDropdownOpen(true)}
+                  className="bg-[#F6F6F6] border-gray-200 rounded-xl text-sm h-9 pr-8"
+                  placeholder="Enter skill"
+                />
+                <button
+                  type="button"
+                  onClick={() => setSkillDropdownOpen(open => !open)}
+                  className="absolute right-2.5 top-1/2 -translate-y-1/2 text-[#8A8A8A] hover:text-[#3A1F1F]"
+                >
+                  <ChevronDown className="h-4 w-4" />
+                </button>
+              </div>
+              {skillDropdownOpen && (
+                <div className="absolute left-0 right-0 top-full z-[100] mt-1 overflow-hidden rounded-xl border border-gray-200 bg-white shadow-lg">
+                  <div className="max-h-48 overflow-y-auto p-1">
+                    {filteredFilterSkillOptions.length === 0 ? (
+                      <div className="px-3 py-2 text-xs text-[#8A8A8A]">No matching skills</div>
+                    ) : (
+                      filteredFilterSkillOptions.map((skill) => (
+                        <button
+                          key={skill}
+                          type="button"
+                          onClick={() => {
+                            setSkillFilter(skill);
+                            setSkillDropdownOpen(false);
+                          }}
+                          className="flex w-full items-center gap-2 rounded-lg px-3 py-1.5 text-left text-xs text-[#3A1F1F] hover:bg-[#FFF0F0]"
+                        >
+                          <Check className={`h-3.5 w-3.5 ${skillFilter.toLowerCase() === skill.toLowerCase() ? "text-[#FF2B2B] opacity-100" : "opacity-0"}`} />
+                          <span>{skill}</span>
+                        </button>
+                      ))
+                    )}
+                  </div>
+                </div>
+              )}
             </div>
           </div>
         </div>
@@ -4334,7 +4450,7 @@ function ApplicantsPage() {
         </div>
       ) : (
       <div className="space-y-3">
-        {filtered.map(applicant => {
+        {sortedApplicants.map(applicant => {
           const p = applicant.profile;
           const name = getCandidateDisplayName(p);
           const initials = getCandidateInitials(name);

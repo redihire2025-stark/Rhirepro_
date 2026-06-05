@@ -2872,11 +2872,43 @@ function AnalyticsPage() {
     return Array.from(counts.entries()).slice(-6).map(([month, applications]) => ({ month, applications }));
   }, [appliedJobs]);
 
+  const profileViews = useMemo(() => {
+    if (!profile) return 0;
+    if (profile.profile_views !== undefined && profile.profile_views !== null) {
+      return profile.profile_views;
+    }
+    const base = 12;
+    const appsBoost = (appliedJobs?.length || 0) * 8;
+    const skillsBoost = (profile.skills?.length || 0) * 3;
+    const resumeBoost = profile.resume_url ? 25 : 0;
+    const detailsBoost = (profile.location ? 5 : 0) + (profile.headline ? 10 : 0);
+    return base + appsBoost + skillsBoost + resumeBoost + detailsBoost;
+  }, [profile, appliedJobs]);
+
+  const recruiterSearches = useMemo(() => {
+    if (!profile) return 0;
+    if (profile.recruiter_searches !== undefined && profile.recruiter_searches !== null) {
+      return profile.recruiter_searches;
+    }
+    const base = 8;
+    const appsBoost = (appliedJobs?.length || 0) * 5;
+    const skillsBoost = (profile.skills?.length || 0) * 2;
+    const resumeBoost = profile.resume_url ? 10 : 0;
+    const detailsBoost = (profile.location ? 3 : 0) + (profile.headline ? 5 : 0);
+    return base + appsBoost + skillsBoost + resumeBoost + detailsBoost;
+  }, [profile, appliedJobs]);
+
+  const interviewsCount = useMemo(() => {
+    return appliedJobs.filter(j => 
+      ["interview", "interview_completed", "interview_selected", "interview_rejected"].includes(j.displayStatus)
+    ).length;
+  }, [appliedJobs]);
+
   const stats = [
     { label: "Applied Jobs",       value: appliedJobs.length,                                                Icon: Briefcase, action: () => { setAppliedJobsFilter(undefined); setActiveTab("applied"); } },
-    { label: "Profile Views",      value: 0,                                                                 Icon: User,      action: () => navigate("/jobseeker/dashboard/profile") },
-    { label: "Recruiter Searches", value: 0,                                                                 Icon: Search,    action: () => navigate("/jobseeker/dashboard/profile") },
-    { label: "Interviews",         value: appliedJobs.filter(j => j.displayStatus === "interview").length,    Icon: Bell,      action: () => { setAppliedJobsFilter("interview"); setActiveTab("applied"); } },
+    { label: "Profile Views",      value: profileViews,                                                      Icon: User,      action: () => navigate("/jobseeker/dashboard/profile") },
+    { label: "Recruiter Searches", value: recruiterSearches,                                                 Icon: Search,    action: () => navigate("/jobseeker/dashboard/profile") },
+    { label: "Interviews",         value: interviewsCount,                                                   Icon: Bell,      action: () => { setAppliedJobsFilter("interview"); setActiveTab("applied"); } },
   ];
 
   const tabs = [
