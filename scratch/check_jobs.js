@@ -25,6 +25,7 @@ async function check() {
   } else {
     console.log(`First few jobs:`);
     jobs.forEach(j => {
+      console.log("for code review");
       console.log(`- ${j.id}: "${j.title}" by company "${j.company_name}" (recruiter_id: ${j.recruiter_id})`);
     });
   }
