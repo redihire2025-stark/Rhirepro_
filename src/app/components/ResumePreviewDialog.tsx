@@ -1,22 +1,31 @@
-import { useEffect, useMemo, useState } from "react";
+import { useEffect, useMemo, useState, useRef } from "react";
 import { Download, ExternalLink, FileText, Loader2 } from "lucide-react";
 import { supabase } from "../../lib/supabase";
 import { Button } from "./ui/button";
 import { Dialog, DialogContent, DialogHeader, DialogTitle } from "./ui/dialog";
 
-type ResumePreviewKind = "pdf" | "office" | "unsupported";
+type ResumePreviewKind = "pdf" | "office" | "image" | "unsupported";
 
-function getResumePreviewKind(url: string): ResumePreviewKind {
+export function getResumePreviewKind(url: string): ResumePreviewKind {
   const cleanPath = (() => {
     try {
       return new URL(url).pathname.toLowerCase();
     } catch {
-      return url.split("?")[0].toLowerCase();
+      return url.split("#")[0].split("?")[0].toLowerCase();
     }
   })();
 
   if (cleanPath.endsWith(".pdf")) return "pdf";
   if (cleanPath.endsWith(".doc") || cleanPath.endsWith(".docx")) return "office";
+  if (
+    cleanPath.endsWith(".png") ||
+    cleanPath.endsWith(".jpg") ||
+    cleanPath.endsWith(".jpeg") ||
+    cleanPath.endsWith(".gif") ||
+    cleanPath.endsWith(".webp")
+  ) {
+    return "image";
+  }
   return "unsupported";
 }
 
@@ -47,6 +56,7 @@ export function buildPreviewUrl(url: string): string | null {
   const kind = getResumePreviewKind(url);
   if (kind === "pdf") return url;
   if (kind === "office") return `https://view.officeapps.live.com/op/embed.aspx?src=${encodeURIComponent(url)}`;
+  if (kind === "image") return url;
   return null;
 }
 
@@ -98,6 +108,98 @@ export default function ResumePreviewDialog({
 
   const previewUrl = resolvedUrl ? buildPreviewUrl(resolvedUrl) : null;
   const downloadUrl = resolvedUrl || resume?.url || "";
+  const pdfContainerRef = useRef<HTMLDivElement | null>(null);
+  const [renderingPdf, setRenderingPdf] = useState(false);
+  const [pdfRenderFailed, setPdfRenderFailed] = useState(false);
+
+  useEffect(() => {
+    let cancelled = false;
+    async function renderPdf() {
+      if (!previewUrl || kind !== "pdf" || !pdfContainerRef.current) return;
+      setPdfRenderFailed(false);
+      setRenderingPdf(true);
+      try {
+        const res = await fetch(previewUrl);
+        const arrayBuffer = await res.arrayBuffer();
+
+        // Load pdf.js at runtime from CDN to avoid bundler import errors
+        async function ensurePdfJs() {
+          if ((window as any).pdfjsLib) return (window as any).pdfjsLib;
+          await new Promise<void>((resolve, reject) => {
+            const s = document.createElement("script");
+            s.src = "https://unpkg.com/pdfjs-dist@3.10.111/legacy/build/pdf.min.js";
+            s.onload = () => resolve();
+            s.onerror = () => reject(new Error("Failed to load pdfjs from CDN"));
+            document.head.appendChild(s);
+          });
+          return (window as any).pdfjsLib;
+        }
+
+        const pdfjs = await ensurePdfJs();
+        (pdfjs as any).GlobalWorkerOptions.workerSrc = "https://unpkg.com/pdfjs-dist@3.10.111/legacy/build/pdf.worker.min.js";
+        const loadingTask = (pdfjs as any).getDocument({ data: arrayBuffer });
+        const pdf = await loadingTask.promise;
+        const numPages = pdf.numPages;
+        const container = pdfContainerRef.current;
+        // clear previous
+        container.innerHTML = "";
+        // measure
+        const containerStyle = getComputedStyle(container);
+        const paddingY = parseFloat(containerStyle.paddingTop || "0") + parseFloat(containerStyle.paddingBottom || "0");
+        const paddingX = parseFloat(containerStyle.paddingLeft || "0") + parseFloat(containerStyle.paddingRight || "0");
+        const containerWidth = Math.max(100, container.clientWidth - paddingX);
+        const containerHeight = Math.max(100, container.clientHeight - paddingY);
+
+        const firstPage = await pdf.getPage(1);
+        const vp = firstPage.getViewport({ scale: 1 });
+        const scaleToFitWidth = containerWidth / vp.width;
+        const scaleToFitAllPages = containerHeight / (vp.height * numPages);
+        const scale = Math.min(scaleToFitWidth, Math.max(0.3, scaleToFitAllPages));
+
+        // create wrapper for pages so we can scale the whole group to fit without scroll
+        const wrapper = document.createElement("div");
+        wrapper.style.display = "flex";
+        wrapper.style.flexDirection = "column";
+        wrapper.style.alignItems = "center";
+        wrapper.style.justifyContent = "flex-start";
+        wrapper.style.width = "100%";
+        wrapper.style.transformOrigin = "top left";
+
+        for (let i = 1; i <= numPages; i++) {
+          const page = await pdf.getPage(i);
+          const viewport = page.getViewport({ scale });
+          const canvas = document.createElement("canvas");
+          canvas.width = Math.floor(viewport.width);
+          canvas.height = Math.floor(viewport.height);
+          canvas.style.width = `${viewport.width}px`;
+          canvas.style.height = `${viewport.height}px`;
+          canvas.className = "mb-3 shadow-sm rounded-sm bg-white";
+          const ctx = canvas.getContext("2d");
+          // @ts-ignore
+          await page.render({ canvasContext: ctx, viewport }).promise;
+          if (cancelled) return;
+          wrapper.appendChild(canvas);
+        }
+        container.appendChild(wrapper);
+
+        // After pages rendered, ensure the whole wrapper fits the container height by scaling
+        const totalHeight = wrapper.scrollHeight;
+        if (totalHeight > containerHeight) {
+          const scaleAll = containerHeight / totalHeight;
+          wrapper.style.transform = `scale(${scaleAll})`;
+          // center after scale
+          wrapper.style.width = `${containerWidth / scaleAll}px`;
+        }
+      } catch (err) {
+        console.error("PDF render error", err);
+        if (!cancelled) setPdfRenderFailed(true);
+      } finally {
+        if (!cancelled) setRenderingPdf(false);
+      }
+    }
+    void renderPdf();
+    return () => { cancelled = true; };
+  }, [previewUrl, kind]);
 
   return (
     <Dialog open={!!resume} onOpenChange={(open) => { if (!open) onClose(); }}>
@@ -112,11 +214,44 @@ export default function ResumePreviewDialog({
               <p className="text-sm text-[#5A5A5A]">Preparing resume preview...</p>
             </div>
           ) : previewUrl ? (
-            <iframe
-              src={previewUrl}
-              title="Resume preview"
-              className="w-full h-[72vh] bg-white"
-            />
+            kind === "image" ? (
+              <div className="w-full h-[72vh] overflow-hidden flex items-center justify-center bg-white p-4">
+                <img
+                  src={previewUrl}
+                  alt="Resume preview"
+                  className="max-w-full max-h-full object-contain shadow-sm rounded-md"
+                />
+              </div>
+            ) : (
+              kind === "pdf" ? (
+                !pdfRenderFailed ? (
+                  <div ref={pdfContainerRef} className="w-full h-[72vh] bg-white p-4 overflow-hidden flex flex-col items-center justify-center">
+                    {renderingPdf && (
+                      <div className="text-center">
+                        <div className="w-9 h-9 border-4 border-[#FF2B2B] border-t-transparent rounded-full animate-spin mx-auto mb-3" />
+                        <p className="text-sm text-[#5A5A5A]">Preparing resume preview...</p>
+                      </div>
+                    )}
+                  </div>
+                ) : (
+                  <iframe
+                    src={previewUrl}
+                    title="Resume preview"
+                    className="w-full h-[72vh] bg-white overflow-hidden"
+                    style={{ border: "none" }}
+                    scrolling="no"
+                  />
+                )
+              ) : (
+                <iframe
+                  src={previewUrl}
+                  title="Resume preview"
+                  className="w-full h-[72vh] bg-white overflow-hidden"
+                  style={{ border: "none" }}
+                  scrolling="no"
+                />
+              )
+            )
           ) : (
             <div className="h-[45vh] flex flex-col items-center justify-center text-center px-6">
               <FileText className="h-10 w-10 text-[#FF2B2B] mb-3" />

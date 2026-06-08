@@ -50,6 +50,7 @@ import InterviewFeedbackModal from "../components/InterviewFeedbackModal";
 import OfferDetailsModal from "../components/OfferDetailsModal";
 import ResumePreviewDialog, { getStorageObjectFromUrl, buildPreviewUrl } from "../components/ResumePreviewDialog";
 import JobShareButton from "../components/JobShareButton";
+import ApplicantProfilePage from "./ApplicantProfilePage";
 
 const DEPARTMENT_OPTIONS = [
   "Engineering",
@@ -1131,6 +1132,7 @@ export default function RecruiterDashboard() {
         <Route path="manage-jobs" element={<ManageJobsPage />} />
         <Route path="search-candidates" element={<SearchCandidatesPage />} />
         <Route path="applicants" element={<ApplicantsPage />} />
+        <Route path="applicants/:applicantId/profile" element={<ApplicantProfilePage />} />
         <Route path="analytics" element={<AnalyticsPage />} />
         <Route path="articles/new" element={<ArticleEditorPage />} />
         <Route path="articles/:articleId/edit" element={<ArticleEditorPage />} />
@@ -4159,8 +4161,10 @@ function ApplicantsPage() {
     const onHoldDisabledClass = isOnHoldActive ? "disabled:opacity-100" : "disabled:opacity-40";
     const openMail = () => { if (applicant.profile?.email) window.location.href = `mailto:${applicant.profile.email}`; };
     const viewBtn = (
-      <Button size="sm" variant="outline" className="border-2 border-blue-500 bg-blue-50 text-blue-700 hover:bg-blue-100 rounded-full text-xs h-7" onClick={() => openProfileAndMoveToScreening(applicant)}>
-        <User className="h-3 w-3 mr-1" /> View Profile
+      <Button size="sm" variant="outline" className="border-2 border-blue-500 bg-blue-50 text-blue-700 hover:bg-blue-100 rounded-full text-xs h-7" asChild>
+        <a href={`/recruiter/dashboard/applicants/${applicant.id}/profile`} target="_blank" rel="noopener noreferrer">
+          <User className="h-3 w-3 mr-1" /> View Profile
+        </a>
       </Button>
     );
     const messageBtn = (
@@ -4611,255 +4615,7 @@ function ApplicantsPage() {
       </div>
       )}
 
-      {/* ── Full Profile Modal (Naukri-style) ── */}
-      {profileModal && (() => {
-        const p = profileModal.profile;
-        const isUpdating = statusUpdateInFlight.has(profileModal.id);
-        const name = getCandidateDisplayName(p);
-        const initials = getCandidateInitials(name);
 
-        const modalEffectiveStatus = optimisticStatusByApplicant[profileModal.id] ?? profileModal.status;
-        const modalStage = mapApplicationStatusToPipelineStage(modalEffectiveStatus);
-        const isLockedAfterHire = modalStage === "Joined";
-        const disableActions = isUpdating;
-        const isInterviewActive = modalStage === "Interview Scheduled";
-        const isInterviewCompleteActive = modalStage === "Interview Completed";
-        const isInterviewSelectActive = modalStage === "Interview Selected";
-        const isInterviewRejectActive = modalStage === "Interview Rejected";
-        const isShortlistActive = modalStage === "Shortlisted";
-        const isOfferActive = modalStage === "Offered";
-        const isRejectActive = modalStage === "Rejected";
-        const isHireActive = modalStage === "Joined";
-        const isOnHoldActive = modalStage === "On Hold";
-        const fadedAfterHire = isLockedAfterHire ? "opacity-40" : "";
-        const disabledOpacityClass = "disabled:opacity-40";
-        const shortlistDisabledClass = isShortlistActive ? "disabled:opacity-100" : "disabled:opacity-40";
-        const interviewDisabledClass = isInterviewActive ? "disabled:opacity-100" : "disabled:opacity-40";
-        const interviewCompleteDisabledClass = isInterviewCompleteActive ? "disabled:opacity-100" : "disabled:opacity-40";
-        const interviewSelectDisabledClass = isInterviewSelectActive ? "disabled:opacity-100" : "disabled:opacity-40";
-        const interviewRejectDisabledClass = isInterviewRejectActive ? "disabled:opacity-100" : "disabled:opacity-40";
-        const offerDisabledClass = isOfferActive ? "disabled:opacity-100" : "disabled:opacity-40";
-        const hireDisabledClass = isHireActive ? "disabled:opacity-100" : "disabled:opacity-40";
-        const rejectDisabledClass = isRejectActive ? "disabled:opacity-100" : "disabled:opacity-40";
-        const onHoldDisabledClass = isOnHoldActive ? "disabled:opacity-100" : "disabled:opacity-40";
-        const canShortlist = modalStage === "Under Review" || modalStage === "Shortlisted";
-        const canInterview = modalStage === "Shortlisted" || modalStage === "Interview Scheduled";
-        const canInterviewComplete = modalStage === "Interview Scheduled" || modalStage === "Interview Completed";
-        const canInterviewSelect = modalStage === "Interview Completed" || modalStage === "Interview Selected";
-        const canInterviewReject = modalStage === "Interview Completed" || modalStage === "Interview Selected" || modalStage === "Interview Rejected";
-        const canOffer = modalStage === "Interview Selected" || modalStage === "Offered";
-        const canHire = modalStage === "Offered" || modalStage === "Joined";
-        const canReject = modalStage === "Offered" || modalStage === "Interview Selected" || modalStage === "Rejected";
-        const canOnHold = modalStage !== "Joined" && modalStage !== "Rejected" && modalStage !== "On Hold";
-        const workExp = p?.work_experience || [];
-        const edu = p?.education || [];
-        const skills = p?.skills || [];
-        const matchScore = Math.floor(70 + (profileModal.id.charCodeAt(0) % 25));
-        const modalResumeUrl = getResumeUrl(profileModal);
-        return (
-          <div className="fixed inset-0 z-50 flex items-center justify-center p-4 bg-black/50" onClick={() => setProfileModal(null)}>
-            <div className="bg-white rounded-2xl shadow-2xl w-full max-w-3xl max-h-[90vh] overflow-y-auto" onClick={e => e.stopPropagation()}>
-              {/* Header — fully inside banner */}
-              <div className="bg-gradient-to-r from-[#3A1F1F] to-[#FF2B2B] rounded-t-2xl px-6 py-5 relative">
-                <button onClick={() => setProfileModal(null)} className="absolute top-3 right-4 text-white/70 hover:text-white text-2xl leading-none font-bold">×</button>
-                <div className="flex items-center gap-4">
-                  <div className="w-16 h-16 rounded-xl border-2 border-white/40 shadow overflow-hidden bg-white/20 flex items-center justify-center text-white font-bold text-xl flex-shrink-0">
-                    {p?.avatar_url
-                      ? <img src={p.avatar_url} alt={name} className="w-full h-full object-cover" />
-                      : initials}
-                  </div>
-                  <div className="flex-1 min-w-0">
-                    <h2 className="text-lg font-bold text-white truncate">{name}</h2>
-                    <p className="text-sm text-white/80 truncate">{p?.headline || `${p?.current_title || ""}${p?.current_company ? ` · ${p.current_company}` : ""}`}</p>
-                  </div>
-                  <div className="bg-white/20 border border-white/30 rounded-xl px-3 py-1.5 text-center flex-shrink-0">
-                    <div className="text-lg font-bold text-white">{matchScore}%</div>
-                    <div className="text-xs text-white/70">Match</div>
-                  </div>
-                </div>
-              </div>
-
-              <div className="px-6 pb-6 pt-5">
-
-                {/* Key Stats Row */}
-                <div className="grid grid-cols-2 md:grid-cols-4 gap-3 mb-5 p-4 bg-[#F6F6F6] rounded-xl">
-                  <div>
-                    <p className="text-xs text-[#8A8A8A]">Experience</p>
-                    <p className="text-sm font-semibold text-[#3A1F1F]">{p?.total_experience || "—"}</p>
-                  </div>
-                  <div>
-                    <p className="text-xs text-[#8A8A8A]">Location</p>
-                    <p className="text-sm font-semibold text-[#3A1F1F]">{p?.location || "—"}</p>
-                  </div>
-                  <div>
-                    <p className="text-xs text-[#8A8A8A]">Current Salary</p>
-                    <p className="text-sm font-semibold text-[#3A1F1F]">{p?.current_salary || "—"}</p>
-                  </div>
-                  <div>
-                    <p className="text-xs text-[#8A8A8A]">Expected Salary</p>
-                    <p className="text-sm font-semibold text-[#FF2B2B]">{p?.expected_salary || "—"}</p>
-                  </div>
-                  <div>
-                    <p className="text-xs text-[#8A8A8A]">Notice Period</p>
-                    <p className="text-sm font-semibold text-[#3A1F1F]">{p?.notice_period || "—"}</p>
-                  </div>
-                  <div>
-                    <p className="text-xs text-[#8A8A8A]">Phone</p>
-                    <p className="text-sm font-semibold text-[#3A1F1F]">{p?.phone || "—"}</p>
-                  </div>
-                  <div>
-                    <p className="text-xs text-[#8A8A8A]">Email</p>
-                    <p className="text-sm font-semibold text-[#3A1F1F] truncate">{p?.email || "—"}</p>
-                  </div>
-                  <div>
-                    <p className="text-xs text-[#8A8A8A]">Applied For</p>
-                    <p className="text-sm font-semibold text-[#3A1F1F] truncate">{profileModal.job?.title || "—"}</p>
-                  </div>
-                </div>
-
-                {/* Status + Actions */}
-                <div className="flex items-center justify-between mb-5 flex-wrap gap-2">
-                  <Badge className={`${statusColor(modalEffectiveStatus)}`}>{modalStage}</Badge>
-                  <div className="flex gap-2 flex-wrap">
-                    <Select
-                      value={modalStage}
-                      onValueChange={(value) => {
-                        void handleStatusDropdownSelect(profileModal, value as PipelineStage);
-                      }}
-                      disabled={disableActions}
-                    >
-                      <SelectTrigger className="h-8 min-w-[170px] rounded-full border-gray-200 text-xs">
-                        <span>Change Status</span>
-                      </SelectTrigger>
-                      <SelectContent className="max-h-64">
-                        {moveToOptions(modalStage).map((stage) => (
-                          <SelectItem key={stage} value={stage} className="text-xs">
-                            {stage}
-                          </SelectItem>
-                        ))}
-                      </SelectContent>
-                    </Select>
-                    <Button size="sm" variant="outline" className="border-2 border-gray-400 bg-gray-50 text-[#3A1F1F] hover:bg-gray-100 rounded-full text-xs" onClick={() => { if (profileModal.profile?.email) window.location.href = `mailto:${profileModal.profile.email}`; }}><Mail className="h-3.5 w-3.5 mr-1" /> Message</Button>
-                    <Button size="sm" variant="outline" disabled={disableActions || !canShortlist} className={`${isShortlistActive ? "border-2 border-pink-600 bg-pink-50 text-pink-700" : "border-pink-500 text-pink-600 hover:bg-pink-50 opacity-40"} rounded-full text-xs ${shortlistDisabledClass} ${fadedAfterHire}`} onClick={() => quickUpdateStatus(profileModal.id, "Shortlisted")}><ThumbsUp className="h-3.5 w-3.5 mr-1" /> Shortlist</Button>
-                    <Button size="sm" variant="outline" disabled={disableActions || !canInterview} className={`${isInterviewActive ? "border-2 border-purple-600 bg-purple-50 text-purple-700" : "border-purple-400 text-purple-600 hover:bg-purple-50 opacity-40"} rounded-full text-xs ${interviewDisabledClass} ${fadedAfterHire}`} onClick={() => handleInterviewStatusRequest(profileModal)}><Video className="h-3.5 w-3.5 mr-1" /> {modalStage === "Interview Scheduled" ? "Schedule Next Round" : "Interview"}</Button>
-                    {(modalStage === "Interview Scheduled" || modalStage === "Interview Completed") && (
-                      <Button size="sm" variant="outline" disabled={disableActions} className={`border-purple-300 text-purple-700 hover:bg-purple-50 rounded-full text-xs ${disabledOpacityClass} ${fadedAfterHire}`} onClick={() => void handleInterviewFeedbackRequest(profileModal)}>
-                        Add Feedback
-                      </Button>
-                    )}
-                    <Button size="sm" variant="outline" disabled={disableActions || !canInterviewComplete} className={`${isInterviewCompleteActive ? "border-2 border-indigo-600 bg-indigo-50 text-indigo-700" : "border-indigo-400 text-indigo-600 hover:bg-indigo-50 opacity-40"} rounded-full text-xs ${interviewCompleteDisabledClass} ${fadedAfterHire}`} onClick={() => quickUpdateStatus(profileModal.id, "Interview Completed")}>Interview Complete</Button>
-                    <Button size="sm" variant="outline" disabled={disableActions || !canInterviewSelect} className={`${isInterviewSelectActive ? "border-2 border-teal-600 bg-teal-50 text-teal-700" : "border-teal-400 text-teal-600 hover:bg-teal-50 opacity-40"} rounded-full text-xs ${interviewSelectDisabledClass} ${fadedAfterHire}`} onClick={() => quickUpdateStatus(profileModal.id, "Interview Selected")}>Interview Select</Button>
-                    <Button size="sm" variant="outline" disabled={disableActions || !canInterviewReject} className={`${isInterviewRejectActive ? "border-2 border-red-600 bg-red-50 text-red-700" : "border-red-400 text-red-600 hover:bg-red-50 opacity-40"} rounded-full text-xs ${interviewRejectDisabledClass} ${fadedAfterHire}`} onClick={() => quickUpdateStatus(profileModal.id, "Interview Rejected")}>Interview Reject</Button>
-                    <Button size="sm" variant="outline" disabled={disableActions || !canOffer} className={`${isOfferActive ? "border-2 border-orange-600 bg-orange-50 text-orange-700" : "border-orange-400 text-orange-700 hover:bg-orange-50 opacity-40"} rounded-full text-xs ${offerDisabledClass} ${fadedAfterHire}`} onClick={() => handleOfferStatusRequest(profileModal)}><Award className="h-3.5 w-3.5 mr-1" /> Offer</Button>
-                    {isHireActive ? (
-                      <Button size="sm" variant="outline" disabled className="border-emerald-500 text-emerald-700 bg-emerald-100 ring-1 ring-emerald-300 rounded-full text-xs"><Check className="h-3.5 w-3.5 mr-1" /> Joined</Button>
-                    ) : (
-                      <Button size="sm" variant="outline" disabled={disableActions || !canHire} className={`${isHireActive ? "border-2 border-emerald-600 bg-emerald-50 text-emerald-700" : "border-emerald-500 text-emerald-600 hover:bg-emerald-50 opacity-40"} rounded-full text-xs ${hireDisabledClass}`} onClick={() => quickUpdateStatus(profileModal.id, "Joined")}>Hire</Button>
-                    )}
-                    <Button size="sm" variant="outline" disabled={disableActions || !canReject} className={`${isRejectActive ? "border-2 border-red-600 bg-red-50 text-red-700" : "border-red-400 text-red-500 hover:bg-red-50 opacity-40"} rounded-full text-xs ${rejectDisabledClass} ${fadedAfterHire}`} onClick={() => quickUpdateStatus(profileModal.id, "Rejected")}><ThumbsDown className="h-3.5 w-3.5 mr-1" /> Reject</Button>
-                    <Button size="sm" variant="outline" disabled={disableActions || !canOnHold} className={`${isOnHoldActive ? "border-2 border-amber-600 bg-amber-50 text-amber-700" : "border-amber-400 text-amber-600 hover:bg-amber-50 opacity-40"} rounded-full text-xs ${onHoldDisabledClass} ${fadedAfterHire}`} onClick={() => quickUpdateStatus(profileModal.id, "On Hold")}>On Hold</Button>
-                    {(modalStage === "Rejected" || modalStage === "On Hold" || modalStage === "Interview Rejected") && (
-                      <Button size="sm" variant="outline" disabled={disableActions} className={`border-[#8B5E3C] text-[#8B5E3C] hover:bg-[#F5EEE8] rounded-full text-xs ${disabledOpacityClass} ${fadedAfterHire}`} onClick={() => quickUpdateStatus(profileModal.id, "Under Review")}><RefreshCw className="h-3.5 w-3.5 mr-1" /> Restore Candidate</Button>
-                    )}
-                  </div>
-                </div>
-
-                {/* About */}
-                {p?.about && (
-                  <div className="mb-5">
-                    <h3 className="text-sm font-bold text-[#3A1F1F] mb-2 flex items-center gap-2"><User className="h-4 w-4 text-[#FF2B2B]" /> Profile Summary</h3>
-                    <p className="text-sm text-[#5A5A5A] leading-relaxed bg-[#F6F6F6] rounded-xl p-3 border-l-2 border-[#FF2B2B]">{p.about}</p>
-                  </div>
-                )}
-
-                {/* Skills */}
-                {skills.length > 0 && (
-                  <div className="mb-5">
-                    <h3 className="text-sm font-bold text-[#3A1F1F] mb-2 flex items-center gap-2"><Star className="h-4 w-4 text-[#FF2B2B]" /> Key Skills</h3>
-                    <div className="flex flex-wrap gap-1.5">
-                      {skills.map((s: string, i: number) => <Badge key={i} className="bg-[#ECECF4] text-[#3A1F1F] text-xs">{s}</Badge>)}
-                    </div>
-                  </div>
-                )}
-
-                {/* Work Experience */}
-                {workExp.length > 0 && (
-                  <div className="mb-5">
-                    <h3 className="text-sm font-bold text-[#3A1F1F] mb-3 flex items-center gap-2"><Briefcase className="h-4 w-4 text-[#FF2B2B]" /> Work Experience</h3>
-                    <div className="relative">
-                      <div className="absolute left-4 top-2 bottom-2 w-0.5 bg-gradient-to-b from-[#FF2B2B] to-red-100" />
-                      <div className="space-y-3">
-                        {workExp.map((exp, i) => (
-                          <div key={i} className="flex gap-3">
-                            <div className={`w-8 h-8 rounded-full flex items-center justify-center flex-shrink-0 z-10 ${i === 0 ? "bg-[#FF2B2B]" : "bg-gray-300"}`}>
-                              <Briefcase className="h-3.5 w-3.5 text-white" />
-                            </div>
-                            <div className={`flex-1 rounded-xl p-3 border text-sm ${i === 0 ? "bg-red-50 border-red-100" : "bg-white border-gray-100"}`}>
-                              <div className="flex justify-between flex-wrap gap-1">
-                                <div>
-                                  <p className="font-semibold text-[#3A1F1F]">{exp.title}</p>
-                                  <p className="text-[#FF2B2B] text-xs font-medium">{exp.company}{exp.location ? ` · ${exp.location}` : ""}</p>
-                                </div>
-                                <p className="text-xs text-[#8A8A8A] flex-shrink-0">{exp.start_date} – {exp.is_current ? "Present" : exp.end_date}</p>
-                              </div>
-                              {exp.description && <p className="text-xs text-[#5A5A5A] mt-1.5 leading-relaxed">{exp.description}</p>}
-                            </div>
-                          </div>
-                        ))}
-                      </div>
-                    </div>
-                  </div>
-                )}
-
-                {/* Education */}
-                {edu.length > 0 && (
-                  <div className="mb-5">
-                    <h3 className="text-sm font-bold text-[#3A1F1F] mb-3 flex items-center gap-2"><GraduationCap className="h-4 w-4 text-blue-500" /> Education</h3>
-                    <div className="space-y-2">
-                      {edu.map((e, i) => (
-                        <div key={i} className="flex gap-3 bg-blue-50 border border-blue-100 rounded-xl p-3">
-                          <GraduationCap className="h-5 w-5 text-blue-500 flex-shrink-0 mt-0.5" />
-                          <div>
-                            <p className="text-sm font-semibold text-[#3A1F1F]">{e.degree} in {e.field}</p>
-                            <p className="text-xs text-blue-600 font-medium">{e.institution}</p>
-                            <p className="text-xs text-[#8A8A8A]">{e.start_year} – {e.end_year}{e.score ? ` · ${e.score}` : ""}</p>
-                          </div>
-                        </div>
-                      ))}
-                    </div>
-                  </div>
-                )}
-
-                {/* Resume */}
-                {modalResumeUrl && (
-                  <div>
-                    <h3 className="text-sm font-bold text-[#3A1F1F] mb-2 flex items-center gap-2"><FileText className="h-4 w-4 text-[#FF2B2B]" /> Resume</h3>
-                    <div className="flex flex-wrap gap-2">
-                      <Button size="sm" variant="outline" className="border-gray-200 rounded-full text-sm" onClick={async () => {
-                        const newTab = window.open('', '_blank');
-                        if (!newTab) return;
-                        let resolvedUrl = modalResumeUrl;
-                        const obj = getStorageObjectFromUrl(modalResumeUrl);
-                        if (obj) {
-                          const { data } = await supabase.storage.from(obj.bucket).createSignedUrl(obj.path, 10 * 60);
-                          if (data?.signedUrl) resolvedUrl = data.signedUrl;
-                        }
-                        newTab.location.href = buildPreviewUrl(resolvedUrl) || resolvedUrl;
-                      }}>
-                        <Eye className="h-4 w-4 mr-1" /> Preview Resume
-                      </Button>
-                      <a href={modalResumeUrl} target="_blank" rel="noreferrer" download
-                        className="inline-flex items-center gap-2 px-4 py-2 bg-[#FF2B2B] text-white text-sm rounded-full hover:bg-[#e02525] transition-colors">
-                        <Download className="h-4 w-4" /> Download Resume
-                      </a>
-                    </div>
-                  </div>
-                )}
-              </div>
-            </div>
-          </div>
-        );
-      })()}
       <InterviewDetailsModal
         open={Boolean(interviewModalApplicant)}
         onOpenChange={(open) => {
