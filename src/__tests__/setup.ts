@@ -1,4 +1,5 @@
 import '@testing-library/jest-dom';
+import { beforeAll, afterAll } from 'vitest';
 
 // Silence console.error noise from React in tests
 const originalError = console.error;

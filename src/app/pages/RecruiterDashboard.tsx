@@ -3,12 +3,14 @@ import { useNavigate, Routes, Route, Link, useLocation, useParams } from "react-
 import { supabase, Job, Application, Notification, Profile, WorkExperience, Education as EduType, RecruiterSubscription, RecruiterArticle } from "../../lib/supabase";
 import {
   SALARY_AMOUNT_OPTIONS,
+  JOB_EXPIRY_DAYS,
   buildJobDeadlineTimestamp,
+  buildJobExpiryTimestamp,
   formatJobDeadline,
   formatJobSalary,
   formatSalaryRangeFromValues,
   getEffectiveJobStatus,
-  getJobDeadlineDateValue,
+  getJobDaysRemaining,
   isJobExpired,
 } from "../../lib/jobs";
 import { PLANS, FREE_DAILY_POST_LIMIT, getPlanById, validatePromo, getPlanPriceBreakdown } from "../../lib/plans";
@@ -258,6 +260,11 @@ function LocationAutocomplete({
 
 // ─── Types ──────────────────────────────────────────────────────────────────
 
+function getSalaryFormValue(val: number | null | undefined): string {
+  if (val === null || val === undefined) return "";
+  return String(val);
+}
+
 function SalaryCombobox({
   value,
   onChange,
@@ -336,7 +343,7 @@ function SalaryCombobox({
       .slice(0, 8);
   }, [search]);
 
-  const selectSalary = (option: (typeof SALARY_AMOUNT_OPTIONS)[number]) => {
+  const selectSalary = (option: { value: number; label: string }) => {
     onChange(String(option.value));
     setSearch(option.label);
     setOpen(false);
@@ -1907,7 +1914,7 @@ function PostJobPage() {
       setPostSuccess(true);
       setShowPreview(false);
       setTimeout(() => { setPostSuccess(false); navigate("/recruiter/dashboard/manage-jobs"); }, 2000);
-      setFormData({ jobTitle:"",jobDescription:"",rolesResponsibilities:"",requirements:"",location:"",workMode:"",salaryMin:"",salaryMax:"",salaryType:"LPA",experienceMin:"",experienceMax:"",skills:"",employmentType:"",industry:"",openings:"1",education:"",perks:[],department:"",interviewMode:"" });
+      setFormData({ jobTitle:"",jobDescription:"",rolesResponsibilities:"",requirements:"",location:"",workMode:"",salaryMin:"",salaryMax:"",experienceMin:"",experienceMax:"",skills:"",employmentType:"",industry:"",openings:"1",education:"",perks:[],department:"",interviewMode:"" });
       setShowSkillInput(false);
       setSkillPickerOpen(false);
       setSkillSearch("");
@@ -2462,6 +2469,10 @@ function ManageJobsPage() {
   const [saving, setSaving] = useState(false);
   const [refreshingJobId, setRefreshingJobId] = useState<string | null>(null);
 
+  const isEditSalaryRangeInvalid =
+    Boolean(editForm.salaryMin && editForm.salaryMax) &&
+    Number(editForm.salaryMax) < Number(editForm.salaryMin);
+
   const openEdit = (job: Job) => {
     setEditingJob(job);
     setEditForm({
@@ -2469,6 +2480,7 @@ function ManageJobsPage() {
       location: job.location || "",
       salaryMin: getSalaryFormValue(job.salary_min),
       salaryMax: getSalaryFormValue(job.salary_max),
+      salaryType: "LPA",
       employmentType: job.employment_type || "",
       workMode: job.work_mode || "",
       openings: String(job.openings),

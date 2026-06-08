@@ -172,7 +172,7 @@ export default function SavedJobsSection({
       .filter((savedJob): savedJob is SavedJobWithJob => Boolean(savedJob && savedJob.job));
 
     const compareState = {
-      fromSavedJobs: true,
+      fromSavedJobs: true as const,
       selectedJobIds: compareJobIds,
       selectedJobs: selectedSavedJobs,
       returnPath: location.pathname,
