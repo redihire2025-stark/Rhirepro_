@@ -260,6 +260,11 @@ function LocationAutocomplete({
 
 // ─── Types ──────────────────────────────────────────────────────────────────
 
+function getSalaryFormValue(val: number | null | undefined): string {
+  if (val === null || val === undefined) return "";
+  return String(val);
+}
+
 function SalaryCombobox({
   value,
   onChange,
@@ -338,7 +343,7 @@ function SalaryCombobox({
       .slice(0, 8);
   }, [search]);
 
-  const selectSalary = (option: (typeof SALARY_AMOUNT_OPTIONS)[number]) => {
+  const selectSalary = (option: { value: number; label: string }) => {
     onChange(String(option.value));
     setSearch(option.label);
     setOpen(false);
@@ -2471,6 +2476,7 @@ function ManageJobsPage() {
     return String(value >= 1000 ? value / 100000 : value);
   };
 
+
   const openEdit = (job: Job) => {
     setEditingJob(job);
     setEditForm({
@@ -2478,6 +2484,7 @@ function ManageJobsPage() {
       location: job.location || "",
       salaryMin: getSalaryFormValue(job.salary_min),
       salaryMax: getSalaryFormValue(job.salary_max),
+      salaryType: "LPA",
       employmentType: job.employment_type || "",
       workMode: job.work_mode || "",
       openings: String(job.openings),
