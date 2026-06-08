@@ -77,18 +77,27 @@ interface OfferPanelDetails {
   sent_at: string | null;
 }
 
+function firstTrimmedValue(...values: Array<string | null | undefined>): string {
+  for (const value of values) {
+    const trimmed = value?.trim();
+    if (trimmed) return trimmed;
+  }
+
+  return "";
+}
+
 function deriveOfferFileName(details: OfferPanelDetails | null, job: AppliedJobWithJob | null): string {
-  const explicitName = (details?.offer_letter_name || job?.offer_details?.offer_letter_name || "").trim();
+  const explicitName = firstTrimmedValue(details?.offer_letter_name, job?.offer_details?.offer_letter_name);
   if (explicitName) return explicitName;
 
-  const fromPath = (details?.offer_letter_path || job?.offer_details?.offer_letter_path || "").trim();
+  const fromPath = firstTrimmedValue(details?.offer_letter_path, job?.offer_details?.offer_letter_path);
   if (fromPath) {
     const segments = fromPath.split("/");
     const fileName = segments[segments.length - 1];
     if (fileName) return fileName;
   }
 
-  const fromUrl = (details?.offer_letter_url || job?.offer_details?.offer_letter_url || "").trim();
+  const fromUrl = firstTrimmedValue(details?.offer_letter_url, job?.offer_details?.offer_letter_url);
   if (fromUrl) {
     const cleanUrl = fromUrl.split("?")[0].split("#")[0];
     const segments = cleanUrl.split("/");
@@ -1435,76 +1444,86 @@ function ProfilePage({ onPendingPrefsChange }: { onPendingPrefsChange?: (pending
   // Load work experience and education from DB
   useEffect(() => {
     if (!profile?.id) return;
-    supabase.from("work_experience").select("*").eq("profile_id", profile.id).order("created_at", { ascending: false })
-      .then(({ data, error }) => {
-        if (error) {
-          console.error("Error loading work experience:", error.message);
-          return;
-        }
-        if (data && data.length > 0) {
-          setExperiences(data.map(e => {
-            const startParts = (e.start_date || "").split(" ");
-            const endParts = (e.end_date || "").split(" ");
-            return {
-              id: e.id,
-              title: e.title,
-              company: e.company,
-              location: e.location || "",
-              startMonth: startParts[0] || "Jan",
-              startYear: startParts[1] || "2022",
-              endMonth: endParts[0] || "Jan",
-              endYear: endParts[1] || "2024",
-              current: e.is_current || false,
-              description: e.description || "",
-            };
-          }));
-        }
-      })
-      .catch((err) => console.error("Unexpected error loading work experience:", err));
-    supabase.from("education").select("*").eq("profile_id", profile.id).order("created_at", { ascending: false })
-      .then(({ data, error }) => {
-        if (error) {
-          console.error("Error loading education:", error.message);
-          return;
-        }
-        if (data && data.length > 0) {
-          setEducation(data.map(e => ({
-            id: e.id, degree: e.degree, field: e.field || "",
-            college: e.institution, startYear: e.start_year || "",
-            endYear: e.end_year || "", score: e.score || "",
-          })));
-        }
-      })
-      .catch((err) => console.error("Unexpected error loading education:", err));
-    supabase.from("projects").select("*").eq("profile_id", profile.id).order("created_at", { ascending: false })
-      .then(({ data, error }) => {
-        if (error) {
-          console.error("Error loading projects:", error.message);
-          return;
-        }
-        if (data && data.length > 0) {
-          setProjects(data.map(p => ({
-            id: p.id, name: p.name, url: p.url || "",
-            startYear: p.start_year || "", endYear: p.end_year || "", description: p.description || "",
-          })));
-        }
-      })
-      .catch((err) => console.error("Unexpected error loading projects:", err));
-    supabase.from("certifications").select("*").eq("profile_id", profile.id).order("created_at", { ascending: false })
-      .then(({ data, error }) => {
-        if (error) {
-          console.error("Error loading certifications:", error.message);
-          return;
-        }
-        if (data && data.length > 0) {
-          setCertifications(data.map(c => ({
-            id: c.id, name: c.name, issuer: c.issuer || "",
-            issueDate: c.issue_date || "", expiryDate: c.expiry_date || "",
-            noExpiry: Boolean(c.no_expiry), credentialId: c.credential_id || "",
-          })));
-        }
-      })
-      .catch((err) => console.error("Unexpected error loading certifications:", err));
+
+    const loadProfileSections = async () => {
+      const { data: workExperienceData, error: workExperienceError } = await supabase
+        .from("work_experience")
+        .select("*")
+        .eq("profile_id", profile.id)
+        .order("created_at", { ascending: false });
+
+      if (workExperienceError) {
+        console.error("Error loading work experience:", workExperienceError.message);
+      } else if (workExperienceData && workExperienceData.length > 0) {
+        setExperiences(workExperienceData.map(e => {
+          const startParts = (e.start_date || "").split(" ");
+          const endParts = (e.end_date || "").split(" ");
+          return {
+            id: e.id,
+            title: e.title,
+            company: e.company,
+            location: e.location || "",
+            startMonth: startParts[0] || "Jan",
+            startYear: startParts[1] || "2022",
+            endMonth: endParts[0] || "Jan",
+            endYear: endParts[1] || "2024",
+            current: e.is_current || false,
+            description: e.description || "",
+          };
+        }));
+      }
+
+      const { data: educationData, error: educationError } = await supabase
+        .from("education")
+        .select("*")
+        .eq("profile_id", profile.id)
+        .order("created_at", { ascending: false });
+
+      if (educationError) {
+        console.error("Error loading education:", educationError.message);
+      } else if (educationData && educationData.length > 0) {
+        setEducation(educationData.map(e => ({
+          id: e.id, degree: e.degree, field: e.field || "",
+          college: e.institution, startYear: e.start_year || "",
+          endYear: e.end_year || "", score: e.score || "",
+        })));
+      }
+
+      const { data: projectsData, error: projectsError } = await supabase
+        .from("projects")
+        .select("*")
+        .eq("profile_id", profile.id)
+        .order("created_at", { ascending: false });
+
+      if (projectsError) {
+        console.error("Error loading projects:", projectsError.message);
+      } else if (projectsData && projectsData.length > 0) {
+        setProjects(projectsData.map(p => ({
+          id: p.id, name: p.name, url: p.url || "",
+          startYear: p.start_year || "", endYear: p.end_year || "", description: p.description || "",
+        })));
+      }
+
+      const { data: certificationsData, error: certificationsError } = await supabase
+        .from("certifications")
+        .select("*")
+        .eq("profile_id", profile.id)
+        .order("created_at", { ascending: false });
+
+      if (certificationsError) {
+        console.error("Error loading certifications:", certificationsError.message);
+      } else if (certificationsData && certificationsData.length > 0) {
+        setCertifications(certificationsData.map(c => ({
+          id: c.id, name: c.name, issuer: c.issuer || "",
+          issueDate: c.issue_date || "", expiryDate: c.expiry_date || "",
+          noExpiry: Boolean(c.no_expiry), credentialId: c.credential_id || "",
+        })));
+      }
+    };
+
+    loadProfileSections().catch((err) => {
+      console.error("Unexpected error loading profile sections:", err);
+    });
   }, [profile?.id]);
 
   // Projects
