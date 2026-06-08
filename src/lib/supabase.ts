@@ -39,8 +39,11 @@ export interface Profile {
   linkedin_url: string | null;
   portfolio_url: string | null;
   about: string | null;
+  preferred_interview_mode?: string[] | null;
   otp_code: string | null;
   otp_expires_at: string | null;
+  profile_views?: number | null;
+  recruiter_searches?: number | null;
   created_at: string;
 }
 
@@ -57,6 +60,8 @@ export interface RecruiterProfile {
   website: string | null;
   location: string | null;
   logo_url: string | null;
+  cover_image_url: string | null;
+  cover_image_name: string | null;
   tagline: string | null;
   linkedin_url: string | null;
   cin: string | null;
@@ -120,14 +125,21 @@ export interface Application {
   recruiter_id: string;
   status:
     | "Applied"
-    | "Screening"
+    | "Under Review"
     | "Shortlisted"
     | "Interview Scheduled"
+    | "Interview Completed"
+    | "Interview Selected"
+    | "Interview Rejected"
     | "Offered"
+    | "Joined"
     | "Rejected"
-    | "Hired"
+    | "On Hold"
+    // Legacy values (backward compatibility)
     | "New"
-    | "Reviewed";
+    | "Reviewed"
+    | "Screening"
+    | "Hired";
   cover_letter: string | null;
   resume_url: string | null;
   applied_at: string;

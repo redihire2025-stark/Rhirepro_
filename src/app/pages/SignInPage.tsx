@@ -60,6 +60,7 @@ export default function SignInPage() {
   const [showPassword, setShowPassword] = useState(false);
   const [otp, setOtp] = useState("");
   const [loading, setLoading] = useState(false);
+  const [resendLoading, setResendLoading] = useState(false);
   const [error, setError] = useState("");
   const [userId, setUserId] = useState("");
   const [displayName, setDisplayName] = useState("");
@@ -208,6 +209,7 @@ export default function SignInPage() {
 
   const handleResendOTP = async () => {
     if (!userId) return;
+    setResendLoading(true);
     setError("");
     try {
       const newOTP = generateOTP();
@@ -220,6 +222,8 @@ export default function SignInPage() {
       setOtp("");
     } catch {
       setError("Failed to resend OTP. Please try again.");
+    } finally {
+      setResendLoading(false);
     }
   };
 
@@ -487,7 +491,7 @@ export default function SignInPage() {
                         className="bg-[#ECECF4] border-0 rounded-xl text-center text-2xl tracking-widest font-bold py-5"
                         placeholder="------" maxLength={6} required autoFocus />
                     </div>
-                    <Button type="submit" disabled={loading || otp.length < 6}
+                    <Button type="submit" disabled={loading || resendLoading || otp.length < 6}
                       className="w-full bg-gradient-to-r from-[#FF2B2B] to-[#e02525] text-white rounded-full py-5 text-base font-semibold">
                       {loading ? <><Loader2 className="mr-2 h-4 w-4 animate-spin" /> Verifying...</> : "Verify & Sign In"}
                     </Button>
@@ -497,8 +501,8 @@ export default function SignInPage() {
                     <button onClick={resetToCredentials} className="text-sm text-[#8A8A8A] hover:text-[#3A1F1F]">
                       ← Back
                     </button>
-                    <button onClick={handleResendOTP} className="text-sm text-[#FF2B2B] hover:underline flex items-center gap-1">
-                      <RefreshCw className="h-3 w-3" /> Resend OTP
+                    <button type="button" onClick={handleResendOTP} disabled={loading || resendLoading} className="text-sm text-[#FF2B2B] hover:underline flex items-center gap-1">
+                      {resendLoading ? <><Loader2 className="h-3 w-3 animate-spin" /> Resending...</> : <><RefreshCw className="h-3 w-3" /> Resend OTP</>}
                     </button>
                   </div>
                 </>

@@ -25,6 +25,7 @@ create table if not exists profiles (
   linkedin_url text,
   portfolio_url text,
   about        text,
+  preferred_interview_mode text[],
   otp_code     text,
   otp_expires_at timestamptz,
   created_at   timestamptz default now()
@@ -71,6 +72,8 @@ create table if not exists recruiter_profiles (
   website             text,
   location            text,
   logo_url            text,
+  cover_image_url     text,
+  cover_image_name    text,
   tagline             text,
   linkedin_url        text,
   cin                 text,

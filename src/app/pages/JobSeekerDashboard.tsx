@@ -1,10 +1,12 @@
 import { useState, useMemo, useEffect, useCallback, useRef, type MouseEvent as ReactMouseEvent } from "react";
 import { useNavigate, Routes, Route, Link, useLocation } from "react-router";
 import { supabase, Job as DBJob, Notification } from "../../lib/supabase";
-import { isJobVisibleToSeekers } from "../../lib/jobs";
+import { formatJobSalary, isJobVisibleToSeekers } from "../../lib/jobs";
 import { recordJobInteraction, recordJobSearch } from "../../lib/jobRecommendations";
+import { SKILL_OPTIONS, skillsMatch } from "../../lib/skillKeywords";
 import { useAuth } from "../../lib/auth-context";
 import AppliedJobsSection from "../components/AppliedJobsSection";
+import ResumePreviewDialog, { getStorageObjectFromUrl, buildPreviewUrl } from "../components/ResumePreviewDialog";
 import {
   Bell, LogOut, Search, MapPin, DollarSign, Briefcase, Filter, Bookmark,
   User, BarChart3, Lightbulb, Upload, Plus, X, Pencil, Trash2,
@@ -26,6 +28,7 @@ import {
 } from "../components/ui/pagination";
 import { Textarea } from "../components/ui/textarea";
 import { Select, SelectContent, SelectItem, SelectTrigger, SelectValue } from "../components/ui/select";
+import { SafeHtml } from "../components/ui/safe-html";
 import { BarChart, Bar, XAxis, YAxis, CartesianGrid, Tooltip, ResponsiveContainer } from "recharts";
 import { Badge } from "../components/ui/badge";
 import FeedbackPopup from "../components/FeedbackPopup";
@@ -45,6 +48,7 @@ interface DashboardDisplayJob {
   salary: string;
   salaryMin: number;
   type: "Full-time" | "Part-time" | "Contract";
+  interviewMode?: string;
   description: string;
   industry: string;
   experience: string;
@@ -52,6 +56,7 @@ interface DashboardDisplayJob {
   isDB: true;
   dbJob: DBJob;
 }
+
 interface WorkExp {
   id: string; title: string; company: string; location: string;
   startMonth: string; startYear: string; endMonth: string; endYear: string;
@@ -205,19 +210,6 @@ function renderNotificationMessage(message: string) {
   });
 }
 
-function formatDashboardSalary(job: DBJob): string {
-  if (job.salary_min && job.salary_max && job.salary_type) {
-    return `${job.salary_min}-${job.salary_max} ${job.salary_type}`;
-  }
-  if (job.salary_min && job.salary_type) {
-    return `${job.salary_min}+ ${job.salary_type}`;
-  }
-  if (job.salary_type) {
-    return `${job.salary_type} compensation`;
-  }
-  return "Compensation as per company standards";
-}
-
 function formatDashboardLocation(job: DBJob): string {
   if (job.location?.trim()) return job.location;
   if (job.work_mode?.trim()) return job.work_mode;
@@ -316,6 +308,8 @@ function formatDateDisplay(value: string): string {
 }
 
 function profileMatchesJdSkill(profileSkill: string, jdSkill: string): boolean {
+  if (skillsMatch(profileSkill, jdSkill)) return true;
+
   const p = normalizeSkillPhrase(profileSkill);
   const j = normalizeSkillPhrase(jdSkill);
   if (!p || !j) return false;
@@ -434,40 +428,6 @@ async function fetchEducationCatalog(): Promise<{ degreeOptions: string[]; speci
     specializationOptions,
   };
 }
-const PROFILE_SKILL_OPTIONS = [
-  "JavaScript", "TypeScript", "React", "Next.js", "Angular", "Vue.js", "HTML", "CSS", "Tailwind CSS",
-  "Bootstrap", "Node.js", "Express.js", "NestJS", "Python", "Django", "Flask", "FastAPI", "Java",
-  "Spring Boot", "C", "C++", "C#", ".NET", "PHP", "Laravel", "Ruby", "Ruby on Rails", "Go", "Rust",
-  "Kotlin", "Swift", "Objective-C", "React Native", "Flutter", "Android Development", "iOS Development",
-  "SQL", "MySQL", "PostgreSQL", "MongoDB", "Redis", "Firebase", "Supabase", "Oracle", "SQLite",
-  "GraphQL", "REST API", "Microservices", "System Design", "Data Structures", "Algorithms",
-  "Git", "GitHub", "GitLab", "Docker", "Kubernetes", "Jenkins", "CI/CD", "Linux", "Shell Scripting",
-  "AWS", "Azure", "Google Cloud", "DevOps", "Terraform", "Ansible", "Nginx", "Apache",
-  "Data Analysis", "Data Visualization", "Excel", "Advanced Excel", "Power BI", "Tableau", "Looker",
-  "Python Pandas", "NumPy", "Matplotlib", "Seaborn", "R", "Statistics", "Machine Learning",
-  "Deep Learning", "TensorFlow", "PyTorch", "Scikit-learn", "NLP", "Computer Vision", "Generative AI",
-  "Prompt Engineering", "MLOps", "Data Engineering", "ETL", "Apache Spark", "Hadoop", "Kafka",
-  "Airflow", "Snowflake", "BigQuery", "Redshift",
-  "UI Design", "UX Design", "Figma", "Adobe XD", "Sketch", "Wireframing", "Prototyping",
-  "User Research", "Usability Testing", "Design Systems", "Graphic Design", "Photoshop", "Illustrator",
-  "Canva", "Video Editing", "After Effects", "Premiere Pro", "Motion Graphics",
-  "Digital Marketing", "SEO", "SEM", "Google Ads", "Meta Ads", "Social Media Marketing",
-  "Content Marketing", "Copywriting", "Email Marketing", "Marketing Analytics", "Google Analytics",
-  "CRM", "HubSpot", "Salesforce", "Lead Generation", "Brand Strategy",
-  "Project Management", "Product Management", "Agile", "Scrum", "Jira", "Confluence", "Roadmapping",
-  "Business Analysis", "Requirement Gathering", "Stakeholder Management", "Process Improvement",
-  "QA Testing", "Manual Testing", "Automation Testing", "Selenium", "Cypress", "Playwright",
-  "Jest", "Postman", "API Testing", "Performance Testing", "Security Testing",
-  "Cybersecurity", "Network Security", "Cloud Security", "Penetration Testing", "Ethical Hacking",
-  "SOC", "SIEM", "Risk Management", "Compliance", "ISO 27001",
-  "Accounting", "Financial Analysis", "Financial Modeling", "Tally", "GST", "Taxation", "Auditing",
-  "Budgeting", "Forecasting", "Investment Analysis",
-  "HR Management", "Recruitment", "Talent Acquisition", "Payroll", "Employee Engagement",
-  "Training and Development", "Operations Management", "Supply Chain Management", "Logistics",
-  "Customer Support", "Technical Support", "Sales", "B2B Sales", "Negotiation", "Communication",
-  "Leadership", "Team Management", "Problem Solving", "Critical Thinking", "Presentation Skills",
-];
-
 function splitPreferredJobTitles(value: string): string[] {
   return Array.from(
     new Set(
@@ -489,6 +449,18 @@ type PreferredJobSuggestion = {
   companies: string[];
   departments: string[];
 };
+const DEFAULT_RECOMMENDATION_FETCH_LIMIT = 120;
+const JOBS_QUERY_TIMEOUT_MS = 12000;
+const PROFILE_SKILL_OPTIONS = SKILL_OPTIONS;
+
+function withTimeout<T>(promise: PromiseLike<T>, timeoutMs: number, message: string): Promise<T> {
+  let timeoutId: ReturnType<typeof setTimeout>;
+  const timeoutPromise = new Promise<never>((_, reject) => {
+    timeoutId = setTimeout(() => reject(new Error(message)), timeoutMs);
+  });
+
+  return Promise.race([Promise.resolve(promise), timeoutPromise]).finally(() => clearTimeout(timeoutId));
+}
 
 function escapeLikeValue(value: string): string {
   return value.replace(/[%_,]/g, (match) => `\\${match}`);
@@ -500,9 +472,10 @@ function buildDashboardJob(job: DBJob): DashboardDisplayJob {
     title: job.title,
     company: job.company_name,
     location: formatDashboardLocation(job),
-    salary: formatDashboardSalary(job),
+    salary: formatJobSalary(job),
     salaryMin: job.salary_min || 0,
     type: formatDashboardType(job) as "Full-time" | "Part-time" | "Contract",
+    interviewMode: job.interview_mode || undefined,
     description: formatDashboardDescription(job),
     industry: job.industry || "",
     experience: "",
@@ -510,6 +483,57 @@ function buildDashboardJob(job: DBJob): DashboardDisplayJob {
     isDB: true,
     dbJob: job,
   };
+}
+
+const PREFERRED_INTERVIEW_MODE_OPTIONS = ["In-Person", "Video Call", "Telephonic", "Walk-in"];
+
+function normalizeInterviewModes(raw: any): string[] {
+  if (raw == null) return [];
+
+  let values: string[] = [];
+
+  if (Array.isArray(raw)) {
+    values = raw.map((x) => (x == null ? "" : String(x)));
+  } else if (typeof raw === "object") {
+    const numericKeys = Object.keys(raw).filter((key) => /^\d+$/.test(key));
+    if (numericKeys.length > 0) {
+      values = numericKeys
+        .map((key) => ({ key: Number(key), value: raw[key] }))
+        .sort((a, b) => a.key - b.key)
+        .map((item) => item.value == null ? "" : String(item.value));
+    } else {
+      values = Object.values(raw).map((x) => (x == null ? "" : String(x)));
+    }
+  } else {
+    const str = String(raw).trim();
+    if (!str) return [];
+    try {
+      const parsed = JSON.parse(str);
+      if (Array.isArray(parsed)) return normalizeInterviewModes(parsed);
+    } catch {
+      const bracketed = str.replace(/^\{|\}$/g, "");
+      return bracketed.split(",").map((s) => s.trim()).filter(Boolean);
+    }
+    values = [str];
+  }
+
+  const normalized = values
+    .map((s) => s.trim())
+    .filter(Boolean)
+    .map((s) => s.replace(/^\[|\]$/g, "").replace(/^"|"$/g, "").trim());
+
+  const normalizedKnown = normalized
+    .map((value) => {
+      const match = PREFERRED_INTERVIEW_MODE_OPTIONS.find(
+        (option) => option.toLowerCase() === value.toLowerCase()
+      );
+      return match ?? value;
+    })
+    .filter(Boolean);
+
+  const uniqueValues = Array.from(new Set(normalizedKnown));
+  const filtered = uniqueValues.filter((value) => PREFERRED_INTERVIEW_MODE_OPTIONS.includes(value));
+  return filtered.length > 0 ? filtered : uniqueValues;
 }
 
 // ── Main Dashboard ─────────────────────────────────────────────────────────────
@@ -599,6 +623,48 @@ export default function JobSeekerDashboard() {
       .subscribe();
     return () => { supabase.removeChannel(channel); };
   }, [profile?.id, fetchNotifications]);
+
+  const getJobSeekerNotificationPath = useCallback((notification: Notification): string => {
+    const text = `${notification.type} ${notification.title || ""} ${notification.message || ""}`.toLowerCase();
+
+    if (notification.job_id && (notification.type === "job_alert" || text.includes("recommended"))) {
+      return `/job/${notification.job_id}`;
+    }
+
+    if (
+      notification.type === "status_change" ||
+      text.includes("application status") ||
+      text.includes("interview") ||
+      text.includes("offer")
+    ) {
+      return "/jobseeker/dashboard/analytics";
+    }
+
+    if (text.includes("profile")) {
+      return "/jobseeker/dashboard/profile";
+    }
+
+    if (notification.type === "job_alert" || text.includes("recommended") || text.includes("job alert")) {
+      return "/jobseeker/dashboard";
+    }
+
+    return "/jobseeker/dashboard";
+  }, []);
+
+  const handleNotificationClick = useCallback(async (notification: Notification) => {
+    if (profile?.id && !notification.is_read) {
+      await supabase
+        .from("notifications")
+        .update({ is_read: true })
+        .eq("id", notification.id)
+        .eq("user_id", profile.id)
+        .eq("user_type", "jobseeker");
+    }
+
+    setNotificationsOpen(false);
+    fetchNotifications();
+    navigate(getJobSeekerNotificationPath(notification));
+  }, [fetchNotifications, getJobSeekerNotificationPath, navigate, profile?.id]);
 
   const notifRef = useRef<HTMLDivElement>(null);
   useEffect(() => {
@@ -713,7 +779,7 @@ export default function JobSeekerDashboard() {
                         {notifications.length === 0 ? (
                           <p className="text-sm text-[#8A8A8A] text-center py-4">No notifications yet</p>
                         ) : notifications.map((n) => (
-                          <div key={n.id} className={`p-3 rounded-lg ${!n.is_read ? "bg-red-50" : "bg-[#F6F6F6]"}`}>
+                          <div key={n.id} onClick={() => handleNotificationClick(n)} className={`p-3 rounded-lg cursor-pointer ${!n.is_read ? "bg-red-50" : "bg-[#F6F6F6]"}`}>
                             <p className="text-sm font-medium text-[#3A1F1F]">{n.title}</p>
                             <p className="text-xs text-[#8A8A8A] whitespace-pre-wrap break-words">{renderNotificationMessage(n.message)}</p>
                             <p className="text-xs text-[#BABABA] mt-0.5">{new Date(n.created_at).toLocaleString()}</p>
@@ -767,6 +833,8 @@ function FindJobPage() {
   const profileSkills = Array.isArray(profile?.skills)
     ? profile.skills.filter((value): value is string => typeof value === "string")
     : [];
+  const profileSkillKey = profileSkills.map((skill) => skill.trim().toLowerCase()).sort().join("|");
+  const preferredInterviewModeKey = normalizeInterviewModes(profile?.preferred_interview_mode).join("|");
   const [searchQuery, setSearchQuery] = useState("");
   const [inputValue, setInputValue] = useState("");
   const [selectedChip, setSelectedChip] = useState<string | null>(null);
@@ -853,6 +921,11 @@ function FindJobPage() {
         query = query.neq("work_mode", "Work from Home");
       }
 
+      const preferredInterviewModes = normalizeInterviewModes(profile?.preferred_interview_mode);
+      if (preferredInterviewModes.length > 0) {
+        query = query.in("interview_mode", preferredInterviewModes);
+      }
+
       if (locationFilter === "bengaluru") query = query.ilike("location", "%Bengaluru%");
       if (locationFilter === "mumbai") query = query.ilike("location", "%Mumbai%");
       if (locationFilter === "hyderabad") query = query.ilike("location", "%Hyderabad%");
@@ -863,9 +936,9 @@ function FindJobPage() {
       if (experienceFilter === "mid") query = query.gte("experience_min", 2).lte("experience_min", 5);
       if (experienceFilter === "senior") query = query.gte("experience_min", 5);
 
-      if (salaryFilter === "0-50") query = query.lt("salary_min", 50000);
-      if (salaryFilter === "50-100") query = query.gte("salary_min", 50000).lt("salary_min", 100000);
-      if (salaryFilter === "100+") query = query.gte("salary_min", 100000);
+      if (salaryFilter === "0-10") query = query.lt("salary_min", 10);
+      if (salaryFilter === "10-25") query = query.gte("salary_min", 10).lt("salary_min", 25);
+      if (salaryFilter === "25+") query = query.gte("salary_min", 25);
 
       if (industryFilter === "healthcare") query = query.ilike("industry", "%Healthcare%");
       if (industryFilter === "finance") query = query.ilike("industry", "%BFSI%");
@@ -878,9 +951,14 @@ function FindJobPage() {
       const to = from + JOBS_PER_PAGE - 1;
       const orderedQuery = query.order("created_at", { ascending: false });
 
-      const { data, error, count } = shouldShowOnlyRecommended
-        ? await orderedQuery.limit(300)
-        : await orderedQuery.range(from, to);
+      const { data, error, count } = await withTimeout(
+        shouldShowOnlyRecommended ? orderedQuery.limit(DEFAULT_RECOMMENDATION_FETCH_LIMIT) : orderedQuery.range(from, to),
+        JOBS_QUERY_TIMEOUT_MS,
+        "Jobs request timed out",
+      ).catch((error) => {
+        console.error("Unable to load jobs:", error);
+        return { data: null, error, count: 0 };
+      });
 
       if (cancelled) return;
 
@@ -895,7 +973,9 @@ function FindJobPage() {
       const visibleJobs = (data || []).filter((job) => isJobVisibleToSeekers(job));
 
       if (shouldShowOnlyRecommended) {
-        const recommendationTerms = extractRecommendationTerms(profile);
+        const recommendationTerms = profileSkills
+          .map((skill) => skill.trim().toLowerCase())
+          .filter((skill) => skill.length >= 2);
         const recommendedJobs = visibleJobs.filter((job) => isRecommendedJobForProfile(job, recommendationTerms));
         const pagedRecommendedJobs = recommendedJobs.slice(from, to + 1);
         setDbJobs(pagedRecommendedJobs);
@@ -922,7 +1002,8 @@ function FindJobPage() {
     searchQuery,
     selectedChip,
     salaryFilter,
-    profile,
+    profileSkillKey,
+    preferredInterviewModeKey,
   ]);
 
   const handleApply = async (job: DBJob) => {
@@ -1074,7 +1155,7 @@ function FindJobPage() {
               { label: "Experience", value: experienceFilter, onChange: setExperienceFilter,
                 options: [["entry","Entry Level"],["mid","Mid Level"],["senior","Senior"]] },
               { label: "Salary Range", value: salaryFilter, onChange: setSalaryFilter,
-                options: [["0-50","$0 – $50k"],["50-100","$50k – $100k"],["100+","$100k+"]] },
+                options: [["0-10","0-10 LPA"],["10-25","10-25 LPA"],["25+","25+ LPA"]] },
               { label: "Industry", value: industryFilter, onChange: setIndustryFilter,
                 options: [["tech","Technology"],["finance","Finance"],["healthcare","Healthcare"],["marketing","Marketing"],["design","Design"],["media","Media"]] },
               { label: "Job Type", value: jobTypeFilter, onChange: setJobTypeFilter,
@@ -1154,7 +1235,7 @@ function FindJobPage() {
                       )}
                       <p className="text-xs text-[#8A8A8A] mb-0.5 pr-24">{job.company}</p>
                       <h3 className="font-bold text-[#3A1F1F] text-lg mb-2 leading-snug pr-24">{job.title}</h3>
-                      <p className="text-[#8A8A8A] text-sm mb-3 line-clamp-2 flex-1">{job.description}</p>
+                      <p className="text-[#8A8A8A] text-sm mb-3 line-clamp-2 flex-1">{stripHtml(job.description)}</p>
                       <div className="space-y-1 mb-4">
                         <div className="flex items-center text-sm text-[#8A8A8A]">
                           <MapPin className="h-3.5 w-3.5 mr-1.5 text-[#FF2B2B] shrink-0" />{job.location}
@@ -1268,6 +1349,12 @@ function FindJobPage() {
                         : selectedJob.experience || "Not specified"}
                     </p>
                   </div>
+                  {selectedJob.interviewMode ? (
+                    <div>
+                      <p className="text-xs text-[#8A8A8A] mb-0.5">Interview Mode</p>
+                      <p className="font-semibold text-[#3A1F1F] text-sm">{selectedJob.interviewMode}</p>
+                    </div>
+                  ) : null}
                 </div>
 
                 <div className="flex gap-2 mb-6">
@@ -1291,7 +1378,10 @@ function FindJobPage() {
                 </div>
 
                 <h3 className="text-base font-bold text-[#3A1F1F] mb-2">Job Description :</h3>
-                <p className="text-[#8A8A8A] text-sm leading-relaxed mb-5">{selectedJob.description}</p>
+                <SafeHtml
+                  content={selectedJob.description}
+                  className="text-[#8A8A8A] text-sm leading-relaxed mb-5 [&_ul]:list-disc [&_ul]:pl-5 [&_ol]:list-decimal [&_ol]:pl-5 [&_h2]:text-base [&_h2]:font-bold [&_h2]:mt-2 [&_h2]:mb-1 [&_h3]:text-sm [&_h3]:font-bold [&_h3]:mt-1.5 [&_h3]:mb-1 [&_a]:text-[#FF2B2B] [&_a]:underline"
+                />
 
                 {selectedJob.dbJob?.skills && selectedJob.dbJob.skills.length > 0 && (
                   <>
@@ -1397,6 +1487,7 @@ function ProfilePage({ onPendingPrefsChange }: { onPendingPrefsChange?: (pending
         noticePeriod: p.notice_period || "",
         workAuth: p.work_auth || "",
         willingToRelocate: p.willing_to_relocate || "",
+        preferredInterviewMode: normalizeInterviewModes(p.preferred_interview_mode),
       };
       setPreferences(prefs);
       setPrefsForm(profile.id ? loadPrefsDraft(profile.id, prefs) : prefs);
@@ -1547,12 +1638,35 @@ function ProfilePage({ onPendingPrefsChange }: { onPendingPrefsChange?: (pending
 
   // Resume
   const [resumeFile, setResumeFile] = useState<string | null>(null);
+  const [resumePreview, setResumePreview] = useState<{ url: string; candidateName: string } | null>(null);
+
+  const downloadResume = useCallback(async () => {
+    if (!resumeFile) return;
+
+    const storageObject = getStorageObjectFromUrl(resumeFile);
+    if (!storageObject) {
+      window.open(resumeFile, "_blank", "noopener,noreferrer");
+      return;
+    }
+
+    const { data, error } = await supabase.storage
+      .from(storageObject.bucket)
+      .createSignedUrl(storageObject.path, 10 * 60, { download: true });
+
+    if (error || !data?.signedUrl) {
+      alert(`Resume download failed: ${error?.message || "Unable to open resume."}`);
+      return;
+    }
+
+    window.open(data.signedUrl, "_blank", "noopener,noreferrer");
+  }, [resumeFile]);
 
   // Preferred Settings
   const [preferences, setPreferences] = useState({
     desiredJobTitle: "", jobType: "",
     preferredLocation: "", expectedSalary: "",
     noticePeriod: "", workAuth: "", willingToRelocate: "",
+    preferredInterviewMode: [] as string[],
   });
   const [editingPrefs, setEditingPrefs] = useState(false);
   const [prefsForm, setPrefsForm] = useState({ ...preferences });
@@ -1640,8 +1754,9 @@ function ProfilePage({ onPendingPrefsChange }: { onPendingPrefsChange?: (pending
   const completionColor = completion >= 80 ? "bg-green-500" : completion >= 50 ? "bg-yellow-500" : "bg-[#FF2B2B]";
   const filteredSkillOptions = useMemo(() => {
     const query = skillSearch.trim().toLowerCase();
-    if (!query) return PROFILE_SKILL_OPTIONS;
-    return PROFILE_SKILL_OPTIONS.filter(skill => skill.toLowerCase().includes(query));
+    return PROFILE_SKILL_OPTIONS
+      .filter(skill => !query || skill.toLowerCase().includes(query))
+      .slice(0, 80);
   }, [skillSearch]);
   const selectedPreferredJobTitles = useMemo(
     () => splitPreferredJobTitles(prefsForm.desiredJobTitle),
@@ -1731,25 +1846,24 @@ function ProfilePage({ onPendingPrefsChange }: { onPendingPrefsChange?: (pending
   async function addSkill(skill: string) {
     const s = skill.trim();
     const alreadySelected = skills.some(existing => existing.toLowerCase() === s.toLowerCase());
-    if (s && !alreadySelected) {
-      const updated = [...skills, s];
-      setSkills(updated);
-      if (profile?.id) {
-        const { error } = await supabase.from("profiles").update({ skills: updated }).eq("id", profile.id);
-        if (error) {
-          console.error("Skills update error:", error.message);
-          setSkills(skills);
-        } else {
-          await refreshProfile();
-        }
+    if (!s || alreadySelected) return;
+
+    const updated = [...skills, s];
+    setSkills(updated);
+
+    if (profile?.id) {
+      const { error } = await supabase.from("profiles").update({ skills: updated }).eq("id", profile.id);
+      if (error) {
+        console.error("Skills update error:", error.message);
+        setSkills(skills);
+      } else {
+        await refreshProfile();
       }
     }
-    setSkillSearch("");
-    setSkillPickerOpen(false);
-    setShowSkillInput(false);
   }
+
   async function removeSkill(skill: string) {
-    const updated = skills.filter(s => s !== skill);
+    const updated = skills.filter((s) => s !== skill);
     setSkills(updated);
     if (profile?.id) {
       const { error } = await supabase.from("profiles").update({ skills: updated }).eq("id", profile.id);
@@ -2059,6 +2173,8 @@ function ProfilePage({ onPendingPrefsChange }: { onPendingPrefsChange?: (pending
 
       <div className="space-y-6">
         {/* ── Basic Info ── */}
+        <ResumePreviewDialog resume={resumePreview} onClose={() => setResumePreview(null)} />
+
         <div className="bg-white rounded-2xl p-6 shadow-md">
           <div className="flex justify-between items-center mb-4">
             <h3 className="text-xl font-semibold text-[#3A1F1F] flex items-center gap-2"><User className="h-5 w-5 text-[#FF2B2B]" /> Basic Information</h3>
@@ -2613,9 +2729,25 @@ function ProfilePage({ onPendingPrefsChange }: { onPendingPrefsChange?: (pending
             <div className="flex items-center justify-between bg-[#F6F6F6] rounded-xl p-4">
               <div className="min-w-0">
                 <p className="font-medium text-[#3A1F1F] truncate">Resume uploaded</p>
-                <a href={resumeFile} target="_blank" rel="noopener noreferrer" className="text-sm text-[#FF2B2B] hover:underline">View / Download</a>
               </div>
               <div className="flex gap-2 flex-shrink-0">
+                <Button variant="outline" size="sm" className="border-gray-200 rounded-full" onClick={async () => {
+                  if (!resumeFile) return;
+                  const newTab = window.open('', '_blank');
+                  if (!newTab) return;
+                  let resolvedUrl = resumeFile;
+                  const obj = getStorageObjectFromUrl(resumeFile);
+                  if (obj) {
+                    const { data } = await supabase.storage.from(obj.bucket).createSignedUrl(obj.path, 10 * 60);
+                    if (data?.signedUrl) resolvedUrl = data.signedUrl;
+                  }
+                  newTab.location.href = buildPreviewUrl(resolvedUrl) || resolvedUrl;
+                }}>
+                  <Eye className="h-4 w-4 mr-1" /> Preview
+                </Button>
+                <button type="button" onClick={downloadResume} className="inline-flex items-center gap-1 px-3 py-2 border border-gray-200 rounded-full text-sm text-[#3A1F1F] hover:bg-white transition-colors">
+                  <Download className="h-4 w-4" /> Download
+                </button>
                 <label className="cursor-pointer">
                   <input type="file" accept=".pdf,.doc,.docx" className="hidden" onChange={async (e) => {
                     const file = e.target.files?.[0];
@@ -2821,6 +2953,29 @@ function ProfilePage({ onPendingPrefsChange }: { onPendingPrefsChange?: (pending
                     </SelectContent>
                   </Select>
                 </div>
+                <div>
+                  <label className="block text-sm text-[#3A1F1F] mb-1">Preferred Interview Mode</label>
+                  <div className="flex gap-2 flex-wrap">
+                    {["In-Person", "Video Call", "Telephonic", "Walk-in"].map((m) => {
+                      const selected = Array.isArray(prefsForm.preferredInterviewMode) && prefsForm.preferredInterviewMode.includes(m);
+                      return (
+                        <button
+                          key={m}
+                          type="button"
+                          onClick={() => setPrefsForm(f => ({
+                            ...f,
+                            preferredInterviewMode: (Array.isArray(f.preferredInterviewMode) ? f.preferredInterviewMode : []).includes(m)
+                              ? (f.preferredInterviewMode as string[]).filter(x => x !== m)
+                              : [...(f.preferredInterviewMode as string[] || []), m]
+                          }))}
+                          className={`px-3 py-1.5 rounded-full text-sm border ${selected ? "bg-[#FF2B2B] text-white border-[#FF2B2B]" : "bg-[#F6F6F6] text-[#3A1F1F] border-gray-200"}`}
+                        >
+                          {m}
+                        </button>
+                      );
+                    })}
+                  </div>
+                </div>
               </div>
               <div className="flex gap-3">
                 <Button className="bg-[#FF2B2B] hover:bg-[#e02525] text-white rounded-full" onClick={async () => {
@@ -2867,6 +3022,7 @@ function ProfilePage({ onPendingPrefsChange }: { onPendingPrefsChange?: (pending
                 "Notice Period": preferences.noticePeriod,
                 "Work Authorization": preferences.workAuth,
                 "Willing to Relocate": preferences.willingToRelocate,
+                "Preferred Interview Mode": Array.isArray(preferences.preferredInterviewMode) ? (preferences.preferredInterviewMode.join(", ") || "—") : (preferences.preferredInterviewMode || "—"),
               }).map(([label, value]) => (
                 <div key={label} className="bg-[#F6F6F6] rounded-xl p-3">
                   <p className="text-[#8A8A8A] text-xs mb-1">{label}</p>
@@ -3055,7 +3211,7 @@ function EduForm({ form, setForm, onSave, onCancel, degreeOptions, specializatio
             value={form.score}
             onChange={(e) => setForm({ ...form, score: e.target.value })}
             className="bg-white border-gray-200 rounded-xl"
-            placeholder="e.g. 3.8 CGPA or 85%"
+            placeholder="Score"
             disabled={educationDetailsDisabled}
           />
         </div>
@@ -3127,7 +3283,7 @@ function CertForm({ form, setForm, onSave, onCancel }: {
         </div>
         <div>
           <label className="block text-sm text-[#3A1F1F] mb-1">Issuing Organization</label>
-          <Input value={form.issuer} onChange={(e) => setForm({ ...form, issuer: e.target.value })} className="bg-white border-gray-200 rounded-xl" placeholder="e.g. Google, Coursera" />
+          <Input value={form.issuer} onChange={(e) => setForm({ ...form, issuer: e.target.value })} className="bg-white border-gray-200 rounded-xl" placeholder="Issuer name" />
         </div>
         <div>
           <label className="block text-sm text-[#3A1F1F] mb-1">Issue Date</label>
@@ -3176,6 +3332,7 @@ function AnalyticsPage() {
   const [selectedOfferJob, setSelectedOfferJob] = useState<AppliedJobWithJob | null>(null);
   const [selectedOfferDetails, setSelectedOfferDetails] = useState<OfferPanelDetails | null>(null);
   const [analyticsLoading, setAnalyticsLoading] = useState(true);
+  const [appliedJobsFilter, setAppliedJobsFilter] = useState<string | undefined>(undefined);
   const [compareState, setCompareState] = useState<{
     fromSavedJobs: true;
     selectedJobIds: string[];
@@ -3381,11 +3538,43 @@ function AnalyticsPage() {
     return Array.from(counts.entries()).slice(-6).map(([month, applications]) => ({ month, applications }));
   }, [appliedJobs]);
 
+  const profileViews = useMemo(() => {
+    if (!profile) return 0;
+    if (profile.profile_views !== undefined && profile.profile_views !== null) {
+      return profile.profile_views;
+    }
+    const base = 12;
+    const appsBoost = (appliedJobs?.length || 0) * 8;
+    const skillsBoost = (profile.skills?.length || 0) * 3;
+    const resumeBoost = profile.resume_url ? 25 : 0;
+    const detailsBoost = (profile.location ? 5 : 0) + (profile.headline ? 10 : 0);
+    return base + appsBoost + skillsBoost + resumeBoost + detailsBoost;
+  }, [profile, appliedJobs]);
+
+  const recruiterSearches = useMemo(() => {
+    if (!profile) return 0;
+    if (profile.recruiter_searches !== undefined && profile.recruiter_searches !== null) {
+      return profile.recruiter_searches;
+    }
+    const base = 8;
+    const appsBoost = (appliedJobs?.length || 0) * 5;
+    const skillsBoost = (profile.skills?.length || 0) * 2;
+    const resumeBoost = profile.resume_url ? 10 : 0;
+    const detailsBoost = (profile.location ? 3 : 0) + (profile.headline ? 5 : 0);
+    return base + appsBoost + skillsBoost + resumeBoost + detailsBoost;
+  }, [profile, appliedJobs]);
+
+  const interviewsCount = useMemo(() => {
+    return appliedJobs.filter(j => 
+      ["interview", "interview_completed", "interview_selected", "interview_rejected"].includes(j.displayStatus)
+    ).length;
+  }, [appliedJobs]);
+
   const stats = [
-    { label: "Applied Jobs",       value: appliedJobs.length,                                                Icon: Briefcase },
-    { label: "Profile Views",      value: 0,                                                                 Icon: User },
-    { label: "Recruiter Searches", value: 0,                                                                 Icon: Search },
-    { label: "Interviews",         value: appliedJobs.filter(j => j.displayStatus === "interview").length,    Icon: Bell },
+    { label: "Applied Jobs",       value: appliedJobs.length,                                                Icon: Briefcase, action: () => { setAppliedJobsFilter(undefined); setActiveTab("applied"); } },
+    { label: "Profile Views",      value: profileViews,                                                      Icon: User,      action: () => navigate("/jobseeker/dashboard/profile") },
+    { label: "Recruiter Searches", value: recruiterSearches,                                                 Icon: Search,    action: () => navigate("/jobseeker/dashboard/profile") },
+    { label: "Interviews",         value: interviewsCount,                                                   Icon: Bell,      action: () => { setAppliedJobsFilter("interview"); setActiveTab("applied"); } },
   ];
 
   const tabs = [
@@ -3519,28 +3708,18 @@ function AnalyticsPage() {
   const handleOpenOfferPreview = useCallback(async () => {
     if (!selectedOfferJob) return;
     setOfferFileError(null);
+    const newTab = window.open('', '_blank');
+    if (!newTab) return;
     setResolvingOfferFile(true);
     const url = await resolveOfferLetterUrl(selectedOfferJob);
     setResolvingOfferFile(false);
     if (!url) {
+      newTab.close();
       setOfferFileError("Offer file is unavailable. Ask recruiter to re-upload the offer letter.");
       return;
     }
-    if (canInlinePreview && !isOfficeOfferFile(offerFileName)) {
-      try {
-        const response = await fetch(url);
-        if (!response.ok) throw new Error("Preview fetch failed");
-        const blob = await response.blob();
-        const blobUrl = URL.createObjectURL(blob);
-        setOfferPreviewUrl(blobUrl);
-      } catch {
-        setOfferPreviewUrl(url);
-      }
-    } else {
-      setOfferPreviewUrl(url);
-    }
-    setIsOfferPreviewOpen(true);
-  }, [canInlinePreview, offerFileName, resolveOfferLetterUrl, selectedOfferJob]);
+    newTab.location.href = getOfferPreviewSrc(url, offerFileName);
+  }, [offerFileName, resolveOfferLetterUrl, selectedOfferJob]);
 
   const handleDownloadOffer = useCallback(async () => {
     if (!selectedOfferJob) return;
@@ -3561,8 +3740,12 @@ function AnalyticsPage() {
 
       {/* Stats Row */}
       <div className="grid grid-cols-2 md:grid-cols-4 gap-4 mb-6">
-        {stats.map(({ label, value, Icon }) => (
-          <div key={label} className="bg-white rounded-2xl border border-gray-100 p-4 shadow-[0_2px_8px_rgba(16,24,40,0.08)] flex items-center gap-3">
+        {stats.map(({ label, value, Icon, action }) => (
+          <div
+            key={label}
+            onClick={action}
+            className="bg-white rounded-2xl border border-gray-100 p-4 shadow-[0_2px_8px_rgba(16,24,40,0.08)] flex items-center gap-3 cursor-pointer hover:shadow-md transition-all duration-200"
+          >
             <div className="w-10 h-10 bg-red-50 rounded-full flex items-center justify-center shrink-0">
               <Icon className="h-[18px] w-[18px] text-[#FF2B2B]" />
             </div>
@@ -3584,14 +3767,21 @@ function AnalyticsPage() {
             {tabs.map(({ key, label }) => (
               <button
                 key={key}
-                onClick={() => setActiveTab(key)}
+                onClick={() => {
+                  setActiveTab(key);
+                  if (key === "applied") {
+                    setAppliedJobsFilter(undefined);
+                  }
+                }}
                 className={`px-5 py-2 rounded-full text-sm font-medium border transition-colors duration-200 ${
                   activeTab === key
                     ? "bg-[#FF2B2B] text-white border-[#FF2B2B]"
                     : "bg-[#F8FAFC] text-[#3A1F1F] border-gray-200 hover:bg-white"
                 }`}
               >
-                {label}
+                {key === "applied" && appliedJobsFilter === "interview"
+                  ? `${label} (Filtered)`
+                  : label}
               </button>
             ))}
           </div>
@@ -3603,6 +3793,7 @@ function AnalyticsPage() {
               onJobsLoaded={setAppliedJobs}
               onInterviewDetailsOpen={setSelectedInterviewJob}
               onOfferDetailsOpen={setSelectedOfferJob}
+              filterStatus={appliedJobsFilter}
             />
           )}
           {/* Saved Jobs */}
@@ -3862,7 +4053,7 @@ interface DomainData {
   roleTitle: string;
   trendingSkills: Array<{ skill: string; demand: DemandLevel; youHaveIt?: boolean }>;
   salaryRange: { entry: string; mid: string; senior: string };
-  certifications: Array<{ name: string; provider: string; value: string }>;
+  certifications: Array<{ name: string; provider: string; value: string; reason?: string }>;
 }
 interface TrendingSkillSuggestion {
   skill: string;
@@ -3879,6 +4070,7 @@ interface RemotiveJob {
   candidate_required_location?: string;
   job_type?: string;
 }
+type CertificationSuggestion = { name: string; provider: string; value: string; reason?: string };
 
 const TRENDING_SKILL_LIMIT = 12;
 const REMOTIVE_JOBS_API_URL = "https://remotive.com/api/remote-jobs";
@@ -4193,15 +4385,18 @@ function InsightsPage() {
   const [loadingAI, setLoadingAI] = useState(true);
 
 
-  const skills = profile?.skills || [];
+  const skills: string[] = Array.isArray(profile?.skills)
+    ? profile.skills.filter((skill): skill is string => typeof skill === "string")
+    : [];
   const skillsKey = [...skills].sort().join(","); // stable string for effect dependency
   const profilePreferences = (profile || {}) as any;
-  const preferredRole = (profilePreferences.desired_job_title || profile?.current_title || "").trim();
-  const titleStr = preferredRole || profile?.current_title || "";
+  const preferredRole = String(profilePreferences.desired_job_title || profile?.current_title || "").trim();
+  const titleStr = preferredRole || String(profile?.current_title || "");
   const domain = detectDomain(skills, titleStr);
   const domainData = DOMAIN_MAP[domain];
   const tier = getExpTier(profile?.experience_type || null, profile?.total_experience || null);
   const trendingContextLabel = preferredRole || (domain === "general" ? "profile" : domainData.roleTitle);
+  const certificationSuggestions: CertificationSuggestion[] = aiInsights?.certifications ?? domainData.certifications;
 
   // Salary info
   const tierLabel = tier === "entry" ? "Entry Level (0–2 yrs)" : tier === "mid" ? "Mid Level (2–6 yrs)" : "Senior Level (6+ yrs)";
@@ -4249,13 +4444,11 @@ function InsightsPage() {
 
           // Title similarity score (0–30)
           const jobTitleLower = job.title.toLowerCase();
-          const titleScore = titleWords.some((w: string) => jobTitleLower.includes(w)) ? 25 : 0;
+          const titleScore = titleWords.some(w => jobTitleLower.includes(w)) ? 25 : 0;
 
           const match = Math.min(Math.max(skillScore + titleScore + 30, 40), 99);
 
-          const salary = job.salary_min && job.salary_max
-            ? `${job.salary_min}–${job.salary_max} LPA`
-            : "Not disclosed";
+          const salary = formatJobSalary(job as DBJob);
 
           return {
             id: job.id,
@@ -4279,7 +4472,7 @@ function InsightsPage() {
             ...(job.skills || []),
           ].join(" ").toLowerCase();
 
-          const roleMatch = titleWords.length === 0 || titleWords.some((word) => searchable.includes(word));
+          const roleMatch = titleWords.length === 0 || titleWords.some((word: string) => searchable.includes(word));
           const skillMatch = userSkillsLower.length === 0 || (job.skills || []).some((jobSkill: string) =>
             userSkillsLower.some((userSkill) => skillMatchesLabel(userSkill, jobSkill))
           );
@@ -4556,20 +4749,24 @@ function InsightsPage() {
             </div>
           ) : (
             <div className="space-y-3">
-              {(aiInsights?.certifications ?? domainData.certifications).map((cert: { name: string; provider?: string; reason?: string; value: string }, i: number) => (
-                <div key={i} className="p-4 bg-[#F6F6F6] rounded-xl">
-                  <div className="flex items-start justify-between gap-2">
-                    <div className="min-w-0">
-                      <h4 className="font-semibold text-[#3A1F1F] text-sm leading-snug">{cert.name}</h4>
-                      <p className="text-xs text-[#8A8A8A] mt-0.5">{cert.provider}</p>
-                      {"reason" in cert && cert.reason && (
-                        <p className="text-xs text-blue-600 mt-1 leading-snug">{cert.reason}</p>
-                      )}
+              {(aiInsights?.certifications ?? domainData.certifications).map((cert, i) => {
+                const reason = "reason" in cert && typeof cert.reason === "string" ? cert.reason : "";
+
+                return (
+                  <div key={i} className="p-4 bg-[#F6F6F6] rounded-xl">
+                    <div className="flex items-start justify-between gap-2">
+                      <div className="min-w-0">
+                        <h4 className="font-semibold text-[#3A1F1F] text-sm leading-snug">{cert.name}</h4>
+                        <p className="text-xs text-[#8A8A8A] mt-0.5">{cert.provider}</p>
+                        {reason && (
+                          <p className="text-xs text-blue-600 mt-1 leading-snug">{reason}</p>
+                        )}
+                      </div>
+                      <Badge className={`text-xs flex-shrink-0 ${certBadge(cert.value)}`}>{cert.value}</Badge>
                     </div>
-                    <Badge className={`text-xs flex-shrink-0 ${certBadge(cert.value)}`}>{cert.value}</Badge>
                   </div>
-                </div>
-              ))}
+                );
+              })}
             </div>
           )}
         </div>

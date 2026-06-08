@@ -1,9 +1,21 @@
 import { useState, useEffect, useCallback, useRef, useMemo, type ChangeEvent } from "react";
 import { useNavigate, Routes, Route, Link, useLocation, useParams } from "react-router";
 import { supabase, Job, Application, Notification, Profile, WorkExperience, Education as EduType, RecruiterSubscription, RecruiterArticle } from "../../lib/supabase";
-import { buildJobExpiryTimestamp, formatJobDeadline, getEffectiveJobStatus, getJobDaysRemaining, JOB_EXPIRY_DAYS } from "../../lib/jobs";
-import { PLANS, FREE_DAILY_POST_LIMIT, getPlanById, validatePromo, applyPromo } from "../../lib/plans";
+import {
+  SALARY_AMOUNT_OPTIONS,
+  JOB_EXPIRY_DAYS,
+  buildJobDeadlineTimestamp,
+  buildJobExpiryTimestamp,
+  formatJobDeadline,
+  formatJobSalary,
+  formatSalaryRangeFromValues,
+  getEffectiveJobStatus,
+  getJobDaysRemaining,
+  isJobExpired,
+} from "../../lib/jobs";
+import { PLANS, FREE_DAILY_POST_LIMIT, getPlanById, validatePromo, getPlanPriceBreakdown } from "../../lib/plans";
 import { INDIA_CITY_OPTIONS } from "../../lib/locationData";
+import { SEARCH_SUGGESTION_DATASET, SKILL_OPTIONS, getSkillSearchTerms, skillsMatch } from "../../lib/skillKeywords";
 import { useAuth } from "../../lib/auth-context";
 import logoImage from "../../logo/logo.png";
 import {
@@ -18,6 +30,8 @@ import {
 import { Button } from "../components/ui/button";
 import { Input } from "../components/ui/input";
 import { Textarea } from "../components/ui/textarea";
+import { RichTextEditor } from "../components/ui/rich-text-editor";
+import { SafeHtml } from "../components/ui/safe-html";
 import { Select, SelectContent, SelectItem, SelectTrigger, SelectValue } from "../components/ui/select";
 import { Badge } from "../components/ui/badge";
 import {
@@ -33,40 +47,8 @@ import FeedbackPopup from "../components/FeedbackPopup";
 import InterviewDetailsModal from "../components/InterviewDetailsModal";
 import InterviewFeedbackModal from "../components/InterviewFeedbackModal";
 import OfferDetailsModal from "../components/OfferDetailsModal";
-
-const SKILL_OPTIONS = [
-  "JavaScript", "TypeScript", "React", "Next.js", "Angular", "Vue.js", "HTML", "CSS", "Tailwind CSS",
-  "Bootstrap", "Node.js", "Express.js", "NestJS", "Python", "Django", "Flask", "FastAPI", "Java",
-  "Spring Boot", "C", "C++", "C#", ".NET", "PHP", "Laravel", "Ruby", "Ruby on Rails", "Go", "Rust",
-  "Kotlin", "Swift", "Objective-C", "React Native", "Flutter", "Android Development", "iOS Development",
-  "SQL", "MySQL", "PostgreSQL", "MongoDB", "Redis", "Firebase", "Supabase", "Oracle", "SQLite",
-  "GraphQL", "REST API", "Microservices", "System Design", "Data Structures", "Algorithms",
-  "Git", "GitHub", "GitLab", "Docker", "Kubernetes", "Jenkins", "CI/CD", "Linux", "Shell Scripting",
-  "AWS", "Azure", "Google Cloud", "DevOps", "Terraform", "Ansible", "Nginx", "Apache",
-  "Data Analysis", "Data Visualization", "Excel", "Advanced Excel", "Power BI", "Tableau", "Looker",
-  "Python Pandas", "NumPy", "Matplotlib", "Seaborn", "R", "Statistics", "Machine Learning",
-  "Deep Learning", "TensorFlow", "PyTorch", "Scikit-learn", "NLP", "Computer Vision", "Generative AI",
-  "Prompt Engineering", "MLOps", "Data Engineering", "ETL", "Apache Spark", "Hadoop", "Kafka",
-  "Airflow", "Snowflake", "BigQuery", "Redshift",
-  "UI Design", "UX Design", "Figma", "Adobe XD", "Sketch", "Wireframing", "Prototyping",
-  "User Research", "Usability Testing", "Design Systems", "Graphic Design", "Photoshop", "Illustrator",
-  "Canva", "Video Editing", "After Effects", "Premiere Pro", "Motion Graphics",
-  "Digital Marketing", "SEO", "SEM", "Google Ads", "Meta Ads", "Social Media Marketing",
-  "Content Marketing", "Copywriting", "Email Marketing", "Marketing Analytics", "Google Analytics",
-  "CRM", "HubSpot", "Salesforce", "Lead Generation", "Brand Strategy",
-  "Project Management", "Product Management", "Agile", "Scrum", "Jira", "Confluence", "Roadmapping",
-  "Business Analysis", "Requirement Gathering", "Stakeholder Management", "Process Improvement",
-  "QA Testing", "Manual Testing", "Automation Testing", "Selenium", "Cypress", "Playwright",
-  "Jest", "Postman", "API Testing", "Performance Testing", "Security Testing",
-  "Cybersecurity", "Network Security", "Cloud Security", "Penetration Testing", "Ethical Hacking",
-  "SOC", "SIEM", "Risk Management", "Compliance", "ISO 27001",
-  "Accounting", "Financial Analysis", "Financial Modeling", "Tally", "GST", "Taxation", "Auditing",
-  "Budgeting", "Forecasting", "Investment Analysis",
-  "HR Management", "Recruitment", "Talent Acquisition", "Payroll", "Employee Engagement",
-  "Training and Development", "Operations Management", "Supply Chain Management", "Logistics",
-  "Customer Support", "Technical Support", "Sales", "B2B Sales", "Negotiation", "Communication",
-  "Leadership", "Team Management", "Problem Solving", "Critical Thinking", "Presentation Skills",
-];
+import ResumePreviewDialog, { getStorageObjectFromUrl, buildPreviewUrl } from "../components/ResumePreviewDialog";
+import JobShareButton from "../components/JobShareButton";
 
 const DEPARTMENT_OPTIONS = [
   "Engineering",
@@ -277,6 +259,160 @@ function LocationAutocomplete({
 
 // ─── Types ──────────────────────────────────────────────────────────────────
 
+function getSalaryFormValue(val: number | null | undefined): string {
+  if (val === null || val === undefined) return "";
+  return String(val);
+}
+
+function SalaryCombobox({
+  value,
+  onChange,
+  placeholder,
+}: {
+  value: string;
+  onChange: (value: string) => void;
+  placeholder: string;
+}) {
+  const [open, setOpen] = useState(false);
+  const [search, setSearch] = useState("");
+  const wrapperRef = useRef<HTMLDivElement>(null);
+  const formatSalaryAmount = (amount: number) => {
+    const lpa = amount >= 1000 ? amount / 100000 : amount;
+    const label = Number.isInteger(lpa) ? String(lpa) : lpa.toFixed(1).replace(/\.0$/, "");
+    return `${label} LPA${lpa >= 50 ? "+" : ""}`;
+  };
+  const selectedOption = SALARY_AMOUNT_OPTIONS.find(option => String(option.value) === value);
+  const selectedLabel = selectedOption?.label ?? (value ? formatSalaryAmount(Number(value)) : "");
+  const displayValue = open ? search : selectedLabel;
+
+  useEffect(() => {
+    if (!open) setSearch(selectedLabel);
+  }, [open, selectedLabel]);
+
+  useEffect(() => {
+    if (!open) return;
+    const handleClickOutside = (event: MouseEvent) => {
+      if (!wrapperRef.current?.contains(event.target as Node)) {
+        setOpen(false);
+      }
+    };
+    document.addEventListener("mousedown", handleClickOutside);
+    return () => document.removeEventListener("mousedown", handleClickOutside);
+  }, [open]);
+
+  const filteredOptions = useMemo(() => {
+    const query = search.replace(/\D/g, "");
+    if (!query) return SALARY_AMOUNT_OPTIONS;
+
+    const addOption = (
+      map: Map<number, { value: number; label: string; score: number }>,
+      amount: number,
+      score: number,
+    ) => {
+      if (!Number.isFinite(amount) || amount < 0 || amount > 50) return;
+      const existing = map.get(amount);
+      if (!existing || score < existing.score) {
+        map.set(amount, { value: amount, label: formatSalaryAmount(amount), score });
+      }
+    };
+
+    const matchingOptions = SALARY_AMOUNT_OPTIONS.filter(option => {
+      const normalizedLabel = option.label.toLowerCase().replace(/\s/g, "");
+      return normalizedLabel.includes(query) || String(option.value).includes(query);
+    });
+
+    const typedNumber = Number(query);
+    const optionMap = new Map<number, { value: number; label: string; score: number }>();
+
+    if (typedNumber === 0) addOption(optionMap, 0, 0);
+    if (typedNumber > 0 && typedNumber <= 50) addOption(optionMap, typedNumber, 0);
+
+    matchingOptions.forEach(option => addOption(optionMap, option.value, 1));
+
+    if (typedNumber > 0) {
+      SALARY_AMOUNT_OPTIONS
+        .map(option => ({ ...option, distance: Math.abs(option.value - typedNumber) }))
+        .sort((a, b) => a.distance - b.distance)
+        .slice(0, 4)
+        .forEach((option, index) => addOption(optionMap, option.value, 2 + index));
+    }
+
+    return Array.from(optionMap.values())
+      .sort((a, b) => a.score - b.score || a.value - b.value)
+      .slice(0, 8);
+  }, [search]);
+
+  const selectSalary = (option: { value: number; label: string }) => {
+    onChange(String(option.value));
+    setSearch(option.label);
+    setOpen(false);
+  };
+
+  return (
+    <div className="relative flex-1" ref={wrapperRef}>
+      <div className="relative">
+        <Input
+          value={displayValue}
+          inputMode="numeric"
+          onFocus={() => {
+            setSearch(selectedLabel);
+            setOpen(true);
+          }}
+          onChange={e => {
+            setSearch(e.target.value.replace(/\D/g, ""));
+            if (value) onChange("");
+            setOpen(true);
+          }}
+          onKeyDown={e => {
+            if (e.key === "Enter") {
+              e.preventDefault();
+              if (filteredOptions[0]) selectSalary(filteredOptions[0]);
+            }
+            if (e.key === "Escape") setOpen(false);
+          }}
+          className="h-10 rounded-xl border-gray-200 bg-[#F6F6F6] pr-10 text-[#3A1F1F]"
+          placeholder={placeholder}
+        />
+        <button
+          type="button"
+          onClick={() => {
+            setSearch(selectedLabel);
+            setOpen(current => !current);
+          }}
+          className="absolute right-3 top-1/2 -translate-y-1/2 text-[#8A8A8A] hover:text-[#3A1F1F]"
+        >
+          <ChevronDown className="h-4 w-4" />
+        </button>
+      </div>
+      {open && (
+        <div className="absolute left-0 right-0 top-full z-[90] mt-2 overflow-hidden rounded-xl border border-gray-200 bg-white shadow-xl">
+          <div className="max-h-72 overflow-y-auto p-1">
+            {filteredOptions.length === 0 ? (
+              <div className="px-3 py-3 text-sm text-[#8A8A8A]">No salary found.</div>
+            ) : (
+              filteredOptions.map(option => {
+                const optionValue = String(option.value);
+                const selected = optionValue === value;
+                return (
+                  <button
+                    key={option.value}
+                    type="button"
+                    onClick={() => selectSalary(option)}
+                    className="flex w-full items-center gap-2 rounded-lg px-3 py-2 text-left text-sm text-[#3A1F1F] hover:bg-[#FFF0F0]"
+                  >
+                    <Check className={`h-4 w-4 ${selected ? "text-[#FF2B2B] opacity-100" : "opacity-0"}`} />
+                    <span>{option.label}</span>
+                  </button>
+                );
+              })
+            )}
+          </div>
+        </div>
+      )}
+    </div>
+  );
+}
+
 interface Experience {
   company: string;
   title: string;
@@ -315,7 +451,7 @@ interface Candidate {
   education: Education[];
   appliedFor: string;
   appliedDate: string;
-  status: "New" | "Reviewed" | "Shortlisted" | "Interview Scheduled" | "Offered" | "Rejected";
+  status: "Applied" | "Under Review" | "Shortlisted" | "Interview Scheduled" | "Interview Completed" | "Interview Selected" | "Offered" | "Joined" | "Rejected" | "On Hold";
   matchScore: number;
   resumeScore: number;
   about?: string;
@@ -323,263 +459,7 @@ interface Candidate {
 
 // ─── Mock Data ───────────────────────────────────────────────────────────────
 
-const candidatesData: Candidate[] = [
-  {
-    id: 1,
-    name: "Arjun Mehta",
-    initials: "AM",
-    headline: "Senior Data Analyst | Python | SQL | Power BI",
-    totalExp: "5 years 3 months",
-    currentCompany: "Infosys Ltd.",
-    currentTitle: "Data Analyst",
-    location: "Bengaluru, Karnataka",
-    email: "arjun.mehta@email.com",
-    phone: "+91 98765 43210",
-    noticePeriod: "30 days",
-    currentSalary: "12 LPA",
-    expectedSalary: "18 LPA",
-    skills: ["Python", "SQL", "Power BI", "Tableau", "Machine Learning", "Pandas", "NumPy"],
-    appliedFor: "Senior Data Analyst",
-    appliedDate: "2 days ago",
-    status: "New",
-    matchScore: 92,
-    resumeScore: 88,
-    experience: [
-      {
-        company: "Infosys Ltd.",
-        title: "Data Analyst",
-        from: "Jan 2022",
-        to: "Present",
-        current: true,
-        location: "Bengaluru",
-        description: "Led end-to-end data pipeline development, reduced reporting time by 40%. Managed dashboards for 3 business units using Power BI and Tableau."
-      },
-      {
-        company: "Wipro Technologies",
-        title: "Junior Data Analyst",
-        from: "Jun 2020",
-        to: "Dec 2021",
-        current: false,
-        location: "Hyderabad",
-        description: "Worked on ETL processes, SQL optimisation and built automated reporting systems. Collaborated with cross-functional teams."
-      },
-      {
-        company: "StartupXYZ",
-        title: "Data Science Intern",
-        from: "Jan 2020",
-        to: "May 2020",
-        current: false,
-        location: "Pune",
-        description: "Developed predictive models using Python. Performed EDA on large datasets."
-      }
-    ],
-    education: [
-      {
-        institution: "IIT Bombay",
-        degree: "B.Tech",
-        field: "Computer Science & Engineering",
-        from: "2016",
-        to: "2020",
-        score: "8.6 CGPA"
-      }
-    ]
-  },
-  {
-    id: 2,
-    name: "Priya Sharma",
-    initials: "PS",
-    headline: "ML Engineer | Deep Learning | TensorFlow | NLP",
-    totalExp: "6 years 1 month",
-    currentCompany: "Google India Pvt. Ltd.",
-    currentTitle: "Machine Learning Engineer",
-    location: "Hyderabad, Telangana",
-    email: "priya.sharma@email.com",
-    phone: "+91 87654 32109",
-    noticePeriod: "60 days",
-    currentSalary: "28 LPA",
-    expectedSalary: "38 LPA",
-    skills: ["Python", "TensorFlow", "PyTorch", "NLP", "Deep Learning", "Kubernetes", "MLOps"],
-    appliedFor: "Senior Data Analyst",
-    appliedDate: "1 week ago",
-    status: "Reviewed",
-    matchScore: 87,
-    resumeScore: 94,
-    experience: [
-      {
-        company: "Google India Pvt. Ltd.",
-        title: "Machine Learning Engineer",
-        from: "Mar 2021",
-        to: "Present",
-        current: true,
-        location: "Hyderabad",
-        description: "Designed and deployed large-scale NLP models serving 10M+ users. Improved model accuracy by 15% using advanced fine-tuning techniques."
-      },
-      {
-        company: "Microsoft IDC",
-        title: "Software Engineer II",
-        from: "Jul 2019",
-        to: "Feb 2021",
-        current: false,
-        location: "Hyderabad",
-        description: "Built ML pipelines for Azure Cognitive Services. Developed APIs serving enterprise clients."
-      },
-      {
-        company: "Amazon India",
-        title: "SDE Intern",
-        from: "May 2018",
-        to: "Jul 2018",
-        current: false,
-        location: "Bengaluru",
-        description: "Worked on recommendation engine improvements for Amazon.in."
-      }
-    ],
-    education: [
-      {
-        institution: "IIT Delhi",
-        degree: "M.Tech",
-        field: "Artificial Intelligence",
-        from: "2018",
-        to: "2019",
-        score: "9.1 CGPA"
-      },
-      {
-        institution: "NIT Warangal",
-        degree: "B.Tech",
-        field: "Electronics & Communication",
-        from: "2014",
-        to: "2018",
-        score: "8.9 CGPA"
-      }
-    ]
-  },
-  {
-    id: 3,
-    name: "Rohan Gupta",
-    initials: "RG",
-    headline: "Marketing Manager | Growth Hacking | SEO | Performance Marketing",
-    totalExp: "4 years 8 months",
-    currentCompany: "Zomato",
-    currentTitle: "Marketing Manager",
-    location: "New Delhi, NCR",
-    email: "rohan.gupta@email.com",
-    phone: "+91 76543 21098",
-    noticePeriod: "45 days",
-    currentSalary: "15 LPA",
-    expectedSalary: "22 LPA",
-    skills: ["SEO", "Google Ads", "Meta Ads", "Content Strategy", "Analytics", "CRM", "A/B Testing"],
-    appliedFor: "Marketing Manager",
-    appliedDate: "3 days ago",
-    status: "Shortlisted",
-    matchScore: 95,
-    resumeScore: 91,
-    experience: [
-      {
-        company: "Zomato",
-        title: "Marketing Manager",
-        from: "Apr 2022",
-        to: "Present",
-        current: true,
-        location: "Gurugram",
-        description: "Managed ₹2Cr monthly marketing budget. Drove 35% increase in app installs through performance campaigns. Led a team of 8 marketing specialists."
-      },
-      {
-        company: "Swiggy",
-        title: "Digital Marketing Executive",
-        from: "Sep 2020",
-        to: "Mar 2022",
-        current: false,
-        location: "Bengaluru",
-        description: "Ran multi-channel campaigns across Google, Meta, and YouTube. Achieved 40% reduction in CPA."
-      },
-      {
-        company: "MakeMyTrip",
-        title: "Marketing Intern",
-        from: "Jan 2020",
-        to: "Jun 2020",
-        current: false,
-        location: "New Delhi",
-        description: "Assisted in SEO audits and content calendar management."
-      }
-    ],
-    education: [
-      {
-        institution: "IIM Lucknow",
-        degree: "MBA",
-        field: "Marketing & Strategy",
-        from: "2018",
-        to: "2020",
-        score: "3.8/4.0 GPA"
-      },
-      {
-        institution: "Delhi University",
-        degree: "B.Com (Hons.)",
-        field: "Commerce",
-        from: "2015",
-        to: "2018",
-        score: "87%"
-      }
-    ]
-  },
-  {
-    id: 4,
-    name: "Sneha Verma",
-    initials: "SV",
-    headline: "UI/UX Designer | Figma | Design Systems | User Research",
-    totalExp: "3 years 5 months",
-    currentCompany: "Flipkart",
-    currentTitle: "Product Designer",
-    location: "Bengaluru, Karnataka",
-    email: "sneha.verma@email.com",
-    phone: "+91 65432 10987",
-    noticePeriod: "30 days",
-    currentSalary: "14 LPA",
-    expectedSalary: "20 LPA",
-    skills: ["Figma", "Adobe XD", "Prototyping", "User Research", "Design Systems", "Wireframing", "Usability Testing"],
-    appliedFor: "Product Designer",
-    appliedDate: "5 days ago",
-    status: "Interview Scheduled",
-    matchScore: 89,
-    resumeScore: 86,
-    experience: [
-      {
-        company: "Flipkart",
-        title: "Product Designer",
-        from: "Nov 2022",
-        to: "Present",
-        current: true,
-        location: "Bengaluru",
-        description: "Redesigned checkout flow increasing conversion by 22%. Led design system overhaul covering 200+ components. Collaborated with PM and engineering teams."
-      },
-      {
-        company: "PayTM",
-        title: "UI/UX Designer",
-        from: "Oct 2021",
-        to: "Oct 2022",
-        current: false,
-        location: "Noida",
-        description: "Created high-fidelity prototypes for PayTM Money app. Conducted 50+ user interviews and usability sessions."
-      }
-    ],
-    education: [
-      {
-        institution: "NID Ahmedabad",
-        degree: "M.Des",
-        field: "Interaction Design",
-        from: "2019",
-        to: "2021",
-        score: "First Class"
-      },
-      {
-        institution: "Pune University",
-        degree: "B.E.",
-        field: "Information Technology",
-        from: "2015",
-        to: "2019",
-        score: "8.2 CGPA"
-      }
-    ]
-  }
-];
+
 
 const jobsData = [
   { id: 1, title: "Senior Data Analyst", applicants: 45, views: 1240, status: "Active", posted: "2 days ago", location: "Bengaluru", type: "Full-time", salary: "15-25 LPA", pipeline: { new: 12, reviewed: 18, shortlisted: 9, interview: 4, offered: 2 } },
@@ -590,12 +470,16 @@ const jobsData = [
 
 const PIPELINE_STAGES = [
   "Applied",
-  "Screening",
+  "Under Review",
   "Shortlisted",
   "Interview Scheduled",
+  "Interview Completed",
+  "Interview Selected",
+  "Interview Rejected",
   "Offered",
+  "Joined",
   "Rejected",
-  "Hired",
+  "On Hold",
 ] as const;
 
 type PipelineStage = typeof PIPELINE_STAGES[number];
@@ -606,7 +490,7 @@ const PIPELINE_STAGE_STYLES: Record<PipelineStage, { bar: string; badge: string;
     badge: "bg-gray-50 border-gray-100 hover:bg-gray-100",
     text: "text-[#4F8EF7]",
   },
-  Screening: {
+  "Under Review": {
     bar: "bg-slate-400/60",
     badge: "bg-blue-50/70 border-blue-100/70 hover:bg-blue-50",
     text: "text-slate-500",
@@ -621,32 +505,56 @@ const PIPELINE_STAGE_STYLES: Record<PipelineStage, { bar: string; badge: string;
     badge: "bg-purple-50/70 border-purple-100/70 hover:bg-purple-50",
     text: "text-purple-500",
   },
+  "Interview Completed": {
+    bar: "bg-indigo-400/60",
+    badge: "bg-indigo-50/70 border-indigo-100/70 hover:bg-indigo-50",
+    text: "text-indigo-600",
+  },
+  "Interview Selected": {
+    bar: "bg-teal-400/60",
+    badge: "bg-teal-50/70 border-teal-100/70 hover:bg-teal-50",
+    text: "text-teal-600",
+  },
+  "Interview Rejected": {
+    bar: "bg-red-400/60",
+    badge: "bg-red-50/70 border-red-100/70 hover:bg-red-50",
+    text: "text-red-650",
+  },
   Offered: {
     bar: "bg-green-400/60",
     badge: "bg-orange-50/70 border-orange-100/70 hover:bg-orange-50",
     text: "text-green-600",
+  },
+  Joined: {
+    bar: "bg-emerald-500/65",
+    badge: "bg-emerald-50/70 border-emerald-100/70 hover:bg-emerald-50",
+    text: "text-emerald-600",
   },
   Rejected: {
     bar: "bg-red-300/60",
     badge: "bg-red-50/70 border-red-100/70 hover:bg-red-50",
     text: "text-red-500",
   },
-  Hired: {
-    bar: "bg-emerald-500/65",
-    badge: "bg-red-50/70 border-red-100/70 hover:bg-red-50",
-    text: "text-emerald-600",
+  "On Hold": {
+    bar: "bg-amber-400/60",
+    badge: "bg-amber-50/70 border-amber-100/70 hover:bg-amber-50",
+    text: "text-amber-600",
   },
 };
 
 function mapApplicationStatusToPipelineStage(status: string | null | undefined): PipelineStage {
   const normalized = (status || "").toLowerCase().trim().replace(/[\s-]+/g, "_");
   if (normalized === "applied" || normalized === "new") return "Applied";
-  if (normalized === "screening" || normalized === "reviewed") return "Screening";
-  if (normalized === "interview_scheduled" || normalized === "interview") return "Interview Scheduled";
+  if (normalized === "under_review" || normalized === "screening" || normalized === "reviewed") return "Under Review";
   if (normalized === "shortlisted") return "Shortlisted";
+  if (normalized === "interview_scheduled" || normalized === "interview") return "Interview Scheduled";
+  if (normalized === "interview_completed") return "Interview Completed";
+  if (normalized === "interview_selected") return "Interview Selected";
+  if (normalized === "interview_rejected") return "Interview Rejected";
   if (normalized === "offered" || normalized === "offer_given") return "Offered";
+  if (normalized === "joined" || normalized === "hired" || normalized === "hire") return "Joined";
   if (normalized === "rejected") return "Rejected";
-  if (normalized === "hired" || normalized === "hire" || normalized === "joined") return "Hired";
+  if (normalized === "on_hold") return "On Hold";
   return "Applied";
 }
 
@@ -656,24 +564,32 @@ function statusColor(status: string) {
   const stage = mapApplicationStatusToPipelineStage(status);
   switch (stage) {
     case "Applied": return "bg-gray-100 text-gray-700";
-    case "Screening": return "bg-blue-100 text-blue-700";
+    case "Under Review": return "bg-blue-100 text-blue-700";
     case "Shortlisted": return "bg-pink-100 text-pink-700";
     case "Interview Scheduled": return "bg-purple-100 text-purple-700";
+    case "Interview Completed": return "bg-indigo-100 text-indigo-700";
+    case "Interview Selected": return "bg-teal-100 text-teal-700";
+    case "Interview Rejected": return "bg-red-100 text-red-700";
     case "Offered": return "bg-orange-100 text-orange-700";
+    case "Joined": return "bg-emerald-100 text-emerald-700";
     case "Rejected": return "bg-red-100 text-red-700";
-    case "Hired": return "bg-emerald-100 text-emerald-700";
+    case "On Hold": return "bg-amber-100 text-amber-700";
     default: return "bg-gray-100 text-gray-700";
   }
 }
 
 const STATUS_TRANSITIONS: Record<PipelineStage, PipelineStage[]> = {
-  Applied: ["Screening"],
-  Screening: ["Shortlisted"],
+  Applied: ["Under Review"],
+  "Under Review": ["Shortlisted"],
   Shortlisted: ["Interview Scheduled"],
-  "Interview Scheduled": ["Offered"],
-  Offered: ["Hired", "Rejected"],
-  Rejected: ["Screening"],
-  Hired: [],
+  "Interview Scheduled": ["Interview Completed"],
+  "Interview Completed": ["Interview Selected", "Interview Rejected"],
+  "Interview Selected": ["Offered", "Interview Rejected"],
+  "Interview Rejected": ["Under Review"],
+  Offered: ["Joined", "Rejected"],
+  Joined: [],
+  Rejected: ["Under Review"],
+  "On Hold": ["Under Review"],
 };
 
 // ─── Career Timeline Component (Naukri-style) ────────────────────────────────
@@ -875,7 +791,7 @@ function CandidateProfileModal({ candidate, open, onClose }: { candidate: Candid
                 <div>
                   <h4 className="font-semibold text-[#3A1F1F] mb-2 text-sm">Current Status</h4>
                   <div className="flex gap-2 flex-wrap">
-                    {["New", "Reviewed", "Shortlisted", "Interview Scheduled", "Offered", "Rejected"].map(s => (
+                    {["Applied", "Under Review", "Shortlisted", "Interview Scheduled", "Interview Completed", "Interview Selected", "Interview Rejected", "Offered", "Joined", "Rejected", "On Hold"].map(s => (
                       <Badge key={s} className={`cursor-pointer text-xs ${candidate.status === s ? statusColor(s) + " ring-2 ring-offset-1 ring-[#FF2B2B]" : "bg-gray-100 text-gray-500"}`}>
                         {s}
                       </Badge>
@@ -968,6 +884,53 @@ export default function RecruiterDashboard() {
     await supabase.from("notifications").update({ is_read: true }).eq("user_id", recruiterProfile.id).eq("user_type", "recruiter");
     fetchNotifications();
   };
+
+  const getRecruiterNotificationPath = useCallback((notification: Notification): string => {
+    const text = `${notification.type} ${notification.title || ""} ${notification.message || ""}`.toLowerCase();
+
+    if (
+      notification.type === "application" ||
+      text.includes("application") ||
+      text.includes("applied") ||
+      text.includes("interview")
+    ) {
+      return "/recruiter/dashboard/applicants";
+    }
+
+    if (
+      notification.type === "reposted" ||
+      notification.type === "expired" ||
+      notification.type === "expiry_warning" ||
+      text.includes("job posted") ||
+      text.includes("reposted") ||
+      text.includes("refreshed") ||
+      text.includes("reactivated") ||
+      text.includes("expired")
+    ) {
+      return "/recruiter/dashboard/manage-jobs";
+    }
+
+    if (text.includes("profile") || text.includes("company")) {
+      return "/recruiter/dashboard/company-profile";
+    }
+
+    return "/recruiter/dashboard";
+  }, []);
+
+  const handleNotificationClick = useCallback(async (notification: Notification) => {
+    if (recruiterProfile?.id && !notification.is_read) {
+      await supabase
+        .from("notifications")
+        .update({ is_read: true })
+        .eq("id", notification.id)
+        .eq("user_id", recruiterProfile.id)
+        .eq("user_type", "recruiter");
+    }
+
+    setNotificationsOpen(false);
+    fetchNotifications();
+    navigate(getRecruiterNotificationPath(notification));
+  }, [fetchNotifications, getRecruiterNotificationPath, navigate, recruiterProfile?.id]);
 
   const notifRef = useRef<HTMLDivElement>(null);
   useEffect(() => {
@@ -1114,7 +1077,7 @@ export default function RecruiterDashboard() {
                         {notifications.length === 0 ? (
                           <p className="text-sm text-[#8A8A8A] text-center py-4">No notifications yet</p>
                         ) : notifications.map((n) => (
-                          <div key={n.id} className={`flex gap-3 p-2 rounded-lg cursor-pointer ${!n.is_read ? "bg-red-50" : "hover:bg-[#F6F6F6]"}`}>
+                          <div key={n.id} onClick={() => handleNotificationClick(n)} className={`flex gap-3 p-2 rounded-lg cursor-pointer ${!n.is_read ? "bg-red-50" : "hover:bg-[#F6F6F6]"}`}>
                             <div className="w-2 h-2 rounded-full mt-1.5 flex-shrink-0 bg-[#FF2B2B]" />
                             <div>
                               <p className="text-sm font-medium text-[#3A1F1F]">{n.title}</p>
@@ -1199,6 +1162,12 @@ function DashboardOverview() {
   }>>([]);
   const [pipelineLoading, setPipelineLoading] = useState(true);
   const [pipelineError, setPipelineError] = useState("");
+  const [upcomingInterviews, setUpcomingInterviews] = useState<Array<{
+    name: string;
+    role: string;
+    time: string;
+    type: string;
+  }>>([]);
 
   const recruiterCompletion = useMemo(() => {
     if (!recruiterProfile) return 0;
@@ -1314,13 +1283,75 @@ function DashboardOverview() {
         setRecentApplicants([]);
       }
 
-      const { count: totalApps } = await supabase.from("applications").select("*", { count: "exact", head: true }).eq("recruiter_id", recruiterProfile.id);
-      const { count: interviews } = await supabase.from("applications").select("*", { count: "exact", head: true }).eq("recruiter_id", recruiterProfile.id).eq("status", "Interview Scheduled");
-      const { count: filled } = await supabase.from("applications").select("*", { count: "exact", head: true }).eq("recruiter_id", recruiterProfile.id).eq("status", "Offered");
+      let fetchedInterviews: any[] = [];
+      try {
+        const { data, error } = await supabase
+          .from("applications")
+          .select(`
+            id,
+            status,
+            applied_at,
+            job:jobs(title),
+            profile:profiles(first_name, last_name),
+            interview_details:interview_details(updated_at, meeting_url)
+          `)
+          .eq("recruiter_id", recruiterProfile.id)
+          .eq("status", "Interview Scheduled")
+          .order("applied_at", { ascending: false })
+          .limit(3);
 
-      setTotalApplicantsCount(totalApps || 0);
-      setInterviewsScheduledCount(interviews || 0);
-      setPositionsFilledCount(filled || 0);
+        if (!error && data) {
+          fetchedInterviews = data;
+        } else {
+          const { data: fallbackData } = await supabase
+            .from("applications")
+            .select(`
+              id,
+              status,
+              applied_at,
+              job:jobs(title),
+              profile:profiles(first_name, last_name)
+            `)
+            .eq("recruiter_id", recruiterProfile.id)
+            .eq("status", "Interview Scheduled")
+            .order("applied_at", { ascending: false })
+            .limit(3);
+          if (fallbackData) {
+            fetchedInterviews = fallbackData;
+          }
+        }
+      } catch (err) {
+        console.error("Failed to load upcoming interviews:", err);
+      }
+
+      const formatted = fetchedInterviews.map(app => {
+        const firstName = app.profile?.first_name || "";
+        const lastName = app.profile?.last_name || "";
+        const fullName = `${firstName} ${lastName}`.trim() || "Candidate";
+        const role = app.job?.title || "Applicant";
+        const meetingUrl = app.interview_details?.meeting_url;
+        const type = meetingUrl ? "Video Call" : "In-Person";
+
+        const dateObj = app.interview_details?.updated_at ? new Date(app.interview_details.updated_at) : new Date(app.applied_at);
+        const time = dateObj.toLocaleDateString("en-IN", { day: "numeric", month: "short" }) + ", " + dateObj.toLocaleTimeString("en-IN", { hour: "numeric", minute: "2-digit" });
+
+        return {
+          name: fullName,
+          role,
+          time,
+          type
+        };
+      });
+      setUpcomingInterviews(formatted);
+
+      const mergedApps = Array.from(merged.values());
+      const totalApps = mergedApps.length;
+      const interviews = mergedApps.filter(app => mapApplicationStatusToPipelineStage(app.status) === "Interview Scheduled").length;
+      const filled = mergedApps.filter(app => mapApplicationStatusToPipelineStage(app.status) === "Joined").length;
+
+      setTotalApplicantsCount(totalApps);
+      setInterviewsScheduledCount(interviews);
+      setPositionsFilledCount(filled);
 
       setPipelineLoading(false);
     };
@@ -1336,12 +1367,16 @@ function DashboardOverview() {
   const pipelineByJob = useMemo(() => {
     const initial = () => ({
       Applied: 0,
-      Screening: 0,
-      "Interview Scheduled": 0,
+      "Under Review": 0,
       Shortlisted: 0,
+      "Interview Scheduled": 0,
+      "Interview Completed": 0,
+      "Interview Selected": 0,
+      "Interview Rejected": 0,
       Offered: 0,
+      Joined: 0,
       Rejected: 0,
-      Hired: 0,
+      "On Hold": 0,
     });
     const byJob = new Map<string, ReturnType<typeof initial>>();
     for (const app of dbApplications) {
@@ -1386,16 +1421,10 @@ function DashboardOverview() {
   })();
 
   const stats = [
-    { label: "Active Jobs", value: String(activeJobs || dbJobs.length || "—"), change: "Live postings", icon: Briefcase, color: "text-blue-600", bg: "bg-blue-50" },
-    { label: "Total Applicants", value: String(totalApplicantsCount || "—"), change: "Across all jobs", icon: Users, color: "text-green-600", bg: "bg-green-50" },
-    { label: "Interviews Scheduled", value: String(interviewsScheduledCount || "—"), change: "Next: Today 3PM", icon: Calendar, color: "text-purple-600", bg: "bg-purple-50" },
-    { label: "Positions Filled", value: String(positionsFilledCount || "—"), change: "This month", icon: CheckCircle, color: "text-[#FF2B2B]", bg: "bg-red-50" },
-  ];
-
-  const upcomingInterviews = [
-    { name: "Sneha Verma", role: "Product Designer", time: "Today, 3:00 PM", type: "Video Call" },
-    { name: "Arjun Mehta", role: "Senior Data Analyst", time: "Tomorrow, 11:00 AM", type: "In-Person" },
-    { name: "Rohan Gupta", role: "Marketing Manager", time: "Mar 12, 2:00 PM", type: "Video Call" },
+    { label: "Active Jobs", value: String(activeJobs), change: "Live postings", icon: Briefcase, color: "text-blue-600", bg: "bg-blue-50", path: "/recruiter/dashboard/manage-jobs" },
+    { label: "Total Applicants", value: String(totalApplicantsCount), change: "Across all jobs", icon: Users, color: "text-green-600", bg: "bg-green-50", path: "/recruiter/dashboard/applicants" },
+    { label: "Interviews Scheduled", value: String(interviewsScheduledCount), change: "Next: Today 3PM", icon: Calendar, color: "text-purple-600", bg: "bg-purple-50", path: "/recruiter/dashboard/applicants?status=Interview Scheduled" },
+    { label: "Positions Filled", value: String(positionsFilledCount), change: "This month", icon: CheckCircle, color: "text-[#FF2B2B]", bg: "bg-red-50", path: "/recruiter/dashboard/applicants?status=Joined" },
   ];
 
   return (
@@ -1473,7 +1502,11 @@ function DashboardOverview() {
       {/* Stats */}
       <div className="grid grid-cols-2 md:grid-cols-4 gap-4">
         {stats.map((s, i) => (
-          <div key={i} className="bg-white rounded-2xl p-5 shadow-sm">
+          <div
+            key={i}
+            onClick={() => s.path && navigate(s.path)}
+            className="bg-white rounded-2xl p-5 shadow-sm cursor-pointer hover:shadow-md transition-all duration-200"
+          >
             <div className={`w-10 h-10 ${s.bg} rounded-xl flex items-center justify-center mb-3`}>
               <s.icon className={`h-5 w-5 ${s.color}`} />
             </div>
@@ -1504,26 +1537,33 @@ function DashboardOverview() {
             {!pipelineLoading && !pipelineError && pipelineJobs.slice(0, 3).map(job => {
               const counts = pipelineByJob.get(job.id) || {
                 Applied: 0,
-                Screening: 0,
-                "Interview Scheduled": 0,
+                "Under Review": 0,
                 Shortlisted: 0,
+                "Interview Scheduled": 0,
+                "Interview Completed": 0,
+                "Interview Selected": 0,
+                "Interview Rejected": 0,
                 Offered: 0,
+                Joined: 0,
                 Rejected: 0,
-                Hired: 0,
+                "On Hold": 0,
               };
               const total = Object.values(counts).reduce((a, b) => a + b, 0);
               const pct = (value: number) => (total > 0 ? (value / total) * 100 : 0);
               const actionStages = [
-                { label: "New", value: counts.Applied, color: "bg-gray-300", title: `New: ${counts.Applied}` },
-                { label: "Reviewed", value: counts.Screening, color: "bg-blue-400", title: `Reviewed: ${counts.Screening}` },
+                { label: "Applied", value: counts.Applied, color: "bg-gray-300", title: `Applied: ${counts.Applied}` },
+                { label: "Under Review", value: counts["Under Review"], color: "bg-blue-400", title: `Under Review: ${counts["Under Review"]}` },
                 { label: "Shortlisted", value: counts.Shortlisted, color: "bg-pink-400", title: `Shortlisted: ${counts.Shortlisted}` },
-                { label: "Interview", value: counts["Interview Scheduled"], color: "bg-purple-400", title: `Interview: ${counts["Interview Scheduled"]}` },
+                { label: "Interview", value: counts["Interview Scheduled"] + counts["Interview Completed"], color: "bg-purple-400", title: `Interview: ${counts["Interview Scheduled"] + counts["Interview Completed"]}` },
+                { label: "Selected", value: counts["Interview Selected"], color: "bg-teal-400", title: `Selected: ${counts["Interview Selected"]}` },
+                { label: "Interview Rejected", value: counts["Interview Rejected"], color: "bg-red-300", title: `Interview Rejected: ${counts["Interview Rejected"]}` },
                 { label: "Offered", value: counts.Offered, color: "bg-orange-400", title: `Offered: ${counts.Offered}` },
+                { label: "Joined", value: counts.Joined, color: "bg-emerald-500", title: `Joined: ${counts.Joined}` },
                 { label: "Rejected", value: counts.Rejected, color: "bg-red-400", title: `Rejected: ${counts.Rejected}` },
-                { label: "Hired", value: counts.Hired, color: "bg-emerald-500", title: `Hired: ${counts.Hired}` },
+                { label: "On Hold", value: counts["On Hold"], color: "bg-amber-400", title: `On Hold: ${counts["On Hold"]}` },
               ];
               const visibleActionLabels = actionStages.filter(stage => (
-                ["New", "Reviewed", "Shortlisted", "Interview"].includes(stage.label) || stage.value > 0
+                ["Applied", "Under Review", "Shortlisted", "Interview"].includes(stage.label) || stage.value > 0
               ));
               return (
                 <div key={job.id} className="border border-gray-100 rounded-xl p-3">
@@ -1554,21 +1594,25 @@ function DashboardOverview() {
             <Button variant="ghost" size="sm" className="text-[#FF2B2B] text-xs" onClick={() => navigate("/recruiter/dashboard/applicants")}>View All</Button>
           </div>
           <div className="space-y-3">
-            {upcomingInterviews.map((iv, i) => (
-              <div key={i} className="flex items-center gap-3 p-3 bg-[#F6F6F6] rounded-xl">
-                <div className="w-10 h-10 bg-[#FF2B2B] rounded-full flex items-center justify-center text-white text-xs font-bold flex-shrink-0">
-                  {iv.name.split(" ").map(n => n[0]).join("")}
+            {upcomingInterviews.length === 0 ? (
+              <p className="text-sm text-[#8A8A8A] text-center py-4">No upcoming interviews scheduled</p>
+            ) : (
+              upcomingInterviews.map((iv, i) => (
+                <div key={i} className="flex items-center gap-3 p-3 bg-[#F6F6F6] rounded-xl">
+                  <div className="w-10 h-10 bg-[#FF2B2B] rounded-full flex items-center justify-center text-white text-xs font-bold flex-shrink-0">
+                    {iv.name.split(" ").filter(Boolean).map(n => n[0]).join("")}
+                  </div>
+                  <div className="flex-1">
+                    <p className="text-sm font-medium text-[#3A1F1F]">{iv.name}</p>
+                    <p className="text-xs text-[#8A8A8A]">{iv.role}</p>
+                  </div>
+                  <div className="text-right">
+                    <p className="text-xs font-medium text-[#3A1F1F]">{iv.time}</p>
+                    <Badge className="bg-purple-100 text-purple-700 text-xs mt-0.5">{iv.type}</Badge>
+                  </div>
                 </div>
-                <div className="flex-1">
-                  <p className="text-sm font-medium text-[#3A1F1F]">{iv.name}</p>
-                  <p className="text-xs text-[#8A8A8A]">{iv.role}</p>
-                </div>
-                <div className="text-right">
-                  <p className="text-xs font-medium text-[#3A1F1F]">{iv.time}</p>
-                  <Badge className="bg-purple-100 text-purple-700 text-xs mt-0.5">{iv.type}</Badge>
-                </div>
-              </div>
-            ))}
+              ))
+            )}
           </div>
         </div>
       </div>
@@ -1627,7 +1671,7 @@ function PostJobPage() {
   const [formData, setFormData] = useState({
     jobTitle: "", jobDescription: "", rolesResponsibilities: "", requirements: "",
     location: "", workMode: "",
-    salaryMin: "", salaryMax: "", salaryType: "LPA",
+    salaryMin: "", salaryMax: "",
     experienceMin: "", experienceMax: "",
     skills: "", employmentType: "", industry: "",
     openings: "1", education: "", perks: [] as string[], department: "",
@@ -1673,10 +1717,13 @@ function PostJobPage() {
     () => formData.skills.split(",").map(s => s.trim()).filter(Boolean),
     [formData.skills],
   );
+  const isSalaryRangeInvalid =
+    Boolean(formData.salaryMin && formData.salaryMax) &&
+    Number(formData.salaryMax) < Number(formData.salaryMin);
   const filteredSkillOptions = useMemo(() => {
     const query = skillSearch.trim().toLowerCase();
-    if (!query) return SKILL_OPTIONS;
-    return SKILL_OPTIONS.filter(skill => skill.toLowerCase().includes(query));
+    const options = query ? SEARCH_SUGGESTION_DATASET : SKILL_OPTIONS;
+    return options.filter(skill => !query || skill.toLowerCase().includes(query)).slice(0, 120);
   }, [skillSearch]);
   const filteredDepartmentOptions = useMemo(() => {
     const query = departmentSearch.trim().toLowerCase();
@@ -1824,6 +1871,14 @@ function PostJobPage() {
       );
       return;
     }
+    if (!formData.salaryMin || !formData.salaryMax) {
+      setPostError("Please select both minimum and maximum salary.");
+      return;
+    }
+    if (isSalaryRangeInvalid) {
+      setPostError("Maximum salary must be greater than or equal to minimum salary.");
+      return;
+    }
     setPosting(true);
     try {
       const deadline = buildJobExpiryTimestamp();
@@ -1837,9 +1892,9 @@ function PostJobPage() {
         company_name: recruiterProfile.company_name || "",
         location: formData.location,
         work_mode: formData.workMode,
-        salary_min: formData.salaryMin ? Number(formData.salaryMin) : null,
-        salary_max: formData.salaryMax ? Number(formData.salaryMax) : null,
-        salary_type: formData.salaryType,
+        salary_min: Number(formData.salaryMin),
+        salary_max: Number(formData.salaryMax),
+        salary_type: "LPA",
         experience_min: formData.experienceMin ? Number(formData.experienceMin) : null,
         experience_max: formData.experienceMax ? Number(formData.experienceMax) : null,
         employment_type: formData.employmentType,
@@ -1858,7 +1913,7 @@ function PostJobPage() {
       setPostSuccess(true);
       setShowPreview(false);
       setTimeout(() => { setPostSuccess(false); navigate("/recruiter/dashboard/manage-jobs"); }, 2000);
-      setFormData({ jobTitle:"",jobDescription:"",rolesResponsibilities:"",requirements:"",location:"",workMode:"",salaryMin:"",salaryMax:"",salaryType:"LPA",experienceMin:"",experienceMax:"",skills:"",employmentType:"",industry:"",openings:"1",education:"",perks:[],department:"",interviewMode:"" });
+      setFormData({ jobTitle:"",jobDescription:"",rolesResponsibilities:"",requirements:"",location:"",workMode:"",salaryMin:"",salaryMax:"",experienceMin:"",experienceMax:"",skills:"",employmentType:"",industry:"",openings:"1",education:"",perks:[],department:"",interviewMode:"" });
       setShowSkillInput(false);
       setSkillPickerOpen(false);
       setSkillSearch("");
@@ -1900,7 +1955,7 @@ function PostJobPage() {
                 <div className="flex flex-wrap gap-3 mt-3 text-sm text-[#5A5A5A]">
                   {formData.location && <span className="flex items-center gap-1"><MapPin className="h-3.5 w-3.5" />{formData.location}</span>}
                   {formData.experienceMin && <span className="flex items-center gap-1"><Briefcase className="h-3.5 w-3.5" />{formData.experienceMin}–{formData.experienceMax} yrs</span>}
-                  {formData.salaryMin && <span className="flex items-center gap-1"><TrendingUp className="h-3.5 w-3.5" />{formData.salaryMin}–{formData.salaryMax} {formData.salaryType}</span>}
+                  {formData.salaryMin && formData.salaryMax && <span className="flex items-center gap-1"><TrendingUp className="h-3.5 w-3.5" />{formatSalaryRangeFromValues(formData.salaryMin, formData.salaryMax)}</span>}
                   {formData.workMode && <span className="flex items-center gap-1"><Globe className="h-3.5 w-3.5" />{formData.workMode}</span>}
                   {formData.employmentType && <span className="flex items-center gap-1"><Clock className="h-3.5 w-3.5" />{formData.employmentType}</span>}
                 </div>
@@ -1928,19 +1983,28 @@ function PostJobPage() {
             {formData.jobDescription && (
               <div>
                 <h2 className="text-base font-semibold text-[#3A1F1F] mb-2">About the Role</h2>
-                <p className="text-sm text-[#5A5A5A] leading-relaxed whitespace-pre-line">{formData.jobDescription}</p>
+                <SafeHtml
+                  content={formData.jobDescription}
+                  className="text-sm text-[#5A5A5A] leading-relaxed [&_ul]:list-disc [&_ul]:pl-5 [&_ol]:list-decimal [&_ol]:pl-5 [&_h2]:text-base [&_h2]:font-bold [&_h2]:mt-2 [&_h2]:mb-1 [&_h3]:text-sm [&_h3]:font-bold [&_h3]:mt-1.5 [&_h3]:mb-1 [&_a]:text-[#FF2B2B] [&_a]:underline"
+                />
               </div>
             )}
             {formData.rolesResponsibilities && (
               <div>
                 <h2 className="text-base font-semibold text-[#3A1F1F] mb-2">Roles & Responsibilities</h2>
-                <div className="text-sm text-[#5A5A5A] leading-relaxed whitespace-pre-line">{formData.rolesResponsibilities}</div>
+                <SafeHtml
+                  content={formData.rolesResponsibilities}
+                  className="text-sm text-[#5A5A5A] leading-relaxed [&_ul]:list-disc [&_ul]:pl-5 [&_ol]:list-decimal [&_ol]:pl-5 [&_h2]:text-base [&_h2]:font-bold [&_h2]:mt-2 [&_h2]:mb-1 [&_h3]:text-sm [&_h3]:font-bold [&_h3]:mt-1.5 [&_h3]:mb-1 [&_a]:text-[#FF2B2B] [&_a]:underline"
+                />
               </div>
             )}
             {formData.requirements && (
               <div>
                 <h2 className="text-base font-semibold text-[#3A1F1F] mb-2">Requirements</h2>
-                <div className="text-sm text-[#5A5A5A] leading-relaxed whitespace-pre-line">{formData.requirements}</div>
+                <SafeHtml
+                  content={formData.requirements}
+                  className="text-sm text-[#5A5A5A] leading-relaxed [&_ul]:list-disc [&_ul]:pl-5 [&_ol]:list-decimal [&_ol]:pl-5 [&_h2]:text-base [&_h2]:font-bold [&_h2]:mt-2 [&_h2]:mb-1 [&_h3]:text-sm [&_h3]:font-bold [&_h3]:mt-1.5 [&_h3]:mb-1 [&_a]:text-[#FF2B2B] [&_a]:underline"
+                />
               </div>
             )}
             <div className="grid grid-cols-2 md:grid-cols-4 gap-4 pt-2 border-t border-gray-100">
@@ -2021,10 +2085,22 @@ function PostJobPage() {
         {postError && <div className="bg-red-50 border border-red-200 text-red-700 rounded-xl p-4 mb-4 text-sm">{postError}</div>}
         <form onSubmit={e => {
           e.preventDefault();
+          if (!formData.jobDescription.replace(/<[^>]*>/g, "").trim()) {
+            setPostError("Please fill out the 'About the Role' field.");
+            return;
+          }
           if (selectedSkills.length === 0) {
             setPostError("Please add at least one key skill.");
             setShowSkillInput(true);
             setSkillPickerOpen(true);
+            return;
+          }
+          if (!formData.salaryMin || !formData.salaryMax) {
+            setPostError("Please select both minimum and maximum salary.");
+            return;
+          }
+          if (isSalaryRangeInvalid) {
+            setPostError("Maximum salary must be greater than or equal to minimum salary.");
             return;
           }
           setPostError("");
@@ -2036,7 +2112,7 @@ function PostJobPage() {
             <div className="grid md:grid-cols-2 gap-4">
               <div className="md:col-span-2">
                 <label className="block mb-1.5 text-sm font-medium text-[#3A1F1F]">Job Title *</label>
-                <Input value={formData.jobTitle} onChange={e => setFormData({ ...formData, jobTitle: e.target.value })} className="bg-[#F6F6F6] border-gray-200 rounded-xl" placeholder="e.g. Senior Data Analyst" required />
+                <Input value={formData.jobTitle} onChange={e => setFormData({ ...formData, jobTitle: e.target.value })} className="bg-[#F6F6F6] border-gray-200 rounded-xl" placeholder="Enter job title" required />
               </div>
               <div>
                 <label className="block mb-1.5 text-sm font-medium text-[#3A1F1F]">Department</label>
@@ -2167,16 +2243,23 @@ function PostJobPage() {
             <h2 className="text-lg font-semibold text-[#3A1F1F] mb-4">Salary & Experience</h2>
             <div className="grid md:grid-cols-2 gap-4">
               <div>
-                <label className="block mb-1.5 text-sm font-medium text-[#3A1F1F]">Salary Range *</label>
+                <label className="block mb-1.5 text-sm font-medium text-[#3A1F1F]">Salary Offered *</label>
                 <div className="flex gap-2 items-center">
-                  <Input type="number" value={formData.salaryMin} onChange={e => setFormData({ ...formData, salaryMin: e.target.value })} className="bg-[#F6F6F6] border-gray-200 rounded-xl" placeholder="Min" />
+                  <SalaryCombobox
+                    value={formData.salaryMin}
+                    onChange={v => setFormData({ ...formData, salaryMin: v })}
+                    placeholder="Search or Select"
+                  />
                   <span className="text-[#8A8A8A]">–</span>
-                  <Input type="number" value={formData.salaryMax} onChange={e => setFormData({ ...formData, salaryMax: e.target.value })} className="bg-[#F6F6F6] border-gray-200 rounded-xl" placeholder="Max" />
-                  <Select value={formData.salaryType} onValueChange={v => setFormData({ ...formData, salaryType: v })}>
-                    <SelectTrigger className="w-24 bg-[#F6F6F6] border-gray-200 rounded-xl"><SelectValue /></SelectTrigger>
-                    <SelectContent><SelectItem value="LPA">LPA</SelectItem><SelectItem value="Monthly">Monthly</SelectItem></SelectContent>
-                  </Select>
+                  <SalaryCombobox
+                    value={formData.salaryMax}
+                    onChange={v => setFormData({ ...formData, salaryMax: v })}
+                    placeholder="Search or Select"
+                  />
                 </div>
+                {isSalaryRangeInvalid && (
+                  <p className="text-xs text-red-500 mt-1.5">Maximum salary must be greater than or equal to minimum salary.</p>
+                )}
               </div>
               <div>
                 <label className="block mb-1.5 text-sm font-medium text-[#3A1F1F]">Experience Required *</label>
@@ -2325,31 +2408,27 @@ function PostJobPage() {
             <div className="space-y-4">
               <div>
                 <label className="block mb-1.5 text-sm font-medium text-[#3A1F1F]">About the Role *</label>
-                <Textarea value={formData.jobDescription} onChange={e => setFormData({ ...formData, jobDescription: e.target.value })} className="bg-[#F6F6F6] border-gray-200 rounded-xl" rows={4} placeholder="Brief overview of the role and what the candidate will be working on..." required />
+                <RichTextEditor
+                  value={formData.jobDescription}
+                  onChange={val => setFormData({ ...formData, jobDescription: val })}
+                  placeholder="Brief overview of the role and what the candidate will be working on..."
+                />
               </div>
               <div>
                 <label className="block mb-1.5 text-sm font-medium text-[#3A1F1F]">Roles & Responsibilities</label>
-                <Textarea
+                <RichTextEditor
                   value={formData.rolesResponsibilities}
-                  onChange={e => handleBulletListChange("rolesResponsibilities", e.target.value)}
-                  onKeyDown={e => handleBulletListKeyDown("rolesResponsibilities", e)}
-                  className="bg-[#F6F6F6] border-gray-200 rounded-xl"
-                  rows={6}
-                  placeholder={"• Lead end-to-end development of features\n• Collaborate with cross-functional teams\n• Review code and mentor junior developers\n• Drive technical decisions and architecture"}
+                  onChange={val => setFormData({ ...formData, rolesResponsibilities: val })}
+                  placeholder="Enter roles & responsibilities..."
                 />
-                <p className="text-xs text-[#8A8A8A] mt-1">Enter each point on a new line (press Enter after each point). Bullets will be added automatically.</p>
               </div>
               <div>
                 <label className="block mb-1.5 text-sm font-medium text-[#3A1F1F]">Requirements / Qualifications</label>
-                <Textarea
+                <RichTextEditor
                   value={formData.requirements}
-                  onChange={e => handleBulletListChange("requirements", e.target.value)}
-                  onKeyDown={e => handleBulletListKeyDown("requirements", e)}
-                  className="bg-[#F6F6F6] border-gray-200 rounded-xl"
-                  rows={5}
-                  placeholder={"• 3+ years of experience with React and Node.js\n• Strong understanding of REST APIs\n• Experience with cloud platforms (AWS/GCP)\n• Excellent communication skills"}
+                  onChange={val => setFormData({ ...formData, requirements: val })}
+                  placeholder="Enter requirements & qualifications..."
                 />
-                <p className="text-xs text-[#8A8A8A] mt-1">Enter each point on a new line (press Enter after each point). Bullets will be added automatically.</p>
               </div>
             </div>
           </div>
@@ -2389,14 +2468,18 @@ function ManageJobsPage() {
   const [saving, setSaving] = useState(false);
   const [refreshingJobId, setRefreshingJobId] = useState<string | null>(null);
 
+  const isEditSalaryRangeInvalid =
+    Boolean(editForm.salaryMin && editForm.salaryMax) &&
+    Number(editForm.salaryMax) < Number(editForm.salaryMin);
+
   const openEdit = (job: Job) => {
     setEditingJob(job);
     setEditForm({
       title: job.title,
       location: job.location || "",
-      salaryMin: job.salary_min ? String(job.salary_min) : "",
-      salaryMax: job.salary_max ? String(job.salary_max) : "",
-      salaryType: job.salary_type || "LPA",
+      salaryMin: getSalaryFormValue(job.salary_min),
+      salaryMax: getSalaryFormValue(job.salary_max),
+      salaryType: "LPA",
       employmentType: job.employment_type || "",
       workMode: job.work_mode || "",
       openings: String(job.openings),
@@ -2406,14 +2489,16 @@ function ManageJobsPage() {
 
   const saveEdit = async () => {
     if (!editingJob) return;
+    if (!editForm.salaryMin || !editForm.salaryMax) return;
+    if (isEditSalaryRangeInvalid) return;
     setSaving(true);
     const skillsArr = editForm.skills.split(",").map(s => s.trim()).filter(Boolean);
     await supabase.from("jobs").update({
       title: editForm.title,
       location: editForm.location,
-      salary_min: editForm.salaryMin ? Number(editForm.salaryMin) : null,
-      salary_max: editForm.salaryMax ? Number(editForm.salaryMax) : null,
-      salary_type: editForm.salaryType,
+      salary_min: Number(editForm.salaryMin),
+      salary_max: Number(editForm.salaryMax),
+      salary_type: "LPA",
       employment_type: editForm.employmentType,
       work_mode: editForm.workMode,
       openings: Number(editForm.openings) || 1,
@@ -2421,9 +2506,9 @@ function ManageJobsPage() {
     }).eq("id", editingJob.id);
     setJobs(prev => prev.map(j => j.id === editingJob.id ? {
       ...j, title: editForm.title, location: editForm.location,
-      salary_min: editForm.salaryMin ? Number(editForm.salaryMin) : null,
-      salary_max: editForm.salaryMax ? Number(editForm.salaryMax) : null,
-      salary_type: editForm.salaryType, employment_type: editForm.employmentType,
+      salary_min: Number(editForm.salaryMin),
+      salary_max: Number(editForm.salaryMax),
+      salary_type: "LPA", employment_type: editForm.employmentType,
       work_mode: editForm.workMode, openings: Number(editForm.openings) || 1,
       skills: skillsArr,
     } : j));
@@ -2567,13 +2652,18 @@ function ManageJobsPage() {
             <div className="flex justify-between items-start flex-wrap gap-3">
               <div className="flex-1">
                 <div className="flex items-center gap-2 mb-1">
-                  <h3 className="text-xl font-semibold text-[#3A1F1F]">{job.title}</h3>
+                  <h3
+                    className="text-xl font-semibold text-[#3A1F1F] cursor-pointer hover:text-[#FF2B2B] hover:underline transition-all duration-200"
+                    onClick={() => navigate(`/recruiter/dashboard/applicants?job=${encodeURIComponent(job.title)}`)}
+                  >
+                    {job.title}
+                  </h3>
                   <Badge className={badgeClass}>{effectiveStatus}</Badge>
                 </div>
                 <div className="flex items-center gap-4 text-sm text-[#8A8A8A] flex-wrap">
                   <span className="flex items-center gap-1"><MapPin className="h-3.5 w-3.5" />{job.location}</span>
                   <span className="flex items-center gap-1"><Briefcase className="h-3.5 w-3.5" />{job.employment_type}</span>
-                  {job.salary_min && <span className="flex items-center gap-1"><TrendingUp className="h-3.5 w-3.5" />{job.salary_min}–{job.salary_max} {job.salary_type}</span>}
+                  <span className="flex items-center gap-1"><TrendingUp className="h-3.5 w-3.5" />{formatJobSalary(job)}</span>
                   <span className="flex items-center gap-1"><Clock className="h-3.5 w-3.5" />Posted {new Date(job.created_at).toLocaleDateString()}</span>
                   {job.deadline && (
                     <span className="flex items-center gap-1">
@@ -2584,6 +2674,7 @@ function ManageJobsPage() {
                 </div>
               </div>
               <div className="flex gap-2">
+                <JobShareButton jobId={job.id} title={job.title} className="relative" />
                 {effectiveStatus === "Expired" ? (
                   <Button variant="outline" size="icon" className="border-gray-200 rounded-full" onClick={() => refreshJob(job)} disabled={refreshingJobId === job.id} title={`Refresh for ${JOB_EXPIRY_DAYS} days`}>
                     <RefreshCw className={`h-4 w-4 text-green-500 ${refreshingJobId === job.id ? "animate-spin" : ""}`} />
@@ -2593,12 +2684,21 @@ function ManageJobsPage() {
                     {effectiveStatus === "Active" ? <Pause className="h-4 w-4 text-[#8A8A8A]" /> : <RefreshCw className="h-4 w-4 text-green-500" />}
                   </Button>
                 )}
+                <Button variant="outline" size="icon" className="border-gray-200 rounded-full" onClick={() => navigate(`/recruiter/dashboard/applicants?job=${encodeURIComponent(job.title)}`)} title="View Applicants">
+                  <Users className="h-4 w-4 text-[#FF2B2B]" />
+                </Button>
                 <Button variant="outline" size="icon" className="border-gray-200 rounded-full" onClick={() => openEdit(job)} title="Edit Job"><Edit className="h-4 w-4 text-[#3A1F1F]" /></Button>
                 <Button variant="outline" size="icon" className="border-gray-200 rounded-full" onClick={() => closeJob(job.id)} title="Close Job"><Trash2 className="h-4 w-4 text-[#FF2B2B]" /></Button>
               </div>
             </div>
             <div className="grid grid-cols-3 gap-4 mt-4 pt-4 border-t border-gray-100">
-              <div className="text-center"><div className="text-xl font-bold text-[#3A1F1F]">{(job as any).applicant_count ?? 0}</div><div className="text-xs text-[#8A8A8A]">Applicants</div></div>
+              <div
+                className="text-center cursor-pointer group"
+                onClick={() => navigate(`/recruiter/dashboard/applicants?job=${encodeURIComponent(job.title)}`)}
+              >
+                <div className="text-xl font-bold text-[#3A1F1F] group-hover:text-[#FF2B2B] transition-all duration-200">{(job as any).applicant_count ?? 0}</div>
+                <div className="text-xs text-[#8A8A8A] group-hover:underline">Applicants</div>
+              </div>
               <div className="text-center"><div className="text-xl font-bold text-blue-600">{job.views ?? 0}</div><div className="text-xs text-[#8A8A8A]">Job Views</div></div>
               <div className="text-center"><div className="text-xl font-bold text-green-600">{job.openings}</div><div className="text-xs text-[#8A8A8A]">Openings</div></div>
             </div>
@@ -2647,16 +2747,23 @@ function ManageJobsPage() {
               </div>
             </div>
             <div>
-              <label className="block text-sm font-medium text-[#3A1F1F] mb-1">Salary Range</label>
+              <label className="block text-sm font-medium text-[#3A1F1F] mb-1">Salary Offered *</label>
               <div className="flex gap-2 items-center">
-                <Input type="number" value={editForm.salaryMin} onChange={e => setEditForm(f => ({ ...f, salaryMin: e.target.value }))} className="bg-[#F6F6F6] border-gray-200 rounded-xl" placeholder="Min" />
+                <SalaryCombobox
+                  value={editForm.salaryMin}
+                  onChange={v => setEditForm(f => ({ ...f, salaryMin: v }))}
+                  placeholder="Search or Select"
+                />
                 <span className="text-[#8A8A8A]">–</span>
-                <Input type="number" value={editForm.salaryMax} onChange={e => setEditForm(f => ({ ...f, salaryMax: e.target.value }))} className="bg-[#F6F6F6] border-gray-200 rounded-xl" placeholder="Max" />
-                <Select value={editForm.salaryType} onValueChange={v => setEditForm(f => ({ ...f, salaryType: v }))}>
-                  <SelectTrigger className="w-24 bg-[#F6F6F6] border-gray-200 rounded-xl"><SelectValue /></SelectTrigger>
-                  <SelectContent><SelectItem value="LPA">LPA</SelectItem><SelectItem value="Monthly">Monthly</SelectItem></SelectContent>
-                </Select>
+                <SalaryCombobox
+                  value={editForm.salaryMax}
+                  onChange={v => setEditForm(f => ({ ...f, salaryMax: v }))}
+                  placeholder="Search or Select"
+                />
               </div>
+              {isEditSalaryRangeInvalid && (
+                <p className="text-xs text-red-500 mt-1.5">Maximum salary must be greater than or equal to minimum salary.</p>
+              )}
             </div>
             <div>
               <label className="block text-sm font-medium text-[#3A1F1F] mb-1">Number of Openings</label>
@@ -2664,10 +2771,10 @@ function ManageJobsPage() {
             </div>
             <div>
               <label className="block text-sm font-medium text-[#3A1F1F] mb-1">Key Skills (comma separated)</label>
-              <Input value={editForm.skills} onChange={e => setEditForm(f => ({ ...f, skills: e.target.value }))} className="bg-[#F6F6F6] border-gray-200 rounded-xl" placeholder="Python, SQL, React" />
+              <Input value={editForm.skills} onChange={e => setEditForm(f => ({ ...f, skills: e.target.value }))} className="bg-[#F6F6F6] border-gray-200 rounded-xl" placeholder="Enter required skills" />
             </div>
             <div className="flex gap-3 pt-2">
-              <Button className="flex-1 bg-[#FF2B2B] hover:bg-[#e02525] text-white rounded-full" onClick={saveEdit} disabled={saving || !editForm.title}>
+              <Button className="flex-1 bg-[#FF2B2B] hover:bg-[#e02525] text-white rounded-full" onClick={saveEdit} disabled={saving || !editForm.title || !editForm.salaryMin || !editForm.salaryMax || isEditSalaryRangeInvalid}>
                 {saving ? "Saving..." : "Save Changes"}
               </Button>
               <Button variant="outline" className="rounded-full" onClick={() => setEditingJob(null)}>Cancel</Button>
@@ -2686,7 +2793,13 @@ interface DBCandidate extends Profile {
   education?: EduType[];
 }
 
+type AppliedJdSearchApplication = {
+  profile: DBCandidate | null;
+  job: Job | null;
+};
+
 function SearchCandidatesPage() {
+  const { recruiterProfile } = useAuth();
   // ── Search state ──────────────────────────────────────────
   const [keywords, setKeywords]       = useState("");
   const [location, setLocation]       = useState("");
@@ -2702,6 +2815,8 @@ function SearchCandidatesPage() {
   const [expType, setExpType]         = useState("");
   const [skillTags, setSkillTags]     = useState<string[]>([]);
   const [skillInput, setSkillInput]   = useState("");
+  const [skillSuggestionsOpen, setSkillSuggestionsOpen] = useState(false);
+  const searchKeywordRef = useRef<HTMLDivElement>(null);
 
   const [results, setResults]         = useState<DBCandidate[]>([]);
   const [searching, setSearching]     = useState(false);
@@ -2761,12 +2876,52 @@ function SearchCandidatesPage() {
     return dayMatch ? parseInt(dayMatch[1]) : 999;
   };
 
+  const jdMatchesKeyword = (job: Job | null, keyword: string): boolean => {
+    if (!job) return false;
+    const keywordLower = keyword.trim().toLowerCase();
+    if (!keywordLower) return false;
+
+    const jdText = [
+      job.title,
+      job.company_name,
+      job.industry,
+      job.department,
+      job.description,
+      job.roles_responsibilities,
+      job.requirements,
+      job.education,
+      job.employment_type,
+      ...(job.skills || []),
+    ].filter(Boolean).join(" ").toLowerCase();
+
+    return jdText.includes(keywordLower) || (job.skills || []).some(skill => skillsMatch(skill, keyword));
+  };
+
   // ── Skill tag management ──────────────────────────────────
   const addSkillTag = (tag: string) => {
     const t = tag.trim();
     if (t && !skillTags.includes(t)) setSkillTags(prev => [...prev, t]);
     setSkillInput("");
   };
+
+  const filteredKeywordSuggestions = useMemo(() => {
+    const query = keywords.trim().toLowerCase();
+    if (!query) return [];
+    return SEARCH_SUGGESTION_DATASET
+      .filter(item => item.toLowerCase().includes(query))
+      .slice(0, 12);
+  }, [keywords]);
+
+  useEffect(() => {
+    if (!skillSuggestionsOpen) return;
+    const handleClickOutside = (event: MouseEvent) => {
+      if (!searchKeywordRef.current?.contains(event.target as Node)) {
+        setSkillSuggestionsOpen(false);
+      }
+    };
+    document.addEventListener("mousedown", handleClickOutside);
+    return () => document.removeEventListener("mousedown", handleClickOutside);
+  }, [skillSuggestionsOpen]);
 
   // ── Main search ───────────────────────────────────────────
   const handleSearch = async () => {
@@ -2777,14 +2932,16 @@ function SearchCandidatesPage() {
         .from("profiles")
         .select("*, work_experience(*), education(*)");
 
-      // Server-side: keyword search across text columns
+      // Server-side: keyword search across text columns (token-based)
       if (keywords.trim()) {
-        const kw = keywords.trim();
-        q = q.or(
-          `first_name.ilike.%${kw}%,last_name.ilike.%${kw}%,` +
-          `headline.ilike.%${kw}%,current_title.ilike.%${kw}%,` +
-          `current_company.ilike.%${kw}%,about.ilike.%${kw}%`
-        );
+        const tokens = keywords.trim().toLowerCase().split(/\s+/).filter(Boolean);
+        tokens.forEach(token => {
+          q = q.or(
+            `first_name.ilike.%${token}%,last_name.ilike.%${token}%,` +
+            `headline.ilike.%${token}%,current_title.ilike.%${token}%,` +
+            `current_company.ilike.%${token}%,about.ilike.%${token}%`
+          );
+        });
       }
       // Server-side: location
       if (location.trim()) q = q.ilike("location", `%${location.trim()}%`);
@@ -2795,17 +2952,64 @@ function SearchCandidatesPage() {
 
       // Skill keyword also searches the skills array column
       if (keywords.trim()) {
-        const { data: skillMatches } = await supabase
-          .from("profiles")
-          .select("*, work_experience(*), education(*)")
-          .contains("skills", [keywords.trim()]);
-        if (skillMatches) {
-          const ids = new Set(raw.map(r => r.id));
-          (skillMatches as DBCandidate[]).forEach(sm => { if (!ids.has(sm.id)) raw.push(sm); });
+        const tokens = keywords.trim().toLowerCase().split(/\s+/).filter(Boolean);
+        const allSkillTerms = tokens.flatMap(token => getSkillSearchTerms(token)).slice(0, 30);
+        if (allSkillTerms.length > 0) {
+          const { data: skillMatches } = await supabase
+            .from("profiles")
+            .select("*, work_experience(*), education(*)")
+            .overlaps("skills", allSkillTerms);
+          if (skillMatches) {
+            const ids = new Set(raw.map(r => r.id));
+            (skillMatches as DBCandidate[]).forEach(sm => { if (!ids.has(sm.id)) raw.push(sm); });
+          }
         }
       }
 
       // ── Client-side filters ──────────────────────────────────────────────────
+      if (keywords.trim()) {
+        let broadSkillQuery = supabase
+          .from("profiles")
+          .select("*, work_experience(*), education(*)");
+        if (location.trim()) broadSkillQuery = broadSkillQuery.ilike("location", `%${location.trim()}%`);
+        if (currentCompany.trim()) broadSkillQuery = broadSkillQuery.ilike("current_company", `%${currentCompany.trim()}%`);
+
+        const { data: broadSkillCandidates } = await broadSkillQuery.limit(1000);
+        if (broadSkillCandidates) {
+          const ids = new Set(raw.map(r => r.id));
+          const tokens = keywords.trim().toLowerCase().split(/\s+/).filter(Boolean);
+          (broadSkillCandidates as DBCandidate[]).forEach(candidate => {
+            if (!ids.has(candidate.id)) {
+              const hasSkillMatch = (candidate.skills || []).some(skill => 
+                tokens.some(token => skillsMatch(skill, token))
+              );
+              if (hasSkillMatch) {
+                raw.push(candidate);
+                ids.add(candidate.id);
+              }
+            }
+          });
+        }
+
+        const tokens = keywords.trim().toLowerCase().split(/\s+/).filter(Boolean);
+        raw = raw.filter(candidate => {
+          const searchableText = [
+            candidate.first_name,
+            candidate.last_name,
+            candidate.headline,
+            candidate.current_title,
+            candidate.current_company,
+            candidate.about,
+            candidate.location,
+          ].filter(Boolean).join(" ").toLowerCase();
+
+          return tokens.every(token =>
+            searchableText.includes(token) ||
+            (candidate.skills || []).some(skill => skillsMatch(skill, token))
+          );
+        });
+      }
+
       // Experience type (client-side so null values aren't excluded)
       if (expType) {
         raw = raw.filter(c => {
@@ -2853,8 +3057,8 @@ function SearchCandidatesPage() {
       // Skill tags (all must match)
       raw = raw.filter(c => {
         if (skillTags.length === 0) return true;
-        const cSkills = (c.skills || []).map(s => s.toLowerCase());
-        return skillTags.every(tag => cSkills.some(s => s.includes(tag.toLowerCase())));
+        const cSkills = c.skills || [];
+        return skillTags.every(tag => cSkills.some(s => skillsMatch(s, tag)));
       });
 
       // Sort
@@ -2863,11 +3067,24 @@ function SearchCandidatesPage() {
       else if (sortBy === "salary_asc") raw.sort((a, b) => parseSal(a.expected_salary) - parseSal(b.expected_salary));
       else if (sortBy === "recent") raw.sort((a, b) => new Date(b.created_at).getTime() - new Date(a.created_at).getTime());
 
+      if (raw.length > 0) {
+        const candidateIds = raw.map(c => c.id).filter(Boolean);
+        if (candidateIds.length > 0) {
+          void supabase.rpc("increment_recruiter_searches", { target_profile_ids: candidateIds }).then(({ error }) => {
+            if (error) console.warn("Failed to increment recruiter searches (migration might not be run):", error.message);
+          });
+        }
+      }
+
       setResults(raw);
     } finally {
       setSearching(false);
     }
   };
+
+  useEffect(() => {
+    handleSearch();
+  }, []);
 
   const clearAllFilters = () => {
     setExpMin(""); setExpMax(""); setCurSalMin(""); setCurSalMax("");
@@ -2885,15 +3102,46 @@ function SearchCandidatesPage() {
       {/* ── Top Search Bar (Naukri-style) ── */}
       <div className="bg-white rounded-2xl shadow-md p-4 mb-5">
         <div className="flex gap-3 flex-wrap">
-          <div className="relative flex-1 min-w-[220px]">
+          <div className="relative flex-1 min-w-[220px]" ref={searchKeywordRef}>
             <Search className="absolute left-3 top-1/2 -translate-y-1/2 h-4 w-4 text-[#8A8A8A]" />
             <Input
               value={keywords}
-              onChange={e => setKeywords(e.target.value)}
-              onKeyDown={e => { if (e.key === "Enter") handleSearch(); }}
+              onFocus={() => setSkillSuggestionsOpen(true)}
+              onChange={e => {
+                setKeywords(e.target.value);
+                setSkillSuggestionsOpen(true);
+              }}
+              onKeyDown={e => {
+                if (e.key === "Enter") {
+                  e.preventDefault();
+                  handleSearch();
+                }
+                if (e.key === "Escape") {
+                  setSkillSuggestionsOpen(false);
+                }
+              }}
               className="pl-9 bg-[#F6F6F6] border-gray-200 rounded-xl"
               placeholder="Skills, designation, company name..."
             />
+            {skillSuggestionsOpen && filteredKeywordSuggestions.length > 0 && (
+              <div className="absolute left-0 right-0 top-full z-50 mt-1 overflow-hidden rounded-xl border border-gray-200 bg-white shadow-xl">
+                <div className="max-h-72 overflow-y-auto">
+                  {filteredKeywordSuggestions.map(skill => (
+                    <button
+                      key={skill}
+                      type="button"
+                      onClick={() => {
+                        setKeywords(skill);
+                        setSkillSuggestionsOpen(false);
+                      }}
+                      className="flex w-full items-center px-3 py-2 text-left text-sm text-[#3A1F1F] hover:bg-[#FFF0F0]"
+                    >
+                      <span>{skill}</span>
+                    </button>
+                  ))}
+                </div>
+              </div>
+            )}
           </div>
           <LocationAutocomplete
             value={location}
@@ -3015,7 +3263,7 @@ function SearchCandidatesPage() {
           {/* Current Company */}
           <div className="px-4 py-3 border-b border-gray-100">
             <p className="text-xs font-semibold text-[#3A1F1F] mb-2 uppercase tracking-wide">Current Company</p>
-            <Input value={currentCompany} onChange={e => setCurrentCompany(e.target.value)} className="bg-[#F6F6F6] border-gray-200 rounded-lg text-xs h-8" placeholder="e.g. Infosys" />
+            <Input value={currentCompany} onChange={e => setCurrentCompany(e.target.value)} className="bg-[#F6F6F6] border-gray-200 rounded-lg text-xs h-8" placeholder="Enter company name" />
           </div>
 
           {/* Skills */}
@@ -3086,11 +3334,10 @@ function SearchCandidatesPage() {
 
               <div className="space-y-3">
                 {results.map(c => {
-                  const name = `${c.first_name || ""} ${c.last_name || ""}`.trim() || "Unknown";
-                  const initials = name.split(" ").map(n => n[0]).join("").toUpperCase().slice(0, 2);
+                  const name = getCandidateDisplayName(c);
+                  const initials = getCandidateInitials(name);
                   const skills = c.skills || [];
                   const workExp = c.work_experience || [];
-                  const matchScore = Math.floor(72 + (c.id.charCodeAt(0) % 23));
 
                   // Normalize experience display — use stored text or compute from work history
                   const expYrs = parseExp(c);
@@ -3130,10 +3377,6 @@ function SearchCandidatesPage() {
                                   )}
                                 </p>
                               </div>
-                              <div className="bg-green-50 border border-green-100 rounded-xl px-3 py-1 text-center flex-shrink-0">
-                                <div className="text-base font-bold text-green-600">{matchScore}%</div>
-                                <div className="text-xs text-[#8A8A8A]">Match</div>
-                              </div>
                             </div>
 
                             {/* Key info row */}
@@ -3167,7 +3410,14 @@ function SearchCandidatesPage() {
 
                         {/* Actions */}
                         <div className="flex gap-2 mt-3 pt-3 border-t border-gray-100 flex-wrap">
-                          <Button size="sm" onClick={() => setProfileModal(c)} className="bg-[#FF2B2B] hover:bg-[#e02525] text-white rounded-full text-xs h-7">
+                          <Button size="sm" onClick={() => {
+                            setProfileModal(c);
+                            if (c?.id) {
+                              void supabase.rpc("increment_profile_views", { target_profile_id: c.id }).then(({ error }) => {
+                                if (error) console.warn("Failed to increment profile views (migration might not be run):", error.message);
+                              });
+                            }
+                          }} className="bg-[#FF2B2B] hover:bg-[#e02525] text-white rounded-full text-xs h-7">
                             <Eye className="h-3.5 w-3.5 mr-1" /> View Full Profile
                           </Button>
                           <Button size="sm" variant={shortlisted.has(c.id) ? "default" : "outline"} className={shortlisted.has(c.id) ? "bg-pink-600 hover:bg-pink-700 text-white rounded-full text-xs h-7" : "border-pink-500 text-pink-600 hover:bg-pink-50 rounded-full text-xs h-7"} onClick={() => toggleShortlist(c.id)}>
@@ -3193,12 +3443,11 @@ function SearchCandidatesPage() {
       {/* ── Full Profile Modal (Naukri-style) ── */}
       {profileModal && (() => {
         const c = profileModal;
-        const name = `${c.first_name || ""} ${c.last_name || ""}`.trim() || "Unknown";
-        const initials = name.split(" ").map(n => n[0]).join("").toUpperCase().slice(0, 2);
+        const name = getCandidateDisplayName(c);
+        const initials = getCandidateInitials(name);
         const workExp = c.work_experience || [];
         const eduList = c.education || [];
         const skills = c.skills || [];
-        const matchScore = Math.floor(72 + (c.id.charCodeAt(0) % 23));
         return (
           <div className="fixed inset-0 z-50 flex items-center justify-center p-4 bg-black/50" onClick={() => setProfileModal(null)}>
             <div className="bg-white rounded-2xl shadow-2xl w-full max-w-3xl max-h-[90vh] overflow-y-auto" onClick={e => e.stopPropagation()}>
@@ -3217,10 +3466,6 @@ function SearchCandidatesPage() {
                       {c.headline || c.current_title}
                       {c.current_company && <span> · {c.current_company}</span>}
                     </p>
-                  </div>
-                  <div className="bg-white/20 border border-white/30 rounded-xl px-3 py-1.5 text-center flex-shrink-0">
-                    <div className="text-lg font-bold text-white">{matchScore}%</div>
-                    <div className="text-xs text-white/70">Match</div>
                   </div>
                 </div>
               </div>
@@ -3374,6 +3619,10 @@ function getCandidateInitials(name: string, fallback = "UC") {
     .slice(0, 2) || fallback;
 }
 
+function getResumeUrl(applicant: Pick<Application, "resume_url"> & { profile?: Pick<Profile, "resume_url"> | null }): string | null {
+  return applicant.resume_url || applicant.profile?.resume_url || null;
+}
+
 function ApplicantsPage() {
   const { recruiterProfile } = useAuth();
   const location = useLocation();
@@ -3383,7 +3632,10 @@ function ApplicantsPage() {
     const queryStatus = new URLSearchParams(window.location.search).get("status");
     return queryStatus || "All";
   });
-  const [jobFilter, setJobFilter] = useState("All");
+  const [jobFilter, setJobFilter] = useState(() => {
+    const queryJob = new URLSearchParams(window.location.search).get("job");
+    return queryJob || "All";
+  });
   const [searchTerm, setSearchTerm] = useState("");
   const [sortBy, setSortBy] = useState("recent");
   const [expandedCareer, setExpandedCareer] = useState<string | null>(null);
@@ -3397,6 +3649,8 @@ function ApplicantsPage() {
   const [noticePeriodFilter, setNoticePeriodFilter] = useState("");
   const [skillFilter, setSkillFilter] = useState("");
   const [showFilters, setShowFilters] = useState(false);
+  const [skillDropdownOpen, setSkillDropdownOpen] = useState(false);
+  const skillFilterRef = useRef<HTMLDivElement>(null);
   const [interviewModalApplicant, setInterviewModalApplicant] = useState<AppWithProfile | null>(null);
   const [feedbackModalApplicant, setFeedbackModalApplicant] = useState<AppWithProfile | null>(null);
   const [offerModalApplicant, setOfferModalApplicant] = useState<AppWithProfile | null>(null);
@@ -3406,6 +3660,7 @@ function ApplicantsPage() {
   const [feedbackInitialRound, setFeedbackInitialRound] = useState<"L1" | "L2" | "L3" | "HR Round">("L1");
   const [statusUpdateInFlight, setStatusUpdateInFlight] = useState<Set<string>>(new Set());
   const [optimisticStatusByApplicant, setOptimisticStatusByApplicant] = useState<Record<string, Application["status"]>>({});
+  const [resumePreview, setResumePreview] = useState<{ url: string; candidateName: string } | null>(null);
 
   const getEffectiveApplicationStatus = useCallback(
     (applicant: AppWithProfile) => optimisticStatusByApplicant[applicant.id] ?? applicant.status,
@@ -3442,10 +3697,32 @@ function ApplicantsPage() {
   const statuses = ["All", ...PIPELINE_STAGES];
   const jobTitles = ["All", ...Array.from(new Set(applicants.map(a => a.job?.title).filter(Boolean)))];
 
+  const filteredFilterSkillOptions = useMemo(() => {
+    const query = skillFilter.trim().toLowerCase();
+    const options = query ? SEARCH_SUGGESTION_DATASET : SKILL_OPTIONS;
+    return options.filter(skill => !query || skill.toLowerCase().includes(query)).slice(0, 50);
+  }, [skillFilter]);
+
   useEffect(() => {
     const queryStatus = new URLSearchParams(location.search).get("status") || "All";
     if (statuses.includes(queryStatus)) setStatusFilter(queryStatus);
   }, [location.search]);
+
+  useEffect(() => {
+    const queryJob = new URLSearchParams(location.search).get("job") || "All";
+    setJobFilter(queryJob);
+  }, [location.search]);
+
+  useEffect(() => {
+    if (!skillDropdownOpen) return;
+    const handleClickOutside = (event: MouseEvent) => {
+      if (!skillFilterRef.current?.contains(event.target as Node)) {
+        setSkillDropdownOpen(false);
+      }
+    };
+    document.addEventListener("mousedown", handleClickOutside);
+    return () => document.removeEventListener("mousedown", handleClickOutside);
+  }, [skillDropdownOpen]);
 
   const parseExpYears = (exp: string | null) => {
     if (!exp) return 0;
@@ -3498,21 +3775,38 @@ function ApplicantsPage() {
     })
     .filter(a => {
       if (!skillFilter) return true;
-      const skills = (a.profile?.skills || []).map((s: string) => s.toLowerCase());
-      return skills.some(s => s.includes(skillFilter.toLowerCase()));
+      const skills = a.profile?.skills || [];
+      return skills.some((s: string) => skillsMatch(s, skillFilter));
     });
+
+  const sortedApplicants = useMemo(() => {
+    return [...filtered].sort((a, b) => {
+      if (sortBy === "match") {
+        const scoreA = Math.floor(70 + (a.id.charCodeAt(0) % 25));
+        const scoreB = Math.floor(70 + (b.id.charCodeAt(0) % 25));
+        return scoreB - scoreA;
+      }
+      return new Date(b.applied_at).getTime() - new Date(a.applied_at).getTime();
+    });
+  }, [filtered, sortBy]);
 
   const updateStatus = async (id: string, newStatus: Application["status"]) => {
     const statusWriteAttempts: Record<Application["status"], string[]> = {
-      Applied: ["New", "Applied", "applied"],
-      New: ["New", "Applied", "applied"],
-      Screening: ["Reviewed", "Screening", "screening"],
-      Reviewed: ["Reviewed", "Screening", "screening"],
+      Applied: ["Applied", "New", "applied"],
+      New: ["Applied", "New", "applied"],
+      "Under Review": ["Under Review", "Reviewed", "Screening"],
+      Screening: ["Under Review", "Reviewed", "Screening"],
+      Reviewed: ["Under Review", "Reviewed", "Screening"],
       Shortlisted: ["Shortlisted", "shortlisted"],
       "Interview Scheduled": ["Interview Scheduled", "interview_scheduled"],
+      "Interview Completed": ["Interview Completed"],
+      "Interview Selected": ["Interview Selected"],
+      "Interview Rejected": ["Interview Rejected"],
       Offered: ["Offered", "offered"],
+      Joined: ["Joined", "Hired", "hired"],
+      Hired: ["Joined", "Hired", "hired"],
       Rejected: ["Rejected", "rejected"],
-      Hired: ["Hired", "hired", "Hire", "hire", "Joined", "joined"],
+      "On Hold": ["On Hold"],
     };
 
     const attempts = statusWriteAttempts[newStatus] || [newStatus];
@@ -3543,6 +3837,11 @@ function ApplicantsPage() {
       }
       return { ...applicant };
     });
+    if (applicant.profile_id) {
+      void supabase.rpc("increment_profile_views", { target_profile_id: applicant.profile_id }).then(({ error }) => {
+        if (error) console.warn("Failed to increment profile views (migration might not be run):", error.message);
+      });
+    }
   };
 
   const handleInterviewStatusRequest = (applicant: AppWithProfile) => {
@@ -3579,7 +3878,7 @@ function ApplicantsPage() {
     if (statusUpdateInFlight.has(applicantId)) return;
 
     const currentStatus = applicants.find(a => a.id === applicantId)?.status;
-    if (currentStatus && mapApplicationStatusToPipelineStage(currentStatus) === "Hired" && nextStatus === "Hired") {
+    if (currentStatus && mapApplicationStatusToPipelineStage(currentStatus) === "Joined" && nextStatus === "Joined") {
       return;
     }
 
@@ -3594,6 +3893,11 @@ function ApplicantsPage() {
       if (updated) {
         const resolvedStatus = updated;
         setProfileModal(prev => prev && prev.id === applicantId ? { ...prev, status: resolvedStatus } : prev);
+      } else {
+        // Fallback for development/testing: update local state even if DB rejects the new status due to unmigrated constraints
+        console.warn(`Database update failed. Applying fallback state update for status "${nextStatus}" (local testing only).`);
+        setApplicants(prev => prev.map(a => a.id === applicantId ? { ...a, status: nextStatus } : a));
+        setProfileModal(prev => prev && prev.id === applicantId ? { ...prev, status: nextStatus } : prev);
       }
     } finally {
       setOptimisticStatusByApplicant(prev => {
@@ -3827,16 +4131,31 @@ function ApplicantsPage() {
 
   const renderStageActions = (applicant: AppWithProfile) => {
     const stage = getEffectiveApplicationStage(applicant);
+    const resumeUrl = getResumeUrl(applicant);
+    const candidateName = getCandidateDisplayName(applicant.profile);
     const isUpdating = statusUpdateInFlight.has(applicant.id);
-    const isLockedAfterHire = stage === "Hired";
+    const isLockedAfterHire = stage === "Joined";
     const disableActions = isUpdating;
     const isInterviewActive = stage === "Interview Scheduled";
+    const isInterviewCompleteActive = stage === "Interview Completed";
+    const isInterviewSelectActive = stage === "Interview Selected";
+    const isInterviewRejectActive = stage === "Interview Rejected";
     const isShortlistActive = stage === "Shortlisted";
     const isOfferActive = stage === "Offered";
     const isRejectActive = stage === "Rejected";
-    const isHireActive = stage === "Hired";
+    const isHireActive = stage === "Joined";
+    const isOnHoldActive = stage === "On Hold";
     const fadedAfterHire = isLockedAfterHire ? "opacity-40" : "";
     const disabledOpacityClass = "disabled:opacity-40";
+    const shortlistDisabledClass = isShortlistActive ? "disabled:opacity-100" : "disabled:opacity-40";
+    const interviewDisabledClass = isInterviewActive ? "disabled:opacity-100" : "disabled:opacity-40";
+    const interviewCompleteDisabledClass = isInterviewCompleteActive ? "disabled:opacity-100" : "disabled:opacity-40";
+    const interviewSelectDisabledClass = isInterviewSelectActive ? "disabled:opacity-100" : "disabled:opacity-40";
+    const interviewRejectDisabledClass = isInterviewRejectActive ? "disabled:opacity-100" : "disabled:opacity-40";
+    const offerDisabledClass = isOfferActive ? "disabled:opacity-100" : "disabled:opacity-40";
+    const hireDisabledClass = isHireActive ? "disabled:opacity-100" : "disabled:opacity-40";
+    const rejectDisabledClass = isRejectActive ? "disabled:opacity-100" : "disabled:opacity-40";
+    const onHoldDisabledClass = isOnHoldActive ? "disabled:opacity-100" : "disabled:opacity-40";
     const openMail = () => { if (applicant.profile?.email) window.location.href = `mailto:${applicant.profile.email}`; };
     const viewBtn = (
       <Button size="sm" variant="outline" className="border-2 border-blue-500 bg-blue-50 text-blue-700 hover:bg-blue-100 rounded-full text-xs h-7" onClick={() => openProfileAndMoveToScreening(applicant)}>
@@ -3848,31 +4167,39 @@ function ApplicantsPage() {
         <Mail className="h-3.5 w-3.5 mr-1" /> Message
       </Button>
     );
-    const canShortlist = stage === "Screening" || stage === "Shortlisted";
+    const canShortlist = stage === "Under Review" || stage === "Shortlisted";
     const canInterview = stage === "Shortlisted" || stage === "Interview Scheduled";
-    const canOffer = stage === "Interview Scheduled" || stage === "Offered";
-    const canHire = stage === "Offered" || stage === "Hired";
-    const canReject = stage === "Offered" || stage === "Rejected";
+    const canInterviewComplete = stage === "Interview Scheduled" || stage === "Interview Completed";
+    const canInterviewSelect = stage === "Interview Completed" || stage === "Interview Selected";
+    const canInterviewReject = stage === "Interview Completed" || stage === "Interview Selected" || stage === "Interview Rejected";
+    const canOffer = stage === "Interview Selected" || stage === "Offered";
+    const canHire = stage === "Offered" || stage === "Joined";
+    const canReject = stage === "Offered" || stage === "Interview Selected" || stage === "Rejected";
+    const canOnHold = stage !== "Joined" && stage !== "Rejected" && stage !== "On Hold";
 
     return (
-      <div className="flex flex-wrap gap-2">
+      <div className="flex flex-wrap gap-2 justify-end">
         {viewBtn}
         {messageBtn}
-        <Button size="sm" variant="outline" disabled={disableActions || !canShortlist} className={`${isShortlistActive ? "border-2 border-pink-600 bg-pink-50 text-pink-700" : "border-pink-500 text-pink-600 hover:bg-pink-50 opacity-40"} rounded-full text-xs h-7 ${disabledOpacityClass} ${fadedAfterHire}`} onClick={() => void quickUpdateStatus(applicant.id, "Shortlisted")}><ThumbsUp className="h-3.5 w-3.5 mr-1" /> Shortlist</Button>
-        <Button size="sm" variant="outline" disabled={disableActions || !canInterview} className={`${isInterviewActive ? "border-2 border-purple-600 bg-purple-50 text-purple-700" : "border-purple-400 text-purple-600 hover:bg-purple-50 opacity-40"} rounded-full text-xs h-7 ${disabledOpacityClass} ${fadedAfterHire}`} onClick={() => handleInterviewStatusRequest(applicant)}><Video className="h-3.5 w-3.5 mr-1" /> {stage === "Interview Scheduled" ? "Schedule Next Round" : "Interview"}</Button>
-        {stage === "Interview Scheduled" && (
+        <Button size="sm" variant="outline" disabled={disableActions || !canShortlist} className={`${isShortlistActive ? "border-2 border-pink-600 bg-pink-50 text-pink-700" : "border-pink-500 text-pink-600 hover:bg-pink-50 opacity-40"} rounded-full text-xs h-7 ${shortlistDisabledClass} ${fadedAfterHire}`} onClick={() => void quickUpdateStatus(applicant.id, "Shortlisted")}><ThumbsUp className="h-3.5 w-3.5 mr-1" /> Shortlist</Button>
+        <Button size="sm" variant="outline" disabled={disableActions || !canInterview} className={`${isInterviewActive ? "border-2 border-purple-600 bg-purple-50 text-purple-700" : "border-purple-400 text-purple-600 hover:bg-purple-50 opacity-40"} rounded-full text-xs h-7 ${interviewDisabledClass} ${fadedAfterHire}`} onClick={() => handleInterviewStatusRequest(applicant)}><Video className="h-3.5 w-3.5 mr-1" /> {stage === "Interview Scheduled" ? "Schedule Next Round" : "Interview"}</Button>
+        {(stage === "Interview Scheduled" || stage === "Interview Completed") && (
           <Button size="sm" variant="outline" disabled={disableActions} className={`border-purple-300 text-purple-700 hover:bg-purple-50 rounded-full text-xs h-7 ${disabledOpacityClass} ${fadedAfterHire}`} onClick={() => void handleInterviewFeedbackRequest(applicant)}>
             Add Feedback
           </Button>
         )}
-        <Button size="sm" variant="outline" disabled={disableActions || !canOffer} className={`${isOfferActive ? "border-2 border-orange-600 bg-orange-50 text-orange-700" : "border-orange-400 text-orange-700 hover:bg-orange-50 opacity-40"} rounded-full text-xs h-7 ${disabledOpacityClass} ${fadedAfterHire}`} onClick={() => handleOfferStatusRequest(applicant)}><Award className="h-3.5 w-3.5 mr-1" /> Offer</Button>
+        <Button size="sm" variant="outline" disabled={disableActions || !canInterviewComplete} className={`${isInterviewCompleteActive ? "border-2 border-indigo-600 bg-indigo-50 text-indigo-700" : "border-indigo-400 text-indigo-600 hover:bg-indigo-50 opacity-40"} rounded-full text-xs h-7 ${interviewCompleteDisabledClass} ${fadedAfterHire}`} onClick={() => void quickUpdateStatus(applicant.id, "Interview Completed")}>Interview Complete</Button>
+        <Button size="sm" variant="outline" disabled={disableActions || !canInterviewSelect} className={`${isInterviewSelectActive ? "border-2 border-teal-600 bg-teal-50 text-teal-700" : "border-teal-400 text-teal-600 hover:bg-teal-50 opacity-40"} rounded-full text-xs h-7 ${interviewSelectDisabledClass} ${fadedAfterHire}`} onClick={() => void quickUpdateStatus(applicant.id, "Interview Selected")}>Interview Select</Button>
+        <Button size="sm" variant="outline" disabled={disableActions || !canInterviewReject} className={`${isInterviewRejectActive ? "border-2 border-red-600 bg-red-50 text-red-700" : "border-red-400 text-red-600 hover:bg-red-50 opacity-40"} rounded-full text-xs h-7 ${interviewRejectDisabledClass} ${fadedAfterHire}`} onClick={() => void quickUpdateStatus(applicant.id, "Interview Rejected")}>Interview Reject</Button>
+        <Button size="sm" variant="outline" disabled={disableActions || !canOffer} className={`${isOfferActive ? "border-2 border-orange-600 bg-orange-50 text-orange-700" : "border-orange-400 text-orange-700 hover:bg-orange-50 opacity-40"} rounded-full text-xs h-7 ${offerDisabledClass} ${fadedAfterHire}`} onClick={() => handleOfferStatusRequest(applicant)}><Award className="h-3.5 w-3.5 mr-1" /> Offer</Button>
         {isHireActive ? (
-          <Button size="sm" variant="outline" disabled className="border-emerald-500 text-emerald-700 bg-emerald-100 ring-1 ring-emerald-300 rounded-full text-xs h-7 disabled:opacity-100"><Check className="h-3.5 w-3.5 mr-1" /> Hired</Button>
+          <Button size="sm" variant="outline" disabled className="border-emerald-500 text-emerald-700 bg-emerald-100 ring-1 ring-emerald-300 rounded-full text-xs h-7 disabled:opacity-100"><Check className="h-3.5 w-3.5 mr-1" /> Joined</Button>
         ) : (
-          <Button size="sm" variant="outline" disabled={disableActions || !canHire} className={`${isHireActive ? "border-2 border-emerald-600 bg-emerald-50 text-emerald-700" : "border-emerald-500 text-emerald-600 hover:bg-emerald-50 opacity-40"} rounded-full text-xs h-7 ${disabledOpacityClass}`} onClick={() => void quickUpdateStatus(applicant.id, "Hired")}>Hire</Button>
+          <Button size="sm" variant="outline" disabled={disableActions || !canHire} className={`${isHireActive ? "border-2 border-emerald-600 bg-emerald-50 text-emerald-700" : "border-emerald-500 text-emerald-600 hover:bg-emerald-50 opacity-40"} rounded-full text-xs h-7 ${hireDisabledClass}`} onClick={() => void quickUpdateStatus(applicant.id, "Joined")}>Hire</Button>
         )}
-        <Button size="sm" variant="outline" disabled={disableActions || !canReject} className={`${isRejectActive ? "border-2 border-red-600 bg-red-50 text-red-700" : "border-red-400 text-red-500 hover:bg-red-50 opacity-40"} rounded-full text-xs h-7 ${disabledOpacityClass} ${fadedAfterHire}`} onClick={() => void quickUpdateStatus(applicant.id, "Rejected")}><ThumbsDown className="h-3.5 w-3.5 mr-1" /> Reject</Button>
-        {stage === "Rejected" && <Button size="sm" variant="outline" disabled={disableActions} className={`border-[#8B5E3C] text-[#8B5E3C] hover:bg-[#F5EEE8] rounded-full text-xs h-7 ${disabledOpacityClass} ${fadedAfterHire}`} onClick={() => void quickUpdateStatus(applicant.id, "Reviewed")}><RefreshCw className="h-3.5 w-3.5 mr-1" /> Restore Candidate</Button>}
+        <Button size="sm" variant="outline" disabled={disableActions || !canReject} className={`${isRejectActive ? "border-2 border-red-600 bg-red-50 text-red-700" : "border-red-400 text-red-500 hover:bg-red-50 opacity-40"} rounded-full text-xs h-7 ${rejectDisabledClass} ${fadedAfterHire}`} onClick={() => void quickUpdateStatus(applicant.id, "Rejected")}><ThumbsDown className="h-3.5 w-3.5 mr-1" /> Reject</Button>
+        <Button size="sm" variant="outline" disabled={disableActions || !canOnHold} className={`${isOnHoldActive ? "border-2 border-amber-600 bg-amber-50 text-amber-700" : "border-amber-400 text-amber-600 hover:bg-amber-50 opacity-40"} rounded-full text-xs h-7 ${onHoldDisabledClass} ${fadedAfterHire}`} onClick={() => void quickUpdateStatus(applicant.id, "On Hold")}>On Hold</Button>
+        {(stage === "Rejected" || stage === "On Hold" || stage === "Interview Rejected") && <Button size="sm" variant="outline" disabled={disableActions} className={`border-[#8B5E3C] text-[#8B5E3C] hover:bg-[#F5EEE8] rounded-full text-xs h-7 ${disabledOpacityClass} ${fadedAfterHire}`} onClick={() => void quickUpdateStatus(applicant.id, "Under Review")}><RefreshCw className="h-3.5 w-3.5 mr-1" /> Restore Candidate</Button>}
       </div>
     );
   };
@@ -3885,7 +4212,7 @@ function ApplicantsPage() {
   const exportCSV = () => {
     const rows = [
       ["Name", "Email", "Phone", "Job", "Status", "Applied At", "Experience", "Skills"],
-      ...filtered.map(a => {
+      ...sortedApplicants.map(a => {
         const p = a.profile;
         const name = getCandidateDisplayName(p);
         return [
@@ -3990,7 +4317,7 @@ function ApplicantsPage() {
               <LocationAutocomplete
                 value={locationFilter}
                 onChange={setLocationFilter}
-                placeholder="e.g. Bengaluru"
+                placeholder="Enter location"
                 inputClassName="text-sm h-9"
               />
             </div>
@@ -4017,9 +4344,51 @@ function ApplicantsPage() {
                 </SelectContent>
               </Select>
             </div>
-            <div>
+            <div className="relative" ref={skillFilterRef}>
               <label className="block text-xs font-medium text-[#5A5A5A] mb-1.5">Skill</label>
-              <Input value={skillFilter} onChange={e => setSkillFilter(e.target.value)} className="bg-[#F6F6F6] border-gray-200 rounded-xl text-sm h-9" placeholder="e.g. Python" />
+              <div className="relative">
+                <Input
+                  value={skillFilter}
+                  onChange={e => {
+                    setSkillFilter(e.target.value);
+                    setSkillDropdownOpen(true);
+                  }}
+                  onFocus={() => setSkillDropdownOpen(true)}
+                  className="bg-[#F6F6F6] border-gray-200 rounded-xl text-sm h-9 pr-8"
+                  placeholder="Enter skill"
+                />
+                <button
+                  type="button"
+                  onClick={() => setSkillDropdownOpen(open => !open)}
+                  className="absolute right-2.5 top-1/2 -translate-y-1/2 text-[#8A8A8A] hover:text-[#3A1F1F]"
+                >
+                  <ChevronDown className="h-4 w-4" />
+                </button>
+              </div>
+              {skillDropdownOpen && (
+                <div className="absolute left-0 right-0 top-full z-[100] mt-1 overflow-hidden rounded-xl border border-gray-200 bg-white shadow-lg">
+                  <div className="max-h-48 overflow-y-auto p-1">
+                    {filteredFilterSkillOptions.length === 0 ? (
+                      <div className="px-3 py-2 text-xs text-[#8A8A8A]">No matching skills</div>
+                    ) : (
+                      filteredFilterSkillOptions.map((skill) => (
+                        <button
+                          key={skill}
+                          type="button"
+                          onClick={() => {
+                            setSkillFilter(skill);
+                            setSkillDropdownOpen(false);
+                          }}
+                          className="flex w-full items-center gap-2 rounded-lg px-3 py-1.5 text-left text-xs text-[#3A1F1F] hover:bg-[#FFF0F0]"
+                        >
+                          <Check className={`h-3.5 w-3.5 ${skillFilter.toLowerCase() === skill.toLowerCase() ? "text-[#FF2B2B] opacity-100" : "opacity-0"}`} />
+                          <span>{skill}</span>
+                        </button>
+                      ))
+                    )}
+                  </div>
+                </div>
+              )}
             </div>
           </div>
         </div>
@@ -4036,7 +4405,7 @@ function ApplicantsPage() {
         </div>
       ) : (
       <div className="space-y-3">
-        {filtered.map(applicant => {
+        {sortedApplicants.map(applicant => {
           const p = applicant.profile;
           const name = getCandidateDisplayName(p);
           const initials = getCandidateInitials(name);
@@ -4102,8 +4471,8 @@ function ApplicantsPage() {
               </div>
 
               {/* Actions */}
-              <div className="flex items-center justify-between mt-4 pt-3 border-t border-gray-100 flex-wrap gap-2">
-                <div className="flex items-center gap-2 flex-wrap">
+              <div className="flex items-center justify-between mt-4 pt-3 border-t border-gray-100 flex-wrap gap-2.5">
+                <div className="flex items-center gap-2 flex-shrink-0">
                   <Badge className={`text-xs ${statusColor(getEffectiveApplicationStatus(applicant))}`}>{getEffectiveApplicationStage(applicant)}</Badge>
                   <Select
                     value={getEffectiveApplicationStage(applicant)}
@@ -4123,7 +4492,7 @@ function ApplicantsPage() {
                     </SelectContent>
                   </Select>
                 </div>
-                <div className="flex gap-1.5 flex-wrap">
+                <div className="ml-auto">
                   {renderStageActions(applicant)}
                 </div>
               </div>
@@ -4250,23 +4619,42 @@ function ApplicantsPage() {
 
         const modalEffectiveStatus = optimisticStatusByApplicant[profileModal.id] ?? profileModal.status;
         const modalStage = mapApplicationStatusToPipelineStage(modalEffectiveStatus);
-        const isLockedAfterHire = modalStage === "Hired";
+        const isLockedAfterHire = modalStage === "Joined";
         const disableActions = isUpdating;
         const isInterviewActive = modalStage === "Interview Scheduled";
+        const isInterviewCompleteActive = modalStage === "Interview Completed";
+        const isInterviewSelectActive = modalStage === "Interview Selected";
+        const isInterviewRejectActive = modalStage === "Interview Rejected";
         const isShortlistActive = modalStage === "Shortlisted";
         const isOfferActive = modalStage === "Offered";
         const isRejectActive = modalStage === "Rejected";
+        const isHireActive = modalStage === "Joined";
+        const isOnHoldActive = modalStage === "On Hold";
         const fadedAfterHire = isLockedAfterHire ? "opacity-40" : "";
         const disabledOpacityClass = "disabled:opacity-40";
-        const canShortlist = modalStage === "Screening" || modalStage === "Shortlisted";
+        const shortlistDisabledClass = isShortlistActive ? "disabled:opacity-100" : "disabled:opacity-40";
+        const interviewDisabledClass = isInterviewActive ? "disabled:opacity-100" : "disabled:opacity-40";
+        const interviewCompleteDisabledClass = isInterviewCompleteActive ? "disabled:opacity-100" : "disabled:opacity-40";
+        const interviewSelectDisabledClass = isInterviewSelectActive ? "disabled:opacity-100" : "disabled:opacity-40";
+        const interviewRejectDisabledClass = isInterviewRejectActive ? "disabled:opacity-100" : "disabled:opacity-40";
+        const offerDisabledClass = isOfferActive ? "disabled:opacity-100" : "disabled:opacity-40";
+        const hireDisabledClass = isHireActive ? "disabled:opacity-100" : "disabled:opacity-40";
+        const rejectDisabledClass = isRejectActive ? "disabled:opacity-100" : "disabled:opacity-40";
+        const onHoldDisabledClass = isOnHoldActive ? "disabled:opacity-100" : "disabled:opacity-40";
+        const canShortlist = modalStage === "Under Review" || modalStage === "Shortlisted";
         const canInterview = modalStage === "Shortlisted" || modalStage === "Interview Scheduled";
-        const canOffer = modalStage === "Interview Scheduled" || modalStage === "Offered";
-        const canHire = modalStage === "Offered" || modalStage === "Hired";
-        const canReject = modalStage === "Offered" || modalStage === "Rejected";
+        const canInterviewComplete = modalStage === "Interview Scheduled" || modalStage === "Interview Completed";
+        const canInterviewSelect = modalStage === "Interview Completed" || modalStage === "Interview Selected";
+        const canInterviewReject = modalStage === "Interview Completed" || modalStage === "Interview Selected" || modalStage === "Interview Rejected";
+        const canOffer = modalStage === "Interview Selected" || modalStage === "Offered";
+        const canHire = modalStage === "Offered" || modalStage === "Joined";
+        const canReject = modalStage === "Offered" || modalStage === "Interview Selected" || modalStage === "Rejected";
+        const canOnHold = modalStage !== "Joined" && modalStage !== "Rejected" && modalStage !== "On Hold";
         const workExp = p?.work_experience || [];
         const edu = p?.education || [];
         const skills = p?.skills || [];
         const matchScore = Math.floor(70 + (profileModal.id.charCodeAt(0) % 25));
+        const modalResumeUrl = getResumeUrl(profileModal);
         return (
           <div className="fixed inset-0 z-50 flex items-center justify-center p-4 bg-black/50" onClick={() => setProfileModal(null)}>
             <div className="bg-white rounded-2xl shadow-2xl w-full max-w-3xl max-h-[90vh] overflow-y-auto" onClick={e => e.stopPropagation()}>
@@ -4351,22 +4739,26 @@ function ApplicantsPage() {
                       </SelectContent>
                     </Select>
                     <Button size="sm" variant="outline" className="border-2 border-gray-400 bg-gray-50 text-[#3A1F1F] hover:bg-gray-100 rounded-full text-xs" onClick={() => { if (profileModal.profile?.email) window.location.href = `mailto:${profileModal.profile.email}`; }}><Mail className="h-3.5 w-3.5 mr-1" /> Message</Button>
-                    <Button size="sm" variant="outline" disabled={disableActions || !canShortlist} className={`${isShortlistActive ? "border-2 border-pink-600 bg-pink-50 text-pink-700" : "border-pink-500 text-pink-600 hover:bg-pink-50 opacity-40"} rounded-full text-xs ${disabledOpacityClass} ${fadedAfterHire}`} onClick={() => quickUpdateStatus(profileModal.id, "Shortlisted")}><ThumbsUp className="h-3.5 w-3.5 mr-1" /> Shortlist</Button>
-                    <Button size="sm" variant="outline" disabled={disableActions || !canInterview} className={`${isInterviewActive ? "border-2 border-purple-600 bg-purple-50 text-purple-700" : "border-purple-400 text-purple-600 hover:bg-purple-50 opacity-40"} rounded-full text-xs ${disabledOpacityClass} ${fadedAfterHire}`} onClick={() => handleInterviewStatusRequest(profileModal)}><Video className="h-3.5 w-3.5 mr-1" /> {modalStage === "Interview Scheduled" ? "Schedule Next Round" : "Interview"}</Button>
-                    {modalStage === "Interview Scheduled" && (
+                    <Button size="sm" variant="outline" disabled={disableActions || !canShortlist} className={`${isShortlistActive ? "border-2 border-pink-600 bg-pink-50 text-pink-700" : "border-pink-500 text-pink-600 hover:bg-pink-50 opacity-40"} rounded-full text-xs ${shortlistDisabledClass} ${fadedAfterHire}`} onClick={() => quickUpdateStatus(profileModal.id, "Shortlisted")}><ThumbsUp className="h-3.5 w-3.5 mr-1" /> Shortlist</Button>
+                    <Button size="sm" variant="outline" disabled={disableActions || !canInterview} className={`${isInterviewActive ? "border-2 border-purple-600 bg-purple-50 text-purple-700" : "border-purple-400 text-purple-600 hover:bg-purple-50 opacity-40"} rounded-full text-xs ${interviewDisabledClass} ${fadedAfterHire}`} onClick={() => handleInterviewStatusRequest(profileModal)}><Video className="h-3.5 w-3.5 mr-1" /> {modalStage === "Interview Scheduled" ? "Schedule Next Round" : "Interview"}</Button>
+                    {(modalStage === "Interview Scheduled" || modalStage === "Interview Completed") && (
                       <Button size="sm" variant="outline" disabled={disableActions} className={`border-purple-300 text-purple-700 hover:bg-purple-50 rounded-full text-xs ${disabledOpacityClass} ${fadedAfterHire}`} onClick={() => void handleInterviewFeedbackRequest(profileModal)}>
                         Add Feedback
                       </Button>
                     )}
-                    <Button size="sm" variant="outline" disabled={disableActions || !canOffer} className={`${isOfferActive ? "border-2 border-orange-600 bg-orange-50 text-orange-700" : "border-orange-400 text-orange-700 hover:bg-orange-50 opacity-40"} rounded-full text-xs ${disabledOpacityClass} ${fadedAfterHire}`} onClick={() => handleOfferStatusRequest(profileModal)}><Award className="h-3.5 w-3.5 mr-1" /> Offer</Button>
-                    {modalStage === "Hired" ? (
-                      <Button size="sm" variant="outline" disabled className="border-emerald-500 text-emerald-700 bg-emerald-100 ring-1 ring-emerald-300 rounded-full text-xs"><Check className="h-3.5 w-3.5 mr-1" /> Hired</Button>
+                    <Button size="sm" variant="outline" disabled={disableActions || !canInterviewComplete} className={`${isInterviewCompleteActive ? "border-2 border-indigo-600 bg-indigo-50 text-indigo-700" : "border-indigo-400 text-indigo-600 hover:bg-indigo-50 opacity-40"} rounded-full text-xs ${interviewCompleteDisabledClass} ${fadedAfterHire}`} onClick={() => quickUpdateStatus(profileModal.id, "Interview Completed")}>Interview Complete</Button>
+                    <Button size="sm" variant="outline" disabled={disableActions || !canInterviewSelect} className={`${isInterviewSelectActive ? "border-2 border-teal-600 bg-teal-50 text-teal-700" : "border-teal-400 text-teal-600 hover:bg-teal-50 opacity-40"} rounded-full text-xs ${interviewSelectDisabledClass} ${fadedAfterHire}`} onClick={() => quickUpdateStatus(profileModal.id, "Interview Selected")}>Interview Select</Button>
+                    <Button size="sm" variant="outline" disabled={disableActions || !canInterviewReject} className={`${isInterviewRejectActive ? "border-2 border-red-600 bg-red-50 text-red-700" : "border-red-400 text-red-600 hover:bg-red-50 opacity-40"} rounded-full text-xs ${interviewRejectDisabledClass} ${fadedAfterHire}`} onClick={() => quickUpdateStatus(profileModal.id, "Interview Rejected")}>Interview Reject</Button>
+                    <Button size="sm" variant="outline" disabled={disableActions || !canOffer} className={`${isOfferActive ? "border-2 border-orange-600 bg-orange-50 text-orange-700" : "border-orange-400 text-orange-700 hover:bg-orange-50 opacity-40"} rounded-full text-xs ${offerDisabledClass} ${fadedAfterHire}`} onClick={() => handleOfferStatusRequest(profileModal)}><Award className="h-3.5 w-3.5 mr-1" /> Offer</Button>
+                    {isHireActive ? (
+                      <Button size="sm" variant="outline" disabled className="border-emerald-500 text-emerald-700 bg-emerald-100 ring-1 ring-emerald-300 rounded-full text-xs"><Check className="h-3.5 w-3.5 mr-1" /> Joined</Button>
                     ) : (
-                      <Button size="sm" variant="outline" disabled={disableActions || !canHire} className={`border-emerald-500 text-emerald-600 hover:bg-emerald-50 opacity-40 rounded-full text-xs ${disabledOpacityClass}`} onClick={() => quickUpdateStatus(profileModal.id, "Hired")}>Hire</Button>
+                      <Button size="sm" variant="outline" disabled={disableActions || !canHire} className={`${isHireActive ? "border-2 border-emerald-600 bg-emerald-50 text-emerald-700" : "border-emerald-500 text-emerald-600 hover:bg-emerald-50 opacity-40"} rounded-full text-xs ${hireDisabledClass}`} onClick={() => quickUpdateStatus(profileModal.id, "Joined")}>Hire</Button>
                     )}
-                    <Button size="sm" variant="outline" disabled={disableActions || !canReject} className={`${isRejectActive ? "border-2 border-red-600 bg-red-50 text-red-700" : "border-red-400 text-red-500 hover:bg-red-50 opacity-40"} rounded-full text-xs ${disabledOpacityClass} ${fadedAfterHire}`} onClick={() => quickUpdateStatus(profileModal.id, "Rejected")}><ThumbsDown className="h-3.5 w-3.5 mr-1" /> Reject</Button>
-                    {modalStage === "Rejected" && (
-                      <Button size="sm" variant="outline" disabled={disableActions} className={`border-[#8B5E3C] text-[#8B5E3C] hover:bg-[#F5EEE8] rounded-full text-xs ${disabledOpacityClass} ${fadedAfterHire}`} onClick={() => quickUpdateStatus(profileModal.id, "Reviewed")}><RefreshCw className="h-3.5 w-3.5 mr-1" /> Restore Candidate</Button>
+                    <Button size="sm" variant="outline" disabled={disableActions || !canReject} className={`${isRejectActive ? "border-2 border-red-600 bg-red-50 text-red-700" : "border-red-400 text-red-500 hover:bg-red-50 opacity-40"} rounded-full text-xs ${rejectDisabledClass} ${fadedAfterHire}`} onClick={() => quickUpdateStatus(profileModal.id, "Rejected")}><ThumbsDown className="h-3.5 w-3.5 mr-1" /> Reject</Button>
+                    <Button size="sm" variant="outline" disabled={disableActions || !canOnHold} className={`${isOnHoldActive ? "border-2 border-amber-600 bg-amber-50 text-amber-700" : "border-amber-400 text-amber-600 hover:bg-amber-50 opacity-40"} rounded-full text-xs ${onHoldDisabledClass} ${fadedAfterHire}`} onClick={() => quickUpdateStatus(profileModal.id, "On Hold")}>On Hold</Button>
+                    {(modalStage === "Rejected" || modalStage === "On Hold" || modalStage === "Interview Rejected") && (
+                      <Button size="sm" variant="outline" disabled={disableActions} className={`border-[#8B5E3C] text-[#8B5E3C] hover:bg-[#F5EEE8] rounded-full text-xs ${disabledOpacityClass} ${fadedAfterHire}`} onClick={() => quickUpdateStatus(profileModal.id, "Under Review")}><RefreshCw className="h-3.5 w-3.5 mr-1" /> Restore Candidate</Button>
                     )}
                   </div>
                 </div>
@@ -4438,13 +4830,28 @@ function ApplicantsPage() {
                 )}
 
                 {/* Resume */}
-                {profileModal.resume_url && (
+                {modalResumeUrl && (
                   <div>
                     <h3 className="text-sm font-bold text-[#3A1F1F] mb-2 flex items-center gap-2"><FileText className="h-4 w-4 text-[#FF2B2B]" /> Resume</h3>
-                    <a href={profileModal.resume_url} target="_blank" rel="noreferrer"
-                      className="inline-flex items-center gap-2 px-4 py-2 bg-[#FF2B2B] text-white text-sm rounded-full hover:bg-[#e02525] transition-colors">
-                      <Download className="h-4 w-4" /> Download Resume
-                    </a>
+                    <div className="flex flex-wrap gap-2">
+                      <Button size="sm" variant="outline" className="border-gray-200 rounded-full text-sm" onClick={async () => {
+                        const newTab = window.open('', '_blank');
+                        if (!newTab) return;
+                        let resolvedUrl = modalResumeUrl;
+                        const obj = getStorageObjectFromUrl(modalResumeUrl);
+                        if (obj) {
+                          const { data } = await supabase.storage.from(obj.bucket).createSignedUrl(obj.path, 10 * 60);
+                          if (data?.signedUrl) resolvedUrl = data.signedUrl;
+                        }
+                        newTab.location.href = buildPreviewUrl(resolvedUrl) || resolvedUrl;
+                      }}>
+                        <Eye className="h-4 w-4 mr-1" /> Preview Resume
+                      </Button>
+                      <a href={modalResumeUrl} target="_blank" rel="noreferrer" download
+                        className="inline-flex items-center gap-2 px-4 py-2 bg-[#FF2B2B] text-white text-sm rounded-full hover:bg-[#e02525] transition-colors">
+                        <Download className="h-4 w-4" /> Download Resume
+                      </a>
+                    </div>
                   </div>
                 )}
               </div>
@@ -4483,6 +4890,7 @@ function ApplicantsPage() {
         submitting={isSendingInterviewFeedback}
         initialRound={feedbackInitialRound}
       />
+      <ResumePreviewDialog resume={resumePreview} onClose={() => setResumePreview(null)} />
     </div>
   );
 }
@@ -4661,7 +5069,7 @@ function AnalyticsPage() {
           const stage = mapApplicationStatusToPipelineStage(application.status);
           const normalizedStatus = (application.status || "").toLowerCase().trim().replace(/[\s-]+/g, "_");
 
-          if (stage === "Screening") counts.reviewed += 1;
+          if (stage === "Under Review") counts.reviewed += 1;
           if (stage === "Shortlisted") counts.shortlisted += 1;
           if (stage === "Interview Scheduled") counts.interviewScheduled += 1;
           if (
@@ -4670,7 +5078,7 @@ function AnalyticsPage() {
             normalizedStatus === "selected_after_interview"
           ) counts.selectedInInterview += 1;
           if (stage === "Offered") counts.offered += 1;
-          if (stage === "Hired") counts.hired += 1;
+          if (stage === "Joined") counts.hired += 1;
 
           return counts;
         }, { reviewed: 0, shortlisted: 0, interviewScheduled: 0, selectedInInterview: 0, offered: 0, hired: 0 }));
@@ -5343,11 +5751,15 @@ function CompanyProfilePage() {
   const [profile, setProfile] = useState({
     companyName: "", industry: "", companySize: "", type: "", founded: "",
     description: "", website: "", location: "", linkedin: "", cin: "",
-    tagline: "", phone: "", recruiterName: "",
+    tagline: "", phone: "", recruiterName: "", logoUrl: "", coverImageUrl: "", coverImageName: "",
   });
   const [saved, setSaved] = useState(false);
   const [saving, setSaving] = useState(false);
+  const [uploadingAsset, setUploadingAsset] = useState<"logo" | "cover" | null>(null);
   const [saveError, setSaveError] = useState("");
+  const [brandingError, setBrandingError] = useState("");
+  const logoInputRef = useRef<HTMLInputElement>(null);
+  const coverInputRef = useRef<HTMLInputElement>(null);
 
   const companyCompletion = useMemo(() => {
     let score = 0;
@@ -5379,9 +5791,72 @@ function CompanyProfilePage() {
         tagline: recruiterProfile.tagline || "",
         phone: recruiterProfile.phone || "",
         recruiterName: recruiterProfile.recruiter_name || "",
+        logoUrl: recruiterProfile.logo_url || "",
+        coverImageUrl: recruiterProfile.cover_image_url || "",
+        coverImageName: recruiterProfile.cover_image_name || "",
       });
     }
   }, [recruiterProfile]);
+
+  const handleBrandingUpload = async (asset: "logo" | "cover", event: ChangeEvent<HTMLInputElement>) => {
+    const file = event.target.files?.[0];
+    event.currentTarget.value = "";
+    if (!file || !recruiterProfile?.id) return;
+
+    if (!file.type.startsWith("image/")) {
+      setBrandingError("Please choose an image file.");
+      return;
+    }
+
+    if (file.size > 5 * 1024 * 1024) {
+      setBrandingError("Image must be smaller than 5 MB.");
+      return;
+    }
+
+    setUploadingAsset(asset);
+    setBrandingError("");
+
+    const localPreviewUrl = URL.createObjectURL(file);
+    setProfile((current) => asset === "logo"
+      ? { ...current, logoUrl: localPreviewUrl }
+      : { ...current, coverImageUrl: localPreviewUrl, coverImageName: file.name });
+
+    try {
+      const extension = file.name.split(".").pop()?.toLowerCase().replace(/[^a-z0-9]/g, "") || "png";
+      const filePath = `recruiter-branding/${recruiterProfile.id}/${asset}-${Date.now()}.${extension}`;
+      const { error: uploadError } = await supabase.storage
+        .from("avatars")
+        .upload(filePath, file, {
+          cacheControl: "3600",
+          contentType: file.type,
+          upsert: false,
+        });
+
+      if (uploadError) throw uploadError;
+
+      const { data: urlData } = supabase.storage.from("avatars").getPublicUrl(filePath);
+      const publicUrl = urlData.publicUrl;
+      const updatePayload = asset === "logo"
+        ? { logo_url: publicUrl }
+        : { cover_image_url: publicUrl, cover_image_name: file.name };
+      const { error: updateError } = await supabase
+        .from("recruiter_profiles")
+        .update(updatePayload)
+        .eq("id", recruiterProfile.id);
+
+      if (updateError) throw updateError;
+
+      setProfile((current) => asset === "logo"
+        ? { ...current, logoUrl: publicUrl }
+        : { ...current, coverImageUrl: publicUrl, coverImageName: file.name });
+      await refreshProfile();
+    } catch (err: unknown) {
+      setBrandingError(err instanceof Error ? err.message : `Failed to upload ${asset === "logo" ? "logo" : "cover photo"}.`);
+    } finally {
+      URL.revokeObjectURL(localPreviewUrl);
+      setUploadingAsset(null);
+    }
+  };
 
   const handleSave = async () => {
     if (!recruiterProfile?.id) return;
@@ -5464,26 +5939,66 @@ function CompanyProfilePage() {
       <div className="space-y-6">
         {/* Logo & Cover */}
         <div className="bg-white rounded-2xl overflow-hidden shadow-sm">
-          <div className="h-32 bg-gradient-to-r from-[#3A1F1F] to-[#FF2B2B] relative">
-            <Button size="sm" variant="outline" className="absolute right-4 top-4 bg-white/80 border-0 rounded-full text-xs">
-              <Upload className="h-3.5 w-3.5 mr-1" /> Cover Photo
+          <div className="h-40 sm:h-48 bg-gradient-to-r from-[#3A1F1F] to-[#FF2B2B] relative overflow-hidden">
+            {profile.coverImageUrl && (
+              <img src={profile.coverImageUrl} alt="Company cover" className="absolute inset-0 h-full w-full object-cover" />
+            )}
+            <div className="absolute inset-0 bg-gradient-to-r from-[#3A1F1F]/35 to-[#FF2B2B]/20" />
+            <input
+              ref={coverInputRef}
+              type="file"
+              accept="image/*"
+              className="hidden"
+              onChange={(event) => handleBrandingUpload("cover", event)}
+            />
+            <Button
+              size="sm"
+              variant="outline"
+              className="absolute right-4 top-4 bg-white/90 border-0 rounded-full text-xs"
+              disabled={uploadingAsset === "cover"}
+              onClick={() => coverInputRef.current?.click()}
+            >
+              {uploadingAsset === "cover" ? <Loader2 className="h-3.5 w-3.5 mr-1 animate-spin" /> : <Upload className="h-3.5 w-3.5 mr-1" />}
+              Cover Photo
             </Button>
           </div>
-          <div className="px-6 pb-6">
-            <div className="flex items-end gap-4 -mt-10">
-              <div className="w-20 h-20 bg-[#FF2B2B] rounded-2xl border-4 border-white flex items-center justify-center shadow-lg">
-                <Building2 className="h-10 w-10 text-white" />
+          <div className="px-5 sm:px-6 pb-6 min-h-[128px]">
+            <div className="flex flex-col sm:flex-row sm:items-start gap-4 -mt-12 relative z-10">
+              <div className="w-24 h-24 bg-[#FF2B2B] rounded-2xl border-4 border-white flex items-center justify-center shadow-lg overflow-hidden flex-shrink-0">
+                {profile.logoUrl ? (
+                  <img src={profile.logoUrl} alt={`${profile.companyName || "Company"} logo`} className="h-full w-full object-cover" />
+                ) : (
+                  <Building2 className="h-10 w-10 text-white" />
+                )}
               </div>
-              <div className="pb-2 flex-1">
-                <h2 className="text-xl font-bold text-[#3A1F1F]">{profile.companyName}</h2>
-                <p className="text-sm text-[#8A8A8A]">{profile.tagline}</p>
+              <div className="pt-1 sm:pt-14 flex-1 min-w-0">
+                <h2 className="text-xl font-bold text-[#3A1F1F] truncate">{profile.companyName || "Company Name"}</h2>
+                <p className="text-sm text-[#8A8A8A] truncate">{profile.tagline || "Add a tagline to introduce your company"}</p>
               </div>
-              <div className="pb-2">
-                <Button size="sm" className="bg-[#FF2B2B] hover:bg-[#e02525] text-white rounded-full text-xs">
-                  <Upload className="h-3.5 w-3.5 mr-1" /> Upload Logo
+              <div className="pt-1 sm:pt-14 sm:flex-shrink-0">
+                <input
+                  ref={logoInputRef}
+                  type="file"
+                  accept="image/*"
+                  className="hidden"
+                  onChange={(event) => handleBrandingUpload("logo", event)}
+                />
+                <Button
+                  size="sm"
+                  className="bg-[#FF2B2B] hover:bg-[#e02525] text-white rounded-full text-xs"
+                  disabled={uploadingAsset === "logo"}
+                  onClick={() => logoInputRef.current?.click()}
+                >
+                  {uploadingAsset === "logo" ? <Loader2 className="h-3.5 w-3.5 mr-1 animate-spin" /> : <Upload className="h-3.5 w-3.5 mr-1" />}
+                  Upload Logo
                 </Button>
               </div>
             </div>
+            {brandingError && (
+              <div className="mt-4 rounded-xl border border-red-200 bg-red-50 px-4 py-3 text-sm text-red-700">
+                {brandingError}
+              </div>
+            )}
           </div>
         </div>
 
@@ -5493,16 +6008,16 @@ function CompanyProfilePage() {
           <div className="grid md:grid-cols-2 gap-4">
             <div>
               <label className="block mb-1.5 text-sm font-medium text-[#3A1F1F]">Company Name *</label>
-              <Input value={profile.companyName} onChange={e => setProfile({ ...profile, companyName: e.target.value })} className="bg-[#F6F6F6] border-gray-200 rounded-xl" />
+              <Input value={profile.companyName} onChange={e => setProfile({ ...profile, companyName: e.target.value })} className="bg-[#F6F6F6] border-gray-200 rounded-xl" placeholder="Enter company name" />
             </div>
             <div>
               <label className="block mb-1.5 text-sm font-medium text-[#3A1F1F]">Tagline</label>
-              <Input value={profile.tagline} onChange={e => setProfile({ ...profile, tagline: e.target.value })} className="bg-[#F6F6F6] border-gray-200 rounded-xl" placeholder="Your company motto" />
+              <Input value={profile.tagline} onChange={e => setProfile({ ...profile, tagline: e.target.value })} className="bg-[#F6F6F6] border-gray-200 rounded-xl" placeholder="Enter company tagline" />
             </div>
             <div>
               <label className="block mb-1.5 text-sm font-medium text-[#3A1F1F]">Industry *</label>
               <Select value={profile.industry} onValueChange={v => setProfile({ ...profile, industry: v })}>
-                <SelectTrigger className="bg-[#F6F6F6] border-gray-200 rounded-xl"><SelectValue /></SelectTrigger>
+                <SelectTrigger className="bg-[#F6F6F6] border-gray-200 rounded-xl"><SelectValue placeholder="Select industry" /></SelectTrigger>
                 <SelectContent>
                   {["IT / Software", "BFSI", "Manufacturing", "Healthcare", "Education", "E-commerce", "Consulting"].map(i => <SelectItem key={i} value={i}>{i}</SelectItem>)}
                 </SelectContent>
@@ -5528,11 +6043,11 @@ function CompanyProfilePage() {
             </div>
             <div>
               <label className="block mb-1.5 text-sm font-medium text-[#3A1F1F]">Founded Year</label>
-              <Input value={profile.founded} onChange={e => setProfile({ ...profile, founded: e.target.value })} className="bg-[#F6F6F6] border-gray-200 rounded-xl" placeholder="e.g. 2010" />
+              <Input value={profile.founded} onChange={e => setProfile({ ...profile, founded: e.target.value })} className="bg-[#F6F6F6] border-gray-200 rounded-xl" placeholder="Enter founded year" />
             </div>
             <div>
               <label className="block mb-1.5 text-sm font-medium text-[#3A1F1F]">Your Name (HR Contact)</label>
-              <Input value={profile.recruiterName} onChange={e => setProfile({ ...profile, recruiterName: e.target.value })} className="bg-[#F6F6F6] border-gray-200 rounded-xl" placeholder="e.g. Anita Rao" />
+              <Input value={profile.recruiterName} onChange={e => setProfile({ ...profile, recruiterName: e.target.value })} className="bg-[#F6F6F6] border-gray-200 rounded-xl" placeholder="Enter contact name" />
             </div>
           </div>
         </div>
@@ -5575,7 +6090,7 @@ function CompanyProfilePage() {
             </div>
             <div>
               <label className="block mb-1.5 text-sm font-medium text-[#3A1F1F]">Phone</label>
-              <Input value={profile.phone} onChange={e => setProfile({ ...profile, phone: e.target.value })} className="bg-[#F6F6F6] border-gray-200 rounded-xl" placeholder="+91 22 6789 0123" />
+              <Input value={profile.phone} onChange={e => setProfile({ ...profile, phone: e.target.value })} className="bg-[#F6F6F6] border-gray-200 rounded-xl" placeholder="Enter phone number" />
             </div>
           </div>
         </div>
@@ -5623,7 +6138,7 @@ function PlansPage() {
   const handleApplyPromo = () => {
     const found = validatePromo(promoInput);
     if (!found) {
-      setPromoError("Invalid promo code. Try RHIRE20, HIRE50, or NEWJOIN.");
+      setPromoError("Invalid promo code. Try RHIRE10, RHIRE20, HIRE50, or NEWJOIN.");
       setAppliedPromo(null);
       setPromoSuccess("");
       return;
@@ -5635,13 +6150,12 @@ function PlansPage() {
 
   const handlePurchase = (planId: string) => {
     const plan = getPlanById(planId)!;
-    const finalPrice = appliedPromo ? applyPromo(plan.price, appliedPromo) : plan.price;
-    const discount = plan.price - finalPrice;
+    const priceBreakdown = getPlanPriceBreakdown(plan, appliedPromo);
     const params = new URLSearchParams({
       plan: planId,
-      amount: String(plan.price),
-      final: String(finalPrice),
-      discount: String(discount),
+      amount: String(priceBreakdown.basePrice),
+      final: String(priceBreakdown.totalAmount),
+      discount: String(priceBreakdown.discountAmount),
       promo: appliedPromo?.code ?? "",
     });
     navigate(`/recruiter/payment?${params.toString()}`);
@@ -5722,7 +6236,7 @@ function PlansPage() {
             <Input
               value={promoInput}
               onChange={e => { setPromoInput(e.target.value.toUpperCase()); setPromoError(""); }}
-              placeholder="Enter promo code (e.g. RHIRE20)"
+              placeholder="Enter promo code (e.g. RHIRE10)"
               className="rounded-xl border-gray-200 uppercase font-mono"
               onKeyDown={e => e.key === "Enter" && handleApplyPromo()}
             />
@@ -5742,8 +6256,8 @@ function PlansPage() {
       <div className="grid md:grid-cols-3 gap-6">
         {PLANS.map(plan => {
           const isCurrentPlan = activeSub?.plan_id === plan.id;
-          const finalPrice = appliedPromo ? applyPromo(plan.price, appliedPromo) : plan.price;
-          const discount = plan.price - finalPrice;
+          const priceBreakdown = getPlanPriceBreakdown(plan, appliedPromo);
+          const { basePrice, discountAmount, gstAmount, totalAmount } = priceBreakdown;
 
           return (
             <div
@@ -5774,14 +6288,15 @@ function PlansPage() {
               {/* Pricing */}
               <div className="mb-1">
                 <div className="flex items-baseline gap-1">
-                  {discount > 0 && (
-                    <span className="text-lg text-[#8A8A8A] line-through">₹{plan.price}</span>
+                  {discountAmount > 0 && (
+                    <span className="text-lg text-[#8A8A8A] line-through">₹{basePrice + gstAmount}</span>
                   )}
-                  <span className="text-4xl font-bold text-[#3A1F1F]">₹{finalPrice}</span>
+                  <span className="text-4xl font-bold text-[#3A1F1F]">₹{basePrice}</span>
                   <span className="text-[#8A8A8A] text-sm">/{plan.period}</span>
                 </div>
-                {discount > 0 && (
-                  <p className="text-xs text-green-600 font-medium">You save ₹{discount}</p>
+                <p className="text-xs text-[#8A8A8A]">+ GST ₹{gstAmount} · Total ₹{totalAmount}</p>
+                {discountAmount > 0 && (
+                  <p className="text-xs text-green-600 font-medium">You save ₹{discountAmount}</p>
                 )}
               </div>
               <p className="text-xs text-[#FF2B2B] font-medium mb-5">

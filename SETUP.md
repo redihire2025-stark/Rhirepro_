@@ -120,6 +120,14 @@ Just open the app and sign up with these emails. The sign-up form automatically 
 3. Create bucket: `resumes` (private)
 4. Create bucket: `offer-letters` (private)
 
+The `avatars` bucket is also used for recruiter company logos and cover photos. Existing databases should also include these recruiter branding columns:
+
+```sql
+alter table public.recruiter_profiles
+  add column if not exists cover_image_url text,
+  add column if not exists cover_image_name text;
+```
+
 Set storage policies:
 ```sql
 -- avatars: public read, authenticated write
@@ -127,7 +135,23 @@ create policy "Public avatar access" on storage.objects for select using (bucket
 create policy "Auth users upload avatar" on storage.objects for insert with check (bucket_id = 'avatars' and auth.role() = 'authenticated');
 
 -- resumes: owner access + recruiters can read
-create policy "Owner resume access" on storage.objects for all using (bucket_id = 'resumes' and auth.uid()::text = (storage.foldername(name))[1]);
+insert into storage.buckets (id, name, public)
+values ('resumes', 'resumes', false)
+on conflict (id) do update set public = false;
+
+create policy "Resume owners manage own files" on storage.objects for all
+using (bucket_id = 'resumes' and auth.uid()::text = (storage.foldername(name))[1])
+with check (bucket_id = 'resumes' and auth.uid()::text = (storage.foldername(name))[1]);
+
+create policy "Recruiters read applicant resumes" on storage.objects for select
+using (
+  bucket_id = 'resumes'
+  and exists (
+    select 1 from public.applications a
+    where a.profile_id::text = (storage.foldername(name))[1]
+      and a.recruiter_id = auth.uid()
+  )
+);
 
 -- offer-letters: authenticated read/write (needed for recruiter offer upload and jobseeker preview/download)
 create policy "Authenticated read offer letters" on storage.objects for select using (bucket_id = 'offer-letters' and auth.role() = 'authenticated');

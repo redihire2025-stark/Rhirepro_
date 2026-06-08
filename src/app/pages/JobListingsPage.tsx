@@ -14,7 +14,7 @@ import { Sheet, SheetContent, SheetTrigger, SheetTitle, SheetDescription } from 
 import { useNavigate } from "react-router";
 import logoImage from "../../logo/logo.png";
 import { supabase, type Job as DBJob } from "../../lib/supabase";
-import { isJobVisibleToSeekers } from "../../lib/jobs";
+import { formatJobSalary, isJobVisibleToSeekers } from "../../lib/jobs";
 import { useAuth } from "../../lib/auth-context";
 import { getRecommendedJobs, recordJobInteraction, recordJobSearch } from "../../lib/jobRecommendations";
 import { isIndianLocation } from "../../lib/locationData";
@@ -33,6 +33,7 @@ type DisplayJob = {
   location: string;
   salary: string;
   type: string;
+  interviewMode?: string;
   description: string;
   featured: boolean;
   category: JobCategory | null;
@@ -40,19 +41,6 @@ type DisplayJob = {
 };
 
 const JOBS_PER_PAGE = 12;
-
-function formatSalary(job: DBJob): string {
-  if (job.salary_min && job.salary_max && job.salary_type) {
-    return `${job.salary_min}-${job.salary_max} ${job.salary_type}`;
-  }
-  if (job.salary_min && job.salary_type) {
-    return `${job.salary_min}+ ${job.salary_type}`;
-  }
-  if (job.salary_type) {
-    return `${job.salary_type} compensation`;
-  }
-  return "Compensation as per company standards";
-}
 
 function formatLocation(job: DBJob): string {
   if (job.location?.trim()) return job.location;
@@ -67,10 +55,14 @@ function formatType(job: DBJob): string {
   return "Full-time";
 }
 
+function stripHtml(value: string): string {
+  return value.replace(/<[^>]*>/g, " ").replace(/\s+/g, " ").trim();
+}
+
 function formatDescription(job: DBJob): string {
-  if (job.description?.trim()) return job.description;
-  if (job.roles_responsibilities?.trim()) return job.roles_responsibilities;
-  if (job.requirements?.trim()) return job.requirements;
+  if (job.description?.trim()) return stripHtml(job.description);
+  if (job.roles_responsibilities?.trim()) return stripHtml(job.roles_responsibilities);
+  if (job.requirements?.trim()) return stripHtml(job.requirements);
 
   const parts = [
     job.department?.trim(),
@@ -83,6 +75,19 @@ function formatDescription(job: DBJob): string {
   }
 
   return "Explore this opportunity and apply now.";
+}
+
+function normalizeInterviewMode(raw: unknown): string | null {
+  if (raw == null) return null;
+  const normalized = String(raw).trim().toLowerCase().replace(/[^a-z0-9]/g, "");
+  return normalized || null;
+}
+
+function jobMatchesInterviewModes(job: DBJob, preferredModes: string[]): boolean {
+  if (preferredModes.length === 0) return true;
+  const jobMode = normalizeInterviewMode(job.interview_mode) || normalizeInterviewMode(job.work_mode);
+  if (!jobMode) return false;
+  return preferredModes.some((mode) => normalizeInterviewMode(mode) === jobMode);
 }
 
 export default function JobListingsPage() {
@@ -130,16 +135,23 @@ export default function JobListingsPage() {
 
       const appliedJobIds = (applicationsRes.data || []).map((item) => item.job_id);
       const savedJobIds = (savedRes.data || []).map((item) => item.job_id);
+      const preferredInterviewModes = role === "jobseeker" && Array.isArray(profile?.preferred_interview_mode)
+        ? profile.preferred_interview_mode
+            .map((value) => normalizeInterviewMode(value))
+            .filter((value): value is string => Boolean(value))
+        : [];
 
       const visibleIndianJobs = assignBalancedCategories((data || [])
         .filter((job) => isJobVisibleToSeekers(job) && isIndianLocation(job.location))
+        .filter((job) => jobMatchesInterviewModes(job, preferredInterviewModes))
         .map((job) => ({
           id: job.id,
           title: job.title,
           company: job.company_name,
           location: formatLocation(job),
-          salary: formatSalary(job),
+          salary: formatJobSalary(job),
           type: formatType(job),
+          interviewMode: job.interview_mode || undefined,
           description: formatDescription(job),
           category: null,
           featured: false,
@@ -434,6 +446,11 @@ export default function JobListingsPage() {
                     <Clock className="h-4 w-4 mr-2 text-[#FF2B2B]" />
                     {job.type}
                   </div>
+                  {job.interviewMode ? (
+                    <div className="text-sm text-[#8A8A8A]">
+                      Interview mode: <span className="font-medium text-[#3A1F1F]">{job.interviewMode}</span>
+                    </div>
+                  ) : null}
                 </div>
                 <Button className="w-full bg-white border-2 border-[#FF2B2B] text-[#FF2B2B] hover:bg-[#FF2B2B] hover:text-white rounded-full">
                   Apply Now
