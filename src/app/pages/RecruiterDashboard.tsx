@@ -5842,6 +5842,32 @@ function CompanyProfilePage() {
     }
   };
 
+  const handleBrandingDelete = async (asset: "logo" | "cover") => {
+    if (!recruiterProfile?.id) return;
+    setUploadingAsset(asset);
+    setBrandingError("");
+    try {
+      const updatePayload = asset === "logo"
+        ? { logo_url: null }
+        : { cover_image_url: null, cover_image_name: null };
+      const { error: updateError } = await supabase
+        .from("recruiter_profiles")
+        .update(updatePayload)
+        .eq("id", recruiterProfile.id);
+
+      if (updateError) throw updateError;
+
+      setProfile((current) => asset === "logo"
+        ? { ...current, logoUrl: "" }
+        : { ...current, coverImageUrl: "", coverImageName: "" });
+      await refreshProfile();
+    } catch (err: unknown) {
+      setBrandingError(err instanceof Error ? err.message : `Failed to delete ${asset === "logo" ? "logo" : "cover photo"}.`);
+    } finally {
+      setUploadingAsset(null);
+    }
+  };
+
   const handleSave = async () => {
     if (!recruiterProfile?.id) return;
     setSaving(true);
@@ -5924,10 +5950,11 @@ function CompanyProfilePage() {
         {/* Logo & Cover */}
         <div className="bg-white rounded-2xl overflow-hidden shadow-sm">
           <div className="h-40 sm:h-48 bg-gradient-to-r from-[#3A1F1F] to-[#FF2B2B] relative overflow-hidden">
-            {profile.coverImageUrl && (
+            {profile.coverImageUrl ? (
               <img src={profile.coverImageUrl} alt="Company cover" className="absolute inset-0 h-full w-full object-cover" />
+            ) : (
+              <div className="absolute inset-0 bg-gradient-to-r from-[#3A1F1F]/35 to-[#FF2B2B]/20" />
             )}
-            <div className="absolute inset-0 bg-gradient-to-r from-[#3A1F1F]/35 to-[#FF2B2B]/20" />
             <input
               ref={coverInputRef}
               type="file"
@@ -5935,18 +5962,32 @@ function CompanyProfilePage() {
               className="hidden"
               onChange={(event) => handleBrandingUpload("cover", event)}
             />
-            <Button
-              size="sm"
-              variant="outline"
-              className="absolute right-4 top-4 bg-white/90 border-0 rounded-full text-xs"
-              disabled={uploadingAsset === "cover"}
-              onClick={() => coverInputRef.current?.click()}
-            >
-              {uploadingAsset === "cover" ? <Loader2 className="h-3.5 w-3.5 mr-1 animate-spin" /> : <Upload className="h-3.5 w-3.5 mr-1" />}
-              Cover Photo
-            </Button>
+            <div className="absolute right-4 top-2.5 flex items-center gap-2">
+              {profile.coverImageUrl && (
+                <Button
+                  size="icon"
+                  variant="outline"
+                  className="bg-white/90 hover:bg-[#FF2B2B] text-[#FF2B2B] hover:text-white border-0 rounded-full h-8 w-8 flex items-center justify-center transition-colors"
+                  disabled={uploadingAsset === "cover"}
+                  onClick={() => handleBrandingDelete("cover")}
+                  title="Delete Cover Photo"
+                >
+                  <Trash2 className="h-4 w-4" />
+                </Button>
+              )}
+              <Button
+                size="sm"
+                variant="outline"
+                className="bg-white/90 hover:bg-[#FF2B2B] text-[#3A1F1F] hover:text-white border-0 rounded-full text-xs transition-colors"
+                disabled={uploadingAsset === "cover"}
+                onClick={() => coverInputRef.current?.click()}
+              >
+                {uploadingAsset === "cover" ? <Loader2 className="h-3.5 w-3.5 mr-1 animate-spin" /> : <Upload className="h-3.5 w-3.5 mr-1" />}
+                Cover Photo
+              </Button>
+            </div>
           </div>
-          <div className="px-5 sm:px-6 pb-6 min-h-[128px]">
+          <div className="pl-5 pr-4 sm:pl-6 sm:pr-4 pb-6 min-h-[128px]">
             <div className="flex flex-col sm:flex-row sm:items-start gap-4 -mt-12 relative z-10">
               <div className="w-24 h-24 bg-[#FF2B2B] rounded-2xl border-4 border-white flex items-center justify-center shadow-lg overflow-hidden flex-shrink-0">
                 {profile.logoUrl ? (
@@ -5959,7 +6000,19 @@ function CompanyProfilePage() {
                 <h2 className="text-xl font-bold text-[#3A1F1F] truncate">{profile.companyName || "Company Name"}</h2>
                 <p className="text-sm text-[#8A8A8A] truncate">{profile.tagline || "Add a tagline to introduce your company"}</p>
               </div>
-              <div className="pt-1 sm:pt-14 sm:flex-shrink-0">
+              <div className="pt-1 sm:pt-14 sm:flex-shrink-0 flex items-center gap-2">
+                {profile.logoUrl && (
+                  <Button
+                    size="icon"
+                    variant="outline"
+                    className="border-red-200 text-[#FF2B2B] hover:bg-[#FF2B2B] hover:text-white rounded-full h-8 w-8 flex items-center justify-center transition-colors"
+                    disabled={uploadingAsset === "logo"}
+                    onClick={() => handleBrandingDelete("logo")}
+                    title="Delete Logo"
+                  >
+                    <Trash2 className="h-4 w-4" />
+                  </Button>
+                )}
                 <input
                   ref={logoInputRef}
                   type="file"
@@ -5969,7 +6022,8 @@ function CompanyProfilePage() {
                 />
                 <Button
                   size="sm"
-                  className="bg-[#FF2B2B] hover:bg-[#e02525] text-white rounded-full text-xs"
+                  variant="outline"
+                  className="bg-white border border-gray-200 hover:border-[#FF2B2B] text-[#3A1F1F] hover:bg-[#FF2B2B] hover:text-white rounded-full text-xs transition-colors shadow-sm"
                   disabled={uploadingAsset === "logo"}
                   onClick={() => logoInputRef.current?.click()}
                 >
