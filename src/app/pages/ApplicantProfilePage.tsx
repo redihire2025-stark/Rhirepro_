@@ -5,7 +5,7 @@ import { useAuth } from "../../lib/auth-context";
 import {
   User, MapPin, Phone, Mail, Globe, Star, Briefcase, GraduationCap,
   Award, FileText, Download, Loader2, ArrowLeft, ShieldAlert,
-  Calendar, Clock, Check, Building2, Eye, ExternalLink, Linkedin
+  Calendar, Clock, Check, Building2, Eye, ExternalLink, Linkedin, Minimize2
 } from "lucide-react";
 import { Button } from "../components/ui/button";
 import { Badge } from "../components/ui/badge";
@@ -79,9 +79,11 @@ export default function ApplicantProfilePage() {
   const [resolvedResumeUrl, setResolvedResumeUrl] = useState<string | null>(null);
   const [resumePreviewUrl, setResumePreviewUrl] = useState<string | null>(null);
   const pdfPreviewRef = useRef<HTMLDivElement | null>(null);
+  const fullscreenResumeRef = useRef<HTMLDivElement | null>(null);
   const [pdfRendering, setPdfRendering] = useState(false);
   const [resumeLoading, setResumeLoading] = useState(false);
   const [resumeError, setResumeError] = useState("");
+  const [isFullscreen, setIsFullscreen] = useState(false);
 
   const resumeKind = useMemo(() => {
     if (!resolvedResumeUrl) return "unsupported";
@@ -192,7 +194,7 @@ export default function ApplicantProfilePage() {
       }
 
       // 6. Resolve resume url
-      const rawResumeUrl = appData.resume_url || profData.resume_url || null;
+      const rawResumeUrl = profData.resume_url || appData.resume_url || null;
       if (rawResumeUrl) {
         setResumeUrl(rawResumeUrl);
         const storageObject = getStorageObjectFromUrl(rawResumeUrl);
@@ -229,17 +231,43 @@ export default function ApplicantProfilePage() {
     }
   }, [authLoading, recruiterProfile, fetchApplicantDetails]);
 
+  useEffect(() => {
+    if (!applicantId) return;
+    const channel = supabase.channel(`applicant-profile-realtime-${applicantId}`)
+      .on("postgres_changes", { event: "UPDATE", schema: "public", table: "applications", filter: `id=eq.${applicantId}` }, () => {
+        void fetchApplicantDetails();
+      })
+      .subscribe();
+    return () => { supabase.removeChannel(channel); };
+  }, [applicantId, fetchApplicantDetails]);
+
+  useEffect(() => {
+    if (!profile?.id) return;
+    const channel = supabase.channel(`applicant-candidate-realtime-${profile.id}`)
+      .on("postgres_changes", { event: "UPDATE", schema: "public", table: "profiles", filter: `id=eq.${profile.id}` }, () => {
+        void fetchApplicantDetails();
+      })
+      .subscribe();
+    return () => { supabase.removeChannel(channel); };
+  }, [profile?.id, fetchApplicantDetails]);
+
   // Render PDF into canvases when resumePreviewUrl changes (for ApplicantProfile inline preview)
   useEffect(() => {
     let cancelled = false;
     async function renderPdfInline() {
       if (!resumePreviewUrl || resumeKind !== "pdf" || !pdfPreviewRef.current) return;
       setPdfRendering(true);
-      const container = pdfPreviewRef.current;
-      container.innerHTML = "";
       try {
+        if (!pdfPreviewRef.current?.isConnected) return;
+        const container = pdfPreviewRef.current;
+        while (container.firstChild) {
+          container.removeChild(container.firstChild);
+        }
+
         const res = await fetch(resumePreviewUrl);
+        if (cancelled || !pdfPreviewRef.current?.isConnected) return;
         const arrayBuffer = await res.arrayBuffer();
+        if (cancelled || !pdfPreviewRef.current?.isConnected) return;
 
         // load pdfjs from CDN
         async function ensurePdfJs() {
@@ -255,9 +283,11 @@ export default function ApplicantProfilePage() {
         }
 
         const pdfjs = await ensurePdfJs();
+        if (cancelled || !pdfPreviewRef.current?.isConnected) return;
         (pdfjs as any).GlobalWorkerOptions.workerSrc = "https://unpkg.com/pdfjs-dist@3.10.111/legacy/build/pdf.worker.min.js";
         const loadingTask = (pdfjs as any).getDocument({ data: arrayBuffer });
         const pdf = await loadingTask.promise;
+        if (cancelled || !pdfPreviewRef.current?.isConnected) return;
         const numPages = pdf.numPages;
         const wrapper = document.createElement("div");
         wrapper.style.display = "flex";
@@ -265,49 +295,45 @@ export default function ApplicantProfilePage() {
         wrapper.style.alignItems = "center";
         wrapper.style.justifyContent = "flex-start";
         wrapper.style.width = "100%";
-        container.appendChild(wrapper);
-
-        // Render each page at 1:1 then scale wrapper if needed
-        let totalHeight = 0;
-        let maxWidth = 0;
+        
+        const availableWidth = Math.max(100, pdfPreviewRef.current.clientWidth - 8);
         for (let i = 1; i <= numPages; i++) {
+          if (cancelled || !pdfPreviewRef.current?.isConnected) return;
           const page = await pdf.getPage(i);
+          if (cancelled || !pdfPreviewRef.current?.isConnected) return;
           const viewport = page.getViewport({ scale: 1 });
+          const scale = Math.min(1, availableWidth / viewport.width);
+          const scaledViewport = page.getViewport({ scale });
           const canvas = document.createElement("canvas");
-          canvas.width = Math.floor(viewport.width);
-          canvas.height = Math.floor(viewport.height);
-          canvas.style.width = `${viewport.width}px`;
-          canvas.style.height = `${viewport.height}px`;
+          canvas.width = Math.floor(scaledViewport.width);
+          canvas.height = Math.floor(scaledViewport.height);
+          canvas.style.width = `${scaledViewport.width}px`;
+          canvas.style.height = `${scaledViewport.height}px`;
           canvas.className = "mb-3 shadow-sm rounded-sm bg-white";
           const ctx = canvas.getContext("2d");
           // @ts-ignore
-          await page.render({ canvasContext: ctx, viewport }).promise;
-          if (cancelled) return;
+          await page.render({ canvasContext: ctx, viewport: scaledViewport }).promise;
+          if (cancelled || !pdfPreviewRef.current?.isConnected) return;
           wrapper.appendChild(canvas);
-          totalHeight += viewport.height;
-          maxWidth = Math.max(maxWidth, viewport.width);
         }
-
-        // scale to fit container width (available width)
-        const availableWidth = container.clientWidth - 8; // small padding
-        const scale = Math.min(1, availableWidth / maxWidth);
-        if (scale < 1) {
-          wrapper.style.transformOrigin = "top left";
-          wrapper.style.transform = `scale(${scale})`;
-          wrapper.style.width = `${maxWidth}px`;
+        if (pdfPreviewRef.current?.isConnected) {
+          pdfPreviewRef.current.appendChild(wrapper);
+          pdfPreviewRef.current.style.height = "100%";
         }
-        // set container height to match scaled content so no extra empty space
-        container.style.height = `${(totalHeight * scale) + 8}px`;
       } catch (err) {
         console.error("Inline PDF render failed", err);
-        container.innerHTML = "";
-        // fallback to iframe
-        const iframe = document.createElement("iframe");
-        iframe.src = `${resumePreviewUrl}#toolbar=0&navpanes=0&view=FitH`;
-        iframe.style.width = "100%";
-        iframe.style.height = "600px";
-        iframe.style.border = "0";
-        container.appendChild(iframe);
+        if (pdfPreviewRef.current?.isConnected) {
+          while (pdfPreviewRef.current.firstChild) {
+            pdfPreviewRef.current.removeChild(pdfPreviewRef.current.firstChild);
+          }
+          // fallback to iframe
+          const iframe = document.createElement("iframe");
+          iframe.src = `${resumePreviewUrl}#toolbar=0&navpanes=0&view=FitH`;
+          iframe.style.width = "100%";
+          iframe.style.height = "600px";
+          iframe.style.border = "0";
+          pdfPreviewRef.current.appendChild(iframe);
+        }
       } finally {
         if (!cancelled) setPdfRendering(false);
       }
@@ -315,6 +341,27 @@ export default function ApplicantProfilePage() {
     void renderPdfInline();
     return () => { cancelled = true; };
   }, [resumePreviewUrl, resumeKind]);
+
+  useEffect(() => {
+    const handleFullscreenChange = () => {
+      setIsFullscreen(Boolean(document.fullscreenElement));
+    };
+    document.addEventListener("fullscreenchange", handleFullscreenChange);
+    return () => document.removeEventListener("fullscreenchange", handleFullscreenChange);
+  }, []);
+
+  const toggleResumeFullscreen = async () => {
+    if (!fullscreenResumeRef.current) return;
+    try {
+      if (document.fullscreenElement) {
+        await document.exitFullscreen();
+      } else {
+        await fullscreenResumeRef.current.requestFullscreen();
+      }
+    } catch (err) {
+      console.error("Resume fullscreen failed", err);
+    }
+  };
 
   const handleDownloadResume = useCallback(async () => {
     if (!resumeUrl) return;
@@ -633,12 +680,37 @@ export default function ApplicantProfilePage() {
 
           {/* Right Column: Embedded Resume Preview & Download */}
           <div className="flex flex-col">
-            <div className="bg-white rounded-2xl p-6 shadow-md border border-gray-100 flex flex-col flex-1 overflow-hidden">
+            <div ref={fullscreenResumeRef} className="bg-white rounded-2xl p-6 shadow-md border border-gray-100 flex flex-col flex-1 overflow-hidden relative">
+              
+              {/* Floating controls in Fullscreen Mode */}
+              {isFullscreen && (
+                <div className="absolute top-6 right-6 z-50 flex items-center gap-2 bg-[#3A1F1F]/90 backdrop-blur-md p-1.5 rounded-full shadow-xl border border-white/10">
+                  <Button
+                    variant="ghost"
+                    size="icon"
+                    onClick={handleDownloadResume}
+                    title="Download Resume"
+                    className="h-9 w-9 text-white hover:text-white hover:bg-[#FF2B2B] rounded-full transition-all"
+                  >
+                    <Download className="h-5 w-5" />
+                  </Button>
+                  <Button
+                    variant="ghost"
+                    size="icon"
+                    onClick={toggleResumeFullscreen}
+                    title="Exit Full Screen"
+                    className="h-9 w-9 text-white hover:text-white hover:bg-white/10 rounded-full transition-all"
+                  >
+                    <Minimize2 className="h-5 w-5" />
+                  </Button>
+                </div>
+              )}
+
               <h3 className="text-lg font-bold text-[#3A1F1F] mb-4 flex items-center gap-2">
                 <FileText className="h-5 w-5 text-[#FF2B2B]" /> Resume Preview
               </h3>
 
-              <div className="bg-[#F6F6F6] rounded-xl overflow-hidden flex-1 flex flex-col items-center justify-center relative border border-gray-200">
+              <div className={`bg-[#F6F6F6] rounded-xl overflow-auto flex-1 flex flex-col items-center justify-center relative border border-gray-200 min-h-0 ${isFullscreen ? 'max-h-none h-[88vh] w-full' : 'max-h-[65vh]'}`}>
                 {resumeLoading ? (
                   <div className="text-center p-6 flex flex-col items-center justify-center h-full w-full">
                     <Loader2 className="h-10 w-10 text-[#FF2B2B] animate-spin mx-auto mb-3" />
@@ -652,16 +724,24 @@ export default function ApplicantProfilePage() {
                   </div>
                 ) : resumePreviewUrl ? (
                   resumeKind === "image" ? (
-                    <div className="w-full h-auto overflow-hidden flex items-center justify-center bg-white p-4">
+                    <div className={`w-full overflow-hidden flex items-center justify-center bg-white p-4 ${isFullscreen ? 'h-[85vh]' : 'h-auto'}`}>
                       <img
                         src={resumePreviewUrl}
                         alt="Resume Preview"
                         className="max-w-full max-h-full object-contain shadow-sm rounded-md"
                       />
                     </div>
-                  ) : (
+                  ) : resumeKind === "office" ? (
+                    <iframe
+                      src={resumePreviewUrl}
+                      title="Resume Preview"
+                      className={`w-full bg-white ${isFullscreen ? 'h-[85vh]' : 'h-[60vh]'}`}
+                      style={{ border: "none" }}
+                      sandbox="allow-same-origin allow-scripts allow-popups allow-forms"
+                    />
+                  ) : resumeKind === "pdf" ? (
                     // PDF: render canvases into a container and size container to content height
-                    <div ref={pdfPreviewRef} className="w-full bg-white p-4 flex flex-col items-center justify-start">
+                    <div ref={pdfPreviewRef} className="w-full bg-white p-4 flex flex-col items-center justify-start overflow-auto min-h-0 max-h-full">
                       {pdfRendering && (
                         <div className="text-center p-6">
                           <div className="w-9 h-9 border-4 border-[#FF2B2B] border-t-transparent rounded-full animate-spin mx-auto mb-3" />
@@ -669,6 +749,13 @@ export default function ApplicantProfilePage() {
                         </div>
                       )}
                     </div>
+                  ) : (
+                    <iframe
+                      src={resumePreviewUrl}
+                      title="Resume Preview"
+                      className={`w-full bg-white ${isFullscreen ? 'h-[85vh]' : 'h-[60vh]'}`}
+                      style={{ border: "none" }}
+                    />
                   )
                 ) : (
                   <div className="text-center p-6 flex flex-col items-center justify-center h-full w-full">
@@ -679,8 +766,16 @@ export default function ApplicantProfilePage() {
                 )}
               </div>
 
-              {resumeUrl && (
-                <div className="mt-4 flex-shrink-0">
+              {resumeUrl && !isFullscreen && (
+                <div className="mt-4 flex flex-col gap-3">
+                  <Button
+                    variant="outline"
+                    onClick={toggleResumeFullscreen}
+                    className="w-full rounded-full border border-gray-200 text-[#3A1F1F] hover:bg-[#F6F6F6] flex items-center justify-center gap-2 h-11 font-medium transition-all"
+                  >
+                    <Eye className="h-4 w-4" />
+                    {isFullscreen ? "Exit Full Screen" : "View Full Screen"}
+                  </Button>
                   <Button
                     onClick={handleDownloadResume}
                     className="w-full bg-[#FF2B2B] hover:bg-[#e02525] text-white rounded-full flex items-center justify-center gap-2 h-11 font-medium shadow-md transition-all"

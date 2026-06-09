@@ -2767,6 +2767,10 @@ function ProfilePage({ onPendingPrefsChange }: { onPendingPrefsChange?: (pending
                         alert("Failed to save resume. Please try again.");
                         return;
                       }
+                      const { error: appError } = await supabase.from("applications").update({ resume_url: urlData.publicUrl }).eq("profile_id", profile.id);
+                      if (appError) {
+                        console.error("Applications resume update error:", appError.message);
+                      }
                       setResumeFile(urlData.publicUrl);
                       await refreshProfile();
                     }
@@ -2775,11 +2779,15 @@ function ProfilePage({ onPendingPrefsChange }: { onPendingPrefsChange?: (pending
                 </label>
                 <Button variant="ghost" size="sm" className="text-red-500 rounded-full" onClick={async () => {
                   if (!profile) return;
-                  const { error } = await supabase.from("profiles").update({ resume_url: null }).eq("id", profile.id);
-                  if (error) {
-                    console.error("Resume delete error:", error.message);
+                  const { error: dbError } = await supabase.from("profiles").update({ resume_url: null }).eq("id", profile.id);
+                  if (dbError) {
+                    console.error("Resume delete error:", dbError.message);
                     alert("Failed to delete resume. Please try again.");
                     return;
+                  }
+                  const { error: appError } = await supabase.from("applications").update({ resume_url: null }).eq("profile_id", profile.id);
+                  if (appError) {
+                    console.error("Applications resume delete error:", appError.message);
                   }
                   setResumeFile(null);
                   await refreshProfile();
@@ -2798,6 +2806,7 @@ function ProfilePage({ onPendingPrefsChange }: { onPendingPrefsChange?: (pending
                 if (uploadData) {
                   const { data: urlData } = supabase.storage.from("resumes").getPublicUrl(filePath);
                   await supabase.from("profiles").update({ resume_url: urlData.publicUrl }).eq("id", profile.id);
+                  await supabase.from("applications").update({ resume_url: urlData.publicUrl }).eq("profile_id", profile.id);
                   setResumeFile(urlData.publicUrl);
                   refreshProfile();
                 }
