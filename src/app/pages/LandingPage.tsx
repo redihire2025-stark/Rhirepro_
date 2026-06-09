@@ -501,7 +501,7 @@ export default function LandingPage() {
       description:
         "Specialized recruitment for senior leadership positions that drive your company forward.",
       icon: Award,
-      image: "https://images.unsplash.com/photo-1573496359142-b8d87734a5a2?w=400&q=80",
+      image: "https://images.unsplash.com/photo-1580894732444-8ecded7900cd?q=80&w=1170&auto=format&fit=crop&ixlib=rb-4.1.0&ixid=M3wxMjA3fDB8MHxwaG90by1wYWdlfHx8fGVufDB8fHx8fA%3D%3D",
     },
     {
       title: "Job Matching",
@@ -949,37 +949,46 @@ export default function LandingPage() {
               goals.
             </p>
           </div>
-          <div className="grid md:grid-cols-2 gap-12 items-center">
-            <div className="rounded-2xl overflow-hidden h-96 w-full">
+          <div className="grid md:grid-cols-2 gap-6">
+            <div className="rounded-2xl overflow-hidden h-96 w-full bg-gray-100">
               <ImageWithFallback
-                src="https://images.unsplash.com/photo-1522071820081-009f0129c71c?w=1200&q=80"
+                src="https://images.unsplash.com/photo-1758691737124-05c5bffe46f0?q=80&w=1632&auto=format&fit=crop&ixlib=rb-4.1.0&ixid=M3wxMjA3fDB8MHxwaG90by1wYWdlfHx8fGVufDB8fHx8fA%3D%3D"
                 alt="People working together in office"
-                className="w-full h-full object-cover object-top"
+                className="w-full h-full object-cover"
               />
             </div>
-            <div className="space-y-6">
-              <div className="flex gap-4">
-                <div className="rounded-2xl overflow-hidden h-48 flex-1">
+            <div className="flex flex-col gap-4 h-96">
+              <div className="flex gap-4 flex-1 min-h-0">
+                <div className="rounded-2xl overflow-hidden flex-1 min-h-0 bg-gray-100">
                   <ImageWithFallback
-                    src="https://images.unsplash.com/photo-1565688534245-05d6b5be184a?w=600&q=80"
+                    src="https://images.unsplash.com/photo-1571826784833-50a3087d9d60?w=500&auto=format&fit=crop&q=60&ixlib=rb-4.1.0&ixid=M3wxMjA3fDB8MHxwaG90by1yZWxhdGVkfDIzfHx8ZW58MHx8fHx8"
                     alt="Job interview"
                     className="w-full h-full object-cover"
                   />
                 </div>
-                <div className="rounded-2xl overflow-hidden h-48 flex-1">
+                <div className="rounded-2xl overflow-hidden flex-1 min-h-0 bg-gray-100">
                   <ImageWithFallback
-                    src="https://images.unsplash.com/photo-1507003211169-0a1dd7228f2d?w=600&q=80"
+                    src="https://images.unsplash.com/photo-1603201667141-5a2d4c673378?w=500&auto=format&fit=crop&q=60&ixlib=rb-4.1.0&ixid=M3wxMjA3fDB8MHxwaG90by1yZWxhdGVkfDl8fHxlbnwwfHx8fHw%3D"
                     alt="Professional recruiter"
-                    className="w-full h-full object-cover object-top"
+                    className="w-full h-full object-cover"
                   />
                 </div>
               </div>
-              <div className="rounded-2xl overflow-hidden h-48 w-full">
-                <ImageWithFallback
-                  src="https://images.unsplash.com/photo-1556761175-4b46a572b786?w=1200&q=80"
-                  alt="Diverse team working together"
-                  className="w-full h-full object-cover"
-                />
+              <div className="flex gap-4 flex-1 min-h-0">
+                <div className="rounded-2xl overflow-hidden flex-1 min-h-0 bg-gray-100">
+                  <ImageWithFallback
+                    src="https://images.unsplash.com/photo-1531538606174-0f90ff5dce83?auto=format&fit=crop&w=600&h=400&q=80"
+                    alt="Diverse team working together"
+                    className="w-full h-full object-cover"
+                  />
+                </div>
+                <div className="rounded-2xl overflow-hidden flex-1 min-h-0 bg-gray-100">
+                  <ImageWithFallback
+                    src="https://images.unsplash.com/photo-1522202176988-66273c2fd55f?auto=format&fit=crop&w=600&h=400&q=80"
+                    alt="Employee working happily"
+                    className="w-full h-full object-cover"
+                  />
+                </div>
               </div>
             </div>
           </div>
@@ -1511,7 +1520,11 @@ export default function LandingPage() {
             <div className="grid grid-cols-2 gap-4">
               <div className="space-y-4">
                 <div className="bg-white rounded-2xl p-6">
-                  <div className="bg-gray-300 rounded-xl h-32 mb-4"></div>
+                  <ImageWithFallback
+                    src="https://images.unsplash.com/photo-1434030216411-0b793f4b4173?auto=format&fit=crop&w=400&h=250&q=80"
+                    alt="Career Growth Tips"
+                    className="w-full h-32 object-cover rounded-xl mb-4"
+                  />
                   <h4 className="font-semibold text-[#3A1F1F] mb-2">
                     Career Growth Tips
                   </h4>
@@ -1523,7 +1536,11 @@ export default function LandingPage() {
               </div>
               <div className="space-y-4 mt-8">
                 <div className="bg-white rounded-2xl p-6">
-                  <div className="bg-gray-300 rounded-xl h-32 mb-4"></div>
+                  <ImageWithFallback
+                    src="https://images.unsplash.com/photo-1586281380349-632531db7ed4?auto=format&fit=crop&w=400&h=250&q=80"
+                    alt="Resume Building"
+                    className="w-full h-32 object-cover rounded-xl mb-4"
+                  />
                   <h4 className="font-semibold text-[#3A1F1F] mb-2">
                     Resume Building
                   </h4>
