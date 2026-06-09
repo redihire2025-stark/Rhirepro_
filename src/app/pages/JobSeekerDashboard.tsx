@@ -2269,6 +2269,7 @@ function ProfilePage() {
                     if (uploadData) {
                       const { data: urlData } = supabase.storage.from("resumes").getPublicUrl(filePath);
                       await supabase.from("profiles").update({ resume_url: urlData.publicUrl }).eq("id", profile.id);
+                      await supabase.from("applications").update({ resume_url: urlData.publicUrl }).eq("profile_id", profile.id);
                       setResumeFile(urlData.publicUrl);
                       refreshProfile();
                     }
@@ -2278,6 +2279,7 @@ function ProfilePage() {
                 <Button variant="ghost" size="sm" className="text-red-500 rounded-full" onClick={async () => {
                   if (!profile) return;
                   await supabase.from("profiles").update({ resume_url: null }).eq("id", profile.id);
+                  await supabase.from("applications").update({ resume_url: null }).eq("profile_id", profile.id);
                   setResumeFile(null);
                   refreshProfile();
                 }}><Trash2 className="h-4 w-4" /></Button>
@@ -2295,6 +2297,7 @@ function ProfilePage() {
                 if (uploadData) {
                   const { data: urlData } = supabase.storage.from("resumes").getPublicUrl(filePath);
                   await supabase.from("profiles").update({ resume_url: urlData.publicUrl }).eq("id", profile.id);
+                  await supabase.from("applications").update({ resume_url: urlData.publicUrl }).eq("profile_id", profile.id);
                   setResumeFile(urlData.publicUrl);
                   refreshProfile();
                 }

@@ -1205,7 +1205,10 @@ function DashboardOverview() {
       }
 
       const recruiterJobs = (jobs || []).filter(job => !isJobExpired(job));
-      setDbJobs(recruiterJobs);
+      const sortedRecruiterJobs = recruiterJobs.sort((a, b) => {
+        return new Date(b.created_at).getTime() - new Date(a.created_at).getTime();
+      });
+      setDbJobs(sortedRecruiterJobs);
 
       const { data: recruiterScopedApps, error: recruiterScopedAppsError } = await supabase
         .from("applications")
@@ -1359,8 +1362,9 @@ function DashboardOverview() {
       setPipelineLoading(false);
     };
     load();
-    const channel = supabase.channel(`dashboard-overview-apps-${recruiterProfile.id}`)
-      .on("postgres_changes", { event: "*", schema: "public", table: "applications", filter: `recruiter_id=eq.${recruiterProfile.id}` }, load)
+    const channel = supabase.channel(`dashboard-overview-data-${recruiterProfile.id}`)
+      .on("postgres_changes", { event: "*", schema: "public", table: "applications" }, load)
+      .on("postgres_changes", { event: "*", schema: "public", table: "jobs" }, load)
       .subscribe();
     return () => { supabase.removeChannel(channel); };
   }, [recruiterProfile?.id]);
@@ -1620,32 +1624,67 @@ function DashboardOverview() {
         </div>
       </div>
 
-      {/* Recent Applicants */}
-      <div className="bg-white rounded-2xl p-5 shadow-sm">
-        <div className="flex items-center justify-between mb-4">
-          <h2 className="font-bold text-[#3A1F1F]">Recent Applicants</h2>
-          <Link to="/recruiter/dashboard/applicants"><Button variant="ghost" size="sm" className="text-[#FF2B2B] text-xs">View All</Button></Link>
+      <div className="grid md:grid-cols-2 gap-6">
+        {/* Recent Applicants */}
+        <div className="bg-white rounded-2xl p-5 shadow-sm">
+          <div className="flex items-center justify-between mb-4">
+            <h2 className="font-bold text-[#3A1F1F]">Recent Applicants</h2>
+            <Link to="/recruiter/dashboard/applicants"><Button variant="ghost" size="sm" className="text-[#FF2B2B] text-xs">View All</Button></Link>
+          </div>
+          <div className="space-y-3">
+            {recentApplicants.length === 0 ? (
+              <p className="text-sm text-[#8A8A8A] text-center py-4">No recent applicants</p>
+            ) : (
+              recentApplicants.map(applicant => (
+                <div key={applicant.id} className="flex items-center gap-3 p-3 border border-gray-100 rounded-xl hover:bg-[#F6F6F6] transition-colors">
+                  <div className="w-10 h-10 bg-[#FF2B2B] rounded-full flex items-center justify-center text-white text-sm font-bold flex-shrink-0">
+                    {applicant.initials}
+                  </div>
+                  <div className="flex-1 min-w-0">
+                    <p className="text-sm font-medium text-[#3A1F1F]">{applicant.name}</p>
+                    <p className="text-xs text-[#8A8A8A] truncate">{applicant.currentTitle} at {applicant.currentCompany}</p>
+                  </div>
+                  <div className="text-right flex-shrink-0">
+                    <Badge className={`text-xs ${statusColor(applicant.status)}`}>{applicant.status}</Badge>
+                    <p className="text-xs text-[#8A8A8A] mt-0.5">{applicant.appliedDate}</p>
+                  </div>
+                  <div className="flex-shrink-0 bg-green-50 rounded-lg px-2 py-1 text-center">
+                    <div className="text-sm font-bold text-green-600">{applicant.matchScore}%</div>
+                    <div className="text-xs text-[#8A8A8A]">match</div>
+                  </div>
+                </div>
+              ))
+            )}
+          </div>
         </div>
-        <div className="space-y-3">
-          {recentApplicants.map(applicant => (
-            <div key={applicant.id} className="flex items-center gap-3 p-3 border border-gray-100 rounded-xl hover:bg-[#F6F6F6] transition-colors">
-              <div className="w-10 h-10 bg-[#FF2B2B] rounded-full flex items-center justify-center text-white text-sm font-bold flex-shrink-0">
-                {applicant.initials}
-              </div>
-              <div className="flex-1 min-w-0">
-                <p className="text-sm font-medium text-[#3A1F1F]">{applicant.name}</p>
-                <p className="text-xs text-[#8A8A8A] truncate">{applicant.currentTitle} at {applicant.currentCompany}</p>
-              </div>
-              <div className="text-right flex-shrink-0">
-                <Badge className={`text-xs ${statusColor(applicant.status)}`}>{applicant.status}</Badge>
-                <p className="text-xs text-[#8A8A8A] mt-0.5">{applicant.appliedDate}</p>
-              </div>
-              <div className="flex-shrink-0 bg-green-50 rounded-lg px-2 py-1 text-center">
-                <div className="text-sm font-bold text-green-600">{applicant.matchScore}%</div>
-                <div className="text-xs text-[#8A8A8A]">match</div>
-              </div>
-            </div>
-          ))}
+
+        {/* Recently Posted Jobs */}
+        <div className="bg-white rounded-2xl p-5 shadow-sm">
+          <div className="flex items-center justify-between mb-4">
+            <h2 className="font-bold text-[#3A1F1F]">Recently Posted Jobs</h2>
+            <Link to="/recruiter/dashboard/manage-jobs"><Button variant="ghost" size="sm" className="text-[#FF2B2B] text-xs">View All</Button></Link>
+          </div>
+          <div className="space-y-3">
+            {dbJobs.length === 0 ? (
+              <p className="text-sm text-[#8A8A8A] text-center py-4">No jobs posted yet</p>
+            ) : (
+              dbJobs.slice(0, 3).map(job => (
+                <div key={job.id} className="flex items-center gap-3 p-3 border border-gray-100 rounded-xl hover:bg-[#F6F6F6] transition-colors">
+                  <div className="w-10 h-10 bg-[#3A1F1F] rounded-full flex items-center justify-center text-white text-sm font-bold flex-shrink-0">
+                    <Briefcase className="h-5 w-5" />
+                  </div>
+                  <div className="flex-1 min-w-0">
+                    <p className="text-sm font-medium text-[#3A1F1F] truncate">{job.title}</p>
+                    <p className="text-xs text-[#8A8A8A] truncate">{job.location || "Location not provided"} • {job.work_mode || "Full-time"}</p>
+                  </div>
+                  <div className="text-right flex-shrink-0">
+                    <Badge className={job.status === "Active" ? "bg-green-100 text-green-700 text-xs" : "bg-gray-100 text-gray-600 text-xs"}>{job.status}</Badge>
+                    <p className="text-xs text-[#8A8A8A] mt-0.5">{new Date(job.created_at).toLocaleDateString("en-US", { day: 'numeric', month: 'short', year: 'numeric' })}</p>
+                  </div>
+                </div>
+              ))
+            )}
+          </div>
         </div>
       </div>
     </div>
@@ -2550,12 +2589,23 @@ function ManageJobsPage() {
           : Promise.resolve(),
       ]);
 
-      setJobs(repairedJobs);
+      const sortedJobs = repairedJobs.sort((a, b) => {
+        return new Date(b.created_at).getTime() - new Date(a.created_at).getTime();
+      });
+      setJobs(sortedJobs);
     }
     setLoading(false);
   }, [recruiterProfile?.id]);
 
-  useEffect(() => { fetchJobs(); }, [fetchJobs]);
+  useEffect(() => {
+    fetchJobs();
+    if (!recruiterProfile?.id) return;
+    const channel = supabase.channel(`manage-jobs-realtime-${recruiterProfile.id}`)
+      .on("postgres_changes", { event: "*", schema: "public", table: "jobs" }, fetchJobs)
+      .on("postgres_changes", { event: "*", schema: "public", table: "applications" }, fetchJobs)
+      .subscribe();
+    return () => { supabase.removeChannel(channel); };
+  }, [recruiterProfile?.id, fetchJobs]);
 
   const filtered = filter === "All" ? jobs : jobs.filter(j => getEffectiveJobStatus(j) === filter);
 
@@ -2567,10 +2617,11 @@ function ManageJobsPage() {
 
   const refreshJob = async (job: Job) => {
     const deadline = buildJobExpiryTimestamp();
+    const nowString = new Date().toISOString();
     setRefreshingJobId(job.id);
     const { error } = await supabase
       .from("jobs")
-      .update({ deadline, deadline_time: null, status: "Active" })
+      .update({ deadline, deadline_time: null, status: "Active", created_at: nowString })
       .eq("id", job.id);
     setRefreshingJobId(null);
 
@@ -2607,6 +2658,7 @@ function ManageJobsPage() {
       deadline,
       deadline_time: null,
       status: "Active",
+      created_at: nowString,
     } : j));
   };
 
@@ -3623,7 +3675,7 @@ function getCandidateInitials(name: string, fallback = "UC") {
 }
 
 function getResumeUrl(applicant: Pick<Application, "resume_url"> & { profile?: Pick<Profile, "resume_url"> | null }): string | null {
-  return applicant.resume_url || applicant.profile?.resume_url || null;
+  return applicant.profile?.resume_url || applicant.resume_url || null;
 }
 
 function ApplicantsPage() {
@@ -3692,7 +3744,8 @@ function ApplicantsPage() {
   useEffect(() => {
     if (!recruiterProfile?.id) return;
     const channel = supabase.channel("applicants-realtime")
-      .on("postgres_changes", { event: "INSERT", schema: "public", table: "applications", filter: `recruiter_id=eq.${recruiterProfile.id}` }, () => fetchApplicants())
+      .on("postgres_changes", { event: "INSERT", schema: "public", table: "applications" }, () => fetchApplicants())
+      .on("postgres_changes", { event: "UPDATE", schema: "public", table: "applications" }, () => fetchApplicants())
       .subscribe();
     return () => { supabase.removeChannel(channel); };
   }, [recruiterProfile?.id, fetchApplicants]);

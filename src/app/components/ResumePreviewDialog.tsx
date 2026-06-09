@@ -1,5 +1,5 @@
 import { useEffect, useMemo, useState, useRef } from "react";
-import { Download, ExternalLink, FileText, Loader2 } from "lucide-react";
+import { Download, ExternalLink, FileText, Loader2, Maximize2 } from "lucide-react";
 import { supabase } from "../../lib/supabase";
 import { Button } from "./ui/button";
 import { Dialog, DialogContent, DialogHeader, DialogTitle } from "./ui/dialog";
@@ -16,7 +16,16 @@ export function getResumePreviewKind(url: string): ResumePreviewKind {
   })();
 
   if (cleanPath.endsWith(".pdf")) return "pdf";
-  if (cleanPath.endsWith(".doc") || cleanPath.endsWith(".docx")) return "office";
+  if (
+    cleanPath.endsWith(".doc") ||
+    cleanPath.endsWith(".docx") ||
+    cleanPath.endsWith(".xls") ||
+    cleanPath.endsWith(".xlsx") ||
+    cleanPath.endsWith(".ppt") ||
+    cleanPath.endsWith(".pptx") ||
+    cleanPath.endsWith(".rtf") ||
+    cleanPath.endsWith(".odt")
+  ) return "office";
   if (
     cleanPath.endsWith(".png") ||
     cleanPath.endsWith(".jpg") ||
@@ -70,6 +79,7 @@ export default function ResumePreviewDialog({
   const [resolvedUrl, setResolvedUrl] = useState<string | null>(null);
   const [error, setError] = useState("");
   const [loading, setLoading] = useState(false);
+  const [isFullscreen, setIsFullscreen] = useState(false);
   const kind = useMemo(() => resume ? getResumePreviewKind(resume.url) : "unsupported", [resume]);
 
   useEffect(() => {
@@ -109,6 +119,7 @@ export default function ResumePreviewDialog({
   const previewUrl = resolvedUrl ? buildPreviewUrl(resolvedUrl) : null;
   const downloadUrl = resolvedUrl || resume?.url || "";
   const pdfContainerRef = useRef<HTMLDivElement | null>(null);
+  const fullscreenRef = useRef<HTMLDivElement | null>(null);
   const [renderingPdf, setRenderingPdf] = useState(false);
   const [pdfRenderFailed, setPdfRenderFailed] = useState(false);
 
@@ -120,7 +131,9 @@ export default function ResumePreviewDialog({
       setRenderingPdf(true);
       try {
         const res = await fetch(previewUrl);
+        if (cancelled || !pdfContainerRef.current) return;
         const arrayBuffer = await res.arrayBuffer();
+        if (cancelled || !pdfContainerRef.current) return;
 
         // Load pdf.js at runtime from CDN to avoid bundler import errors
         async function ensurePdfJs() {
@@ -136,13 +149,19 @@ export default function ResumePreviewDialog({
         }
 
         const pdfjs = await ensurePdfJs();
+        if (cancelled || !pdfContainerRef.current) return;
         (pdfjs as any).GlobalWorkerOptions.workerSrc = "https://unpkg.com/pdfjs-dist@3.10.111/legacy/build/pdf.worker.min.js";
         const loadingTask = (pdfjs as any).getDocument({ data: arrayBuffer });
         const pdf = await loadingTask.promise;
+        if (cancelled || !pdfContainerRef.current?.isConnected) return;
         const numPages = pdf.numPages;
         const container = pdfContainerRef.current;
-        // clear previous
-        container.innerHTML = "";
+        
+        // clear previous using removeChild to avoid stale reference issues
+        while (container.firstChild) {
+          container.removeChild(container.firstChild);
+        }
+        
         // measure
         const containerStyle = getComputedStyle(container);
         const paddingY = parseFloat(containerStyle.paddingTop || "0") + parseFloat(containerStyle.paddingBottom || "0");
@@ -151,6 +170,7 @@ export default function ResumePreviewDialog({
         const containerHeight = Math.max(100, container.clientHeight - paddingY);
 
         const firstPage = await pdf.getPage(1);
+        if (cancelled || !pdfContainerRef.current?.isConnected) return;
         const vp = firstPage.getViewport({ scale: 1 });
         const scaleToFitWidth = containerWidth / vp.width;
         const scaleToFitAllPages = containerHeight / (vp.height * numPages);
@@ -166,7 +186,9 @@ export default function ResumePreviewDialog({
         wrapper.style.transformOrigin = "top left";
 
         for (let i = 1; i <= numPages; i++) {
+          if (cancelled || !pdfContainerRef.current?.isConnected) return;
           const page = await pdf.getPage(i);
+          if (cancelled || !pdfContainerRef.current?.isConnected) return;
           const viewport = page.getViewport({ scale });
           const canvas = document.createElement("canvas");
           canvas.width = Math.floor(viewport.width);
@@ -177,18 +199,20 @@ export default function ResumePreviewDialog({
           const ctx = canvas.getContext("2d");
           // @ts-ignore
           await page.render({ canvasContext: ctx, viewport }).promise;
-          if (cancelled) return;
+          if (cancelled || !pdfContainerRef.current?.isConnected) return;
           wrapper.appendChild(canvas);
         }
-        container.appendChild(wrapper);
+        if (pdfContainerRef.current?.isConnected) {
+          pdfContainerRef.current.appendChild(wrapper);
 
-        // After pages rendered, ensure the whole wrapper fits the container height by scaling
-        const totalHeight = wrapper.scrollHeight;
-        if (totalHeight > containerHeight) {
-          const scaleAll = containerHeight / totalHeight;
-          wrapper.style.transform = `scale(${scaleAll})`;
-          // center after scale
-          wrapper.style.width = `${containerWidth / scaleAll}px`;
+          // After pages rendered, ensure the whole wrapper fits the container height by scaling
+          const totalHeight = wrapper.scrollHeight;
+          if (totalHeight > containerHeight) {
+            const scaleAll = containerHeight / totalHeight;
+            wrapper.style.transform = `scale(${scaleAll})`;
+            // center after scale
+            wrapper.style.width = `${containerWidth / scaleAll}px`;
+          }
         }
       } catch (err) {
         console.error("PDF render error", err);
@@ -201,10 +225,40 @@ export default function ResumePreviewDialog({
     return () => { cancelled = true; };
   }, [previewUrl, kind]);
 
+  useEffect(() => {
+    function handleFullscreenChange() {
+      setIsFullscreen(Boolean(document.fullscreenElement));
+    }
+    document.addEventListener("fullscreenchange", handleFullscreenChange);
+    return () => {
+      document.removeEventListener("fullscreenchange", handleFullscreenChange);
+    };
+  }, []);
+
+  useEffect(() => {
+    if (!resume && document.fullscreenElement) {
+      document.exitFullscreen().catch(() => null);
+    }
+  }, [resume]);
+
+  const toggleFullscreen = async () => {
+    if (!fullscreenRef.current) return;
+    try {
+      if (document.fullscreenElement) {
+        await document.exitFullscreen();
+      } else {
+        await fullscreenRef.current.requestFullscreen();
+      }
+    } catch (err) {
+      console.error("Fullscreen failed", err);
+    }
+  };
+
   return (
     <Dialog open={!!resume} onOpenChange={(open) => { if (!open) onClose(); }}>
       <DialogContent className="max-w-5xl max-h-[92vh] p-0 overflow-hidden">
-        <DialogHeader className="px-5 py-4 border-b border-gray-100">
+        <div ref={fullscreenRef} className="bg-[#F6F6F6]">
+          <DialogHeader className="px-5 py-4 border-b border-gray-100">
           <DialogTitle className="text-base text-[#3A1F1F]">Resume Preview{resume?.candidateName ? ` - ${resume.candidateName}` : ""}</DialogTitle>
         </DialogHeader>
         <div className="bg-[#F6F6F6]">
@@ -242,15 +296,23 @@ export default function ResumePreviewDialog({
                     scrolling="no"
                   />
                 )
-              ) : (
-                <iframe
-                  src={previewUrl}
-                  title="Resume preview"
-                  className="w-full h-[72vh] bg-white overflow-hidden"
-                  style={{ border: "none" }}
-                  scrolling="no"
-                />
-              )
+              ) : kind === "office" ? (
+              <iframe
+                src={previewUrl}
+                title="Resume preview"
+                className="w-full h-[72vh] bg-white"
+                style={{ border: "none" }}
+                sandbox="allow-same-origin allow-scripts allow-popups allow-forms"
+              />
+            ) : (
+              <iframe
+                src={previewUrl}
+                title="Resume preview"
+                className="w-full h-[72vh] bg-white overflow-hidden"
+                style={{ border: "none" }}
+                scrolling="no"
+              />
+            )
             )
           ) : (
             <div className="h-[45vh] flex flex-col items-center justify-center text-center px-6">
@@ -261,6 +323,12 @@ export default function ResumePreviewDialog({
           )}
         </div>
         <div className="px-5 py-3 border-t border-gray-100 flex justify-end gap-2 bg-white">
+          {previewUrl && (
+            <Button variant="outline" className="inline-flex items-center gap-2 px-4 py-2 rounded-full border border-gray-200 text-[#3A1F1F] text-sm hover:bg-[#F6F6F6] transition-colors" onClick={toggleFullscreen}>
+              <Maximize2 className="h-4 w-4" />
+              {isFullscreen ? "Exit Full Screen" : "View Full Screen"}
+            </Button>
+          )}
           {downloadUrl && (
             <a href={downloadUrl} target="_blank" rel="noreferrer" download className="inline-flex items-center gap-2 px-4 py-2 bg-[#FF2B2B] text-white text-sm rounded-full hover:bg-[#e02525] transition-colors">
               <Download className="h-4 w-4" /> Download Resume
@@ -275,6 +343,7 @@ export default function ResumePreviewDialog({
             <Button variant="outline" className="rounded-full" onClick={onClose}>Close</Button>
           )}
         </div>
+      </div>
       </DialogContent>
     </Dialog>
   );
