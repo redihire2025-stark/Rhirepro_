@@ -56,7 +56,8 @@ function formatType(job: DBJob): string {
 }
 
 function stripHtml(value: string): string {
-  return value.replace(/<[^>]*>/g, " ").replace(/\s+/g, " ").trim();
+  const doc = new DOMParser().parseFromString(value, "text/html");
+  return doc.body.textContent?.replace(/\s+/g, " ").trim() ?? "";
 }
 
 function formatDescription(job: DBJob): string {

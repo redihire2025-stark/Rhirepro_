@@ -83,40 +83,47 @@ export default function JobSeekerSignUp() {
   };
 
   const createAccount = async () => {
-    const { data: authData, error: signUpError } = await supabase.auth.signUp({
-      email: formData.email,
-      password: formData.password,
-      options: {
-        data: {
-          role: "jobseeker",
-          first_name: formData.firstName,
-          last_name: formData.lastName,
-          phone: formData.mobile,
-          experience: formData.experience,
+
+    const { data: authData, error: signUpError } =
+      await supabase.auth.signUp({
+        email: formData.email,
+        password: formData.password,
+        options: {
+          data: {
+            role: "jobseeker",
+            first_name: formData.firstName,
+            last_name: formData.lastName,
+            phone: formData.mobile,
+            experience: formData.experience,
+          },
         },
-      },
-    });
+      });
 
     if (signUpError) throw signUpError;
     if (!authData.user) throw new Error("Failed to create account.");
+
     if (authData.user.identities?.length === 0) {
-      throw new Error("An account with this email already exists. Please sign in.");
+      throw new Error(
+        "An account with this email already exists. Please sign in."
+      );
     }
 
-    const { error: profileError } = await supabase.from("profiles").upsert({
-      id: authData.user.id,
-      email: formData.email,
-      first_name: formData.firstName,
-      last_name: formData.lastName,
-      phone: formData.mobile,
-      experience_type: formData.experience as "fresher" | "experienced",
-    }, { onConflict: "id", ignoreDuplicates: true });
-
-    if (profileError && profileError.code !== "23505") {
-      // Log for debugging, but don't block — user_metadata has the data as fallback
-      console.warn("Profile insert error (non-fatal):", profileError.message, profileError.code);
-    }
-
+    const { error: profileError } = await supabase
+      .from("profiles")
+      .upsert(
+        {
+          id: authData.user.id,
+          email: formData.email,
+          first_name: formData.firstName,
+          last_name: formData.lastName,
+          phone: formData.mobile,
+          experience_type: formData.experience as "fresher" | "experienced",
+        },
+        {
+          onConflict: "id",
+          ignoreDuplicates: true,
+        }
+      );
     const { data: { session } } = await supabase.auth.getSession();
     if (session) {
       navigate(safeRedirectTo);
@@ -155,6 +162,7 @@ export default function JobSeekerSignUp() {
       setLoading(false);
     }
   };
+
 
   const handleResendOTP = async () => {
     setError("");
