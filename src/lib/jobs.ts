@@ -1,6 +1,60 @@
 import type { Job } from "./supabase";
 
 const IST_TIME_ZONE = "Asia/Kolkata";
+export const JOB_EXPIRY_DAYS = 15;
+
+export const SALARY_AMOUNT_OPTIONS = [
+  { value: 0, label: "0 LPA" },
+  { value: 1, label: "1 LPA" },
+  { value: 2, label: "2 LPA" },
+  { value: 3, label: "3 LPA" },
+  { value: 4, label: "4 LPA" },
+  { value: 5, label: "5 LPA" },
+  { value: 6, label: "6 LPA" },
+  { value: 8, label: "8 LPA" },
+  { value: 10, label: "10 LPA" },
+  { value: 12, label: "12 LPA" },
+  { value: 15, label: "15 LPA" },
+  { value: 20, label: "20 LPA" },
+  { value: 25, label: "25 LPA" },
+  { value: 30, label: "30 LPA" },
+  { value: 40, label: "40 LPA" },
+  { value: 50, label: "50 LPA+" },
+] as const;
+
+function formatLpaValue(value: number): string {
+  const lpa = value >= 1000 ? value / 100000 : value;
+  return Number.isInteger(lpa) ? String(lpa) : lpa.toFixed(1).replace(/\.0$/, "");
+}
+
+function isAtLeast50Lpa(value: number): boolean {
+  return (value >= 1000 ? value / 100000 : value) >= 50;
+}
+
+export function formatSalaryRangeFromValues(
+  salaryMin: number | string | null | undefined,
+  salaryMax: number | string | null | undefined
+): string {
+  const min = salaryMin === "" || salaryMin == null ? null : Number(salaryMin);
+  const max = salaryMax === "" || salaryMax == null ? null : Number(salaryMax);
+
+  if (min == null && max == null) return "Salary not disclosed";
+  if (min != null && Number.isNaN(min)) return "Salary not disclosed";
+  if (max != null && Number.isNaN(max)) return "Salary not disclosed";
+
+  if (min != null && max != null) {
+    if (min === max) return `${formatLpaValue(min)} LPA`;
+    return `${formatLpaValue(min)}-${formatLpaValue(max)} LPA${isAtLeast50Lpa(max) ? "+" : ""}`;
+  }
+
+  if (max != null) return `Below ${formatLpaValue(max)} LPA${isAtLeast50Lpa(max) ? "+" : ""}`;
+  return `Above ${formatLpaValue(min!)} LPA`;
+}
+
+export function formatJobSalary(job: Pick<Job, "salary_min" | "salary_max" | "salary_type">): string {
+  if (job.salary_type !== "LPA") return "Salary not disclosed";
+  return formatSalaryRangeFromValues(job.salary_min, job.salary_max);
+}
 
 function getIstDate(value: Date | string): string {
   return new Date(value).toLocaleDateString("en-CA", {
@@ -33,9 +87,10 @@ export function buildJobDeadlineTimestamp(date: string, time?: string): string |
   return new Date(utcTimestamp).toISOString();
 }
 
-export function getJobDeadlineDateValue(job: Pick<Job, "deadline">): string {
-  if (!job.deadline) return "";
-  return getIstDate(job.deadline);
+export function buildJobExpiryTimestamp(daysFromNow = JOB_EXPIRY_DAYS, now = new Date()): string {
+  const expiry = new Date(now);
+  expiry.setDate(expiry.getDate() + daysFromNow);
+  return expiry.toISOString();
 }
 
 export function formatJobDeadline(job: Pick<Job, "deadline" | "deadline_time">): string {
@@ -65,6 +120,10 @@ export function formatJobDeadline(job: Pick<Job, "deadline" | "deadline_time">):
 export function isJobExpired(job: Pick<Job, "deadline" | "deadline_time">, now = new Date()): boolean {
   if (!job.deadline) return false;
 
+  if (!job.deadline_time && job.deadline.includes("T")) {
+    return new Date(job.deadline).getTime() <= now.getTime();
+  }
+
   const deadlineDate = getIstDate(job.deadline);
   const todayDate = getIstDate(now);
 
@@ -76,6 +135,10 @@ export function isJobExpired(job: Pick<Job, "deadline" | "deadline_time">, now =
 }
 
 export function getEffectiveJobStatus(job: Pick<Job, "status" | "deadline" | "deadline_time">, now = new Date()): Job["status"] {
+  if ((job.status === "Active" || job.status === "Paused") && isJobExpired(job, now)) {
+    return "Expired";
+  }
+
   if (job.status === "Expired" && !isJobExpired(job, now)) {
     return "Active";
   }
@@ -87,8 +150,12 @@ export function isJobVisibleToSeekers(job: Pick<Job, "status" | "deadline" | "de
   return getEffectiveJobStatus(job, now) === "Active" && !isJobExpired(job, now);
 }
 
-export function getRepostedDeadline(daysFromNow = 30, now = new Date()): string {
-  const nextDeadline = new Date(now);
-  nextDeadline.setDate(nextDeadline.getDate() + daysFromNow);
-  return nextDeadline.toISOString().split("T")[0];
+export function getJobDaysRemaining(job: Pick<Job, "deadline">, now = new Date()): number {
+  if (!job.deadline) return 0;
+  const remainingMs = new Date(job.deadline).getTime() - now.getTime();
+  return Math.max(0, Math.ceil(remainingMs / 86400000));
+}
+
+export function getRepostedDeadline(daysFromNow = JOB_EXPIRY_DAYS, now = new Date()): string {
+  return buildJobExpiryTimestamp(daysFromNow, now);
 }

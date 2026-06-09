@@ -39,8 +39,10 @@ export default function RecruiterSignIn() {
   const [showPassword, setShowPassword] = useState(false);
   const [otp, setOtp] = useState("");
   const [loading, setLoading] = useState(false);
+  const [resendLoading, setResendLoading] = useState(false);
   const [error, setError] = useState("");
   const [userId, setUserId] = useState("");
+  const [displayName, setDisplayName] = useState("");
   const [forgotEmail, setForgotEmail] = useState("");
   const [forgotLoading, setForgotLoading] = useState(false);
   const [forgotOtp, setForgotOtp] = useState("");
@@ -112,6 +114,7 @@ export default function RecruiterSignIn() {
       const generatedOTP = generateOTP();
       await storeOTP(data.user.id, generatedOTP);
       setUserId(data.user.id);
+      setDisplayName(rp.recruiter_name || "");
 
       await sendOTPEmail(email, generatedOTP, rp.recruiter_name || "");
 
@@ -142,14 +145,17 @@ export default function RecruiterSignIn() {
 
   const handleResendOTP = async () => {
     if (!userId) return;
+    setResendLoading(true);
     setError("");
     try {
       const newOTP = generateOTP();
       await storeOTP(userId, newOTP);
-      await sendOTPEmail(email, newOTP);
+      await sendOTPEmail(email, newOTP, displayName);
       setOtp("");
     } catch {
       setError("Failed to resend OTP. Please try again.");
+    } finally {
+      setResendLoading(false);
     }
   };
 
@@ -369,7 +375,7 @@ export default function RecruiterSignIn() {
 
                 <Button
                   type="submit"
-                  disabled={loading || otp.length < 6}
+                  disabled={loading || resendLoading || otp.length < 6}
                   className="w-full bg-[#FF2B2B] hover:bg-[#e02525] text-white rounded-full py-6"
                 >
                   {loading ? <><Loader2 className="mr-2 h-4 w-4 animate-spin" /> Verifying...</> : "Verify & Sign In"}
@@ -384,10 +390,12 @@ export default function RecruiterSignIn() {
                   ← Back
                 </button>
                 <button
+                  type="button"
                   onClick={handleResendOTP}
+                  disabled={loading || resendLoading}
                   className="text-sm text-[#FF2B2B] hover:underline flex items-center gap-1"
                 >
-                  <RefreshCw className="h-3 w-3" /> Resend OTP
+                  {resendLoading ? <><Loader2 className="h-3 w-3 animate-spin" /> Resending...</> : <><RefreshCw className="h-3 w-3" /> Resend OTP</>}
                 </button>
               </div>
             </>

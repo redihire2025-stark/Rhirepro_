@@ -1,4 +1,4 @@
-import { useState, useEffect, useMemo } from "react";
+import { useState, useEffect, useMemo, useCallback } from "react";
 import {
   Menu,
   X,
@@ -19,6 +19,7 @@ import {
   Instagram,
   Twitter,
   BadgeCheck,
+  Quote,
 } from "lucide-react";
 import { Button } from "../components/ui/button";
 import { Input } from "../components/ui/input";
@@ -36,14 +37,22 @@ import {
   SheetTitle,
   SheetDescription,
 } from "../components/ui/sheet";
+import {
+  Carousel,
+  CarouselContent,
+  CarouselItem,
+  CarouselNext,
+  CarouselPrevious,
+  type CarouselApi,
+} from "../components/ui/carousel";
 import { useNavigate } from "react-router";
 import { ImageWithFallback } from "../components/figma/ImageWithFallback";
 import { useAuth } from "../../lib/auth-context";
 import JobShareButton from "../components/JobShareButton";
 
-import { PLANS } from "../../lib/plans";
+import { PLANS, calculateGst } from "../../lib/plans";
 import { supabase, type Job as DBJob, type RecruiterArticle } from "../../lib/supabase";
-import { isJobVisibleToSeekers } from "../../lib/jobs";
+import { formatJobSalary, isJobVisibleToSeekers } from "../../lib/jobs";
 import { getRecommendedJobs, recordJobInteraction } from "../../lib/jobRecommendations";
 import { isIndianLocation } from "../../lib/locationData";
 import {
@@ -67,19 +76,6 @@ type DisplayJob = {
   description: string;
   dbJob?: DBJob;
 };
-
-function formatSalary(job: DBJob): string {
-  if (job.salary_min && job.salary_max && job.salary_type) {
-    return `${job.salary_min}-${job.salary_max} ${job.salary_type}`;
-  }
-  if (job.salary_min && job.salary_type) {
-    return `${job.salary_min}+ ${job.salary_type}`;
-  }
-  if (job.salary_type) {
-    return `${job.salary_type} compensation`;
-  }
-  return "Compensation as per company standards";
-}
 
 function formatLocation(job: DBJob): string {
   if (job.location?.trim()) return job.location;
@@ -149,7 +145,7 @@ const fallbackTestimonials: LandingTestimonial[] = [
     name: "Sneha Iyer",
     role: "Software Engineer",
     rating: 5,
-    text: "RhirePro helped me land my dream job in just 2 weeks. The process was seamless and the support team was incredible!",
+    text: "RhirePro made my job search feel focused instead of overwhelming. The matched roles were relevant to my skills, and I received timely updates that helped me prepare with confidence before every interview.",
     image:
       "https://plus.unsplash.com/premium_photo-1682089806994-abcccbaa953a?q=80&w=687&auto=format&fit=crop&ixlib=rb-4.1.0&ixid=M3wxMjA3fDB8MHxwaG90by1wYWdlfHx8fGVufDB8fHx8fA%3D%3D",
   },
@@ -158,7 +154,7 @@ const fallbackTestimonials: LandingTestimonial[] = [
     name: "Rahul Sharma",
     role: "Full Stack Developer",
     rating: 5,
-    text: "The best recruitment platform I've ever used. The job matching algorithm is spot-on. Highly recommended!",
+    text: "I liked how quickly RhirePro connected me with companies that were actually hiring for my experience level. The platform saved me hours of searching and made each application feel more intentional.",
     image:
       "https://images.unsplash.com/photo-1612681051163-6c1ad652d143?q=80&w=687&auto=format&fit=crop&ixlib=rb-4.1.0&ixid=M3wxMjA3fDB8MHxwaG90by1wYWdlfHx8fGVufDB8fHx8fA%3D%3D",
   },
@@ -167,7 +163,7 @@ const fallbackTestimonials: LandingTestimonial[] = [
     name: "Priya Reddy",
     role: "Frontend Developer",
     rating: 5,
-    text: "An amazing recruitment platform! The job recommendations are incredibly accurate and saved me so much time. Definitely worth using",
+    text: "The recommendations were much better than the usual job boards I had been using. I discovered roles that matched my frontend background, salary expectations, and preferred location without having to filter endlessly.",
     image:
       "https://images.pexels.com/photos/7648312/pexels-photo-7648312.jpeg?_gl=1*oy4rdb*_ga*MTg0OTEwNDE3NC4xNzY3MDc1ODM4*_ga_8JE65Q40S6*czE3NzQ1MTQwNDQkbzIkZzEkdDE3NzQ1MTQzOTUkajQ5JGwwJGgw",
   },
@@ -176,7 +172,7 @@ const fallbackTestimonials: LandingTestimonial[] = [
     name: "Karthik Kumar",
     role: "React Developer",
     rating: 5,
-    text: "Professional, efficient, and results-driven. RhirePro connected me with opportunities I wouldn't have found elsewhere!",
+    text: "RhirePro helped me stay organized throughout the hiring process. From finding suitable React roles to tracking progress after applying, the experience felt professional, clear, and genuinely useful.",
     image:
       "https://images.unsplash.com/photo-1729157661483-ed21901ed892?q=80&w=687&auto=format&fit=crop&ixlib=rb-4.1.0&ixid=M3wxMjA3fDB8MHxwaG90by1wYWdlfHx8fGVufDB8fHx8fA%3D%3D",
   },
@@ -241,8 +237,40 @@ export default function LandingPage() {
   const [testimonials, setTestimonials] = useState<LandingTestimonial[]>(() =>
     pickUniqueTestimonials([]),
   );
+  const [testimonialCarouselApi, setTestimonialCarouselApi] = useState<CarouselApi>();
+  const [activeTestimonial, setActiveTestimonial] = useState(0);
+  const [testimonialSlideCount, setTestimonialSlideCount] = useState(0);
   const navigate = useNavigate();
   const { user, role, profile } = useAuth();
+
+  const updateTestimonialCarousel = useCallback((api: CarouselApi) => {
+    if (!api) return;
+    setTestimonialSlideCount(api.scrollSnapList().length);
+    setActiveTestimonial(api.selectedScrollSnap());
+  }, []);
+
+  useEffect(() => {
+    if (!testimonialCarouselApi) return;
+
+    updateTestimonialCarousel(testimonialCarouselApi);
+    testimonialCarouselApi.on("select", updateTestimonialCarousel);
+    testimonialCarouselApi.on("reInit", updateTestimonialCarousel);
+
+    return () => {
+      testimonialCarouselApi.off("select", updateTestimonialCarousel);
+      testimonialCarouselApi.off("reInit", updateTestimonialCarousel);
+    };
+  }, [testimonialCarouselApi, updateTestimonialCarousel, testimonials.length]);
+
+  useEffect(() => {
+    if (!testimonialCarouselApi || testimonials.length <= 1) return;
+
+    const autoSlide = window.setInterval(() => {
+      testimonialCarouselApi.scrollNext();
+    }, 5500);
+
+    return () => window.clearInterval(autoSlide);
+  }, [testimonialCarouselApi, testimonials.length]);
 
   const handlePurchasePlan = (planName: string) => {
     const plan = PLANS.find(p => p.name === planName);
@@ -385,7 +413,7 @@ export default function LandingPage() {
           title: job.title,
           company: job.company_name,
           location: formatLocation(job),
-          salary: formatSalary(job),
+          salary: formatJobSalary(job),
           type: formatType(job),
           category: null,
           description: formatDescription(job),
@@ -609,46 +637,7 @@ export default function LandingPage() {
     },
   ];
 
-  const pricingPlans = [
-    {
-      name: "Basic Plan",
-      price: "₹320",
-      period: "month",
-      features: [
-        "10 daily job posts",
-        "Basic Analytics",
-        "Email Support",
-        "1 Team Member",
-      ],
-      popular: false,
-    },
-    {
-      name: "Standard Plan",
-      price: "₹950",
-      period: "month",
-      features: [
-        "50 daily job posts",
-        "100+ job templates",
-        "Advanced Analytics",
-        "Priority Support",
-        "5 Team Members",
-      ],
-      popular: true,
-    },
-    {
-      name: "Premium Plan",
-      price: "₹2200",
-      period: "month",
-      features: [
-        "Unlimited job posts",
-        "Advanced hiring tools",
-        "Dedicated Account Manager",
-        "24/7 Premium Support",
-        "Unlimited Team Members",
-      ],
-      popular: false,
-    },
-  ];
+  const pricingPlans = PLANS;
 
   const stats = [
     { value: "25+", label: "Years Experience" },
@@ -1098,11 +1087,14 @@ export default function LandingPage() {
                   </div>
                   <div className="mb-6">
                     <span className="text-5xl font-bold text-[#3A1F1F]">
-                      {plan.price}
+                      ₹{plan.price}
                     </span>
                     <span className="text-[#8A8A8A]">
                       /{plan.period}
                     </span>
+                    <p className="mt-1 text-xs text-[#8A8A8A]">
+                      + GST ₹{calculateGst(plan.price)}
+                    </p>
                   </div>
                   <Button
                     onClick={(e) => {
@@ -1145,55 +1137,102 @@ export default function LandingPage() {
             </h2>
           </div>
 
-          <div className="grid md:grid-cols-2 gap-8 max-w-6xl mx-auto">
+          <div className="grid md:grid-cols-2 gap-8 lg:gap-12 max-w-6xl mx-auto items-stretch">
             <ImageWithFallback
               src="https://images.pexels.com/photos/4965012/pexels-photo-4965012.jpeg?_gl=1*z0o6rt*_ga*MTg0OTEwNDE3NC4xNzY3MDc1ODM4*_ga_8JE65Q40S6*czE3NzQ1MTQwNDQkbzIkZzEkdDE3NzQ1MTQxMDIkajIkbDAkaDA."
               alt="Career success professional"
-              className="rounded-2xl h-96 w-full object-cover"
+              className="rounded-2xl h-80 md:h-full min-h-[350px] w-full object-cover"
             />
-            <div className="space-y-6">
-              {testimonials.map((testimonial) => (
-                <div
-                  key={testimonial.id}
-                  className="bg-white rounded-2xl p-6 shadow-md border border-gray-100"
-                >
-                  <div className="flex mb-4">
-                    {[1, 2, 3, 4, 5].map((value) => (
-                      <Star
-                        key={value}
-                        className={`h-5 w-5 ${value <= testimonial.rating
-                          ? "fill-yellow-400 text-yellow-400"
-                          : "text-gray-300"
+            <div className="relative flex min-h-[350px] flex-col justify-between">
+              <Carousel
+                setApi={setTestimonialCarouselApi}
+                opts={{
+                  align: "start",
+                  loop: true,
+                }}
+                className="w-full"
+                aria-label="Customer testimonials"
+              >
+                <CarouselContent className="-ml-5">
+                  {testimonials.map((testimonial, index) => {
+                    const isActive = index === activeTestimonial;
+
+                    return (
+                      <CarouselItem key={testimonial.id} className="pl-5">
+                        <article
+                          className={`flex h-full min-h-[350px] flex-col rounded-2xl border bg-white p-7 shadow-sm transition-all duration-300 sm:p-8 ${isActive
+                            ? "border-[#FF2B2B]/25 shadow-xl shadow-[#3A1F1F]/10"
+                            : "border-gray-100 shadow-md"
+                            }`}
+                        >
+                          <div className="mb-5 flex items-center justify-between gap-4">
+                            <div className="flex gap-1.5" aria-label={`${testimonial.rating} out of 5 stars`}>
+                              {[1, 2, 3, 4, 5].map((value) => (
+                                <Star
+                                  key={value}
+                                  className={`h-5 w-5 ${value <= testimonial.rating
+                                    ? "fill-yellow-400 text-yellow-400"
+                                    : "text-gray-300"
+                                    }`}
+                                />
+                              ))}
+                            </div>
+                            <Quote className="h-9 w-9 flex-shrink-0 text-[#FF2B2B]/25" aria-hidden="true" />
+                          </div>
+
+                          <p className="line-clamp-6 flex-1 text-lg leading-8 text-[#5F5F5F] sm:text-xl sm:leading-9">
+                            {testimonial.text}
+                          </p>
+
+                          <div className="mt-6 flex items-center gap-4 border-t border-gray-100 pt-5">
+                            {testimonial.image ? (
+                              <ImageWithFallback
+                                src={testimonial.image}
+                                alt={testimonial.name}
+                                className="h-12 w-12 rounded-full object-cover ring-2 ring-[#FF2B2B]/10"
+                              />
+                            ) : (
+                              <div className="flex h-12 w-12 flex-shrink-0 items-center justify-center rounded-full bg-[#3A1F1F] text-sm font-semibold text-white">
+                                {getInitials(testimonial.name)}
+                              </div>
+                            )}
+                            <div className="min-w-0">
+                              <p className="truncate font-semibold text-[#3A1F1F]">
+                                {testimonial.name}
+                              </p>
+                              <p className="truncate text-sm text-[#8A8A8A]">
+                                {testimonial.role}
+                              </p>
+                            </div>
+                          </div>
+                        </article>
+                      </CarouselItem>
+                    );
+                  })}
+                </CarouselContent>
+
+                <div className="mt-7 flex items-center justify-between gap-4">
+                  <div className="flex items-center gap-2" aria-label="Testimonial slides">
+                    {Array.from({ length: testimonialSlideCount }).map((_, index) => (
+                      <button
+                        key={index}
+                        type="button"
+                        onClick={() => testimonialCarouselApi?.scrollTo(index)}
+                        className={`h-2.5 rounded-full transition-all ${index === activeTestimonial
+                          ? "w-8 bg-[#FF2B2B]"
+                          : "w-2.5 bg-[#3A1F1F]/20 hover:bg-[#3A1F1F]/40"
                           }`}
+                        aria-label={`Go to testimonial ${index + 1}`}
+                        aria-current={index === activeTestimonial ? "true" : undefined}
                       />
                     ))}
                   </div>
-                  <p className="text-[#8A8A8A] mb-4">
-                    "{testimonial.text}"
-                  </p>
-                  <div className="flex items-center gap-3">
-                    {testimonial.image ? (
-                      <ImageWithFallback
-                        src={testimonial.image}
-                        alt={testimonial.name}
-                        className="w-10 h-10 rounded-full object-cover"
-                      />
-                    ) : (
-                      <div className="flex h-10 w-10 items-center justify-center rounded-full bg-[#3A1F1F] text-sm font-semibold text-white">
-                        {getInitials(testimonial.name)}
-                      </div>
-                    )}
-                    <div>
-                      <p className="font-semibold text-[#3A1F1F]">
-                        {testimonial.name}
-                      </p>
-                      <p className="text-sm text-[#8A8A8A]">
-                        {testimonial.role}
-                      </p>
-                    </div>
+                  <div className="relative flex items-center gap-3">
+                    <CarouselPrevious className="static h-10 w-10 translate-x-0 translate-y-0 border-[#3A1F1F]/15 bg-white text-[#3A1F1F] shadow-sm hover:bg-[#FFF4F4] hover:text-[#FF2B2B]" />
+                    <CarouselNext className="static h-10 w-10 translate-x-0 translate-y-0 border-[#3A1F1F]/15 bg-white text-[#3A1F1F] shadow-sm hover:bg-[#FFF4F4] hover:text-[#FF2B2B]" />
                   </div>
                 </div>
-              ))}
+              </Carousel>
             </div>
           </div>
         </div>
