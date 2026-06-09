@@ -662,15 +662,32 @@ export default function ApplicantProfilePage() {
                 <div>
                   <span className="font-semibold text-[#3A1F1F] block">Preferred Interview Mode</span>
                   <div className="flex gap-1.5 flex-wrap mt-1">
-                    {profile?.preferred_interview_mode && Array.isArray(profile.preferred_interview_mode) && profile.preferred_interview_mode.length > 0 ? (
-                      profile.preferred_interview_mode.map((mode: string) => (
-                        <Badge key={mode} className="bg-red-50 text-[#FF2B2B] border border-red-100 hover:bg-red-50 text-xs rounded-full">
-                          {mode}
-                        </Badge>
-                      ))
-                    ) : (
-                      "—"
-                    )}
+                    {(() => {
+                      let modes: string[] = [];
+                      if (profile?.preferred_interview_mode) {
+                        if (Array.isArray(profile.preferred_interview_mode)) {
+                          modes = profile.preferred_interview_mode;
+                        } else if (typeof profile.preferred_interview_mode === "string") {
+                          try {
+                            const parsed = JSON.parse(profile.preferred_interview_mode);
+                            if (Array.isArray(parsed)) {
+                              modes = parsed;
+                            }
+                          } catch (e) {
+                            modes = profile.preferred_interview_mode.split(",").map((s: string) => s.trim()).filter(Boolean);
+                          }
+                        }
+                      }
+                      return modes.length > 0 ? (
+                        modes.map((mode: string) => (
+                          <Badge key={mode} className="bg-red-50 text-[#FF2B2B] border border-red-100 hover:bg-red-50 text-xs rounded-full">
+                            {mode}
+                          </Badge>
+                        ))
+                      ) : (
+                        "—"
+                      );
+                    })()}
                   </div>
                 </div>
               </div>
