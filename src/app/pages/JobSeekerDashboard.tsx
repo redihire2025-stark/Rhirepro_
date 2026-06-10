@@ -1472,6 +1472,7 @@ function ProfilePage({ onPendingPrefsChange }: { onPendingPrefsChange?: (pending
   const [skillPickerOpen, setSkillPickerOpen] = useState(false);
   const [skillSearch, setSkillSearch] = useState("");
   const skillFieldRef = useRef<HTMLDivElement>(null);
+  const skillInputRef = useRef<HTMLInputElement>(null);
   const [preferredJobPickerOpen, setPreferredJobPickerOpen] = useState(false);
   const [preferredJobSearch, setPreferredJobSearch] = useState("");
   const [preferredJobOptions, setPreferredJobOptions] = useState<string[]>([]);
@@ -1813,7 +1814,9 @@ function ProfilePage({ onPendingPrefsChange }: { onPendingPrefsChange?: (pending
   useEffect(() => {
     if (!skillPickerOpen) return;
     const handleClickOutside = (event: MouseEvent) => {
-      if (!skillFieldRef.current?.contains(event.target as Node)) {
+      const target = event.target as Node;
+      if (!document.body.contains(target)) return;
+      if (!skillFieldRef.current?.contains(target)) {
         setSkillPickerOpen(false);
       }
     };
@@ -1879,11 +1882,21 @@ function ProfilePage({ onPendingPrefsChange }: { onPendingPrefsChange?: (pending
   // ── Helpers ───────────────────────────────────────────────────────────────
   async function addSkill(skill: string) {
     const s = skill.trim();
-    const alreadySelected = skills.some(existing => existing.toLowerCase() === s.toLowerCase());
-    if (!s || alreadySelected) return;
+    if (!s) return;
 
-    const updated = [...skills, s];
+    const alreadySelected = skills.some(existing => existing.toLowerCase() === s.toLowerCase());
+    let updated: string[];
+    if (alreadySelected) {
+      updated = skills.filter(existing => existing.toLowerCase() !== s.toLowerCase());
+    } else {
+      updated = [...skills, s];
+    }
     setSkills(updated);
+    setSkillSearch("");
+
+    setTimeout(() => {
+      skillInputRef.current?.focus();
+    }, 0);
 
     if (profile?.id) {
       const { error } = await supabase.from("profiles").update({ skills: updated }).eq("id", profile.id);
@@ -2455,6 +2468,7 @@ function ProfilePage({ onPendingPrefsChange }: { onPendingPrefsChange?: (pending
                 <div className="relative">
                   <Search className="absolute left-3 top-1/2 h-4 w-4 -translate-y-1/2 text-[#8A8A8A]" />
                   <Input
+                    ref={skillInputRef}
                     value={skillSearch}
                     onFocus={() => setSkillPickerOpen(true)}
                     onChange={(e) => {
