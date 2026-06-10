@@ -1,4 +1,5 @@
 import React from "react";
+import DOMPurify from "dompurify";
 
 interface SafeHtmlProps {
   content: string | null | undefined;
@@ -8,22 +9,12 @@ interface SafeHtmlProps {
 export function SafeHtml({ content, className }: SafeHtmlProps) {
   if (!content) return null;
 
-  // Simple check for HTML tags
-  const isHtml = /<[a-z][\s\S]*>/i.test(content);
+  const sanitizedContent = DOMPurify.sanitize(content);
 
-  if (isHtml) {
-    return (
-      <div
-        className={className}
-        dangerouslySetInnerHTML={{ __html: content }}
-      />
-    );
-  }
-
-  // Fallback for plain text, preserving line breaks
   return (
-    <div className={className} style={{ whiteSpace: "pre-line" }}>
-      {content}
-    </div>
+    <div
+      className={className}
+      dangerouslySetInnerHTML={{ __html: sanitizedContent }}
+    />
   );
 }

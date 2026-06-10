@@ -6,12 +6,14 @@ from fastapi import FastAPI, Header, HTTPException, Query
 from pydantic import BaseModel, Field
 from supabase import Client, create_client
 
-SUPABASE_URL = os.environ.get("SUPABASE_URL")
-SUPABASE_SERVICE_ROLE_KEY = os.environ.get("SUPABASE_SERVICE_ROLE_KEY")
+SUPABASE_URL = os.getenv("SUPABASE_URL")
+SUPABASE_SERVICE_ROLE_KEY = os.getenv("SUPABASE_SERVICE_ROLE_KEY")
 JOB_EXPIRY_DAYS = 15
 
 if not SUPABASE_URL or not SUPABASE_SERVICE_ROLE_KEY:
-  raise RuntimeError("Set SUPABASE_URL and SUPABASE_SERVICE_ROLE_KEY before starting the API.")
+    raise RuntimeError(
+        "SUPABASE_URL and SUPABASE_SERVICE_ROLE_KEY must be configured."
+    )
 
 supabase: Client = create_client(SUPABASE_URL, SUPABASE_SERVICE_ROLE_KEY)
 app = FastAPI(title="RhirePro Notifications API")
