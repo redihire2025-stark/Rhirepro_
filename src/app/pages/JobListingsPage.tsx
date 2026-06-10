@@ -56,7 +56,8 @@ function formatType(job: DBJob): string {
 }
 
 function stripHtml(value: string): string {
-  return value.replace(/<[^>]*>/g, " ").replace(/\s+/g, " ").trim();
+  const doc = new DOMParser().parseFromString(value, "text/html");
+  return doc.body.textContent?.replace(/\s+/g, " ").trim() ?? "";
 }
 
 function formatDescription(job: DBJob): string {
@@ -135,10 +136,23 @@ export default function JobListingsPage() {
 
       const appliedJobIds = (applicationsRes.data || []).map((item) => item.job_id);
       const savedJobIds = (savedRes.data || []).map((item) => item.job_id);
-      const preferredInterviewModes = role === "jobseeker" && Array.isArray(profile?.preferred_interview_mode)
-        ? profile.preferred_interview_mode
-            .map((value) => normalizeInterviewMode(value))
-            .filter((value): value is string => Boolean(value))
+      let rawModes: any = [];
+      if (role === "jobseeker" && profile?.preferred_interview_mode) {
+        if (Array.isArray(profile.preferred_interview_mode)) {
+          rawModes = profile.preferred_interview_mode;
+        } else if (typeof profile.preferred_interview_mode === "string") {
+          try {
+            const parsed = JSON.parse(profile.preferred_interview_mode);
+            if (Array.isArray(parsed)) rawModes = parsed;
+          } catch (e) {
+            rawModes = profile.preferred_interview_mode.split(",").map((s: string) => s.trim()).filter(Boolean);
+          }
+        }
+      }
+      const preferredInterviewModes = Array.isArray(rawModes)
+        ? rawModes
+            .map((value: any) => normalizeInterviewMode(value))
+            .filter((value: any): value is string => Boolean(value))
         : [];
 
       const visibleIndianJobs = assignBalancedCategories((data || [])

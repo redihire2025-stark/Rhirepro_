@@ -19,15 +19,27 @@ if (!supabaseUrl || !supabaseAnonKey) {
 const supabase = createClient(supabaseUrl, supabaseAnonKey);
 
 async function check() {
-  const { data: jobs, error } = await supabase.from('jobs').select('*').limit(5);
-  if (error) {
-    console.error("Error fetching jobs:", error);
-  } else {
-    console.log(`First few jobs:`);
-    jobs.forEach(j => {
-      console.log(`- ${j.id}: "${j.title}" by company "${j.company_name}" (recruiter_id: ${j.recruiter_id})`);
+  try {
+    const { data: jobs, error } = await supabase
+      .from('jobs')
+      .select('*')
+      .limit(5);
+
+    if (error) {
+      console.error('Error fetching jobs:', error);
+      return;
+    }
+
+    console.log('First few jobs:');
+
+    jobs?.forEach((job) => {
+      console.log(
+        `- ${job.id}: "${job.title}" by company "${job.company_name}" (recruiter_id: ${job.recruiter_id})`
+      );
     });
+  } catch (err) {
+    console.error('Unexpected error while checking jobs:', err);
   }
 }
 
-check();
+void check();
