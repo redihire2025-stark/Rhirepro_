@@ -1708,6 +1708,7 @@ function PostJobPage() {
   const [skillPickerOpen, setSkillPickerOpen] = useState(false);
   const [skillSearch, setSkillSearch] = useState("");
   const skillFieldRef = useRef<HTMLDivElement>(null);
+  const skillInputRef = useRef<HTMLInputElement>(null);
   const [departmentPickerOpen, setDepartmentPickerOpen] = useState(false);
   const [departmentSearch, setDepartmentSearch] = useState("");
   const departmentFieldRef = useRef<HTMLDivElement>(null);
@@ -1782,7 +1783,9 @@ function PostJobPage() {
   useEffect(() => {
     if (!skillPickerOpen) return;
     const handleClickOutside = (event: MouseEvent) => {
-      if (!skillFieldRef.current?.contains(event.target as Node)) {
+      const target = event.target as Node;
+      if (!document.body.contains(target)) return;
+      if (!skillFieldRef.current?.contains(target)) {
         setSkillPickerOpen(false);
       }
     };
@@ -1809,12 +1812,16 @@ function PostJobPage() {
     const s = skill.trim();
     if (!s) return;
     const alreadySelected = selectedSkills.some(existing => existing.toLowerCase() === s.toLowerCase());
-    if (!alreadySelected) {
+    if (alreadySelected) {
+      const updated = selectedSkills.filter(existing => existing.toLowerCase() !== s.toLowerCase());
+      setFormData(prev => ({ ...prev, skills: updated.join(", ") }));
+    } else {
       setFormData(prev => ({ ...prev, skills: [...selectedSkills, s].join(", ") }));
     }
     setSkillSearch("");
-    setSkillPickerOpen(false);
-    setShowSkillInput(false);
+    setTimeout(() => {
+      skillInputRef.current?.focus();
+    }, 0);
   };
 
   const removeSkill = (skill: string) => {
@@ -2366,6 +2373,7 @@ function PostJobPage() {
                   <div className="relative">
                     <Search className="absolute left-3 top-1/2 h-4 w-4 -translate-y-1/2 text-[#8A8A8A]" />
                     <Input
+                      ref={skillInputRef}
                       value={skillSearch}
                       onFocus={() => setSkillPickerOpen(true)}
                       onChange={(e) => {
