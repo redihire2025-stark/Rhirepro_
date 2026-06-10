@@ -64,6 +64,15 @@ import {
 
 const logoImage = new URL("../../logo/logo.png", import.meta.url).href;
 
+const SERVICES_IMAGES = {
+  talentSourcing: "https://images.unsplash.com/photo-1521737711867-e3b97375f902?w=400&q=80",
+  executiveSearch: "https://images.unsplash.com/photo-1580894732444-8ecded7900cd?q=80&w=1170&auto=format&fit=crop&ixlib=rb-4.1.0&ixid=M3wxMjA3fDB8MHxwaG90by1wYWdlfHx8fGVufDB8fHx8fA%3D%3D",
+  jobMatching: "https://images.unsplash.com/photo-1551434678-e076c223a692?w=400&q=80",
+  employerBranding: "https://images.unsplash.com/photo-1600880292203-757bb62b4baf?w=400&q=80",
+  careerCoaching: "https://images.unsplash.com/photo-1516321318423-f06f85e504b3?w=400&q=80",
+  contractHiring: "https://images.unsplash.com/photo-1450101499163-c8848c66ca85?w=400&q=80",
+};
+
 type DisplayJob = {
   id: string;
   title: string;
@@ -494,42 +503,42 @@ export default function LandingPage() {
       description:
         "Connect with top talent across industries to find the perfect candidates for your organization.",
       icon: Users,
-      image: "https://images.unsplash.com/photo-1521737711867-e3b97375f902?w=400&q=80",
+      image: SERVICES_IMAGES.talentSourcing,
     },
     {
       title: "Executive Search",
       description:
         "Specialized recruitment for senior leadership positions that drive your company forward.",
       icon: Award,
-      image: "https://images.unsplash.com/photo-1580894732444-8ecded7900cd?q=80&w=1170&auto=format&fit=crop&ixlib=rb-4.1.0&ixid=M3wxMjA3fDB8MHxwaG90by1wYWdlfHx8fGVufDB8fHx8fA%3D%3D",
+      image: SERVICES_IMAGES.executiveSearch,
     },
     {
       title: "Job Matching",
       description:
         "AI-powered algorithms match candidates with opportunities based on skills and culture fit.",
       icon: Briefcase,
-      image: "https://images.unsplash.com/photo-1551434678-e076c223a692?w=400&q=80",
+      image: SERVICES_IMAGES.jobMatching,
     },
     {
       title: "Employer Branding",
       description:
         "Build and promote your employer brand to attract the best talent in your industry.",
       icon: TrendingUp,
-      image: "https://images.unsplash.com/photo-1600880292203-757bb62b4baf?w=400&q=80",
+      image: SERVICES_IMAGES.employerBranding,
     },
     {
       title: "Career Coaching & Resume Review",
       description:
         "Expert guidance to help candidates present themselves effectively.",
       icon: CheckCircle2,
-      image: "https://images.unsplash.com/photo-1516321318423-f06f85e504b3?w=400&q=80",
+      image: SERVICES_IMAGES.careerCoaching,
     },
     {
       title: "Contract & Project-Based Hiring",
       description:
         "Flexible hiring solutions for temporary and project-based needs.",
       icon: Clock,
-      image: "https://images.unsplash.com/photo-1450101499163-c8848c66ca85?w=400&q=80",
+      image: SERVICES_IMAGES.contractHiring,
     },
   ];
 
