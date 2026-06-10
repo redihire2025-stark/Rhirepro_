@@ -17,6 +17,7 @@ interface RichTextEditorProps {
   placeholder?: string;
   className?: string;
   minHeight?: string;
+  lockHeadings?: boolean;
 }
 
 interface ActiveFormats {
@@ -45,6 +46,7 @@ export function RichTextEditor({
   placeholder,
   className,
   minHeight = "150px",
+  lockHeadings = false,
 }: RichTextEditorProps) {
   const editorRef = useRef<HTMLDivElement>(null);
   const [isFocused, setIsFocused] = useState(false);
@@ -55,12 +57,12 @@ export function RichTextEditor({
   useEffect(() => {
     if (editorRef.current) {
       const currentHTML = editorRef.current.innerHTML;
-      if (isFirstMount.current || currentHTML !== value) {
+      if (isFirstMount.current || (!isFocused && currentHTML !== value)) {
         editorRef.current.innerHTML = value || "";
         isFirstMount.current = false;
       }
     }
-  }, [value]);
+  }, [value, isFocused]);
 
   // Query the current formatting state at the caret position
   const updateActiveFormats = useCallback(() => {
@@ -107,6 +109,116 @@ export function RichTextEditor({
       document.removeEventListener("selectionchange", onSelectionChange);
     };
   }, [updateActiveFormats]);
+
+  const handleKeyDown = (e: React.KeyboardEvent<HTMLDivElement>) => {
+    if (!lockHeadings) return;
+
+    const selection = window.getSelection();
+    if (!selection) return;
+
+    // Check if any key is pressed when range selection covers a locked heading
+    if (!selection.isCollapsed) {
+      try {
+        const range = selection.getRangeAt(0);
+        const container = document.createElement("div");
+        container.appendChild(range.cloneContents());
+        const headings = container.querySelectorAll("h2");
+        let hasLockedHeading = false;
+        headings.forEach((h) => {
+          const text = h.textContent?.toLowerCase() || "";
+          if (text.includes("about company") || text.includes("company information")) {
+            hasLockedHeading = true;
+          }
+        });
+        if (hasLockedHeading) {
+          // Allow copy action (Ctrl+C / Cmd+C)
+          const isCopy = (e.ctrlKey || e.metaKey) && e.key.toLowerCase() === "c";
+          if (!isCopy) {
+            e.preventDefault();
+            return;
+          }
+        }
+      } catch (err) {
+        // Fallback
+      }
+    }
+
+    if (e.key === "Backspace" || e.key === "Delete") {
+      const node = selection.anchorNode;
+      if (!node) return;
+
+      // Find block container
+      let currentBlock: HTMLElement | null = null;
+      let temp: Node | null = node;
+      while (temp && temp !== editorRef.current) {
+        if (temp.nodeType === Node.ELEMENT_NODE) {
+          currentBlock = temp as HTMLElement;
+          break;
+        }
+        temp = temp.parentNode;
+      }
+
+      if (e.key === "Backspace") {
+        if (currentBlock) {
+          const range = selection.getRangeAt(0);
+          if (range.startOffset === 0) {
+            const prevSibling = currentBlock.previousElementSibling;
+            if (
+              prevSibling &&
+              prevSibling.tagName === "H2" &&
+              prevSibling.getAttribute("contenteditable") === "false"
+            ) {
+              e.preventDefault();
+              return;
+            }
+          }
+        }
+      }
+
+      if (e.key === "Delete") {
+        if (currentBlock) {
+          const range = selection.getRangeAt(0);
+          const textLen = currentBlock.textContent?.length || 0;
+          if (range.startOffset === textLen) {
+            const nextSibling = currentBlock.nextElementSibling;
+            if (
+              nextSibling &&
+              nextSibling.tagName === "H2" &&
+              nextSibling.getAttribute("contenteditable") === "false"
+            ) {
+              e.preventDefault();
+              return;
+            }
+          }
+        }
+      }
+    }
+  };
+
+  const handlePaste = (e: React.ClipboardEvent<HTMLDivElement>) => {
+    if (!lockHeadings) return;
+    const selection = window.getSelection();
+    if (selection && !selection.isCollapsed) {
+      try {
+        const range = selection.getRangeAt(0);
+        const container = document.createElement("div");
+        container.appendChild(range.cloneContents());
+        const headings = container.querySelectorAll("h2");
+        let hasLockedHeading = false;
+        headings.forEach((h) => {
+          const text = h.textContent?.toLowerCase() || "";
+          if (text.includes("about company") || text.includes("company information")) {
+            hasLockedHeading = true;
+          }
+        });
+        if (hasLockedHeading) {
+          e.preventDefault();
+        }
+      } catch (err) {
+        // Fallback
+      }
+    }
+  };
 
   const handleInput = () => {
     if (editorRef.current) {
@@ -280,6 +392,8 @@ export function RichTextEditor({
           onBlur={() => setIsFocused(false)}
           onKeyUp={updateActiveFormats}
           onMouseUp={updateActiveFormats}
+          onKeyDown={handleKeyDown}
+          onPaste={handlePaste}
           className="p-4 outline-none text-sm text-[#3A1F1F] overflow-y-auto w-full min-h-[150px] [&_ul]:list-disc [&_ul]:pl-5 [&_ol]:list-decimal [&_ol]:pl-5 [&_h2]:text-base [&_h2]:font-bold [&_h2]:mt-2 [&_h2]:mb-1 [&_h3]:text-sm [&_h3]:font-bold [&_h3]:mt-1.5 [&_h3]:mb-1 [&_a]:text-[#FF2B2B] [&_a]:underline"
           style={{ minHeight }}
         />
