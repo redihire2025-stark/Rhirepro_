@@ -64,6 +64,15 @@ import {
 
 const logoImage = new URL("../../logo/logo.png", import.meta.url).href;
 
+const SERVICES_IMAGES = {
+  talentSourcing: "https://images.unsplash.com/photo-1521737711867-e3b97375f902?w=400&q=80",
+  executiveSearch: "https://images.unsplash.com/photo-1580894732444-8ecded7900cd?q=80&w=1170&auto=format&fit=crop&ixlib=rb-4.1.0&ixid=M3wxMjA3fDB8MHxwaG90by1wYWdlfHx8fGVufDB8fHx8fA%3D%3D",
+  jobMatching: "https://images.unsplash.com/photo-1551434678-e076c223a692?w=400&q=80",
+  employerBranding: "https://images.unsplash.com/photo-1600880292203-757bb62b4baf?w=400&q=80",
+  careerCoaching: "https://images.unsplash.com/photo-1516321318423-f06f85e504b3?w=400&q=80",
+  contractHiring: "https://images.unsplash.com/photo-1450101499163-c8848c66ca85?w=400&q=80",
+};
+
 type DisplayJob = {
   id: string;
   title: string;
@@ -494,36 +503,42 @@ export default function LandingPage() {
       description:
         "Connect with top talent across industries to find the perfect candidates for your organization.",
       icon: Users,
+      image: SERVICES_IMAGES.talentSourcing,
     },
     {
       title: "Executive Search",
       description:
         "Specialized recruitment for senior leadership positions that drive your company forward.",
       icon: Award,
+      image: SERVICES_IMAGES.executiveSearch,
     },
     {
       title: "Job Matching",
       description:
         "AI-powered algorithms match candidates with opportunities based on skills and culture fit.",
       icon: Briefcase,
+      image: SERVICES_IMAGES.jobMatching,
     },
     {
       title: "Employer Branding",
       description:
         "Build and promote your employer brand to attract the best talent in your industry.",
       icon: TrendingUp,
+      image: SERVICES_IMAGES.employerBranding,
     },
     {
       title: "Career Coaching & Resume Review",
       description:
         "Expert guidance to help candidates present themselves effectively.",
       icon: CheckCircle2,
+      image: SERVICES_IMAGES.careerCoaching,
     },
     {
       title: "Contract & Project-Based Hiring",
       description:
         "Flexible hiring solutions for temporary and project-based needs.",
       icon: Clock,
+      image: SERVICES_IMAGES.contractHiring,
     },
   ];
 
@@ -943,30 +958,47 @@ export default function LandingPage() {
               goals.
             </p>
           </div>
-          <div className="grid md:grid-cols-2 gap-12 items-center">
-            <ImageWithFallback
-              src="https://images.unsplash.com/photo-1646153114001-495dfb56506d?crop=entropy&cs=tinysrgb&fit=max&fm=jpg&ixid=M3w3Nzg4Nzd8MHwxfHNlYXJjaHwxfHxtb2Rlcm4lMjBvZmZpY2UlMjB3b3Jrc3BhY2UlMjB0ZWNobm9sb2d5fGVufDF8fHx8MTc3Mjc4MTA1MXww&ixlib=rb-4.1.0&q=80&w=1080"
-              alt="Modern office workspace"
-              className="rounded-2xl h-96 w-full object-cover"
-            />
-            <div className="space-y-6">
-              <div className="flex gap-4">
-                <ImageWithFallback
-                  src="https://images.unsplash.com/photo-1758518730380-04c8e0d57b68?crop=entropy&cs=tinysrgb&fit=max&fm=jpg&ixid=M3w3Nzg4Nzd8MHwxfHNlYXJjaHwxfHxociUyMG1hbmFnZXIlMjBpbnRlcnZpZXdpbmclMjBjYW5kaWRhdGV8ZW58MXx8fHwxNzcyODIyNTAzfDA&ixlib=rb-4.1.0&q=80&w=1080"
-                  alt="HR interview"
-                  className="rounded-2xl h-48 flex-1 object-cover"
-                />
-                <ImageWithFallback
-                  src="https://images.unsplash.com/photo-1769839271768-aee5469799ee?crop=entropy&cs=tinysrgb&fit=max&fm=jpg&ixid=M3w3Nzg4Nzd8MHwxfHNlYXJjaHwxfHxwcm9mZXNzaW9uYWwlMjBjb25zdWx0YW50JTIwcHJlc2VudGF0aW9ufGVufDF8fHx8MTc3MjgyMjUwNnww&ixlib=rb-4.1.0&q=80&w=1080"
-                  alt="Professional consultant"
-                  className="rounded-2xl h-48 flex-1 object-cover"
-                />
-              </div>
+          <div className="grid md:grid-cols-2 gap-6">
+            <div className="rounded-2xl overflow-hidden h-96 w-full bg-gray-100">
               <ImageWithFallback
-                src="https://images.unsplash.com/photo-1739298061766-e2751d92e9db?crop=entropy&cs=tinysrgb&fit=max&fm=jpg&ixid=M3w3Nzg4Nzd8MHwxfHNlYXJjaHwxfHxkaXZlcnNlJTIwYnVzaW5lc3MlMjB0ZWFtJTIwd29ya2luZ3xlbnwxfHx8fDE3NzI4MjI1MDV8MA&ixlib=rb-4.1.0&q=80&w=1080"
-                alt="Diverse team working"
-                className="rounded-2xl h-48 w-full object-cover"
+                src="https://images.unsplash.com/photo-1758691737124-05c5bffe46f0?q=80&w=1632&auto=format&fit=crop&ixlib=rb-4.1.0&ixid=M3wxMjA3fDB8MHxwaG90by1wYWdlfHx8fGVufDB8fHx8fA%3D%3D"
+                alt="People working together in office"
+                className="w-full h-full object-cover"
               />
+            </div>
+            <div className="flex flex-col gap-4 h-96">
+              <div className="flex gap-4 flex-1 min-h-0">
+                <div className="rounded-2xl overflow-hidden flex-1 min-h-0 bg-gray-100">
+                  <ImageWithFallback
+                    src="https://images.unsplash.com/photo-1571826784833-50a3087d9d60?w=500&auto=format&fit=crop&q=60&ixlib=rb-4.1.0&ixid=M3wxMjA3fDB8MHxwaG90by1yZWxhdGVkfDIzfHx8ZW58MHx8fHx8"
+                    alt="Job interview"
+                    className="w-full h-full object-cover"
+                  />
+                </div>
+                <div className="rounded-2xl overflow-hidden flex-1 min-h-0 bg-gray-100">
+                  <ImageWithFallback
+                    src="https://images.unsplash.com/photo-1603201667141-5a2d4c673378?w=500&auto=format&fit=crop&q=60&ixlib=rb-4.1.0&ixid=M3wxMjA3fDB8MHxwaG90by1yZWxhdGVkfDl8fHxlbnwwfHx8fHw%3D"
+                    alt="Professional recruiter"
+                    className="w-full h-full object-cover"
+                  />
+                </div>
+              </div>
+              <div className="flex gap-4 flex-1 min-h-0">
+                <div className="rounded-2xl overflow-hidden flex-1 min-h-0 bg-gray-100">
+                  <ImageWithFallback
+                    src="https://images.unsplash.com/photo-1531538606174-0f90ff5dce83?auto=format&fit=crop&w=600&h=400&q=80"
+                    alt="Diverse team working together"
+                    className="w-full h-full object-cover"
+                  />
+                </div>
+                <div className="rounded-2xl overflow-hidden flex-1 min-h-0 bg-gray-100">
+                  <ImageWithFallback
+                    src="https://images.unsplash.com/photo-1522202176988-66273c2fd55f?auto=format&fit=crop&w=600&h=400&q=80"
+                    alt="Employee working happily"
+                    className="w-full h-full object-cover"
+                  />
+                </div>
+              </div>
             </div>
           </div>
         </div>
@@ -1015,7 +1047,13 @@ export default function LandingPage() {
                   key={index}
                   className="bg-white rounded-2xl p-6 shadow-md hover:shadow-lg transition-all border border-gray-100 flex items-start gap-6"
                 >
-                  <div className="bg-gray-200 rounded-xl h-24 w-32 flex-shrink-0"></div>
+                  <div className="rounded-xl h-24 w-32 flex-shrink-0 overflow-hidden bg-gray-100">
+                    <img
+                      src={service.image}
+                      alt={service.title}
+                      className="w-full h-full object-cover"
+                    />
+                  </div>
                   <div className="flex-1">
                     <h3 className="text-2xl font-bold text-[#3A1F1F] mb-2">
                       {service.title}
@@ -1491,7 +1529,11 @@ export default function LandingPage() {
             <div className="grid grid-cols-2 gap-4">
               <div className="space-y-4">
                 <div className="bg-white rounded-2xl p-6">
-                  <div className="bg-gray-300 rounded-xl h-32 mb-4"></div>
+                  <ImageWithFallback
+                    src="https://images.unsplash.com/photo-1434030216411-0b793f4b4173?auto=format&fit=crop&w=400&h=250&q=80"
+                    alt="Career Growth Tips"
+                    className="w-full h-32 object-cover rounded-xl mb-4"
+                  />
                   <h4 className="font-semibold text-[#3A1F1F] mb-2">
                     Career Growth Tips
                   </h4>
@@ -1503,7 +1545,11 @@ export default function LandingPage() {
               </div>
               <div className="space-y-4 mt-8">
                 <div className="bg-white rounded-2xl p-6">
-                  <div className="bg-gray-300 rounded-xl h-32 mb-4"></div>
+                  <ImageWithFallback
+                    src="https://images.unsplash.com/photo-1586281380349-632531db7ed4?auto=format&fit=crop&w=400&h=250&q=80"
+                    alt="Resume Building"
+                    className="w-full h-32 object-cover rounded-xl mb-4"
+                  />
                   <h4 className="font-semibold text-[#3A1F1F] mb-2">
                     Resume Building
                   </h4>
