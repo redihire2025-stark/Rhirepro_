@@ -310,7 +310,14 @@ export default function JobDetailPage() {
                       </span>
                       <div className="w-3 h-3 bg-[#FF2B2B] rounded-full"></div>
                     </div>
-                    <h2 className="text-3xl font-bold text-[#3A1F1F] mb-4">{currentJob.title}</h2>
+                    <div className="flex items-center justify-between gap-4 flex-wrap mb-4">
+                      <h2 className="text-3xl font-bold text-[#3A1F1F]">{currentJob.title}</h2>
+                      {job?.created_at && (
+                        <span className="text-sm text-[#8A8A8A] font-medium bg-[#ECECF4] px-3 py-1.5 rounded-full shrink-0">
+                          Posted {new Date(job.created_at).toLocaleDateString('en-US', { day: 'numeric', month: 'short', year: 'numeric' })}
+                        </span>
+                      )}
+                    </div>
                   </div>
                 </div>
 
@@ -346,40 +353,48 @@ export default function JobDetailPage() {
               {/* Job Description */}
               <div className="bg-white rounded-2xl p-8 shadow-md">
                 <h3 className="text-2xl font-bold text-[#3A1F1F] mb-4">Job Description :</h3>
-                <div className="text-[#8A8A8A] leading-relaxed mb-6 [&_ul]:list-disc [&_ul]:pl-5 [&_ol]:list-decimal [&_ol]:pl-5 [&_h2]:text-base [&_h2]:font-bold [&_h2]:mt-2 [&_h2]:mb-1 [&_h3]:text-sm [&_h3]:font-bold [&_h3]:mt-1.5 [&_h3]:mb-1 [&_a]:text-[#FF2B2B] [&_a]:underline">
+                <div className="rich-text-content text-[#8A8A8A] leading-relaxed mb-6 [&_ul]:list-disc [&_ul]:pl-5 [&_ol]:list-decimal [&_ol]:pl-5 [&_h2]:text-base [&_h2]:font-bold [&_h2]:mt-2 [&_h2]:mb-1 [&_h3]:text-sm [&_h3]:font-bold [&_h3]:mt-1.5 [&_h3]:mb-1 [&_a]:text-[#FF2B2B] [&_a]:underline">
                   <SafeHtml content={currentJob.description} />
                 </div>
 
-                <h3 className="text-2xl font-bold text-[#3A1F1F] mb-4 mt-8">Key Responsibilities:</h3>
-                {currentJob.rawResponsibilities && /<[a-z][\s\S]*>/i.test(currentJob.rawResponsibilities) ? (
-                  <div className="text-[#8A8A8A] leading-relaxed mb-6 [&_ul]:list-disc [&_ul]:pl-5 [&_ol]:list-decimal [&_ol]:pl-5 [&_h2]:text-base [&_h2]:font-bold [&_h2]:mt-2 [&_h2]:mb-1 [&_h3]:text-sm [&_h3]:font-bold [&_h3]:mt-1.5 [&_h3]:mb-1 [&_a]:text-[#FF2B2B] [&_a]:underline">
-                    <SafeHtml content={currentJob.rawResponsibilities} />
-                  </div>
-                ) : (
-                  <ul className="space-y-3 mb-6">
-                    {currentJob.responsibilities.map((item, index) => (
-                      <li key={index} className="flex items-start gap-3">
-                        <div className="w-2 h-2 bg-[#FF2B2B] rounded-full mt-2 flex-shrink-0"></div>
-                        <span className="text-[#8A8A8A]">{item}</span>
-                      </li>
-                    ))}
-                  </ul>
+                {currentJob.rawResponsibilities && currentJob.rawResponsibilities.trim() && (
+                  <>
+                    <h3 className="text-2xl font-bold text-[#3A1F1F] mb-4 mt-8">Key Responsibilities:</h3>
+                    {/<[a-z][\s\S]*>/i.test(currentJob.rawResponsibilities) ? (
+                      <div className="rich-text-content text-[#8A8A8A] leading-relaxed mb-6 [&_ul]:list-disc [&_ul]:pl-5 [&_ol]:list-decimal [&_ol]:pl-5 [&_h2]:text-base [&_h2]:font-bold [&_h2]:mt-2 [&_h2]:mb-1 [&_h3]:text-sm [&_h3]:font-bold [&_h3]:mt-1.5 [&_h3]:mb-1 [&_a]:text-[#FF2B2B] [&_a]:underline">
+                        <SafeHtml content={currentJob.rawResponsibilities} />
+                      </div>
+                    ) : (
+                      <ul className="space-y-3 mb-6">
+                        {currentJob.responsibilities.map((item, index) => (
+                          <li key={index} className="flex items-start gap-3">
+                            <div className="w-2 h-2 bg-[#FF2B2B] rounded-full mt-2 flex-shrink-0"></div>
+                            <span className="text-[#8A8A8A]">{item}</span>
+                          </li>
+                        ))}
+                      </ul>
+                    )}
+                  </>
                 )}
 
-                <h3 className="text-2xl font-bold text-[#3A1F1F] mb-4 mt-8">Qualifications:</h3>
-                {currentJob.rawQualifications && /<[a-z][\s\S]*>/i.test(currentJob.rawQualifications) ? (
-                  <div className="text-[#8A8A8A] leading-relaxed mb-6 [&_ul]:list-disc [&_ul]:pl-5 [&_ol]:list-decimal [&_ol]:pl-5 [&_h2]:text-base [&_h2]:font-bold [&_h2]:mt-2 [&_h2]:mb-1 [&_h3]:text-sm [&_h3]:font-bold [&_h3]:mt-1.5 [&_h3]:mb-1 [&_a]:text-[#FF2B2B] [&_a]:underline">
-                    <SafeHtml content={currentJob.rawQualifications} />
-                  </div>
-                ) : (
-                  <ul className="space-y-3 mb-6">
-                    {currentJob.qualifications.map((item, index) => (
-                      <li key={index} className="flex items-start gap-3">
-                        <div className="w-2 h-2 bg-[#FF2B2B] rounded-full mt-2 flex-shrink-0"></div>
-                        <span className="text-[#8A8A8A]">{item}</span>
-                      </li>
-                    ))}
-                  </ul>
+                {currentJob.rawQualifications && currentJob.rawQualifications.trim() && (
+                  <>
+                    <h3 className="text-2xl font-bold text-[#3A1F1F] mb-4 mt-8">Qualifications:</h3>
+                    {/<[a-z][\s\S]*>/i.test(currentJob.rawQualifications) ? (
+                      <div className="rich-text-content text-[#8A8A8A] leading-relaxed mb-6 [&_ul]:list-disc [&_ul]:pl-5 [&_ol]:list-decimal [&_ol]:pl-5 [&_h2]:text-base [&_h2]:font-bold [&_h2]:mt-2 [&_h2]:mb-1 [&_h3]:text-sm [&_h3]:font-bold [&_h3]:mt-1.5 [&_h3]:mb-1 [&_a]:text-[#FF2B2B] [&_a]:underline">
+                        <SafeHtml content={currentJob.rawQualifications} />
+                      </div>
+                    ) : (
+                      <ul className="space-y-3 mb-6">
+                        {currentJob.qualifications.map((item, index) => (
+                          <li key={index} className="flex items-start gap-3">
+                            <div className="w-2 h-2 bg-[#FF2B2B] rounded-full mt-2 flex-shrink-0"></div>
+                            <span className="text-[#8A8A8A]">{item}</span>
+                          </li>
+                        ))}
+                      </ul>
+                    )}
+                  </>
                 )}
 
                 {currentJob.additionalInfo && (
