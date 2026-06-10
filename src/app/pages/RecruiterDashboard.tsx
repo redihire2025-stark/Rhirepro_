@@ -5751,7 +5751,7 @@ function CompanyProfilePage() {
     }
   };
 
-  const handleBrandingDelete = async (asset: "logo" | "cover") => {
+  const handleBrandingDelete = useCallback(async (asset: "logo" | "cover") => {
     if (!recruiterProfile?.id) return;
     setUploadingAsset(asset);
     setBrandingError("");
@@ -5771,11 +5771,12 @@ function CompanyProfilePage() {
         : { ...current, coverImageUrl: "", coverImageName: "" });
       await refreshProfile();
     } catch (err: unknown) {
+      console.error("Error deleting branding asset:", err);
       setBrandingError(err instanceof Error ? err.message : `Failed to delete ${asset === "logo" ? "logo" : "cover photo"}.`);
     } finally {
       setUploadingAsset(null);
     }
-  };
+  }, [recruiterProfile, setUploadingAsset, setBrandingError, setProfile, refreshProfile]);
 
   const handleSave = async () => {
     if (!recruiterProfile?.id) return;
