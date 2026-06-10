@@ -1,5 +1,5 @@
 import { useState, useEffect, useCallback, useRef, useMemo } from "react";
-import { useNavigate, Routes, Route, Link, useLocation } from "react-router";
+import { Outlet, useNavigate, Link, useLocation } from "react-router";
 import { supabase, Job, Application, Notification, Profile, WorkExperience, Education as EduType, RecruiterSubscription } from "../../lib/supabase";
 import { buildJobDeadlineTimestamp, formatJobDeadline, getEffectiveJobStatus, getJobDeadlineDateValue, isJobExpired } from "../../lib/jobs";
 import { PLANS, FREE_DAILY_POST_LIMIT, getPlanById, validatePromo, applyPromo } from "../../lib/plans";
@@ -1040,16 +1040,6 @@ export default function RecruiterDashboard() {
         </div>
       </header>
 
-      <Routes>
-        <Route index element={<DashboardOverview />} />
-        <Route path="post-job" element={<PostJobPage />} />
-        <Route path="manage-jobs" element={<ManageJobsPage />} />
-        <Route path="search-candidates" element={<SearchCandidatesPage />} />
-        <Route path="applicants" element={<ApplicantsPage />} />
-        <Route path="analytics" element={<AnalyticsPage />} />
-        <Route path="company-profile" element={<CompanyProfilePage />} />
-        <Route path="plans" element={<PlansPage />} />
-      </Routes>
     </div>
   );
 }
