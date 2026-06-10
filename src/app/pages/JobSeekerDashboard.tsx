@@ -2302,11 +2302,11 @@ function ProfilePage({ onPendingPrefsChange }: { onPendingPrefsChange?: (pending
                         .from("avatars")
                         .upload(filePath, file, { upsert: true });
                       if (uploadError) {
-                        console.error("Avatar upload error:", uploadError.message);
-                        alert("Profile pic upload failed: " + uploadError.message);
+                        console.error("Avatar upload error:", uploadError.message || "Unknown error");
+                        alert("Profile pic upload failed: " + (uploadError.message || "Unknown error"));
                         return;
                       }
-                      if (uploadData) {
+                      if (uploadData?.path) {
                         const { data: urlData } = supabase.storage.from("avatars").getPublicUrl(filePath);
                         const { error: dbError } = await supabase.from("profiles").update({ avatar_url: urlData.publicUrl }).eq("id", profile.id);
                         if (dbError) console.error("Avatar DB update error:", dbError.message);
@@ -2749,15 +2749,17 @@ function ProfilePage({ onPendingPrefsChange }: { onPendingPrefsChange?: (pending
                   <Download className="h-4 w-4" /> Download
                 </button>
                 <label className="cursor-pointer">
-                  <input type="file" accept=".pdf,.doc,.docx" className="hidden" onChange={async (e) => {
+                  <input type="file" accept=".pdf,.doc,.docx,.png,.jpg,.jpeg,.gif,.webp" className="hidden" onChange={async (e) => {
                     const file = e.target.files?.[0];
                     if (!file || !profile) return;
                     const ext = file.name.split(".").pop();
                     const filePath = `${profile.id}/resume.${ext}`;
                     const { data: uploadData, error: uploadError } = await supabase.storage.from("resumes").upload(filePath, file, { upsert: true });
-                    if (uploadError) { alert("Resume upload failed: " + uploadError.message); return; }
-                    if (uploadData) {
+                    if (uploadError) { alert("Resume upload failed: " + (uploadError.message || "Unknown error")); return; }
+                    if (uploadData?.path) {
                       const { data: urlData } = supabase.storage.from("resumes").getPublicUrl(filePath);
+                      await supabase.from("profiles").update({ resume_url: urlData.publicUrl }).eq("id", profile.id);
+                      await supabase.from("applications").update({ resume_url: urlData.publicUrl }).eq("profile_id", profile.id);
                       const { error: dbError } = await supabase.from("profiles").update({ resume_url: urlData.publicUrl }).eq("id", profile.id);
                       if (dbError) {
                         console.error("Resume DB update error:", dbError.message);
@@ -2772,6 +2774,8 @@ function ProfilePage({ onPendingPrefsChange }: { onPendingPrefsChange?: (pending
                 </label>
                 <Button variant="ghost" size="sm" className="text-red-500 rounded-full" onClick={async () => {
                   if (!profile) return;
+                  await supabase.from("profiles").update({ resume_url: null }).eq("id", profile.id);
+                  await supabase.from("applications").update({ resume_url: null }).eq("profile_id", profile.id);
                   const { error } = await supabase.from("profiles").update({ resume_url: null }).eq("id", profile.id);
                   if (error) {
                     console.error("Resume delete error:", error.message);
@@ -2785,16 +2789,17 @@ function ProfilePage({ onPendingPrefsChange }: { onPendingPrefsChange?: (pending
             </div>
           ) : (
             <label className="cursor-pointer">
-              <input type="file" accept=".pdf,.doc,.docx" className="hidden" onChange={async (e) => {
+              <input type="file" accept=".pdf,.doc,.docx,.png,.jpg,.jpeg,.gif,.webp" className="hidden" onChange={async (e) => {
                 const file = e.target.files?.[0];
                 if (!file || !profile) return;
                 const ext = file.name.split(".").pop();
                 const filePath = `${profile.id}/resume.${ext}`;
-                const { data: uploadData, error: uploadError } = await supabase.storage.from("resumes").upload(filePath, file, { upsert: true });
-                if (uploadError) { alert("Resume upload failed: " + uploadError.message); return; }
-                if (uploadData) {
+                const { data: uploadData, error: uploadError = null } = await supabase.storage.from("resumes").upload(filePath, file, { upsert: true });
+                if (uploadError) { alert("Resume upload failed: " + (uploadError.message || "Unknown error")); return; }
+                if (uploadData?.path) {
                   const { data: urlData } = supabase.storage.from("resumes").getPublicUrl(filePath);
                   await supabase.from("profiles").update({ resume_url: urlData.publicUrl }).eq("id", profile.id);
+                  await supabase.from("applications").update({ resume_url: urlData.publicUrl }).eq("profile_id", profile.id);
                   setResumeFile(urlData.publicUrl);
                   refreshProfile();
                 }
@@ -2802,7 +2807,7 @@ function ProfilePage({ onPendingPrefsChange }: { onPendingPrefsChange?: (pending
               <div className="border-2 border-dashed border-gray-300 rounded-xl p-10 text-center hover:border-[#FF2B2B] transition-colors">
                 <Upload className="h-10 w-10 mx-auto mb-3 text-[#8A8A8A]" />
                 <p className="text-[#3A1F1F] font-medium mb-1">Upload your resume</p>
-                <p className="text-[#8A8A8A] text-sm">PDF, DOC, or DOCX · Max 5MB</p>
+                <p className="text-[#8A8A8A] text-sm">PDF, DOC, DOCX, or Image (PNG, JPG, JPEG) · Max 5MB</p>
                 <Button className="mt-4 bg-[#FF2B2B] hover:bg-[#e02525] text-white rounded-full" asChild><span>Choose File</span></Button>
               </div>
             </label>
