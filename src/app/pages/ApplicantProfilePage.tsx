@@ -1,6 +1,6 @@
 import { useState, useEffect, useCallback, useMemo, useRef } from "react";
 import { useParams, useNavigate } from "react-router";
-import { supabase } from "../../lib/supabase";
+import { supabase, Profile, Application } from "../../lib/supabase";
 import { useAuth } from "../../lib/auth-context";
 import {
   User, MapPin, Phone, Mail, Globe, Star, Briefcase, GraduationCap,
@@ -59,6 +59,18 @@ interface Language {
   proficiency: string;
 }
 
+interface ApplicantProfile extends Profile {
+  dob?: string | null;
+  gender?: string | null;
+  marital_status?: string | null;
+  languages?: { language: string; proficiency: string }[] | null;
+  desired_job_title?: string | null;
+  job_type_pref?: string | null;
+  preferred_location?: string | null;
+  work_auth?: string | null;
+  willing_to_relocate?: string | null;
+}
+
 export default function ApplicantProfilePage() {
   const { applicantId } = useParams();
   const { recruiterProfile, loading: authLoading } = useAuth();
@@ -66,8 +78,8 @@ export default function ApplicantProfilePage() {
 
   const [loading, setLoading] = useState(true);
   const [error, setError] = useState<string | null>(null);
-  const [application, setApplication] = useState<any>(null);
-  const [profile, setProfile] = useState<any>(null);
+  const [application, setApplication] = useState<Application | null>(null);
+  const [profile, setProfile] = useState<ApplicantProfile | null>(null);
 
   const [experiences, setExperiences] = useState<WorkExp[]>([]);
   const [education, setEducation] = useState<Education[]>([]);
@@ -254,6 +266,7 @@ export default function ApplicantProfilePage() {
   // Render PDF into canvases when resumePreviewUrl changes (for ApplicantProfile inline preview)
   useEffect(() => {
     let cancelled = false;
+    let loadingTask: any = null;
     async function renderPdfInline() {
       if (!resumePreviewUrl || resumeKind !== "pdf" || !pdfPreviewRef.current) return;
       setPdfRendering(true);
@@ -285,7 +298,7 @@ export default function ApplicantProfilePage() {
         const pdfjs = await ensurePdfJs();
         if (cancelled || !pdfPreviewRef.current?.isConnected) return;
         (pdfjs as any).GlobalWorkerOptions.workerSrc = "https://unpkg.com/pdfjs-dist@3.10.111/legacy/build/pdf.worker.min.js";
-        const loadingTask = (pdfjs as any).getDocument({ data: arrayBuffer });
+        loadingTask = (pdfjs as any).getDocument({ data: arrayBuffer });
         const pdf = await loadingTask.promise;
         if (cancelled || !pdfPreviewRef.current?.isConnected) return;
         const numPages = pdf.numPages;
@@ -339,7 +352,16 @@ export default function ApplicantProfilePage() {
       }
     }
     void renderPdfInline();
-    return () => { cancelled = true; };
+    return () => {
+      cancelled = true;
+      if (loadingTask) {
+        try {
+          loadingTask.destroy();
+        } catch (e) {
+          console.warn("Failed to destroy inline PDF loading task:", e);
+        }
+      }
+    };
   }, [resumePreviewUrl, resumeKind]);
 
   useEffect(() => {

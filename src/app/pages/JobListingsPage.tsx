@@ -135,23 +135,24 @@ export default function JobListingsPage() {
 
       const appliedJobIds = (applicationsRes.data || []).map((item) => item.job_id);
       const savedJobIds = (savedRes.data || []).map((item) => item.job_id);
-      let rawModes: any = [];
+      let rawModes: string[] = [];
       if (role === "jobseeker" && profile?.preferred_interview_mode) {
-        if (Array.isArray(profile.preferred_interview_mode)) {
-          rawModes = profile.preferred_interview_mode;
-        } else if (typeof profile.preferred_interview_mode === "string") {
+        const modeData = profile.preferred_interview_mode as unknown;
+        if (Array.isArray(modeData)) {
+          rawModes = modeData as string[];
+        } else if (typeof modeData === "string") {
           try {
-            const parsed = JSON.parse(profile.preferred_interview_mode);
-            if (Array.isArray(parsed)) rawModes = parsed;
+            const parsed = JSON.parse(modeData);
+            if (Array.isArray(parsed)) rawModes = parsed as string[];
           } catch (e) {
-            rawModes = profile.preferred_interview_mode.split(",").map((s: string) => s.trim()).filter(Boolean);
+            rawModes = modeData.split(",").map((s: string) => s.trim()).filter(Boolean);
           }
         }
       }
       const preferredInterviewModes = Array.isArray(rawModes)
         ? rawModes
-            .map((value: any) => normalizeInterviewMode(value))
-            .filter((value: any): value is string => Boolean(value))
+            .map((value: string) => normalizeInterviewMode(value))
+            .filter((value: string | null): value is string => Boolean(value))
         : [];
 
       const visibleIndianJobs = assignBalancedCategories((data || [])
