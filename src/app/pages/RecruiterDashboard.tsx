@@ -5884,6 +5884,7 @@ function CompanyProfilePage() {
         : { ...current, coverImageUrl: "", coverImageName: "" });
       await refreshProfile();
     } catch (err: unknown) {
+      console.error("Error deleting branding asset:", err);
       setBrandingError(err instanceof Error ? err.message : `Failed to delete ${asset === "logo" ? "logo" : "cover photo"}.`);
     } finally {
       setUploadingAsset(null);
