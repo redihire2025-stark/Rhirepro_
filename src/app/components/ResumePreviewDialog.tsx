@@ -125,6 +125,7 @@ export default function ResumePreviewDialog({
 
   useEffect(() => {
     let cancelled = false;
+    let loadingTask: any = null;
     async function renderPdf() {
       if (!previewUrl || kind !== "pdf" || !pdfContainerRef.current) return;
       setPdfRenderFailed(false);
@@ -151,7 +152,7 @@ export default function ResumePreviewDialog({
         const pdfjs = await ensurePdfJs();
         if (cancelled || !pdfContainerRef.current) return;
         (pdfjs as any).GlobalWorkerOptions.workerSrc = "https://unpkg.com/pdfjs-dist@3.10.111/legacy/build/pdf.worker.min.js";
-        const loadingTask = (pdfjs as any).getDocument({ data: arrayBuffer });
+        loadingTask = (pdfjs as any).getDocument({ data: arrayBuffer });
         const pdf = await loadingTask.promise;
         if (cancelled || !pdfContainerRef.current?.isConnected) return;
         const numPages = pdf.numPages;
@@ -222,7 +223,16 @@ export default function ResumePreviewDialog({
       }
     }
     void renderPdf();
-    return () => { cancelled = true; };
+    return () => {
+      cancelled = true;
+      if (loadingTask) {
+        try {
+          loadingTask.destroy();
+        } catch (e) {
+          console.warn("Failed to destroy PDF loading task:", e);
+        }
+      }
+    };
   }, [previewUrl, kind]);
 
   useEffect(() => {
