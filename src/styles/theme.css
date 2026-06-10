@@ -272,3 +272,29 @@
     will-change: transform, box-shadow;
   }
 }
+
+/* Rich Text / SafeHtml Rendered Styles */
+.rich-text-content ul {
+  list-style-type: disc !important;
+  padding-left: 1.5rem !important;
+  margin-top: 0.5rem !important;
+  margin-bottom: 0.5rem !important;
+}
+
+.rich-text-content ol {
+  list-style-type: decimal !important;
+  padding-left: 1.5rem !important;
+  margin-top: 0.5rem !important;
+  margin-bottom: 0.5rem !important;
+}
+
+.rich-text-content li {
+  margin-bottom: 0.25rem !important;
+  list-style-position: outside !important;
+}
+
+.rich-text-content a {
+  color: #FF2B2B !important;
+  text-decoration: underline !important;
+}
+

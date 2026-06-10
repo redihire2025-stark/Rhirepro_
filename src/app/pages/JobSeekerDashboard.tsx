@@ -1332,7 +1332,14 @@ function FindJobPage() {
                     <X className="h-5 w-5" />
                   </button>
                 </div>
-                <h2 className="text-2xl font-bold text-[#3A1F1F] mb-4">{selectedJob.title}</h2>
+                <div className="flex items-center justify-between gap-4 flex-wrap mb-4">
+                  <h2 className="text-2xl font-bold text-[#3A1F1F]">{selectedJob.title}</h2>
+                  {selectedJob.dbJob?.created_at && (
+                    <span className="text-sm text-[#8A8A8A] font-medium bg-[#ECECF4] px-3 py-1.5 rounded-full shrink-0">
+                      Posted {new Date(selectedJob.dbJob.created_at).toLocaleDateString('en-US', { day: 'numeric', month: 'short', year: 'numeric' })}
+                    </span>
+                  )}
+                </div>
 
                 <div className="flex flex-wrap gap-4 mb-5 pb-5 border-b border-gray-100">
                   <div>
@@ -1379,11 +1386,38 @@ function FindJobPage() {
                   )}
                 </div>
 
-                <h3 className="text-base font-bold text-[#3A1F1F] mb-2">Job Description :</h3>
-                <SafeHtml
-                  content={selectedJob.description}
-                  className="text-[#8A8A8A] text-sm leading-relaxed mb-5 [&_ul]:list-disc [&_ul]:pl-5 [&_ol]:list-decimal [&_ol]:pl-5 [&_h2]:text-base [&_h2]:font-bold [&_h2]:mt-2 [&_h2]:mb-1 [&_h3]:text-sm [&_h3]:font-bold [&_h3]:mt-1.5 [&_h3]:mb-1 [&_a]:text-[#FF2B2B] [&_a]:underline"
-                />
+                {/* About the Role */}
+                {selectedJob.description && (
+                  <div className="mb-5">
+                    <h3 className="text-base font-bold text-[#3A1F1F] mb-2">About the Role :</h3>
+                    <SafeHtml
+                      content={selectedJob.description}
+                      className="rich-text-content text-[#8A8A8A] text-sm leading-relaxed [&_ul]:list-disc [&_ul]:pl-5 [&_ol]:list-decimal [&_ol]:pl-5 [&_h2]:text-base [&_h2]:font-bold [&_h2]:mt-2 [&_h2]:mb-1 [&_h3]:text-sm [&_h3]:font-bold [&_h3]:mt-1.5 [&_h3]:mb-1 [&_a]:text-[#FF2B2B] [&_a]:underline"
+                    />
+                  </div>
+                )}
+
+                {/* Roles & Responsibilities */}
+                {selectedJob.dbJob?.roles_responsibilities && selectedJob.dbJob.roles_responsibilities.trim() && (
+                  <div className="mb-5">
+                    <h3 className="text-base font-bold text-[#3A1F1F] mb-2">Roles & Responsibilities :</h3>
+                    <SafeHtml
+                      content={selectedJob.dbJob.roles_responsibilities}
+                      className="rich-text-content text-[#8A8A8A] text-sm leading-relaxed [&_ul]:list-disc [&_ul]:pl-5 [&_ol]:list-decimal [&_ol]:pl-5 [&_h2]:text-base [&_h2]:font-bold [&_h2]:mt-2 [&_h2]:mb-1 [&_h3]:text-sm [&_h3]:font-bold [&_h3]:mt-1.5 [&_h3]:mb-1 [&_a]:text-[#FF2B2B] [&_a]:underline"
+                    />
+                  </div>
+                )}
+
+                {/* Requirements / Qualifications */}
+                {selectedJob.dbJob?.requirements && selectedJob.dbJob.requirements.trim() && (
+                  <div className="mb-5">
+                    <h3 className="text-base font-bold text-[#3A1F1F] mb-2">Requirements / Qualifications :</h3>
+                    <SafeHtml
+                      content={selectedJob.dbJob.requirements}
+                      className="rich-text-content text-[#8A8A8A] text-sm leading-relaxed [&_ul]:list-disc [&_ul]:pl-5 [&_ol]:list-decimal [&_ol]:pl-5 [&_h2]:text-base [&_h2]:font-bold [&_h2]:mt-2 [&_h2]:mb-1 [&_h3]:text-sm [&_h3]:font-bold [&_h3]:mt-1.5 [&_h3]:mb-1 [&_a]:text-[#FF2B2B] [&_a]:underline"
+                    />
+                  </div>
+                )}
 
                 {selectedJob.dbJob?.skills && selectedJob.dbJob.skills.length > 0 && (
                   <>
