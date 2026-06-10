@@ -1490,7 +1490,7 @@ function DashboardOverview() {
               { label: "Industry", done: !!recruiterProfile?.industry },
               { label: "Company Size", done: !!recruiterProfile?.company_size },
               { label: "Company Type", done: !!recruiterProfile?.company_type },
-              { label: "About Company", done: (recruiterProfile?.company_description || "").trim().length > 20 },
+              { label: "Company Bio", done: (recruiterProfile?.company_description || "").trim().length > 20 },
               { label: "Location", done: !!recruiterProfile?.location },
               { label: "Website", done: !!recruiterProfile?.website },
             ].filter(item => !item.done);
@@ -5555,6 +5555,86 @@ function ArticleEditorPage() {
   );
 }
 
+function parseCompanyDescription(text: string | null | undefined): { aboutCompany: string; companyInfo: string } {
+  const val = (text || "").trim();
+  if (!val) {
+    return { aboutCompany: "", companyInfo: "" };
+  }
+
+  const splitRegex = /(?:<h\d[^>]*>\s*Company\s+Information\s*<\/h\d>|<p[^>]*>\s*<strong>\s*Company\s+Information\s*<\/strong>\s*<\/p>|<strong[^>]*>\s*Company\s+Information\s*<\/strong>|Company\s+Information)/i;
+  const match = val.match(splitRegex);
+  
+  const cleanEmptyTags = (html: string) => {
+    let cleaned = html.trim();
+    while (cleaned.startsWith("<p>&nbsp;</p>") || cleaned.startsWith("<p><br></p>") || cleaned.startsWith("<p></p>")) {
+      if (cleaned.startsWith("<p>&nbsp;</p>")) cleaned = cleaned.substring(13).trim();
+      else if (cleaned.startsWith("<p><br></p>")) cleaned = cleaned.substring(11).trim();
+      else if (cleaned.startsWith("<p></p>")) cleaned = cleaned.substring(7).trim();
+    }
+    while (cleaned.endsWith("<p>&nbsp;</p>") || cleaned.endsWith("<p><br></p>") || cleaned.endsWith("<p></p>")) {
+      if (cleaned.endsWith("<p>&nbsp;</p>")) cleaned = cleaned.substring(0, cleaned.length - 13).trim();
+      else if (cleaned.endsWith("<p><br></p>")) cleaned = cleaned.substring(0, cleaned.length - 11).trim();
+      else if (cleaned.endsWith("<p></p>")) cleaned = cleaned.substring(0, cleaned.length - 7).trim();
+    }
+    return cleaned;
+  };
+
+  if (match && match.index !== undefined) {
+    let aboutPart = val.substring(0, match.index).trim();
+    let infoPart = val.substring(match.index + match[0].length).trim();
+    
+    const aboutHeaderRegex = /^<h\d[^>]*>\s*About\s+Company\s*<\/h\d>/i;
+    aboutPart = aboutPart.replace(aboutHeaderRegex, "").trim();
+    
+    aboutPart = cleanEmptyTags(aboutPart);
+    infoPart = cleanEmptyTags(infoPart);
+    
+    return { aboutCompany: aboutPart, companyInfo: infoPart };
+  } else {
+    let aboutPart = val;
+    const aboutHeaderRegex = /^<h\d[^>]*>\s*About\s+Company\s*<\/h\d>/i;
+    aboutPart = aboutPart.replace(aboutHeaderRegex, "").trim();
+    aboutPart = cleanEmptyTags(aboutPart);
+    return { aboutCompany: aboutPart, companyInfo: "" };
+  }
+}
+
+function formatHtmlForEditor(html: string | null | undefined): string {
+  const parsed = parseCompanyDescription(html);
+  
+  const aboutHeading = `<h2 contenteditable="false" class="select-none py-1 text-[#3A1F1F] font-bold text-base mt-2 mb-1" data-heading="about">About Company</h2>`;
+  const infoHeading = `<h2 contenteditable="false" class="select-none py-1 text-[#3A1F1F] font-bold text-base mt-4 mb-1" data-heading="info">Company Information</h2>`;
+  
+  const cleanPart = (text: string) => {
+    let t = text.trim();
+    if (!t) return "<p><br></p>";
+    if (!t.startsWith("<p>") && !t.startsWith("<div") && !t.startsWith("<h")) {
+      return `<p>${t}</p>`;
+    }
+    return t;
+  };
+
+  return aboutHeading + cleanPart(parsed.aboutCompany) + infoHeading + cleanPart(parsed.companyInfo);
+}
+
+function cleanHtmlForDb(html: string | null | undefined): string {
+  let val = (html || "").trim();
+  if (!val) return "";
+  
+  const parsed = parseCompanyDescription(val);
+  const cleanAbout = parsed.aboutCompany.trim();
+  const cleanInfo = parsed.companyInfo.trim();
+  
+  const hasAbout = cleanAbout && cleanAbout !== "<p><br></p>" && cleanAbout !== "<p></p>";
+  const hasInfo = cleanInfo && cleanInfo !== "<p><br></p>" && cleanInfo !== "<p></p>";
+  
+  if (!hasAbout && !hasInfo) {
+    return "";
+  }
+  
+  return `<h2>About Company</h2>${parsed.aboutCompany}<h2>Company Information</h2>${parsed.companyInfo}`;
+}
+
 function CompanyProfilePage() {
   const { recruiterProfile, refreshProfile } = useAuth();
   const [profile, setProfile] = useState({
@@ -5578,7 +5658,11 @@ function CompanyProfilePage() {
     if (profile.industry) score += 15;
     if (profile.companySize) score += 10;
     if (profile.type) score += 5;
-    if (profile.description.trim().length > 20) score += 20;
+    const cleanDesc = (profile.description || "")
+      .replace(/<h2[^>]*>.*?<\/h2>/gi, "")
+      .replace(/<[^>]*>/g, "")
+      .trim();
+    if (cleanDesc.length > 20) score += 20;
     if (profile.location) score += 10;
     if (profile.website) score += 10;
     return Math.min(100, score);
@@ -5591,8 +5675,8 @@ function CompanyProfilePage() {
         industry: recruiterProfile.industry || "",
         companySize: recruiterProfile.company_size || "",
         type: recruiterProfile.company_type || "",
-        founded: "",
-        description: recruiterProfile.company_description || "",
+        founded: recruiterProfile.founded || "",
+        description: formatHtmlForEditor(recruiterProfile.company_description),
         website: recruiterProfile.website || "",
         location: recruiterProfile.location || "",
         linkedin: recruiterProfile.linkedin_url || "",
@@ -5699,12 +5783,14 @@ function CompanyProfilePage() {
     setSaving(true);
     setSaveError("");
     try {
+      const finalDescription = cleanHtmlForDb(profile.description);
+
       const { error } = await supabase.from("recruiter_profiles").update({
         company_name: profile.companyName,
         industry: profile.industry,
         company_size: profile.companySize,
         company_type: profile.type,
-        company_description: profile.description,
+        company_description: finalDescription,
         website: profile.website,
         location: profile.location,
         linkedin_url: profile.linkedin,
@@ -5712,8 +5798,14 @@ function CompanyProfilePage() {
         tagline: profile.tagline,
         phone: profile.phone,
         recruiter_name: profile.recruiterName,
+        founded: profile.founded,
       }).eq("id", recruiterProfile.id);
       if (error) throw error;
+
+      setProfile(current => ({
+        ...current,
+        description: formatHtmlForEditor(finalDescription),
+      }));
       await refreshProfile();
       setSaved(true);
       setTimeout(() => setSaved(false), 3000);
@@ -5760,7 +5852,7 @@ function CompanyProfilePage() {
               { label: "Industry", done: !!profile.industry },
               { label: "Company Size", done: !!profile.companySize },
               { label: "Company Type", done: !!profile.type },
-              { label: "About Company", done: profile.description.trim().length > 20 },
+              { label: "Company Bio", done: (profile.description || "").replace(/<h2[^>]*>.*?<\/h2>/gi, "").replace(/<[^>]*>/g, "").trim().length > 20 },
               { label: "Location", done: !!profile.location },
               { label: "Website", done: !!profile.website },
             ].map(({ label, done }) => (
@@ -5916,11 +6008,24 @@ function CompanyProfilePage() {
           </div>
         </div>
 
-        {/* About */}
+        {/* Company Bio */}
         <div className="bg-white rounded-2xl p-6 shadow-sm">
-          <h3 className="text-lg font-semibold text-[#3A1F1F] mb-4">About Company</h3>
-          <Textarea value={profile.description} onChange={e => setProfile({ ...profile, description: e.target.value })} className="bg-[#F6F6F6] border-gray-200 rounded-xl" rows={5} placeholder="Describe your company culture, products, and mission..." />
-          <p className="text-xs text-[#8A8A8A] mt-1">{profile.description.length}/2000 characters</p>
+          <h3 className="text-lg font-semibold text-[#3A1F1F] mb-4">Company Bio</h3>
+          <RichTextEditor
+            value={profile.description}
+            onChange={val => setProfile({ ...profile, description: val })}
+            placeholder="Describe your company culture, products, and mission..."
+            lockHeadings={true}
+          />
+          <p className="text-xs text-[#8A8A8A] mt-1">
+            {(profile.description
+              ? profile.description
+                  .replace(/<h2[^>]*>.*?<\/h2>/gi, "")
+                  .replace(/<[^>]*>/g, "")
+                  .trim()
+                  .length
+              : 0)}/2000 characters
+          </p>
         </div>
 
         {/* Contact & Social */}

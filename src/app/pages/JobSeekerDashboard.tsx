@@ -464,7 +464,52 @@ type PreferredJobSuggestion = {
   departments: string[];
 };
 
+function parseCompanyDescription(text: string | null | undefined): { aboutCompany: string; companyInfo: string } {
+  const val = (text || "").trim();
+  if (!val) {
+    return { aboutCompany: "", companyInfo: "" };
+  }
+
+  const splitRegex = /(?:<h\d[^>]*>\s*Company\s+Information\s*<\/h\d>|<p[^>]*>\s*<strong>\s*Company\s+Information\s*<\/strong>\s*<\/p>|<strong[^>]*>\s*Company\s+Information\s*<\/strong>|Company\s+Information)/i;
+  const match = val.match(splitRegex);
+  
+  const cleanEmptyTags = (html: string) => {
+    let cleaned = html.trim();
+    while (cleaned.startsWith("<p>&nbsp;</p>") || cleaned.startsWith("<p><br></p>") || cleaned.startsWith("<p></p>")) {
+      if (cleaned.startsWith("<p>&nbsp;</p>")) cleaned = cleaned.substring(13).trim();
+      else if (cleaned.startsWith("<p><br></p>")) cleaned = cleaned.substring(11).trim();
+      else if (cleaned.startsWith("<p></p>")) cleaned = cleaned.substring(7).trim();
+    }
+    while (cleaned.endsWith("<p>&nbsp;</p>") || cleaned.endsWith("<p><br></p>") || cleaned.endsWith("<p></p>")) {
+      if (cleaned.endsWith("<p>&nbsp;</p>")) cleaned = cleaned.substring(0, cleaned.length - 13).trim();
+      else if (cleaned.endsWith("<p><br></p>")) cleaned = cleaned.substring(0, cleaned.length - 11).trim();
+      else if (cleaned.endsWith("<p></p>")) cleaned = cleaned.substring(0, cleaned.length - 7).trim();
+    }
+    return cleaned;
+  };
+
+  if (match && match.index !== undefined) {
+    let aboutPart = val.substring(0, match.index).trim();
+    let infoPart = val.substring(match.index + match[0].length).trim();
+    
+    const aboutHeaderRegex = /^<h\d[^>]*>\s*About\s+Company\s*<\/h\d>/i;
+    aboutPart = aboutPart.replace(aboutHeaderRegex, "").trim();
+    
+    aboutPart = cleanEmptyTags(aboutPart);
+    infoPart = cleanEmptyTags(infoPart);
+    
+    return { aboutCompany: aboutPart, companyInfo: infoPart };
+  } else {
+    let aboutPart = val;
+    const aboutHeaderRegex = /^<h\d[^>]*>\s*About\s+Company\s*<\/h\d>/i;
+    aboutPart = aboutPart.replace(aboutHeaderRegex, "").trim();
+    aboutPart = cleanEmptyTags(aboutPart);
+    return { aboutCompany: aboutPart, companyInfo: "" };
+  }
+}
+
 function escapeLikeValue(value: string): string {
+
   return value.replace(/[%_,]/g, (match) => `\\${match}`);
 }
 
@@ -472,14 +517,14 @@ function buildDashboardJob(job: DBJob): DashboardDisplayJob {
   return {
     id: job.id,
     title: job.title,
-    company: job.company_name,
+    company: job.recruiter?.company_name || job.company_name,
     location: formatDashboardLocation(job),
     salary: formatJobSalary(job),
     salaryMin: job.salary_min || 0,
     type: formatDashboardType(job) as "Full-time" | "Part-time" | "Contract",
     interviewMode: job.interview_mode || undefined,
     description: formatDashboardDescription(job),
-    industry: job.industry || "",
+    industry: job.recruiter?.industry || job.industry || "",
     experience: "",
     isRemote: job.work_mode === "Work from Home",
     isDB: true,
@@ -886,7 +931,7 @@ function FindJobPage() {
 
       let query = supabase
         .from("jobs")
-        .select("*", { count: "exact" })
+        .select("*, recruiter:recruiter_profiles(*)", { count: "exact" })
         .eq("status", "Active");
 
       const trimmedSearch = searchQuery.trim();
@@ -1321,12 +1366,21 @@ function FindJobPage() {
           {selectedJob && (
             <div className="bg-white rounded-2xl shadow-sm overflow-hidden sticky top-24 max-h-[calc(100vh-140px)] flex flex-col">
               <div className="p-6 overflow-y-auto flex-1">
-                <div className="flex items-start justify-between mb-1">
-                  <div>
-                    {selectedJob.isDB && (
-                      <span className="text-xs font-medium text-green-700 bg-green-100 px-2 py-0.5 rounded-full mb-2 inline-block">Verified Company</span>
+                <div className="flex items-start justify-between mb-4">
+                  <div className="flex items-center gap-3">
+                    {selectedJob.dbJob?.recruiter?.logo_url ? (
+                      <img src={selectedJob.dbJob.recruiter.logo_url} alt="" className="w-12 h-12 rounded-xl object-cover border border-gray-200" />
+                    ) : (
+                      <div className="w-12 h-12 rounded-xl bg-red-50 flex items-center justify-center text-[#FF2B2B] font-bold text-lg border border-gray-200">
+                        {(selectedJob.company || "C")[0].toUpperCase()}
+                      </div>
                     )}
-                    <p className="text-sm text-[#8A8A8A]">{selectedJob.company}</p>
+                    <div>
+                      {selectedJob.isDB && (
+                        <span className="text-[10px] font-semibold text-green-700 bg-green-50 border border-green-100 px-2 py-0.5 rounded-full mb-1 inline-block">Verified Company</span>
+                      )}
+                      <p className="text-sm font-semibold text-[#3A1F1F]">{selectedJob.company}</p>
+                    </div>
                   </div>
                   <button onClick={() => setSelectedJob(null)} className="text-[#8A8A8A] hover:text-[#3A1F1F] p-1">
                     <X className="h-5 w-5" />
@@ -1386,6 +1440,7 @@ function FindJobPage() {
                   )}
                 </div>
 
+
                 {/* About the Role */}
                 {selectedJob.description && (
                   <div className="mb-5">
@@ -1439,6 +1494,126 @@ function FindJobPage() {
                       ))}
                     </div>
                   </>
+                )}
+
+                {selectedJob.dbJob?.recruiter && (
+                  <div className="mt-8 pt-6 border-t border-gray-200/60 space-y-4">
+                    <div className="flex items-center justify-between border-b border-gray-200/60 pb-3">
+                      <h4 className="text-lg font-bold text-[#3A1F1F]">Company Profile</h4>
+                      {selectedJob.dbJob.recruiter.website && (
+                        <a href={selectedJob.dbJob.recruiter.website} target="_blank" rel="noreferrer" className="text-sm text-[#FF2B2B] hover:underline flex items-center gap-1 font-medium">
+                          <Globe className="h-4 w-4" /> Website
+                        </a>
+                      )}
+                    </div>
+
+                    {selectedJob.dbJob.recruiter.tagline && (
+                      <p className="text-sm italic text-[#5A5A5A] border-l-2 border-[#FF2B2B] pl-2">
+                        "{selectedJob.dbJob.recruiter.tagline}"
+                      </p>
+                    )}
+
+                    {(() => {
+                      const { aboutCompany, companyInfo } = parseCompanyDescription(selectedJob.dbJob.recruiter.company_description);
+                      const hasAbout = aboutCompany && aboutCompany !== "<p><br></p>" && aboutCompany !== "<p></p>";
+                      const hasInfo = companyInfo && companyInfo !== "<p><br></p>" && companyInfo !== "<p></p>";
+
+                      return (
+                        <>
+                          {hasAbout && (
+                            <div>
+                              <h5 className="font-semibold text-[#3A1F1F] text-sm mb-1.5">About Company</h5>
+                              <div className="text-sm text-[#6A6A6A] leading-relaxed [&_ul]:list-disc [&_ul]:pl-5 [&_ol]:list-decimal [&_ol]:pl-5 [&_h2]:text-base [&_h2]:font-bold [&_h2]:mt-2 [&_h2]:mb-1 [&_h3]:text-sm [&_h3]:font-bold [&_h3]:mt-1.5 [&_h3]:mb-1 [&_a]:text-[#FF2B2B] [&_a]:underline">
+                                <SafeHtml content={aboutCompany} />
+                              </div>
+                            </div>
+                          )}
+
+                          <h5 className={`font-semibold text-[#3A1F1F] text-sm mb-1.5 mt-4 ${
+                            (selectedJob.dbJob.recruiter.tagline || hasAbout)
+                              ? "pt-3 border-t border-gray-200/60"
+                              : ""
+                          }`}>
+                            Company Information
+                          </h5>
+
+                          {hasInfo && (
+                            <div className="text-sm text-[#6A6A6A] leading-relaxed mb-3 [&_ul]:list-disc [&_ul]:pl-5 [&_ol]:list-decimal [&_ol]:pl-5 [&_h2]:text-base [&_h2]:font-bold [&_h2]:mt-2 [&_h2]:mb-1 [&_h3]:text-sm [&_h3]:font-bold [&_h3]:mt-1.5 [&_h3]:mb-1 [&_a]:text-[#FF2B2B] [&_a]:underline">
+                              <SafeHtml content={companyInfo} />
+                            </div>
+                          )}
+                        </>
+                      );
+                    })()}
+                    <div className="grid grid-cols-2 gap-x-4 gap-y-3">
+                      {selectedJob.dbJob.recruiter.industry && (
+                        <div>
+                          <span className="text-xs text-[#8A8A8A] block mb-0.5">Industry</span>
+                          <span className="font-semibold text-[#3A1F1F] text-sm">{selectedJob.dbJob.recruiter.industry}</span>
+                        </div>
+                      )}
+                      {selectedJob.dbJob.recruiter.company_type && (
+                        <div>
+                          <span className="text-xs text-[#8A8A8A] block mb-0.5">Company Type</span>
+                          <span className="font-semibold text-[#3A1F1F] text-sm">{selectedJob.dbJob.recruiter.company_type}</span>
+                        </div>
+                      )}
+                      {selectedJob.dbJob.recruiter.company_size && (
+                        <div>
+                          <span className="text-xs text-[#8A8A8A] block mb-0.5">Company Size</span>
+                          <span className="font-semibold text-[#3A1F1F] text-sm">{selectedJob.dbJob.recruiter.company_size} employees</span>
+                        </div>
+                      )}
+                      {selectedJob.dbJob.recruiter.founded && (
+                        <div>
+                          <span className="text-xs text-[#8A8A8A] block mb-0.5">Founded Year</span>
+                          <span className="font-semibold text-[#3A1F1F] text-sm">{selectedJob.dbJob.recruiter.founded}</span>
+                        </div>
+                      )}
+                      {selectedJob.dbJob.recruiter.location && (
+                        <div>
+                          <span className="text-xs text-[#8A8A8A] block mb-0.5">Headquarters</span>
+                          <span className="font-semibold text-[#3A1F1F] text-sm flex items-center gap-0.5">
+                            <MapPin className="h-3.5 w-3.5 text-[#FF2B2B]" /> {selectedJob.dbJob.recruiter.location}
+                          </span>
+                        </div>
+                      )}
+                      {selectedJob.dbJob.recruiter.phone && (
+                        <div>
+                          <span className="text-xs text-[#8A8A8A] block mb-0.5">Phone</span>
+                          <span className="font-semibold text-[#3A1F1F] text-sm">{selectedJob.dbJob.recruiter.phone}</span>
+                        </div>
+                      )}
+                      {selectedJob.dbJob.recruiter.cin && (
+                        <div>
+                          <span className="text-xs text-[#8A8A8A] block mb-0.5">CIN Number</span>
+                          <span className="font-semibold text-[#3A1F1F] text-sm">{selectedJob.dbJob.recruiter.cin}</span>
+                        </div>
+                      )}
+                      {selectedJob.dbJob.recruiter.recruiter_name && (
+                        <div>
+                          <span className="text-xs text-[#8A8A8A] block mb-0.5">HR Contact</span>
+                          <span className="font-semibold text-[#3A1F1F] text-sm">{selectedJob.dbJob.recruiter.recruiter_name}</span>
+                        </div>
+                      )}
+                      {selectedJob.dbJob.recruiter.website && (
+                        <div className="col-span-2">
+                          <span className="text-xs text-[#8A8A8A] block mb-0.5">Website</span>
+                          <a href={selectedJob.dbJob.recruiter.website} target="_blank" rel="noreferrer" className="font-semibold text-[#FF2B2B] hover:underline truncate block text-sm">
+                            {selectedJob.dbJob.recruiter.website}
+                          </a>
+                        </div>
+                      )}
+                      {selectedJob.dbJob.recruiter.linkedin_url && (
+                        <div className="col-span-2">
+                          <span className="text-xs text-[#8A8A8A] block mb-0.5">LinkedIn</span>
+                          <a href={selectedJob.dbJob.recruiter.linkedin_url} target="_blank" rel="noreferrer" className="font-semibold text-[#FF2B2B] hover:underline truncate block text-sm">
+                            {selectedJob.dbJob.recruiter.linkedin_url}
+                          </a>
+                        </div>
+                      )}
+                    </div>
+                  </div>
                 )}
               </div>
             </div>
