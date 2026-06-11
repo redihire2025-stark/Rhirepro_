@@ -178,7 +178,7 @@ export default function JobDetailPage() {
     );
   }
 
-  if (!currentJob) {
+  if (!job || !currentJob) {
     return (
       <div className="min-h-screen bg-[#F6F6F6] flex items-center justify-center px-4">
         <div className="text-center">

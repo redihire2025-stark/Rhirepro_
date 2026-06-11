@@ -76,7 +76,7 @@ const isAtStartOfNode = (range: Range, node: Node): boolean => {
   let curr: Node | null = range.startContainer;
   while (curr && curr !== node) {
     if (curr.previousSibling) {
-      let sib = curr.previousSibling;
+      let sib: ChildNode | null = curr.previousSibling;
       while (sib) {
         if (sib.nodeType === Node.ELEMENT_NODE || (sib.nodeType === Node.TEXT_NODE && sib.textContent !== "")) {
           return false;
@@ -99,7 +99,7 @@ const isAtEndOfNode = (range: Range, node: Node): boolean => {
   }
   while (curr && curr !== node) {
     if (curr.nextSibling) {
-      let sib = curr.nextSibling;
+      let sib: ChildNode | null = curr.nextSibling;
       while (sib) {
         if (sib.nodeType === Node.ELEMENT_NODE || (sib.nodeType === Node.TEXT_NODE && sib.textContent !== "")) {
           return false;
