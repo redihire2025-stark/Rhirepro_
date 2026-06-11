@@ -39,8 +39,11 @@ export interface Profile {
   linkedin_url: string | null;
   portfolio_url: string | null;
   about: string | null;
+  preferred_interview_mode?: string[] | null;
   otp_code: string | null;
   otp_expires_at: string | null;
+  profile_views?: number | null;
+  recruiter_searches?: number | null;
   created_at: string;
 }
 
@@ -57,12 +60,33 @@ export interface RecruiterProfile {
   website: string | null;
   location: string | null;
   logo_url: string | null;
+  cover_image_url: string | null;
+  cover_image_name: string | null;
   tagline: string | null;
   linkedin_url: string | null;
   cin: string | null;
+  founded: string | null;
   otp_code: string | null;
   otp_expires_at: string | null;
   created_at: string;
+}
+
+export interface RecruiterArticle {
+  id: string;
+  recruiter_id: string;
+  title: string;
+  category: string;
+  summary: string | null;
+  key_takeaway: string | null;
+  content: string;
+  cover_image_url: string | null;
+  cover_image_name: string | null;
+  read_time: number;
+  status: "Published" | "Draft";
+  created_at: string;
+  updated_at: string;
+  published_at: string | null;
+  recruiter?: Pick<RecruiterProfile, "company_name" | "recruiter_name" | "logo_url"> | null;
 }
 
 export interface Job {
@@ -88,10 +112,12 @@ export interface Job {
   perks: string[] | null;
   education: string | null;
   openings: number;
+  views?: number | null;
   status: "Active" | "Paused" | "Closed" | "Expired";
   deadline: string | null;
   deadline_time: string | null;
   created_at: string;
+  recruiter?: RecruiterProfile | null;
 }
 
 export interface Application {
@@ -99,12 +125,52 @@ export interface Application {
   job_id: string;
   profile_id: string;
   recruiter_id: string;
-  status: "New" | "Reviewed" | "Shortlisted" | "Interview Scheduled" | "Offered" | "Rejected";
+  status:
+    | "Applied"
+    | "Under Review"
+    | "Shortlisted"
+    | "Interview Scheduled"
+    | "Interview Completed"
+    | "Interview Selected"
+    | "Interview Rejected"
+    | "Offered"
+    | "Joined"
+    | "Rejected"
+    | "On Hold"
+    // Legacy values (backward compatibility)
+    | "New"
+    | "Reviewed"
+    | "Screening"
+    | "Hired";
   cover_letter: string | null;
   resume_url: string | null;
   applied_at: string;
   job?: Job;
   profile?: Profile;
+  interview_details?: InterviewDetails | null;
+  offer_details?: OfferDetails | null;
+}
+
+export interface InterviewDetails {
+  id: string;
+  application_id: string;
+  recruiter_id: string;
+  candidate_id: string;
+  interview_message: string;
+  meeting_url: string | null;
+  round?: "L1" | "L2" | "L3" | "HR Round" | null;
+  status: "Interview Scheduled";
+  created_at: string;
+  updated_at: string;
+}
+
+export interface OfferDetails {
+  application_id: string;
+  offer_message: string;
+  offer_letter_name: string | null;
+  offer_letter_url: string | null;
+  offer_letter_path: string | null;
+  sent_at: string;
 }
 
 export interface Notification {
@@ -113,7 +179,9 @@ export interface Notification {
   user_type: "jobseeker" | "recruiter";
   title: string;
   message: string;
-  type: "application" | "message" | "status_change" | "job_alert";
+  type: "application" | "message" | "status_change" | "job_alert" | "expiry_warning" | "expired" | "reposted";
+  job_id: string | null;
+  notification_key: string | null;
   is_read: boolean;
   related_id: string | null;
   created_at: string;

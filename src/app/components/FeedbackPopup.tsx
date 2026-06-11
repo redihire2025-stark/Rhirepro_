@@ -14,8 +14,9 @@ import {
 
 type FeedbackUserType = "guest" | "jobseeker" | "recruiter";
 
-const AUTO_OPEN_DELAY_MS = 5 * 60 * 1000;
-const REOPEN_DELAY_MS = 5 * 60 * 1000;
+const FIRST_POPUP_DELAY_MS = 20 * 60 * 1000;
+const SECOND_POPUP_DELAY_MS = 20 * 60 * 1000;
+const REPEAT_POPUP_DELAY_MS = 60 * 60 * 1000;
 
 interface FeedbackPopupProps {
   userId?: string | null;
@@ -37,11 +38,13 @@ export default function FeedbackPopup({
   const [comment, setComment] = useState("");
   const [status, setStatus] = useState<"idle" | "submitting" | "success" | "error">("idle");
   const [message, setMessage] = useState("");
+  const [selectedAction, setSelectedAction] = useState<"later" | "submit" | null>(null);
   const reopenTimerRef = useRef<number | null>(null);
 
   const isSignedIn = Boolean(userId) && userType !== "guest";
   const activeRating = hoveredRating || rating;
   const submittedStorageKey = `rhirepro-feedback-submitted-${autoOpenKey}-${userId || userType}`;
+  const dismissedCountStorageKey = `rhirepro-feedback-dismissed-count-${autoOpenKey}-${userId || userType}`;
 
   const prompt = useMemo(() => {
     if (userType === "recruiter") {
@@ -61,6 +64,14 @@ export default function FeedbackPopup({
   };
 
   const hasSubmittedFeedback = () => localStorage.getItem(submittedStorageKey) === "true";
+  const getDismissedCount = () => Number(localStorage.getItem(dismissedCountStorageKey) || "0");
+
+  const getNextDelay = () => {
+    const dismissedCount = getDismissedCount();
+    if (dismissedCount === 0) return FIRST_POPUP_DELAY_MS;
+    if (dismissedCount === 1) return SECOND_POPUP_DELAY_MS;
+    return REPEAT_POPUP_DELAY_MS;
+  };
 
   const schedulePopup = (delay: number) => {
     clearReopenTimer();
@@ -74,9 +85,9 @@ export default function FeedbackPopup({
   };
 
   useEffect(() => {
-    schedulePopup(AUTO_OPEN_DELAY_MS);
+    schedulePopup(getNextDelay());
     return clearReopenTimer;
-  }, [submittedStorageKey]);
+  }, [submittedStorageKey, dismissedCountStorageKey]);
 
   const resetForm = () => {
     setRating(0);
@@ -84,6 +95,7 @@ export default function FeedbackPopup({
     setComment("");
     setStatus("idle");
     setMessage("");
+    setSelectedAction(null);
   };
 
   const handleOpenChange = (nextOpen: boolean) => {
@@ -96,7 +108,9 @@ export default function FeedbackPopup({
       resetForm();
       return;
     }
-    schedulePopup(REOPEN_DELAY_MS);
+    const nextDismissedCount = getDismissedCount() + 1;
+    localStorage.setItem(dismissedCountStorageKey, String(nextDismissedCount));
+    schedulePopup(getNextDelay());
   };
 
   const handleSubmit = async () => {
@@ -137,6 +151,7 @@ export default function FeedbackPopup({
     setStatus("success");
     setMessage("Thank you. Your feedback helps us improve RhirePro.");
     localStorage.setItem(submittedStorageKey, "true");
+    localStorage.removeItem(dismissedCountStorageKey);
     clearReopenTimer();
     window.setTimeout(() => setOpen(false), 1200);
   };
@@ -212,16 +227,30 @@ export default function FeedbackPopup({
               <Button
                 type="button"
                 variant="outline"
-                onClick={() => handleOpenChange(false)}
-                className="rounded-full border-gray-200 text-[#3A1F1F]"
+                onClick={() => {
+                  setSelectedAction("later");
+                  handleOpenChange(false);
+                }}
+                className={`rounded-full border-gray-200 text-[#3A1F1F] ${
+                  selectedAction === "later" ? "border-[#FF2B2B] bg-red-50 text-[#FF2B2B]" : ""
+                } ${
+                  selectedAction && selectedAction !== "later" ? "opacity-45" : "opacity-100"
+                }`}
               >
                 Maybe later
               </Button>
               <Button
                 type="button"
-                onClick={handleSubmit}
+                onClick={() => {
+                  setSelectedAction("submit");
+                  void handleSubmit();
+                }}
                 disabled={status === "submitting"}
-                className="rounded-full bg-[#FF2B2B] text-white hover:bg-[#e02525]"
+                className={`rounded-full bg-[#FF2B2B] text-white hover:bg-[#e02525] ${
+                  selectedAction === "submit" ? "ring-2 ring-[#FF2B2B] ring-offset-2" : ""
+                } ${
+                  selectedAction && selectedAction !== "submit" ? "opacity-45" : "opacity-100"
+                }`}
               >
                 <Send className="mr-2 h-4 w-4" />
                 {isSignedIn ? "Send feedback" : "Sign in to send"}
