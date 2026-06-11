@@ -133,17 +133,113 @@ export function RichTextEditor({
         if (hasLockedHeading) {
           // Allow copy action (Ctrl+C / Cmd+C)
           const isCopy = (e.ctrlKey || e.metaKey) && e.key.toLowerCase() === "c";
-          if (!isCopy) {
+          if (isCopy) return;
+
+          if (e.key === "Backspace" || e.key === "Delete") {
             e.preventDefault();
+
+            // Helper to check if a node is locked
+            const isLockedNode = (n: Node) => {
+              let temp: Node | null = n;
+              while (temp && temp !== editorRef.current) {
+                if (temp.nodeType === Node.ELEMENT_NODE) {
+                  const el = temp as HTMLElement;
+                  if (el.tagName === "H2" || el.getAttribute("contenteditable") === "false") {
+                    return true;
+                  }
+                }
+                temp = temp.parentNode;
+              }
+              return false;
+            };
+
+            // Helper to get text nodes
+            const getTextNodes = (container: Node) => {
+              const textNodes: Text[] = [];
+              const walk = document.createTreeWalker(container, NodeFilter.SHOW_TEXT, null);
+              let node;
+              while ((node = walk.nextNode())) {
+                textNodes.push(node as Text);
+              }
+              return textNodes;
+            };
+
+            if (editorRef.current) {
+              const textNodes = getTextNodes(editorRef.current);
+              const editableTextNodesToProcess: { node: Text; start: number; count: number }[] = [];
+
+              textNodes.forEach((textNode) => {
+                if (range.intersectsNode(textNode) && !isLockedNode(textNode)) {
+                  let start = 0;
+                  let count = textNode.length;
+
+                  if (textNode === range.startContainer && textNode === range.endContainer) {
+                    start = range.startOffset;
+                    count = range.endOffset - range.startOffset;
+                  } else if (textNode === range.startContainer) {
+                    start = range.startOffset;
+                    count = textNode.length - range.startOffset;
+                  } else if (textNode === range.endContainer) {
+                    start = 0;
+                    count = range.endOffset;
+                  }
+
+                  if (count > 0) {
+                    editableTextNodesToProcess.push({ node: textNode, start, count });
+                  }
+                }
+              });
+
+              editableTextNodesToProcess.forEach(({ node, start, count }) => {
+                node.deleteData(start, count);
+              });
+
+              // Normalize empty blocks to contain <br>
+              const blocks = editorRef.current.querySelectorAll("p, li, div");
+              blocks.forEach((block) => {
+                if (!isLockedNode(block)) {
+                  const text = block.textContent || "";
+                  if (text.trim() === "") {
+                    if (!block.querySelector("br")) {
+                      block.innerHTML = "<br>";
+                    }
+                  }
+                }
+              });
+
+              // Place caret at the first selected editable block
+              const selectedEditableBlocks = Array.from(editorRef.current.querySelectorAll("p, li, div"))
+                .filter(block => !isLockedNode(block) && range.intersectsNode(block));
+
+              if (selectedEditableBlocks.length > 0) {
+                const targetBlock = selectedEditableBlocks[0] as HTMLElement;
+                const newRange = document.createRange();
+                const firstChild = targetBlock.firstChild;
+                if (firstChild) {
+                  newRange.setStart(firstChild, 0);
+                  newRange.setEnd(firstChild, 0);
+                } else {
+                  newRange.setStart(targetBlock, 0);
+                  newRange.setEnd(targetBlock, 0);
+                }
+                selection.removeAllRanges();
+                selection.addRange(newRange);
+              }
+
+              handleInput();
+            }
             return;
           }
+
+          e.preventDefault();
+          return;
         }
       } catch (err) {
         // Fallback
       }
     }
 
-    if (e.key === "Backspace" || e.key === "Delete") {
+    if (selection.isCollapsed && (e.key === "Backspace" || e.key === "Delete")) {
       const node = selection.anchorNode;
       if (!node) return;
 
