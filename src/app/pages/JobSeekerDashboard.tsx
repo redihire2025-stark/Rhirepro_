@@ -983,9 +983,15 @@ function FindJobPage() {
       if (experienceFilter === "mid") query = query.gte("experience_min", 2).lte("experience_min", 5);
       if (experienceFilter === "senior") query = query.gte("experience_min", 5);
 
-      if (salaryFilter === "0-10") query = query.lt("salary_min", 10);
-      if (salaryFilter === "10-25") query = query.gte("salary_min", 10).lt("salary_min", 25);
-      if (salaryFilter === "25+") query = query.gte("salary_min", 25);
+      if (salaryFilter === "0-10") {
+        query = query.or("salary_min.lt.10,and(salary_min.gte.1000,salary_min.lt.1000000)");
+      }
+      if (salaryFilter === "10-25") {
+        query = query.or("and(salary_min.gte.10,salary_min.lt.25),and(salary_min.gte.1000000,salary_min.lt.2500000)");
+      }
+      if (salaryFilter === "25+") {
+        query = query.or("and(salary_min.gte.25,salary_min.lt.1000),salary_min.gte.2500000");
+      }
 
       if (industryFilter === "healthcare") query = query.ilike("industry", "%Healthcare%");
       if (industryFilter === "finance") query = query.ilike("industry", "%BFSI%");

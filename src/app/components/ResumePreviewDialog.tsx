@@ -4,6 +4,33 @@ import { supabase } from "../../lib/supabase";
 import { Button } from "./ui/button";
 import { Dialog, DialogContent, DialogHeader, DialogTitle } from "./ui/dialog";
 
+// Singleton promise for loading pdfjs — prevents race conditions when multiple dialogs load simultaneously
+let _pdfjsDialogLoadPromise: Promise<any> | null = null;
+function ensurePdfJs(): Promise<any> {
+  if ((window as any).pdfjsLib) return Promise.resolve((window as any).pdfjsLib);
+  if (!_pdfjsDialogLoadPromise) {
+    _pdfjsDialogLoadPromise = new Promise<any>((resolve, reject) => {
+      const s = document.createElement("script");
+      s.src = "https://unpkg.com/pdfjs-dist@3.10.111/legacy/build/pdf.min.js";
+      s.onload = () => {
+        const lib = (window as any).pdfjsLib;
+        if (lib) {
+          lib.GlobalWorkerOptions.workerSrc = "https://unpkg.com/pdfjs-dist@3.10.111/legacy/build/pdf.worker.min.js";
+        }
+        resolve(lib);
+      };
+      s.onerror = () => {
+        _pdfjsDialogLoadPromise = null;
+        reject(new Error("Failed to load pdfjs from CDN"));
+      };
+      document.head.appendChild(s);
+    });
+  }
+  return _pdfjsDialogLoadPromise;
+}
+// Start preloading pdfjs immediately
+void ensurePdfJs();
+
 type ResumePreviewKind = "pdf" | "office" | "image" | "unsupported";
 
 export function getResumePreviewKind(url: string): ResumePreviewKind {
@@ -131,27 +158,14 @@ export default function ResumePreviewDialog({
       setPdfRenderFailed(false);
       setRenderingPdf(true);
       try {
-        const res = await fetch(previewUrl);
+        // Fetch PDF data and load pdfjs library in parallel for speed
+        const [fetchRes, pdfjs] = await Promise.all([
+          fetch(previewUrl),
+          ensurePdfJs(),
+        ]);
         if (cancelled || !pdfContainerRef.current) return;
-        const arrayBuffer = await res.arrayBuffer();
+        const arrayBuffer = await fetchRes.arrayBuffer();
         if (cancelled || !pdfContainerRef.current) return;
-
-        // Load pdf.js at runtime from CDN to avoid bundler import errors
-        async function ensurePdfJs() {
-          if ((window as any).pdfjsLib) return (window as any).pdfjsLib;
-          await new Promise<void>((resolve, reject) => {
-            const s = document.createElement("script");
-            s.src = "https://unpkg.com/pdfjs-dist@3.10.111/legacy/build/pdf.min.js";
-            s.onload = () => resolve();
-            s.onerror = () => reject(new Error("Failed to load pdfjs from CDN"));
-            document.head.appendChild(s);
-          });
-          return (window as any).pdfjsLib;
-        }
-
-        const pdfjs = await ensurePdfJs();
-        if (cancelled || !pdfContainerRef.current) return;
-        (pdfjs as any).GlobalWorkerOptions.workerSrc = "https://unpkg.com/pdfjs-dist@3.10.111/legacy/build/pdf.worker.min.js";
         loadingTask = (pdfjs as any).getDocument({ data: arrayBuffer });
         const pdf = await loadingTask.promise;
         if (cancelled || !pdfContainerRef.current?.isConnected) return;

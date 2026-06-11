@@ -11,6 +11,33 @@ import { Button } from "../components/ui/button";
 import { Badge } from "../components/ui/badge";
 import { getStorageObjectFromUrl, buildPreviewUrl, getResumePreviewKind } from "../components/ResumePreviewDialog";
 
+// Singleton promise for loading pdfjs — prevents race conditions when multiple instances load simultaneously
+let _pdfjsLoadPromise: Promise<any> | null = null;
+function ensurePdfJs(): Promise<any> {
+  if ((window as any).pdfjsLib) return Promise.resolve((window as any).pdfjsLib);
+  if (!_pdfjsLoadPromise) {
+    _pdfjsLoadPromise = new Promise<any>((resolve, reject) => {
+      const s = document.createElement("script");
+      s.src = "https://unpkg.com/pdfjs-dist@3.10.111/legacy/build/pdf.min.js";
+      s.onload = () => {
+        const lib = (window as any).pdfjsLib;
+        if (lib) {
+          lib.GlobalWorkerOptions.workerSrc = "https://unpkg.com/pdfjs-dist@3.10.111/legacy/build/pdf.worker.min.js";
+        }
+        resolve(lib);
+      };
+      s.onerror = () => {
+        _pdfjsLoadPromise = null; // allow retry
+        reject(new Error("Failed to load pdfjs"));
+      };
+      document.head.appendChild(s);
+    });
+  }
+  return _pdfjsLoadPromise;
+}
+// Start preloading pdfjs immediately — don't wait for a PDF to render
+void ensurePdfJs();
+
 const logoImage = new URL("../../logo/logo.png", import.meta.url).href;
 
 interface WorkExp {
@@ -72,7 +99,8 @@ interface ApplicantProfile extends Profile {
 }
 
 export default function ApplicantProfilePage() {
-  const { applicantId } = useParams();
+  const { applicantId, candidateId } = useParams();
+  const id = applicantId || candidateId;
   const { recruiterProfile, loading: authLoading } = useAuth();
   const navigate = useNavigate();
 
@@ -103,44 +131,56 @@ export default function ApplicantProfilePage() {
   }, [resolvedResumeUrl]);
 
   const fetchApplicantDetails = useCallback(async () => {
-    if (!applicantId || !recruiterProfile?.id) return;
+    if (!id || !recruiterProfile?.id) return;
     setLoading(true);
     setError(null);
 
     try {
+      let profData;
       // 1. Fetch Application
       const { data: appData, error: appError } = await supabase
         .from("applications")
         .select("*, job:jobs(title, id)")
-        .eq("id", applicantId)
+        .eq("id", id)
         .single();
 
       if (appError || !appData) {
-        setError("Applicant not found or could not be loaded.");
-        setLoading(false);
-        return;
-      }
+        // Fallback: Try to fetch profile directly assuming applicantId is the profile ID
+        const { data: directProf, error: directProfErr } = await supabase
+          .from("profiles")
+          .select("*")
+          .eq("id", id)
+          .single();
 
-      // 2. Validate recruiter access permission
-      if (appData.recruiter_id !== recruiterProfile.id) {
-        setError("Access Denied: You do not have permission to view this applicant's profile.");
-        setLoading(false);
-        return;
-      }
+        if (directProfErr || !directProf) {
+          setError("Candidate profile not found or could not be loaded.");
+          setLoading(false);
+          return;
+        }
+        profData = directProf;
+        setApplication(null);
+      } else {
+        // 2. Validate recruiter access permission
+        if (appData.recruiter_id !== recruiterProfile.id) {
+          setError("Access Denied: You do not have permission to view this applicant's profile.");
+          setLoading(false);
+          return;
+        }
+        setApplication(appData);
 
-      setApplication(appData);
+        // 3. Fetch candidate profile
+        const { data: pData, error: pError } = await supabase
+          .from("profiles")
+          .select("*")
+          .eq("id", appData.profile_id)
+          .single();
 
-      // 3. Fetch candidate profile
-      const { data: profData, error: profError } = await supabase
-        .from("profiles")
-        .select("*")
-        .eq("id", appData.profile_id)
-        .single();
-
-      if (profError || !profData) {
-        setError("Candidate profile not found or could not be loaded.");
-        setLoading(false);
-        return;
+        if (pError || !pData) {
+          setError("Candidate profile not found or could not be loaded.");
+          setLoading(false);
+          return;
+        }
+        profData = pData;
       }
 
       setProfile(profData);
@@ -206,7 +246,7 @@ export default function ApplicantProfilePage() {
       }
 
       // 6. Resolve resume url
-      const rawResumeUrl = profData.resume_url || appData.resume_url || null;
+      const rawResumeUrl = profData.resume_url || appData?.resume_url || null;
       if (rawResumeUrl) {
         setResumeUrl(rawResumeUrl);
         const storageObject = getStorageObjectFromUrl(rawResumeUrl);
@@ -235,7 +275,7 @@ export default function ApplicantProfilePage() {
     } finally {
       setLoading(false);
     }
-  }, [applicantId, recruiterProfile?.id]);
+  }, [id, recruiterProfile?.id]);
 
   useEffect(() => {
     if (!authLoading && recruiterProfile?.id) {
@@ -244,14 +284,14 @@ export default function ApplicantProfilePage() {
   }, [authLoading, recruiterProfile, fetchApplicantDetails]);
 
   useEffect(() => {
-    if (!applicantId) return;
-    const channel = supabase.channel(`applicant-profile-realtime-${applicantId}`)
-      .on("postgres_changes", { event: "UPDATE", schema: "public", table: "applications", filter: `id=eq.${applicantId}` }, () => {
+    if (!id) return;
+    const channel = supabase.channel(`applicant-profile-realtime-${id}`)
+      .on("postgres_changes", { event: "UPDATE", schema: "public", table: "applications", filter: `id=eq.${id}` }, () => {
         void fetchApplicantDetails();
       })
       .subscribe();
     return () => { supabase.removeChannel(channel); };
-  }, [applicantId, fetchApplicantDetails]);
+  }, [id, fetchApplicantDetails]);
 
   useEffect(() => {
     if (!profile?.id) return;
@@ -273,31 +313,16 @@ export default function ApplicantProfilePage() {
       try {
         if (!pdfPreviewRef.current?.isConnected) return;
         const container = pdfPreviewRef.current;
-        while (container.firstChild) {
-          container.removeChild(container.firstChild);
-        }
+        container.innerHTML = "";
 
-        const res = await fetch(resumePreviewUrl);
+        // Fetch PDF data and load pdfjs library in parallel for speed
+        const [fetchRes, pdfjs] = await Promise.all([
+          fetch(resumePreviewUrl),
+          ensurePdfJs(),
+        ]);
         if (cancelled || !pdfPreviewRef.current?.isConnected) return;
-        const arrayBuffer = await res.arrayBuffer();
+        const arrayBuffer = await fetchRes.arrayBuffer();
         if (cancelled || !pdfPreviewRef.current?.isConnected) return;
-
-        // load pdfjs from CDN
-        async function ensurePdfJs() {
-          if ((window as any).pdfjsLib) return (window as any).pdfjsLib;
-          await new Promise<void>((resolve, reject) => {
-            const s = document.createElement("script");
-            s.src = "https://unpkg.com/pdfjs-dist@3.10.111/legacy/build/pdf.min.js";
-            s.onload = () => resolve();
-            s.onerror = () => reject(new Error("Failed to load pdfjs"));
-            document.head.appendChild(s);
-          });
-          return (window as any).pdfjsLib;
-        }
-
-        const pdfjs = await ensurePdfJs();
-        if (cancelled || !pdfPreviewRef.current?.isConnected) return;
-        (pdfjs as any).GlobalWorkerOptions.workerSrc = "https://unpkg.com/pdfjs-dist@3.10.111/legacy/build/pdf.worker.min.js";
         loadingTask = (pdfjs as any).getDocument({ data: arrayBuffer });
         const pdf = await loadingTask.promise;
         if (cancelled || !pdfPreviewRef.current?.isConnected) return;
@@ -336,9 +361,7 @@ export default function ApplicantProfilePage() {
       } catch (err) {
         console.error("Inline PDF render failed", err);
         if (pdfPreviewRef.current?.isConnected) {
-          while (pdfPreviewRef.current.firstChild) {
-            pdfPreviewRef.current.removeChild(pdfPreviewRef.current.firstChild);
-          }
+          pdfPreviewRef.current.innerHTML = "";
           // fallback to iframe
           const iframe = document.createElement("iframe");
           iframe.src = `${resumePreviewUrl}#toolbar=0&navpanes=0&view=FitH`;
@@ -440,8 +463,14 @@ export default function ApplicantProfilePage() {
           <ShieldAlert className="h-12 w-12 text-[#FF2B2B] mx-auto mb-4" />
           <h2 className="text-xl font-bold text-[#3A1F1F] mb-2">Error</h2>
           <p className="text-[#8A8A8A] text-sm mb-6">{error}</p>
-          <Button className="bg-[#FF2B2B] hover:bg-[#e02525] text-white rounded-full" onClick={() => navigate("/recruiter/dashboard/applicants")}>
-            Back to Applicants
+          <Button className="bg-[#FF2B2B] hover:bg-[#e02525] text-white rounded-full" onClick={() => {
+            if (window.history.length > 1) {
+              navigate(-1);
+            } else {
+              navigate("/recruiter/dashboard/applicants");
+            }
+          }}>
+            Go Back
           </Button>
         </div>
       </div>
@@ -450,7 +479,7 @@ export default function ApplicantProfilePage() {
 
   const name = [profile?.first_name, profile?.last_name].filter(Boolean).join(" ") || "Candidate";
   const initials = name.split(" ").map(n => n[0]).join("").toUpperCase();
-  const matchScore = Math.floor(70 + (applicantId?.charCodeAt(0) || 0) % 25);
+  const matchScore = Math.floor(70 + (id?.charCodeAt(0) || 0) % 25);
 
   return (
     <div className="min-h-screen bg-[#F6F6F6] flex flex-col font-sans">
@@ -459,8 +488,8 @@ export default function ApplicantProfilePage() {
         {/* Inner page navigation bar */}
         <div className="flex justify-between items-center mb-6 bg-white rounded-2xl p-4 shadow-sm">
           <div className="flex items-center gap-3">
-            <Button variant="ghost" size="sm" className="rounded-full hover:bg-gray-100" onClick={() => navigate("/recruiter/dashboard/applicants")}>
-              <ArrowLeft className="h-4 w-4 mr-1" /> Back to Applicants
+            <Button variant="ghost" size="sm" className="rounded-full hover:bg-gray-100" onClick={() => navigate(application ? "/recruiter/dashboard/applicants" : "/recruiter/dashboard/search-candidates")}>
+              <ArrowLeft className="h-4 w-4 mr-1" /> Back to {application ? "Applicants" : "Candidate Search"}
             </Button>
             <span className="text-xs font-semibold px-2.5 py-1 bg-red-50 text-[#FF2B2B] border border-red-100 rounded-full">Profile Review Mode</span>
           </div>
@@ -696,7 +725,7 @@ export default function ApplicantProfilePage() {
                               modes = parsed;
                             }
                           } catch (e) {
-                            modes = profile.preferred_interview_mode.split(",").map((s: string) => s.trim()).filter(Boolean);
+                            modes = (profile.preferred_interview_mode as any).split(",").map((s: string) => s.trim()).filter(Boolean);
                           }
                         }
                       }
@@ -780,13 +809,14 @@ export default function ApplicantProfilePage() {
                     />
                   ) : resumeKind === "pdf" ? (
                     // PDF: render canvases into a container and size container to content height
-                    <div ref={pdfPreviewRef} className="w-full bg-white p-4 flex flex-col items-center justify-start overflow-auto min-h-0 max-h-full">
+                    <div className="w-full h-full relative flex flex-col min-h-0">
                       {pdfRendering && (
-                        <div className="text-center p-6">
+                        <div className="text-center p-6 absolute inset-0 bg-white/80 z-10 flex flex-col items-center justify-center">
                           <div className="w-9 h-9 border-4 border-[#FF2B2B] border-t-transparent rounded-full animate-spin mx-auto mb-3" />
                           <p className="text-sm text-[#5A5A5A]">Preparing resume preview...</p>
                         </div>
                       )}
+                      <div ref={pdfPreviewRef} className="w-full bg-white p-4 flex flex-col items-center justify-start overflow-auto min-h-0 max-h-full" />
                     </div>
                   ) : (
                     <iframe

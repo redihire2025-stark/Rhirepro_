@@ -7,6 +7,7 @@ import {
   buildJobExpiryTimestamp,
   formatJobDeadline,
   formatJobSalary,
+  formatJobSalaryRecruiter,
   formatSalaryRangeFromValues,
   getEffectiveJobStatus,
   getJobDaysRemaining,
@@ -26,7 +27,7 @@ import {
   BarChart2, TrendingUp, Users, FileText, CheckCircle, XCircle,
   MessageSquare, Video, Award, BookOpen, Globe, Linkedin, Share2,
   ArrowRight, Target, Zap, RefreshCw, MoreVertical, ThumbsUp, ThumbsDown, ExternalLink, Loader2,
-  CreditCard, Tag, ShieldCheck, Crown, Check,
+  CreditCard, Tag, ShieldCheck, Crown, Check, Minimize2, ShieldAlert,
 } from "lucide-react";
 import { Button } from "../components/ui/button";
 import { Input } from "../components/ui/input";
@@ -49,7 +50,7 @@ import FeedbackPopup from "../components/FeedbackPopup";
 import InterviewDetailsModal from "../components/InterviewDetailsModal";
 import InterviewFeedbackModal from "../components/InterviewFeedbackModal";
 import OfferDetailsModal from "../components/OfferDetailsModal";
-import ResumePreviewDialog, { getStorageObjectFromUrl, buildPreviewUrl } from "../components/ResumePreviewDialog";
+import ResumePreviewDialog, { getStorageObjectFromUrl, buildPreviewUrl, getResumePreviewKind } from "../components/ResumePreviewDialog";
 import JobShareButton from "../components/JobShareButton";
 import ApplicantProfilePage from "./ApplicantProfilePage";
 
@@ -264,7 +265,8 @@ function LocationAutocomplete({
 
 function getSalaryFormValue(val: number | null | undefined): string {
   if (val === null || val === undefined) return "";
-  return String(val);
+  const numericVal = val < 1000 ? val * 100000 : val;
+  return String(numericVal);
 }
 
 function SalaryCombobox({
@@ -280,9 +282,8 @@ function SalaryCombobox({
   const [search, setSearch] = useState("");
   const wrapperRef = useRef<HTMLDivElement>(null);
   const formatSalaryAmount = (amount: number) => {
-    const lpa = amount >= 1000 ? amount / 100000 : amount;
-    const label = Number.isInteger(lpa) ? String(lpa) : lpa.toFixed(1).replace(/\.0$/, "");
-    return `${label} LPA${lpa >= 50 ? "+" : ""}`;
+    const numericSalary = amount < 1000 ? amount * 100000 : amount;
+    return `₹${numericSalary}`;
   };
   const selectedOption = SALARY_AMOUNT_OPTIONS.find(option => String(option.value) === value);
   const selectedLabel = selectedOption?.label ?? (value ? formatSalaryAmount(Number(value)) : "");
@@ -312,7 +313,7 @@ function SalaryCombobox({
       amount: number,
       score: number,
     ) => {
-      if (!Number.isFinite(amount) || amount < 0 || amount > 50) return;
+      if (!Number.isFinite(amount) || amount < 0 || amount > 5000000) return;
       const existing = map.get(amount);
       if (!existing || score < existing.score) {
         map.set(amount, { value: amount, label: formatSalaryAmount(amount), score });
@@ -328,7 +329,7 @@ function SalaryCombobox({
     const optionMap = new Map<number, { value: number; label: string; score: number }>();
 
     if (typedNumber === 0) addOption(optionMap, 0, 0);
-    if (typedNumber > 0 && typedNumber <= 50) addOption(optionMap, typedNumber, 0);
+    if (typedNumber > 0 && typedNumber <= 5000000) addOption(optionMap, typedNumber, 0);
 
     matchingOptions.forEach(option => addOption(optionMap, option.value, 1));
 
@@ -1134,6 +1135,7 @@ export default function RecruiterDashboard() {
         <Route path="search-candidates" element={<SearchCandidatesPage />} />
         <Route path="applicants" element={<ApplicantsPage />} />
         <Route path="applicants/:applicantId/profile" element={<ApplicantProfilePage />} />
+        <Route path="candidates/:candidateId/profile" element={<ApplicantProfilePage />} />
         <Route path="analytics" element={<AnalyticsPage />} />
         <Route path="articles/new" element={<ArticleEditorPage />} />
         <Route path="articles/:articleId/edit" element={<ArticleEditorPage />} />
@@ -2717,7 +2719,7 @@ function ManageJobsPage() {
                 <div className="flex items-center gap-4 text-sm text-[#8A8A8A] flex-wrap">
                   <span className="flex items-center gap-1"><MapPin className="h-3.5 w-3.5" />{job.location}</span>
                   <span className="flex items-center gap-1"><Briefcase className="h-3.5 w-3.5" />{job.employment_type}</span>
-                  <span className="flex items-center gap-1"><TrendingUp className="h-3.5 w-3.5" />{formatJobSalary(job)}</span>
+                  <span className="flex items-center gap-1"><TrendingUp className="h-3.5 w-3.5" />{formatJobSalaryRecruiter(job)}</span>
                   <span className="flex items-center gap-1"><Clock className="h-3.5 w-3.5" />Posted {new Date(job.created_at).toLocaleDateString()}</span>
                   {job.deadline && (
                     <span className="flex items-center gap-1">
@@ -2847,7 +2849,462 @@ interface DBCandidate extends Profile {
   education?: EduType[];
 }
 
-type AppliedJdSearchApplication = {
+interface SearchCandidateProfileModalProps {
+  candidate: DBCandidate | null;
+  onClose: () => void;
+  shortlisted: Set<string>;
+  toggleShortlist: (id: string) => void;
+  interviewInvited: Set<string>;
+  toggleInterview: (id: string) => void;
+  skillTags: string[];
+}
+
+function SearchCandidateProfileModal({
+  candidate,
+  onClose,
+  shortlisted,
+  toggleShortlist,
+  interviewInvited,
+  toggleInterview,
+  skillTags
+}: SearchCandidateProfileModalProps) {
+  const [resolvedResumeUrl, setResolvedResumeUrl] = useState<string | null>(null);
+  const [resumePreviewUrl, setResumePreviewUrl] = useState<string | null>(null);
+  const pdfPreviewRef = useRef<HTMLDivElement | null>(null);
+  const fullscreenResumeRef = useRef<HTMLDivElement | null>(null);
+  const [pdfRendering, setPdfRendering] = useState(false);
+  const [resumeLoading, setResumeLoading] = useState(false);
+  const [resumeError, setResumeError] = useState("");
+  const [isFullscreen, setIsFullscreen] = useState(false);
+
+  const name = candidate ? getCandidateDisplayName(candidate) : "Candidate";
+  const initials = getCandidateInitials(name);
+  const workExp = candidate?.work_experience || [];
+  const eduList = candidate?.education || [];
+  const skills = candidate?.skills || [];
+  const hasResume = !!candidate?.resume_url;
+
+  const resumeKind = useMemo(() => {
+    if (!resolvedResumeUrl) return "unsupported";
+    return getResumePreviewKind(resolvedResumeUrl);
+  }, [resolvedResumeUrl]);
+
+  useEffect(() => {
+    let cancelled = false;
+    async function resolveResume() {
+      setResolvedResumeUrl(null);
+      setResumePreviewUrl(null);
+      setResumeError("");
+      if (!candidate?.resume_url) return;
+
+      const storageObject = getStorageObjectFromUrl(candidate.resume_url);
+      if (!storageObject) {
+        setResolvedResumeUrl(candidate.resume_url);
+        setResumePreviewUrl(buildPreviewUrl(candidate.resume_url));
+      } else {
+        setResumeLoading(true);
+        const { data, error } = await supabase.storage
+          .from(storageObject.bucket)
+          .createSignedUrl(storageObject.path, 10 * 60);
+
+        if (cancelled) return;
+
+        if (error || !data?.signedUrl) {
+          setResumeError(error?.message || "Resume file could not be previewed.");
+        } else {
+          setResolvedResumeUrl(data.signedUrl);
+          setResumePreviewUrl(buildPreviewUrl(data.signedUrl));
+        }
+        setResumeLoading(false);
+      }
+    }
+    void resolveResume();
+    return () => {
+      cancelled = true;
+    };
+  }, [candidate?.resume_url]);
+
+  // Render PDF into canvases when resumePreviewUrl changes
+  useEffect(() => {
+    let cancelled = false;
+    let loadingTask: any = null;
+    async function renderPdfInline() {
+      if (!resumePreviewUrl || resumeKind !== "pdf" || !pdfPreviewRef.current) return;
+      setPdfRendering(true);
+      try {
+        if (!pdfPreviewRef.current?.isConnected) return;
+        const container = pdfPreviewRef.current;
+        while (container.firstChild) {
+          container.removeChild(container.firstChild);
+        }
+
+        const res = await fetch(resumePreviewUrl);
+        if (cancelled || !pdfPreviewRef.current?.isConnected) return;
+        const arrayBuffer = await res.arrayBuffer();
+        if (cancelled || !pdfPreviewRef.current?.isConnected) return;
+
+        // load pdfjs from CDN
+        async function ensurePdfJs() {
+          if ((window as any).pdfjsLib) return (window as any).pdfjsLib;
+          await new Promise<void>((resolve, reject) => {
+            const s = document.createElement("script");
+            s.src = "https://unpkg.com/pdfjs-dist@3.10.111/legacy/build/pdf.min.js";
+            s.onload = () => resolve();
+            s.onerror = () => reject(new Error("Failed to load pdfjs"));
+            document.head.appendChild(s);
+          });
+          return (window as any).pdfjsLib;
+        }
+
+        const pdfjs = await ensurePdfJs();
+        if (cancelled || !pdfPreviewRef.current?.isConnected) return;
+        (pdfjs as any).GlobalWorkerOptions.workerSrc = "https://unpkg.com/pdfjs-dist@3.10.111/legacy/build/pdf.worker.min.js";
+        loadingTask = (pdfjs as any).getDocument({ data: arrayBuffer });
+        const pdf = await loadingTask.promise;
+        if (cancelled || !pdfPreviewRef.current?.isConnected) return;
+        const numPages = pdf.numPages;
+        const wrapper = document.createElement("div");
+        wrapper.style.display = "flex";
+        wrapper.style.flexDirection = "column";
+        wrapper.style.alignItems = "center";
+        wrapper.style.justifyContent = "flex-start";
+        wrapper.style.width = "100%";
+        
+        const availableWidth = Math.max(100, pdfPreviewRef.current.clientWidth - 8);
+        for (let i = 1; i <= numPages; i++) {
+          if (cancelled || !pdfPreviewRef.current?.isConnected) return;
+          const page = await pdf.getPage(i);
+          if (cancelled || !pdfPreviewRef.current?.isConnected) return;
+          const viewport = page.getViewport({ scale: 1 });
+          const scale = Math.min(1, availableWidth / viewport.width);
+          const scaledViewport = page.getViewport({ scale });
+          const canvas = document.createElement("canvas");
+          canvas.width = Math.floor(scaledViewport.width);
+          canvas.height = Math.floor(scaledViewport.height);
+          canvas.style.width = `${scaledViewport.width}px`;
+          canvas.style.height = `${scaledViewport.height}px`;
+          canvas.className = "mb-3 shadow-sm rounded-sm bg-white";
+          const ctx = canvas.getContext("2d");
+          // @ts-ignore
+          await page.render({ canvasContext: ctx, viewport: scaledViewport }).promise;
+          if (cancelled || !pdfPreviewRef.current?.isConnected) return;
+          wrapper.appendChild(canvas);
+        }
+        if (pdfPreviewRef.current?.isConnected) {
+          pdfPreviewRef.current.appendChild(wrapper);
+          pdfPreviewRef.current.style.height = "100%";
+        }
+      } catch (err) {
+        console.error("Inline PDF render failed", err);
+        if (pdfPreviewRef.current?.isConnected) {
+          while (pdfPreviewRef.current.firstChild) {
+            pdfPreviewRef.current.removeChild(pdfPreviewRef.current.firstChild);
+          }
+          // fallback to iframe
+          const iframe = document.createElement("iframe");
+          iframe.src = `${resumePreviewUrl}#toolbar=0&navpanes=0&view=FitH`;
+          iframe.style.width = "100%";
+          iframe.style.height = "600px";
+          iframe.style.border = "0";
+          pdfPreviewRef.current.appendChild(iframe);
+        }
+      } finally {
+        if (!cancelled) setPdfRendering(false);
+      }
+    }
+    void renderPdfInline();
+    return () => {
+      cancelled = true;
+      if (loadingTask) {
+        try {
+          loadingTask.destroy();
+        } catch (e) {
+          console.warn("Failed to destroy inline PDF loading task:", e);
+        }
+      }
+    };
+  }, [resumePreviewUrl, resumeKind]);
+
+  useEffect(() => {
+    const handleFullscreenChange = () => {
+      setIsFullscreen(Boolean(document.fullscreenElement));
+    };
+    document.addEventListener("fullscreenchange", handleFullscreenChange);
+    return () => document.removeEventListener("fullscreenchange", handleFullscreenChange);
+  }, []);
+
+  const toggleResumeFullscreen = async () => {
+    if (!fullscreenResumeRef.current) return;
+    try {
+      if (document.fullscreenElement) {
+        await document.exitFullscreen();
+      } else {
+        await fullscreenResumeRef.current.requestFullscreen();
+      }
+    } catch (err) {
+      console.error("Resume fullscreen failed", err);
+    }
+  };
+
+  const handleDownloadResume = useCallback(async () => {
+    if (!candidate?.resume_url) return;
+
+    const storageObject = getStorageObjectFromUrl(candidate.resume_url);
+    if (!storageObject) {
+      window.open(candidate.resume_url, "_blank", "noopener,noreferrer");
+      return;
+    }
+
+    const { data, error: downloadError } = await supabase.storage
+      .from(storageObject.bucket)
+      .createSignedUrl(storageObject.path, 10 * 60, { download: true });
+
+    if (downloadError || !data?.signedUrl) {
+      alert(`Resume download failed: ${downloadError?.message || "Unable to download resume."}`);
+      return;
+    }
+
+    window.open(data.signedUrl, "_blank", "noopener,noreferrer");
+  }, [candidate?.resume_url]);
+
+  if (!candidate) return null;
+
+  return (
+    <div className="fixed inset-0 z-50 flex items-center justify-center p-4 bg-black/50" onClick={onClose}>
+      <div className={`bg-white rounded-2xl shadow-2xl w-full ${hasResume ? "max-w-6xl" : "max-w-3xl"} max-h-[90vh] overflow-y-auto`} onClick={e => e.stopPropagation()}>
+        {/* Header — avatar + name fully inside banner, no negative margin */}
+        <div className="bg-gradient-to-r from-[#3A1F1F] to-[#FF2B2B] rounded-t-2xl px-6 py-5 relative">
+          <button onClick={onClose} className="absolute top-3 right-4 text-white/70 hover:text-white text-2xl leading-none font-bold">×</button>
+          <div className="flex items-center gap-4">
+            <div className="w-16 h-16 rounded-xl border-2 border-white/40 shadow overflow-hidden bg-white/20 flex items-center justify-center text-white font-bold text-xl flex-shrink-0">
+              {candidate.avatar_url
+                ? <img src={candidate.avatar_url} alt={name} className="w-full h-full object-cover" />
+                : initials}
+            </div>
+            <div className="flex-1 min-w-0">
+              <h2 className="text-lg font-bold text-white truncate">{name}</h2>
+              <p className="text-sm text-white/80 truncate">
+                {candidate.headline || candidate.current_title}
+                {candidate.current_company && <span> · {candidate.current_company}</span>}
+              </p>
+            </div>
+          </div>
+        </div>
+
+        <div className="px-6 pb-6 pt-5">
+          <div className={`grid grid-cols-1 ${hasResume ? "lg:grid-cols-2" : ""} gap-6 items-start`}>
+            
+            {/* Profile Info (Left side if split, full width otherwise) */}
+            <div className="space-y-5">
+              {/* Quick stats grid */}
+              <div className="grid grid-cols-2 md:grid-cols-4 gap-3 p-4 bg-[#F6F6F6] rounded-xl">
+                {[
+                  { label: "Experience", value: candidate.total_experience },
+                  { label: "Location", value: candidate.location },
+                  { label: "Current CTC", value: candidate.current_salary },
+                  { label: "Expected CTC", value: candidate.expected_salary, highlight: true },
+                  { label: "Notice Period", value: candidate.notice_period },
+                  { label: "Phone", value: candidate.phone },
+                  { label: "Email", value: candidate.email },
+                  { label: "Candidate Type", value: candidate.experience_type ? (candidate.experience_type === "fresher" ? "Fresher" : "Experienced") : null },
+                ].filter(item => item.value).map((item, i) => (
+                  <div key={i}>
+                    <p className="text-xs text-[#8A8A8A]">{item.label}</p>
+                    <p className={`text-sm font-semibold truncate ${(item as any).highlight ? "text-[#FF2B2B]" : "text-[#3A1F1F]"}`}>{item.value}</p>
+                  </div>
+                ))}
+              </div>
+
+              {/* Action buttons */}
+              <div className="flex gap-2 flex-wrap">
+                <Button size="sm" variant={shortlisted.has(candidate.id) ? "default" : "outline"} className={shortlisted.has(candidate.id) ? "bg-pink-600 hover:bg-pink-700 text-white rounded-full text-xs" : "border-pink-500 text-pink-600 hover:bg-pink-50 rounded-full text-xs"} onClick={() => toggleShortlist(candidate.id)}><ThumbsUp className="h-3.5 w-3.5 mr-1" /> {shortlisted.has(candidate.id) ? "Shortlisted ✓" : "Shortlist"}</Button>
+                <Button size="sm" variant={interviewInvited.has(candidate.id) ? "default" : "outline"} className={interviewInvited.has(candidate.id) ? "bg-purple-600 hover:bg-purple-700 text-white rounded-full text-xs" : "border-purple-400 text-purple-600 hover:bg-purple-50 rounded-full text-xs"} onClick={() => toggleInterview(candidate.id)}><Video className="h-3.5 w-3.5 mr-1" /> {interviewInvited.has(candidate.id) ? "Invited ✓" : "Schedule Interview"}</Button>
+                <Button size="sm" variant="outline" className="border-gray-200 rounded-full text-xs" onClick={() => { if (candidate.email) window.location.href = `mailto:${candidate.email}`; }}><Mail className="h-3.5 w-3.5 mr-1" /> Send Message</Button>
+                {candidate.linkedin_url && <a href={candidate.linkedin_url} target="_blank" rel="noreferrer"><Button size="sm" variant="outline" className="border-blue-400 text-blue-600 hover:bg-blue-50 rounded-full text-xs">LinkedIn</Button></a>}
+                {candidate.portfolio_url && <a href={candidate.portfolio_url} target="_blank" rel="noreferrer"><Button size="sm" variant="outline" className="border-gray-300 rounded-full text-xs"><Globe className="h-3.5 w-3.5 mr-1" /> Portfolio</Button></a>}
+              </div>
+
+              {/* Profile Summary */}
+              {candidate.about && (
+                <div>
+                  <h3 className="text-sm font-bold text-[#3A1F1F] mb-2 flex items-center gap-2"><User className="h-4 w-4 text-[#FF2B2B]" /> Profile Summary</h3>
+                  <p className="text-sm text-[#5A5A5A] leading-relaxed bg-[#F6F6F6] rounded-xl p-3 border-l-4 border-[#FF2B2B]">{candidate.about}</p>
+                </div>
+              )}
+
+              {/* Skills */}
+              {skills.length > 0 && (
+                <div>
+                  <h3 className="text-sm font-bold text-[#3A1F1F] mb-2 flex items-center gap-2"><Star className="h-4 w-4 text-[#FF2B2B]" /> Key Skills</h3>
+                  <div className="flex flex-wrap gap-1.5">
+                    {skills.map((s: string, i: number) => (
+                      <Badge key={i} className={`text-xs ${skillTags.some(t => s.toLowerCase().includes(t.toLowerCase())) ? "bg-[#FF2B2B] text-white" : "bg-[#ECECF4] text-[#3A1F1F]"}`}>{s}</Badge>
+                    ))}
+                  </div>
+                </div>
+              )}
+
+              {/* Work Experience */}
+              {workExp.length > 0 && (
+                <div>
+                  <h3 className="text-sm font-bold text-[#3A1F1F] mb-3 flex items-center gap-2"><Briefcase className="h-4 w-4 text-[#FF2B2B]" /> Work Experience</h3>
+                  <div className="relative">
+                    <div className="absolute left-4 top-2 bottom-2 w-0.5 bg-gradient-to-b from-[#FF2B2B] to-red-100" />
+                    <div className="space-y-3">
+                      {workExp.map((exp, i) => (
+                        <div key={i} className="flex gap-3">
+                          <div className={`w-8 h-8 rounded-full flex items-center justify-center flex-shrink-0 z-10 ${i === 0 ? "bg-[#FF2B2B]" : "bg-gray-300"}`}>
+                            <Briefcase className="h-3.5 w-3.5 text-white" />
+                          </div>
+                          <div className={`flex-1 rounded-xl p-3 border text-sm ${i === 0 ? "bg-red-50 border-red-100" : "bg-white border-gray-100"}`}>
+                            <div className="flex justify-between flex-wrap gap-1">
+                              <div>
+                                <p className="font-semibold text-[#3A1F1F]">{exp.title}</p>
+                                <p className="text-[#FF2B2B] text-xs font-medium">{exp.company}{exp.location ? ` · ${exp.location}` : ""}</p>
+                              </div>
+                              <p className="text-xs text-[#8A8A8A] flex-shrink-0">{exp.start_date} – {exp.is_current ? "Present" : exp.end_date}</p>
+                            </div>
+                            {exp.description && <p className="text-xs text-[#5A5A5A] mt-1.5 leading-relaxed">{exp.description}</p>}
+                          </div>
+                        </div>
+                      ))}
+                    </div>
+                  </div>
+                </div>
+              )}
+
+              {/* Education */}
+              {eduList.length > 0 && (
+                <div>
+                  <h3 className="text-sm font-bold text-[#3A1F1F] mb-3 flex items-center gap-2"><GraduationCap className="h-4 w-4 text-blue-500" /> Education</h3>
+                  <div className="space-y-2">
+                    {eduList.map((e, i) => (
+                      <div key={i} className="flex gap-3 bg-blue-50 border border-blue-100 rounded-xl p-3">
+                        <GraduationCap className="h-5 w-5 text-blue-500 flex-shrink-0 mt-0.5" />
+                        <div>
+                          <p className="text-sm font-semibold text-[#3A1F1F]">{e.degree} in {e.field}</p>
+                          <p className="text-xs text-blue-600 font-medium">{e.institution}</p>
+                          <p className="text-xs text-[#8A8A8A]">{e.start_year} – {e.end_year}{e.score ? ` · ${e.score}` : ""}</p>
+                        </div>
+                      </div>
+                    ))}
+                  </div>
+                </div>
+              )}
+            </div>
+
+            {/* Resume Preview Column (Right side if split) */}
+            {hasResume && (
+              <div ref={fullscreenResumeRef} className="bg-white rounded-2xl p-6 border border-gray-100 flex flex-col h-[75vh] overflow-hidden relative">
+                {isFullscreen && (
+                  <div className="absolute top-6 right-6 z-50 flex items-center gap-2 bg-[#3A1F1F]/90 backdrop-blur-md p-1.5 rounded-full shadow-xl border border-white/10">
+                    <Button
+                      variant="ghost"
+                      size="icon"
+                      onClick={handleDownloadResume}
+                      title="Download Resume"
+                      className="h-9 w-9 text-white hover:text-white hover:bg-[#FF2B2B] rounded-full transition-all"
+                    >
+                      <Download className="h-5 w-5" />
+                    </Button>
+                    <Button
+                      variant="ghost"
+                      size="icon"
+                      onClick={toggleResumeFullscreen}
+                      title="Exit Full Screen"
+                      className="h-9 w-9 text-white hover:text-white hover:bg-white/10 rounded-full transition-all"
+                    >
+                      <Minimize2 className="h-5 w-5" />
+                    </Button>
+                  </div>
+                )}
+
+                <h3 className="text-sm font-bold text-[#3A1F1F] mb-4 flex items-center gap-2">
+                  <FileText className="h-4 w-4 text-[#FF2B2B]" /> Resume Preview
+                </h3>
+
+                <div className={`bg-[#F6F6F6] rounded-xl overflow-auto flex-1 flex flex-col items-center justify-center relative border border-gray-200 min-h-0 ${isFullscreen ? 'max-h-none h-[88vh] w-full' : 'max-h-[50vh]'}`}>
+                  {resumeLoading ? (
+                    <div className="text-center p-6 flex flex-col items-center justify-center h-full w-full">
+                      <Loader2 className="h-10 w-10 text-[#FF2B2B] animate-spin mx-auto mb-3" />
+                      <p className="text-sm text-[#5A5A5A]">Loading resume preview...</p>
+                    </div>
+                  ) : resumeError ? (
+                    <div className="text-center p-6 flex flex-col items-center justify-center h-full w-full">
+                      <ShieldAlert className="h-10 w-10 text-[#FF2B2B] mx-auto mb-3" />
+                      <p className="text-sm font-medium text-[#3A1F1F]">{resumeError}</p>
+                      <p className="text-xs text-[#8A8A8A] mt-1">Please try downloading the file directly.</p>
+                    </div>
+                  ) : resumePreviewUrl ? (
+                    resumeKind === "image" ? (
+                      <div className={`w-full overflow-hidden flex items-center justify-center bg-white p-4 ${isFullscreen ? 'h-[85vh]' : 'h-auto'}`}>
+                        <img
+                          src={resumePreviewUrl}
+                          alt="Resume Preview"
+                          className="max-w-full max-h-full object-contain shadow-sm rounded-md"
+                        />
+                      </div>
+                    ) : resumeKind === "office" ? (
+                      <iframe
+                        src={resumePreviewUrl}
+                        title="Resume Preview"
+                        className={`w-full bg-white ${isFullscreen ? 'h-[85vh]' : 'h-[40vh]'}`}
+                        style={{ border: "none" }}
+                        sandbox="allow-same-origin allow-scripts allow-popups allow-forms"
+                      />
+                    ) : resumeKind === "pdf" ? (
+                      <div ref={pdfPreviewRef} className="w-full bg-white p-4 flex flex-col items-center justify-start overflow-auto min-h-0 max-h-full">
+                        {pdfRendering && (
+                          <div className="text-center p-6">
+                            <div className="w-9 h-9 border-4 border-[#FF2B2B] border-t-transparent rounded-full animate-spin mx-auto mb-3" />
+                            <p className="text-sm text-[#5A5A5A]">Preparing resume preview...</p>
+                          </div>
+                        )}
+                      </div>
+                    ) : (
+                      <iframe
+                        src={resumePreviewUrl}
+                        title="Resume Preview"
+                        className={`w-full bg-white ${isFullscreen ? 'h-[85vh]' : 'h-[40vh]'}`}
+                        style={{ border: "none" }}
+                      />
+                    )
+                  ) : (
+                    <div className="text-center p-6 flex flex-col items-center justify-center h-full w-full">
+                      <FileText className="h-12 w-12 text-[#BABABA] mx-auto mb-3" />
+                      <p className="text-sm font-semibold text-[#3A1F1F]">No Resume Available</p>
+                    </div>
+                  )}
+                </div>
+
+                {!isFullscreen && (
+                  <div className="mt-4 flex gap-3">
+                    <Button
+                      variant="outline"
+                      onClick={toggleResumeFullscreen}
+                      className="flex-1 rounded-full border border-gray-200 text-[#3A1F1F] hover:bg-[#F6F6F6] flex items-center justify-center gap-2 h-9 text-xs font-medium transition-all"
+                    >
+                      <Eye className="h-4 w-4" /> View Full Screen
+                    </Button>
+                    <Button
+                      onClick={handleDownloadResume}
+                      className="flex-1 bg-[#FF2B2B] hover:bg-[#e02525] text-white rounded-full flex items-center justify-center gap-2 h-9 text-xs font-medium shadow-md transition-all"
+                    >
+                      <Download className="h-4 w-4" /> Download
+                    </Button>
+                  </div>
+                )}
+              </div>
+            )}
+
+          </div>
+        </div>
+      </div>
+    </div>
+  );
+}
+
+type RecruiterAppliedJdSearchApplication = {
   profile: DBCandidate | null;
   job: Job | null;
 };
@@ -3464,15 +3921,21 @@ function SearchCandidatesPage() {
 
                         {/* Actions */}
                         <div className="flex gap-2 mt-3 pt-3 border-t border-gray-100 flex-wrap">
-                          <Button size="sm" onClick={() => {
-                            setProfileModal(c);
-                            if (c?.id) {
-                              void supabase.rpc("increment_profile_views", { target_profile_id: c.id }).then(({ error }) => {
-                                if (error) console.warn("Failed to increment profile views (migration might not be run):", error.message);
-                              });
-                            }
-                          }} className="bg-[#FF2B2B] hover:bg-[#e02525] text-white rounded-full text-xs h-7">
-                            <Eye className="h-3.5 w-3.5 mr-1" /> View Full Profile
+                          <Button size="sm" asChild className="bg-[#FF2B2B] hover:bg-[#e02525] text-white rounded-full text-xs h-7">
+                            <a
+                              href={`/recruiter/candidate/${c.id}/profile`}
+                              target="_blank"
+                              rel="noopener noreferrer"
+                              onClick={() => {
+                                if (c?.id) {
+                                  void supabase.rpc("increment_profile_views", { target_profile_id: c.id }).then(({ error }) => {
+                                    if (error) console.warn("Failed to increment profile views (migration might not be run):", error.message);
+                                  });
+                                }
+                              }}
+                            >
+                              <Eye className="h-3.5 w-3.5 mr-1" /> View Full Profile
+                            </a>
                           </Button>
                           <Button size="sm" variant={shortlisted.has(c.id) ? "default" : "outline"} className={shortlisted.has(c.id) ? "bg-pink-600 hover:bg-pink-700 text-white rounded-full text-xs h-7" : "border-pink-500 text-pink-600 hover:bg-pink-50 rounded-full text-xs h-7"} onClick={() => toggleShortlist(c.id)}>
                             <ThumbsUp className="h-3.5 w-3.5 mr-1" /> {shortlisted.has(c.id) ? "Shortlisted" : "Shortlist"}
@@ -3493,150 +3956,6 @@ function SearchCandidatesPage() {
           )}
         </div>
       </div>
-
-      {/* ── Full Profile Modal (Naukri-style) ── */}
-      {profileModal && (() => {
-        const c = profileModal;
-        const name = getCandidateDisplayName(c);
-        const initials = getCandidateInitials(name);
-        const workExp = c.work_experience || [];
-        const eduList = c.education || [];
-        const skills = c.skills || [];
-        return (
-          <div className="fixed inset-0 z-50 flex items-center justify-center p-4 bg-black/50" onClick={() => setProfileModal(null)}>
-            <div className="bg-white rounded-2xl shadow-2xl w-full max-w-3xl max-h-[90vh] overflow-y-auto" onClick={e => e.stopPropagation()}>
-              {/* Header — avatar + name fully inside banner, no negative margin */}
-              <div className="bg-gradient-to-r from-[#3A1F1F] to-[#FF2B2B] rounded-t-2xl px-6 py-5 relative">
-                <button onClick={() => setProfileModal(null)} className="absolute top-3 right-4 text-white/70 hover:text-white text-2xl leading-none font-bold">×</button>
-                <div className="flex items-center gap-4">
-                  <div className="w-16 h-16 rounded-xl border-2 border-white/40 shadow overflow-hidden bg-white/20 flex items-center justify-center text-white font-bold text-xl flex-shrink-0">
-                    {c.avatar_url
-                      ? <img src={c.avatar_url} alt={name} className="w-full h-full object-cover" />
-                      : initials}
-                  </div>
-                  <div className="flex-1 min-w-0">
-                    <h2 className="text-lg font-bold text-white truncate">{name}</h2>
-                    <p className="text-sm text-white/80 truncate">
-                      {c.headline || c.current_title}
-                      {c.current_company && <span> · {c.current_company}</span>}
-                    </p>
-                  </div>
-                </div>
-              </div>
-
-              <div className="px-6 pb-6 pt-5">
-
-                {/* Quick stats grid */}
-                <div className="grid grid-cols-2 md:grid-cols-4 gap-3 p-4 bg-[#F6F6F6] rounded-xl mb-5">
-                  {[
-                    { label: "Experience", value: c.total_experience },
-                    { label: "Location", value: c.location },
-                    { label: "Current CTC", value: c.current_salary },
-                    { label: "Expected CTC", value: c.expected_salary, highlight: true },
-                    { label: "Notice Period", value: c.notice_period },
-                    { label: "Phone", value: c.phone },
-                    { label: "Email", value: c.email },
-                    { label: "Candidate Type", value: c.experience_type ? (c.experience_type === "fresher" ? "Fresher" : "Experienced") : null },
-                  ].filter(item => item.value).map((item, i) => (
-                    <div key={i}>
-                      <p className="text-xs text-[#8A8A8A]">{item.label}</p>
-                      <p className={`text-sm font-semibold truncate ${(item as any).highlight ? "text-[#FF2B2B]" : "text-[#3A1F1F]"}`}>{item.value}</p>
-                    </div>
-                  ))}
-                </div>
-
-                {/* Action buttons */}
-                <div className="flex gap-2 flex-wrap mb-5">
-                  <Button size="sm" variant={shortlisted.has(c.id) ? "default" : "outline"} className={shortlisted.has(c.id) ? "bg-pink-600 hover:bg-pink-700 text-white rounded-full text-xs" : "border-pink-500 text-pink-600 hover:bg-pink-50 rounded-full text-xs"} onClick={() => toggleShortlist(c.id)}><ThumbsUp className="h-3.5 w-3.5 mr-1" /> {shortlisted.has(c.id) ? "Shortlisted ✓" : "Shortlist"}</Button>
-                  <Button size="sm" variant={interviewInvited.has(c.id) ? "default" : "outline"} className={interviewInvited.has(c.id) ? "bg-purple-600 hover:bg-purple-700 text-white rounded-full text-xs" : "border-purple-400 text-purple-600 hover:bg-purple-50 rounded-full text-xs"} onClick={() => toggleInterview(c.id)}><Video className="h-3.5 w-3.5 mr-1" /> {interviewInvited.has(c.id) ? "Invited ✓" : "Schedule Interview"}</Button>
-                  <Button size="sm" variant="outline" className="border-gray-200 rounded-full text-xs" onClick={() => { if (c.email) window.location.href = `mailto:${c.email}`; }}><Mail className="h-3.5 w-3.5 mr-1" /> Send Message</Button>
-                  {c.linkedin_url && <a href={c.linkedin_url} target="_blank" rel="noreferrer"><Button size="sm" variant="outline" className="border-blue-400 text-blue-600 hover:bg-blue-50 rounded-full text-xs">LinkedIn</Button></a>}
-                  {c.portfolio_url && <a href={c.portfolio_url} target="_blank" rel="noreferrer"><Button size="sm" variant="outline" className="border-gray-300 rounded-full text-xs"><Globe className="h-3.5 w-3.5 mr-1" /> Portfolio</Button></a>}
-                </div>
-
-                {/* Profile Summary */}
-                {c.about && (
-                  <div className="mb-5">
-                    <h3 className="text-sm font-bold text-[#3A1F1F] mb-2 flex items-center gap-2"><User className="h-4 w-4 text-[#FF2B2B]" /> Profile Summary</h3>
-                    <p className="text-sm text-[#5A5A5A] leading-relaxed bg-[#F6F6F6] rounded-xl p-3 border-l-4 border-[#FF2B2B]">{c.about}</p>
-                  </div>
-                )}
-
-                {/* Skills */}
-                {skills.length > 0 && (
-                  <div className="mb-5">
-                    <h3 className="text-sm font-bold text-[#3A1F1F] mb-2 flex items-center gap-2"><Star className="h-4 w-4 text-[#FF2B2B]" /> Key Skills</h3>
-                    <div className="flex flex-wrap gap-1.5">
-                      {skills.map((s: string, i: number) => (
-                        <Badge key={i} className={`text-xs ${skillTags.some(t => s.toLowerCase().includes(t.toLowerCase())) ? "bg-[#FF2B2B] text-white" : "bg-[#ECECF4] text-[#3A1F1F]"}`}>{s}</Badge>
-                      ))}
-                    </div>
-                  </div>
-                )}
-
-                {/* Work Experience */}
-                {workExp.length > 0 && (
-                  <div className="mb-5">
-                    <h3 className="text-sm font-bold text-[#3A1F1F] mb-3 flex items-center gap-2"><Briefcase className="h-4 w-4 text-[#FF2B2B]" /> Work Experience</h3>
-                    <div className="relative">
-                      <div className="absolute left-4 top-2 bottom-2 w-0.5 bg-gradient-to-b from-[#FF2B2B] to-red-100" />
-                      <div className="space-y-3">
-                        {workExp.map((exp, i) => (
-                          <div key={i} className="flex gap-3">
-                            <div className={`w-8 h-8 rounded-full flex items-center justify-center flex-shrink-0 z-10 ${i === 0 ? "bg-[#FF2B2B]" : "bg-gray-300"}`}>
-                              <Briefcase className="h-3.5 w-3.5 text-white" />
-                            </div>
-                            <div className={`flex-1 rounded-xl p-3 border text-sm ${i === 0 ? "bg-red-50 border-red-100" : "bg-white border-gray-100"}`}>
-                              <div className="flex justify-between flex-wrap gap-1">
-                                <div>
-                                  <p className="font-semibold text-[#3A1F1F]">{exp.title}</p>
-                                  <p className="text-[#FF2B2B] text-xs font-medium">{exp.company}{exp.location ? ` · ${exp.location}` : ""}</p>
-                                </div>
-                                <p className="text-xs text-[#8A8A8A] flex-shrink-0">{exp.start_date} – {exp.is_current ? "Present" : exp.end_date}</p>
-                              </div>
-                              {exp.description && <p className="text-xs text-[#5A5A5A] mt-1.5 leading-relaxed">{exp.description}</p>}
-                            </div>
-                          </div>
-                        ))}
-                      </div>
-                    </div>
-                  </div>
-                )}
-
-                {/* Education */}
-                {eduList.length > 0 && (
-                  <div className="mb-5">
-                    <h3 className="text-sm font-bold text-[#3A1F1F] mb-3 flex items-center gap-2"><GraduationCap className="h-4 w-4 text-blue-500" /> Education</h3>
-                    <div className="space-y-2">
-                      {eduList.map((e, i) => (
-                        <div key={i} className="flex gap-3 bg-blue-50 border border-blue-100 rounded-xl p-3">
-                          <GraduationCap className="h-5 w-5 text-blue-500 flex-shrink-0 mt-0.5" />
-                          <div>
-                            <p className="text-sm font-semibold text-[#3A1F1F]">{e.degree} in {e.field}</p>
-                            <p className="text-xs text-blue-600 font-medium">{e.institution}</p>
-                            <p className="text-xs text-[#8A8A8A]">{e.start_year} – {e.end_year}{e.score ? ` · ${e.score}` : ""}</p>
-                          </div>
-                        </div>
-                      ))}
-                    </div>
-                  </div>
-                )}
-
-                {/* Resume */}
-                {c.resume_url && (
-                  <div>
-                    <h3 className="text-sm font-bold text-[#3A1F1F] mb-2 flex items-center gap-2"><FileText className="h-4 w-4 text-[#FF2B2B]" /> Resume</h3>
-                    <a href={c.resume_url} target="_blank" rel="noreferrer"
-                      className="inline-flex items-center gap-2 px-4 py-2 bg-[#FF2B2B] text-white text-sm rounded-full hover:bg-[#e02525] transition-colors">
-                      <Download className="h-4 w-4" /> Download Resume
-                    </a>
-                  </div>
-                )}
-              </div>
-            </div>
-          </div>
-        );
-      })()}
     </div>
   );
 }
@@ -4214,7 +4533,7 @@ function ApplicantsPage() {
     const openMail = () => { if (applicant.profile?.email) window.location.href = `mailto:${applicant.profile.email}`; };
     const viewBtn = (
       <Button size="sm" variant="outline" className="border-2 border-blue-500 bg-blue-50 text-blue-700 hover:bg-blue-100 rounded-full text-xs h-7" asChild>
-        <a href={`/recruiter/dashboard/applicants/${applicant.id}/profile`} target="_blank" rel="noopener noreferrer">
+        <a href={`/recruiter/applicant/${applicant.id}/profile`} target="_blank" rel="noopener noreferrer">
           <User className="h-3 w-3 mr-1" /> View Profile
         </a>
       </Button>

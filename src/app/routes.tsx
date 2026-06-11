@@ -1,4 +1,5 @@
 import { createBrowserRouter, Outlet, ScrollRestoration } from "react-router";
+import ApplicantProfilePage from "./pages/ApplicantProfilePage";
 import LandingPage from "./pages/LandingPage";
 import SignInPage from "./pages/SignInPage";
 import SignUpPage from "./pages/SignUpPage";
@@ -153,6 +154,16 @@ export const router = createBrowserRouter([
   {
     path: "/recruiter/dashboard/*",
     Component: RecruiterDashboard,
+    errorElement: <ErrorPage />,
+  },
+  {
+    path: "/recruiter/candidate/:candidateId/profile",
+    Component: ApplicantProfilePage,
+    errorElement: <ErrorPage />,
+  },
+  {
+    path: "/recruiter/applicant/:applicantId/profile",
+    Component: ApplicantProfilePage,
     errorElement: <ErrorPage />,
   },
   {
