@@ -696,7 +696,7 @@ export default function ApplicantProfilePage() {
                               modes = parsed;
                             }
                           } catch (e) {
-                            modes = profile.preferred_interview_mode.split(",").map((s: string) => s.trim()).filter(Boolean);
+                            modes = (profile.preferred_interview_mode as any).split(",").map((s: string) => s.trim()).filter(Boolean);
                           }
                         }
                       }
