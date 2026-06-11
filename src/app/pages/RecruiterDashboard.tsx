@@ -2495,7 +2495,11 @@ function PostJobPage() {
 function ManageJobsPage() {
   const navigate = useNavigate();
   const { recruiterProfile } = useAuth();
-  const [jobs, setJobs] = useState<(Job & { applicant_count?: number })[]>([]);
+  const [jobs, setJobs] = useState<(Job & { 
+    applicant_count?: number;
+    applications?: any[];
+    statusHistory?: any[];
+  })[]>([]);
   const [filter, setFilter] = useState("All");
   const [loading, setLoading] = useState(true);
   const [editingJob, setEditingJob] = useState<Job | null>(null);
@@ -2560,11 +2564,42 @@ function ManageJobsPage() {
       .eq("recruiter_id", recruiterProfile.id)
       .order("created_at", { ascending: false });
     if (data) {
-      // Fetch applicant counts
-      const withCounts = await Promise.all(data.map(async (job) => {
-        const { count } = await supabase.from("applications").select("*", { count: "exact", head: true }).eq("job_id", job.id);
-        return { ...job, applicant_count: count || 0 };
-      }));
+      const jobIds = data.map(j => j.id);
+
+      // Fetch all applications for these jobs in a single bulk query to avoid N+1 queries
+      const { data: allApps } = jobIds.length > 0
+        ? await supabase
+            .from("applications")
+            .select("id, job_id, status, applied_at")
+            .in("job_id", jobIds)
+        : { data: [] };
+
+      const applicationsList = allApps || [];
+
+      // Fetch status history for these applications in a single query to avoid N+1 queries
+      const appIds = applicationsList.map(a => a.id);
+      const { data: historyData } = appIds.length > 0
+        ? await supabase
+            .from("application_status_history")
+            .select("application_id, old_status, new_status, changed_at")
+            .in("application_id", appIds)
+            .order("changed_at", { ascending: true })
+        : { data: [] };
+
+      const statusHistoryList = historyData || [];
+
+      // Correlate counts, applications, and status history in memory
+      const withCounts = data.map((job) => {
+        const jobApps = applicationsList.filter(app => app.job_id === job.id);
+        const jobHistory = statusHistoryList.filter(h => jobApps.some(app => app.id === h.application_id));
+        return { 
+          ...job, 
+          applicant_count: jobApps.length,
+          applications: jobApps,
+          statusHistory: jobHistory
+        };
+      });
+
       const repairedJobs = withCounts.map(job => ({ ...job, status: getEffectiveJobStatus(job) }));
       const staleActiveExpiredIds = withCounts
         .filter(job => (job.status === "Active" || job.status === "Paused") && getEffectiveJobStatus(job) === "Expired")
@@ -2695,6 +2730,70 @@ function ManageJobsPage() {
             ? "bg-green-100 text-green-700"
             : "bg-gray-100 text-gray-600";
 
+          // Calculate timeline milestones and durations from database values
+          const jobPostedDate = job.created_at ? new Date(job.created_at) : null;
+          const jobApps = (job as any).applications || [];
+          const jobHistory = (job as any).statusHistory || [];
+
+          // Find hired application (status 'Joined' or 'Hired' or case-insensitive)
+          const hiredApp = jobApps.find((a: any) => 
+            a.status === "Joined" || 
+            a.status === "Hired" || 
+            a.status === "hired"
+          );
+
+          // Find offered application if no hired app
+          const offeredApp = hiredApp ? null : jobApps.find((a: any) => 
+            a.status === "Offered" || 
+            a.status === "offered"
+          );
+
+          let offerReleasedDate: Date | null = null;
+          let candidateJoinedDate: Date | null = null;
+
+          if (hiredApp) {
+            // Find offer date from history for this application
+            const offerHistory = jobHistory.find((h: any) => 
+              h.application_id === hiredApp.id && 
+              (h.new_status === "Offered" || h.new_status === "offered")
+            );
+            if (offerHistory) {
+              offerReleasedDate = new Date(offerHistory.changed_at);
+            }
+
+            // Find joined date from history for this application
+            const joinedHistory = jobHistory.find((h: any) => 
+              h.application_id === hiredApp.id && 
+              (h.new_status === "Joined" || h.new_status === "Hired" || h.new_status === "hired")
+            );
+            if (joinedHistory) {
+              candidateJoinedDate = new Date(joinedHistory.changed_at);
+            }
+          } else if (offeredApp) {
+            const offerHistory = jobHistory.find((h: any) => 
+              h.application_id === offeredApp.id && 
+              (h.new_status === "Offered" || h.new_status === "offered")
+            );
+            if (offerHistory) {
+              offerReleasedDate = new Date(offerHistory.changed_at);
+            }
+          }
+
+          let timeToOfferStr = "Pending";
+          let timeToHireStr = "Pending";
+
+          if (jobPostedDate && offerReleasedDate) {
+            const diffTime = offerReleasedDate.getTime() - jobPostedDate.getTime();
+            const diffDays = Math.max(0, Math.floor(diffTime / (1000 * 60 * 60 * 24)));
+            timeToOfferStr = `${diffDays} day${diffDays === 1 ? "" : "s"}`;
+          }
+
+          if (jobPostedDate && candidateJoinedDate) {
+            const diffTime = candidateJoinedDate.getTime() - jobPostedDate.getTime();
+            const diffDays = Math.max(0, Math.floor(diffTime / (1000 * 60 * 60 * 24)));
+            timeToHireStr = `${diffDays} day${diffDays === 1 ? "" : "s"}`;
+          }
+
           return (
           <div key={job.id} className="bg-white rounded-2xl p-6 shadow-sm">
             <div className="flex justify-between items-start flex-wrap gap-3">
@@ -2755,6 +2854,92 @@ function ManageJobsPage() {
                 {job.skills.slice(0, 5).map((s, i) => <Badge key={i} className="bg-[#ECECF4] text-[#3A1F1F] text-xs">{s}</Badge>)}
               </div>
             )}
+
+            {/* Hiring Timeline Section */}
+            <div className="mt-4 pt-4 border-t border-gray-100">
+              <div className="text-xs font-semibold text-[#3A1F1F] mb-3">Hiring Timeline</div>
+              
+              <div className="relative flex items-center justify-between px-6 py-4 bg-gray-50/50 rounded-xl mb-3">
+                {/* Connecting Line */}
+                <div className="absolute left-[16%] right-[16%] h-[2px] bg-gray-200 top-[28px] -translate-y-1/2 rounded-full z-0" />
+                
+                {/* Active/Completed Line Segment */}
+                <div 
+                  className="absolute left-[16%] h-[2px] bg-purple-500 top-[28px] -translate-y-1/2 rounded-full z-0 transition-all duration-500"
+                  style={{ 
+                    width: candidateJoinedDate 
+                      ? "68%" 
+                      : offerReleasedDate 
+                        ? "34%" 
+                        : "0%" 
+                  }} 
+                />
+
+                {/* Milestone 1: Job Posted */}
+                <div className="relative z-10 flex flex-col items-center w-[30%]">
+                  <div className="flex items-center justify-center w-7 h-7 rounded-full bg-purple-50 text-purple-600 shadow-sm mb-1">
+                    <Briefcase className="h-3.5 w-3.5" />
+                  </div>
+                  <div className="w-2 h-2 bg-white border-2 border-purple-500 rotate-45 mb-1 shadow-sm" />
+                  <span className="text-[10px] font-bold text-[#3A1F1F] text-center whitespace-nowrap">Job Posted</span>
+                  <span className="text-[9px] text-[#8A8A8A] mt-0.5 text-center whitespace-nowrap">
+                    {jobPostedDate ? jobPostedDate.toLocaleDateString(undefined, { month: 'short', day: 'numeric', year: 'numeric' }) : "Pending"}
+                  </span>
+                </div>
+
+                {/* Milestone 2: Offer Released */}
+                <div className="relative z-10 flex flex-col items-center w-[30%]">
+                  <div className={`flex items-center justify-center w-7 h-7 rounded-full shadow-sm mb-1 transition-all ${
+                    offerReleasedDate ? "bg-purple-50 text-purple-600" : "bg-gray-100 text-gray-400"
+                  }`}>
+                    <Mail className="h-3.5 w-3.5" />
+                  </div>
+                  <div className={`w-2 h-2 bg-white border-2 rotate-45 mb-1 shadow-sm transition-all ${
+                    offerReleasedDate ? "border-purple-500" : "border-gray-300"
+                  }`} />
+                  <span className="text-[10px] font-bold text-[#3A1F1F] text-center whitespace-nowrap">Offer Released</span>
+                  <span className="text-[9px] text-[#8A8A8A] mt-0.5 text-center whitespace-nowrap">
+                    {offerReleasedDate 
+                      ? offerReleasedDate.toLocaleDateString(undefined, { month: 'short', day: 'numeric', year: 'numeric' }) 
+                      : "Pending"}
+                  </span>
+                </div>
+
+                {/* Milestone 3: Candidate Joined */}
+                <div className="relative z-10 flex flex-col items-center w-[30%]">
+                  <div className={`flex items-center justify-center w-7 h-7 rounded-full shadow-sm mb-1 transition-all ${
+                    candidateJoinedDate ? "bg-purple-50 text-purple-600" : "bg-gray-100 text-gray-400"
+                  }`}>
+                    <Check className="h-3.5 w-3.5" />
+                  </div>
+                  <div className={`w-2 h-2 bg-white border-2 rotate-45 mb-1 shadow-sm transition-all ${
+                    candidateJoinedDate ? "border-purple-500" : "border-gray-300"
+                  }`} />
+                  <span className="text-[10px] font-bold text-[#3A1F1F] text-center whitespace-nowrap">Candidate Joined</span>
+                  <span className="text-[9px] text-[#8A8A8A] mt-0.5 text-center whitespace-nowrap">
+                    {candidateJoinedDate 
+                      ? candidateJoinedDate.toLocaleDateString(undefined, { month: 'short', day: 'numeric', year: 'numeric' }) 
+                      : "Pending"}
+                  </span>
+                </div>
+              </div>
+
+              {/* Duration Metrics */}
+              <div className="flex justify-between items-center px-1 text-xs">
+                <div className="text-[#5A5A5A] flex items-center gap-1">
+                  <span>Time to Offer:</span>
+                  <span className={`font-semibold ${offerReleasedDate ? "text-purple-600" : "text-[#8A8A8A]"}`}>
+                    {timeToOfferStr}
+                  </span>
+                </div>
+                <div className="text-[#5A5A5A] flex items-center gap-1">
+                  <span>Time to Hire:</span>
+                  <span className={`font-semibold ${candidateJoinedDate ? "text-purple-600" : "text-[#8A8A8A]"}`}>
+                    {timeToHireStr}
+                  </span>
+                </div>
+              </div>
+            </div>
           </div>
           );
         })}
@@ -5002,8 +5187,8 @@ function AnalyticsPage() {
 
   const metrics = [
     { label: "Total Jobs Posted", value: totalJobsPosted !== null ? `${totalJobsPosted}` : "—", sub: timePeriod === "7d" ? "Last 7 days" : timePeriod === "90d" ? "Last 90 days" : "Last 30 days", icon: Briefcase, color: "text-blue-600", bg: "bg-blue-50" },
-    { label: "Total Applications", value: totalApplications !== null ? `${totalApplications}` : "—", sub: `${applicationsGrowth} vs previous ${timePeriod === "7d" ? "7 days" : timePeriod === "90d" ? "90 days" : "30 days"}`, icon: Users, color: "text-green-600", bg: "bg-green-50" },
-    { label: "day : hr : min", value: avgTimeToHire, sub: "Industry avg: 25 days", icon: Clock, color: "text-purple-600", bg: "bg-purple-50" },
+    { label: "Total Applications", value: totalApplications !== null ? `${totalApplications}` : "—", sub: `${applicationsGrowth} vs previous ${timePeriod === "7d" ? "7 days" : timePeriod === "90d" ? "90 days" : "30 days"}`, icon: Users, color: "text-green-600", bg: "bg-green-50", onClick: () => navigate("/recruiter/dashboard/applicants") },
+    { label: "day : hr : min", value: avgTimeToHire, sub: "Industry avg: 25 days", icon: Clock, color: "text-purple-600", bg: "bg-purple-50", onClick: () => navigate("/recruiter/dashboard/applicants") },
     { label: "Offer Acceptance Rate", value: offerAcceptanceRate, sub: "+5% vs last quarter", icon: CheckCircle, color: "text-[#FF2B2B]", bg: "bg-red-50" },
     { label: "Job Views", value: jobViews !== null ? jobViews.toLocaleString() : "—", sub: "Across all active jobs", icon: Eye, color: "text-orange-600", bg: "bg-orange-50" },
     { label: "Profile View Rate", value: profileVisitRate, sub: "Profile Appearances", icon: TrendingUp, color: "text-teal-600", bg: "bg-teal-50" },
@@ -5077,7 +5262,13 @@ function AnalyticsPage() {
       {/* Key Metrics */}
       <div className="grid grid-cols-2 md:grid-cols-3 gap-4 mb-6">
         {metrics.map((m, i) => (
-          <div key={i} className="bg-white rounded-2xl p-5 shadow-sm">
+          <div
+            key={i}
+            className={`bg-white rounded-2xl p-5 shadow-sm transition-all ${
+              m.onClick ? "cursor-pointer hover:shadow-md hover:scale-[1.02]" : ""
+            }`}
+            onClick={m.onClick}
+          >
             <div className={`w-10 h-10 ${m.bg} rounded-xl flex items-center justify-center mb-3`}>
               <m.icon className={`h-5 w-5 ${m.color}`} />
             </div>
