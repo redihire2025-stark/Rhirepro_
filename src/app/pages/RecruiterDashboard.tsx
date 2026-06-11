@@ -31,6 +31,7 @@ import { Button } from "../components/ui/button";
 import { Input } from "../components/ui/input";
 import { Textarea } from "../components/ui/textarea";
 import { RichTextEditor } from "../components/ui/rich-text-editor";
+import { UnifiedJobDetailsEditor } from "../components/ui/unified-job-details-editor";
 import { SafeHtml } from "../components/ui/safe-html";
 import { Select, SelectContent, SelectItem, SelectTrigger, SelectValue } from "../components/ui/select";
 import { Badge } from "../components/ui/badge";
@@ -1706,6 +1707,7 @@ function PostJobPage() {
   const [skillPickerOpen, setSkillPickerOpen] = useState(false);
   const [skillSearch, setSkillSearch] = useState("");
   const skillFieldRef = useRef<HTMLDivElement>(null);
+  const skillInputRef = useRef<HTMLInputElement>(null);
   const [departmentPickerOpen, setDepartmentPickerOpen] = useState(false);
   const [departmentSearch, setDepartmentSearch] = useState("");
   const departmentFieldRef = useRef<HTMLDivElement>(null);
@@ -1780,7 +1782,9 @@ function PostJobPage() {
   useEffect(() => {
     if (!skillPickerOpen) return;
     const handleClickOutside = (event: MouseEvent) => {
-      if (!skillFieldRef.current?.contains(event.target as Node)) {
+      const target = event.target as Node;
+      if (!document.body.contains(target)) return;
+      if (!skillFieldRef.current?.contains(target)) {
         setSkillPickerOpen(false);
       }
     };
@@ -1807,12 +1811,16 @@ function PostJobPage() {
     const s = skill.trim();
     if (!s) return;
     const alreadySelected = selectedSkills.some(existing => existing.toLowerCase() === s.toLowerCase());
-    if (!alreadySelected) {
+    if (alreadySelected) {
+      const updated = selectedSkills.filter(existing => existing.toLowerCase() !== s.toLowerCase());
+      setFormData(prev => ({ ...prev, skills: updated.join(", ") }));
+    } else {
       setFormData(prev => ({ ...prev, skills: [...selectedSkills, s].join(", ") }));
     }
     setSkillSearch("");
-    setSkillPickerOpen(false);
-    setShowSkillInput(false);
+    setTimeout(() => {
+      skillInputRef.current?.focus();
+    }, 0);
   };
 
   const removeSkill = (skill: string) => {
@@ -2026,7 +2034,7 @@ function PostJobPage() {
                 <h2 className="text-base font-semibold text-[#3A1F1F] mb-2">About the Role</h2>
                 <SafeHtml
                   content={formData.jobDescription}
-                  className="text-sm text-[#5A5A5A] leading-relaxed [&_ul]:list-disc [&_ul]:pl-5 [&_ol]:list-decimal [&_ol]:pl-5 [&_h2]:text-base [&_h2]:font-bold [&_h2]:mt-2 [&_h2]:mb-1 [&_h3]:text-sm [&_h3]:font-bold [&_h3]:mt-1.5 [&_h3]:mb-1 [&_a]:text-[#FF2B2B] [&_a]:underline"
+                  className="rich-text-content text-sm text-[#5A5A5A] leading-relaxed [&_ul]:list-disc [&_ul]:pl-5 [&_ol]:list-decimal [&_ol]:pl-5 [&_h2]:text-base [&_h2]:font-bold [&_h2]:mt-2 [&_h2]:mb-1 [&_h3]:text-sm [&_h3]:font-bold [&_h3]:mt-1.5 [&_h3]:mb-1 [&_a]:text-[#FF2B2B] [&_a]:underline"
                 />
               </div>
             )}
@@ -2035,7 +2043,7 @@ function PostJobPage() {
                 <h2 className="text-base font-semibold text-[#3A1F1F] mb-2">Roles & Responsibilities</h2>
                 <SafeHtml
                   content={formData.rolesResponsibilities}
-                  className="text-sm text-[#5A5A5A] leading-relaxed [&_ul]:list-disc [&_ul]:pl-5 [&_ol]:list-decimal [&_ol]:pl-5 [&_h2]:text-base [&_h2]:font-bold [&_h2]:mt-2 [&_h2]:mb-1 [&_h3]:text-sm [&_h3]:font-bold [&_h3]:mt-1.5 [&_h3]:mb-1 [&_a]:text-[#FF2B2B] [&_a]:underline"
+                  className="rich-text-content text-sm text-[#5A5A5A] leading-relaxed [&_ul]:list-disc [&_ul]:pl-5 [&_ol]:list-decimal [&_ol]:pl-5 [&_h2]:text-base [&_h2]:font-bold [&_h2]:mt-2 [&_h2]:mb-1 [&_h3]:text-sm [&_h3]:font-bold [&_h3]:mt-1.5 [&_h3]:mb-1 [&_a]:text-[#FF2B2B] [&_a]:underline"
                 />
               </div>
             )}
@@ -2044,7 +2052,7 @@ function PostJobPage() {
                 <h2 className="text-base font-semibold text-[#3A1F1F] mb-2">Requirements</h2>
                 <SafeHtml
                   content={formData.requirements}
-                  className="text-sm text-[#5A5A5A] leading-relaxed [&_ul]:list-disc [&_ul]:pl-5 [&_ol]:list-decimal [&_ol]:pl-5 [&_h2]:text-base [&_h2]:font-bold [&_h2]:mt-2 [&_h2]:mb-1 [&_h3]:text-sm [&_h3]:font-bold [&_h3]:mt-1.5 [&_h3]:mb-1 [&_a]:text-[#FF2B2B] [&_a]:underline"
+                  className="rich-text-content text-sm text-[#5A5A5A] leading-relaxed [&_ul]:list-disc [&_ul]:pl-5 [&_ol]:list-decimal [&_ol]:pl-5 [&_h2]:text-base [&_h2]:font-bold [&_h2]:mt-2 [&_h2]:mb-1 [&_h3]:text-sm [&_h3]:font-bold [&_h3]:mt-1.5 [&_h3]:mb-1 [&_a]:text-[#FF2B2B] [&_a]:underline"
                 />
               </div>
             )}
@@ -2364,6 +2372,7 @@ function PostJobPage() {
                   <div className="relative">
                     <Search className="absolute left-3 top-1/2 h-4 w-4 -translate-y-1/2 text-[#8A8A8A]" />
                     <Input
+                      ref={skillInputRef}
                       value={skillSearch}
                       onFocus={() => setSkillPickerOpen(true)}
                       onChange={(e) => {
@@ -2443,34 +2452,19 @@ function PostJobPage() {
             <input type="hidden" value={formData.skills} required />
           </div>
 
-          {/* Job Description */}
+          {/* Job Description & Requirements */}
           <div className="border-b pb-6">
-            <h2 className="text-lg font-semibold text-[#3A1F1F] mb-4">Job Description</h2>
-            <div className="space-y-4">
-              <div>
-                <label className="block mb-1.5 text-sm font-medium text-[#3A1F1F]">About the Role *</label>
-                <RichTextEditor
-                  value={formData.jobDescription}
-                  onChange={val => setFormData({ ...formData, jobDescription: val })}
-                  placeholder="Brief overview of the role and what the candidate will be working on..."
-                />
-              </div>
-              <div>
-                <label className="block mb-1.5 text-sm font-medium text-[#3A1F1F]">Roles & Responsibilities</label>
-                <RichTextEditor
-                  value={formData.rolesResponsibilities}
-                  onChange={val => setFormData({ ...formData, rolesResponsibilities: val })}
-                  placeholder="Enter roles & responsibilities..."
-                />
-              </div>
-              <div>
-                <label className="block mb-1.5 text-sm font-medium text-[#3A1F1F]">Requirements / Qualifications</label>
-                <RichTextEditor
-                  value={formData.requirements}
-                  onChange={val => setFormData({ ...formData, requirements: val })}
-                  placeholder="Enter requirements & qualifications..."
-                />
-              </div>
+            <h2 className="text-lg font-semibold text-[#3A1F1F] mb-4">Job Description & Requirements</h2>
+            <div>
+              <label className="block mb-1.5 text-sm font-medium text-[#3A1F1F]">Job Details *</label>
+              <UnifiedJobDetailsEditor
+                description={formData.jobDescription}
+                onChangeDescription={val => setFormData(prev => ({ ...prev, jobDescription: val }))}
+                rolesResponsibilities={formData.rolesResponsibilities}
+                onChangeRolesResponsibilities={val => setFormData(prev => ({ ...prev, rolesResponsibilities: val }))}
+                requirements={formData.requirements}
+                onChangeRequirements={val => setFormData(prev => ({ ...prev, requirements: val }))}
+              />
             </div>
           </div>
 
