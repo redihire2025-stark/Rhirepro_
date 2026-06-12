@@ -278,10 +278,11 @@ export default function ApplicantProfilePage() {
   }, [id, recruiterProfile?.id]);
 
   useEffect(() => {
+    if (!id) return;
     if (!authLoading && recruiterProfile?.id) {
       fetchApplicantDetails();
     }
-  }, [authLoading, recruiterProfile, fetchApplicantDetails]);
+  }, [id, authLoading, recruiterProfile, fetchApplicantDetails]);
 
   useEffect(() => {
     if (!id) return;
