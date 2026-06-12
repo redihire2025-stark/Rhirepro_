@@ -2972,17 +2972,19 @@ function SearchCandidatesPage() {
   }, [skillSuggestionsOpen]);
 
   // ── Main search ───────────────────────────────────────────
-  const handleSearch = async () => {
+  const handleSearch = async (overrideKeywords?: any) => {
     setSearching(true);
     setSearched(true);
+    setSkillSuggestionsOpen(false);
+    const activeKeywords = typeof overrideKeywords === "string" ? overrideKeywords : keywords;
     try {
       let q = supabase
         .from("profiles")
         .select("*, work_experience(*), education(*)");
 
       // Server-side: keyword search across text columns (token-based)
-      if (keywords.trim()) {
-        const tokens = keywords.trim().toLowerCase().split(/\s+/).filter(Boolean);
+      if (activeKeywords.trim()) {
+        const tokens = activeKeywords.trim().toLowerCase().split(/\s+/).filter(Boolean);
         tokens.forEach(token => {
           q = q.or(
             `first_name.ilike.%${token}%,last_name.ilike.%${token}%,` +
@@ -2999,8 +3001,8 @@ function SearchCandidatesPage() {
       let raw = (data || []) as DBCandidate[];
 
       // Skill keyword also searches the skills array column
-      if (keywords.trim()) {
-        const tokens = keywords.trim().toLowerCase().split(/\s+/).filter(Boolean);
+      if (activeKeywords.trim()) {
+        const tokens = activeKeywords.trim().toLowerCase().split(/\s+/).filter(Boolean);
         const allSkillTerms = tokens.flatMap(token => getSkillSearchTerms(token)).slice(0, 30);
         if (allSkillTerms.length > 0) {
           const { data: skillMatches } = await supabase
@@ -3015,7 +3017,7 @@ function SearchCandidatesPage() {
       }
 
       // ── Client-side filters ──────────────────────────────────────────────────
-      if (keywords.trim()) {
+      if (activeKeywords.trim()) {
         let broadSkillQuery = supabase
           .from("profiles")
           .select("*, work_experience(*), education(*)");
@@ -3025,7 +3027,7 @@ function SearchCandidatesPage() {
         const { data: broadSkillCandidates } = await broadSkillQuery.limit(1000);
         if (broadSkillCandidates) {
           const ids = new Set(raw.map(r => r.id));
-          const tokens = keywords.trim().toLowerCase().split(/\s+/).filter(Boolean);
+          const tokens = activeKeywords.trim().toLowerCase().split(/\s+/).filter(Boolean);
           (broadSkillCandidates as DBCandidate[]).forEach(candidate => {
             if (!ids.has(candidate.id)) {
               const hasSkillMatch = (candidate.skills || []).some(skill => 
@@ -3039,7 +3041,7 @@ function SearchCandidatesPage() {
           });
         }
 
-        const tokens = keywords.trim().toLowerCase().split(/\s+/).filter(Boolean);
+        const tokens = activeKeywords.trim().toLowerCase().split(/\s+/).filter(Boolean);
         raw = raw.filter(candidate => {
           const searchableText = [
             candidate.first_name,
@@ -3061,11 +3063,12 @@ function SearchCandidatesPage() {
       // Experience type (client-side so null values aren't excluded)
       if (expType) {
         raw = raw.filter(c => {
-          if (c.experience_type) return c.experience_type === expType;
-          // Infer from computed experience when field is null
           const yrs = parseExp(c);
-          if (expType === "fresher") return yrs <= 1;
-          return yrs > 1;
+          if (expType === "fresher") {
+            return yrs <= 1;
+          } else {
+            return yrs > 1 || c.experience_type === "experienced";
+          }
         });
       }
       // Experience years
@@ -3130,9 +3133,7 @@ function SearchCandidatesPage() {
     }
   };
 
-  useEffect(() => {
-    handleSearch();
-  }, []);
+  // No automatic search on mount - candidates are only shown once a search is initiated.
 
   const clearAllFilters = () => {
     setExpMin(""); setExpMax(""); setCurSalMin(""); setCurSalMax("");
@@ -3162,6 +3163,7 @@ function SearchCandidatesPage() {
               onKeyDown={e => {
                 if (e.key === "Enter") {
                   e.preventDefault();
+                  setSkillSuggestionsOpen(false);
                   handleSearch();
                 }
                 if (e.key === "Escape") {
@@ -3181,6 +3183,7 @@ function SearchCandidatesPage() {
                       onClick={() => {
                         setKeywords(skill);
                         setSkillSuggestionsOpen(false);
+                        handleSearch(skill);
                       }}
                       className="flex w-full items-center px-3 py-2 text-left text-sm text-[#3A1F1F] hover:bg-[#FFF0F0]"
                     >
