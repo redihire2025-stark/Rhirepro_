@@ -56,28 +56,36 @@ export function formatJobSalary(job: Pick<Job, "salary_min" | "salary_max" | "sa
   return formatSalaryRangeFromValues(job.salary_min, job.salary_max);
 }
 
+function parseNumericValue(value: number | string | null | undefined): number | null {
+  if (value === '' || value == null) return null;
+  const num = Number(value);
+  return Number.isNaN(num) ? null : num;
+}
+
+function formatRecruiterCurrencyValue(v: number): string {
+  return `₹${v < 1000 ? v * 100000 : v}`;
+}
+
+function formatRecruiterSalaryRange(min: number | null, max: number | null): string {
+  if (min != null && max != null) {
+    if (min === max) return formatRecruiterCurrencyValue(min);
+    return `${formatRecruiterCurrencyValue(min)}-${formatRecruiterCurrencyValue(max)}`;
+  }
+
+  if (max != null) return `Below ${formatRecruiterCurrencyValue(max)}`;
+  return `Above ${formatRecruiterCurrencyValue(min!)}`;
+}
+
 export function formatSalaryRangeFromValuesRecruiter(
   salaryMin: number | string | null | undefined,
   salaryMax: number | string | null | undefined
 ): string {
-  const min = salaryMin === "" || salaryMin == null ? null : Number(salaryMin);
-  const max = salaryMax === "" || salaryMax == null ? null : Number(salaryMax);
+  const min = parseNumericValue(salaryMin);
+  const max = parseNumericValue(salaryMax);
 
-  if (min == null && max == null) return "Salary not disclosed";
-  if (min != null && Number.isNaN(min)) return "Salary not disclosed";
-  if (max != null && Number.isNaN(max)) return "Salary not disclosed";
+  if (min == null && max == null) return 'Salary not disclosed';
 
-  const formatVal = (v: number) => {
-    return `₹${v < 1000 ? v * 100000 : v}`;
-  };
-
-  if (min != null && max != null) {
-    if (min === max) return formatVal(min);
-    return `${formatVal(min)}-${formatVal(max)}`;
-  }
-
-  if (max != null) return `Below ${formatVal(max)}`;
-  return `Above ${formatVal(min!)}`;
+  return formatRecruiterSalaryRange(min, max);
 }
 
 export function formatJobSalaryRecruiter(job: Pick<Job, "salary_min" | "salary_max" | "salary_type">): string {
