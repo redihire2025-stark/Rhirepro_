@@ -1,3 +1,8 @@
+import { useState, useEffect, useCallback, useRef, useMemo } from "react";
+import { Outlet, useNavigate, Link, useLocation } from "react-router";
+import { supabase, Job, Application, Notification, Profile, WorkExperience, Education as EduType, RecruiterSubscription } from "../../lib/supabase";
+import { buildJobDeadlineTimestamp, formatJobDeadline, getEffectiveJobStatus, getJobDeadlineDateValue, isJobExpired } from "../../lib/jobs";
+import { PLANS, FREE_DAILY_POST_LIMIT, getPlanById, validatePromo, applyPromo } from "../../lib/plans";
 import { useState, useEffect, useCallback, useRef, useMemo, type ChangeEvent } from "react";
 import { useNavigate, Routes, Route, Link, useLocation, useParams } from "react-router";
 import { supabase, Job, Application, Notification, Profile, WorkExperience, Education as EduType, RecruiterSubscription, RecruiterArticle } from "../../lib/supabase";
@@ -1964,7 +1969,7 @@ function PostJobPage() {
       setPostSuccess(true);
       setShowPreview(false);
       setTimeout(() => { setPostSuccess(false); navigate("/recruiter/dashboard/manage-jobs"); }, 2000);
-      setFormData({ jobTitle:"",jobDescription:"",rolesResponsibilities:"",requirements:"",location:"",workMode:"",salaryMin:"",salaryMax:"",experienceMin:"",experienceMax:"",skills:"",employmentType:"",industry:"",openings:"1",education:"",perks:[],department:"",interviewMode:"" });
+      setFormData({ jobTitle: "", jobDescription: "", rolesResponsibilities: "", requirements: "", location: "", workMode: "", salaryMin: "", salaryMax: "", experienceMin: "", experienceMax: "", skills: "", employmentType: "", industry: "", openings: "1", education: "", perks: [], department: "", interviewMode: "" });
       setShowSkillInput(false);
       setSkillPickerOpen(false);
       setSkillSearch("");
@@ -2497,7 +2502,11 @@ function PostJobPage() {
 function ManageJobsPage() {
   const navigate = useNavigate();
   const { recruiterProfile } = useAuth();
-  const [jobs, setJobs] = useState<(Job & { applicant_count?: number })[]>([]);
+  const [jobs, setJobs] = useState<(Job & {
+    applicant_count?: number;
+    applications?: any[];
+    statusHistory?: any[];
+  })[]>([]);
   const [filter, setFilter] = useState("All");
   const [loading, setLoading] = useState(true);
   const [editingJob, setEditingJob] = useState<Job | null>(null);
@@ -2562,11 +2571,42 @@ function ManageJobsPage() {
       .eq("recruiter_id", recruiterProfile.id)
       .order("created_at", { ascending: false });
     if (data) {
-      // Fetch applicant counts
-      const withCounts = await Promise.all(data.map(async (job) => {
-        const { count } = await supabase.from("applications").select("*", { count: "exact", head: true }).eq("job_id", job.id);
-        return { ...job, applicant_count: count || 0 };
-      }));
+      const jobIds = data.map(j => j.id);
+
+      // Fetch all applications for these jobs in a single bulk query to avoid N+1 queries
+      const { data: allApps } = jobIds.length > 0
+        ? await supabase
+          .from("applications")
+          .select("id, job_id, status, applied_at")
+          .in("job_id", jobIds)
+        : { data: [] };
+
+      const applicationsList = allApps || [];
+
+      // Fetch status history for these applications in a single query to avoid N+1 queries
+      const appIds = applicationsList.map(a => a.id);
+      const { data: historyData } = appIds.length > 0
+        ? await supabase
+          .from("application_status_history")
+          .select("application_id, old_status, new_status, changed_at")
+          .in("application_id", appIds)
+          .order("changed_at", { ascending: true })
+        : { data: [] };
+
+      const statusHistoryList = historyData || [];
+
+      // Correlate counts, applications, and status history in memory
+      const withCounts = data.map((job) => {
+        const jobApps = applicationsList.filter(app => app.job_id === job.id);
+        const jobHistory = statusHistoryList.filter(h => jobApps.some(app => app.id === h.application_id));
+        return {
+          ...job,
+          applicant_count: jobApps.length,
+          applications: jobApps,
+          statusHistory: jobHistory
+        };
+      });
+
       const repairedJobs = withCounts.map(job => ({ ...job, status: getEffectiveJobStatus(job) }));
       const staleActiveExpiredIds = withCounts
         .filter(job => (job.status === "Active" || job.status === "Paused") && getEffectiveJobStatus(job) === "Expired")
@@ -2690,77 +2730,223 @@ function ManageJobsPage() {
           </Button>
         </div>
       ) : (
-      <div className="space-y-4">
-        {filtered.map(job => {
-          const effectiveStatus = getEffectiveJobStatus(job);
-          const badgeClass = effectiveStatus === "Active"
-            ? "bg-green-100 text-green-700"
-            : "bg-gray-100 text-gray-600";
+        <div className="space-y-4">
+          {filtered.map(job => {
+            const effectiveStatus = getEffectiveJobStatus(job);
+            const badgeClass = effectiveStatus === "Active"
+              ? "bg-green-100 text-green-700"
+              : "bg-gray-100 text-gray-600";
 
-          return (
-          <div key={job.id} className="bg-white rounded-2xl p-6 shadow-sm">
-            <div className="flex justify-between items-start flex-wrap gap-3">
-              <div className="flex-1">
-                <div className="flex items-center gap-2 mb-1">
-                  <h3
-                    className="text-xl font-semibold text-[#3A1F1F] cursor-pointer hover:text-[#FF2B2B] hover:underline transition-all duration-200"
+            // Calculate timeline milestones and durations from database values
+            const jobPostedDate = job.created_at ? new Date(job.created_at) : null;
+            const jobApps = (job as any).applications || [];
+            const jobHistory = (job as any).statusHistory || [];
+
+            // Find hired application (status 'Joined' or 'Hired' or case-insensitive)
+            const hiredApp = jobApps.find((a: any) =>
+              a.status === "Joined" ||
+              a.status === "Hired" ||
+              a.status === "hired"
+            );
+
+            // Find offered application if no hired app
+            const offeredApp = hiredApp ? null : jobApps.find((a: any) =>
+              a.status === "Offered" ||
+              a.status === "offered"
+            );
+
+            let offerReleasedDate: Date | null = null;
+            let candidateJoinedDate: Date | null = null;
+
+            if (hiredApp) {
+              // Find offer date from history for this application
+              const offerHistory = jobHistory.find((h: any) =>
+                h.application_id === hiredApp.id &&
+                (h.new_status === "Offered" || h.new_status === "offered")
+              );
+              if (offerHistory) {
+                offerReleasedDate = new Date(offerHistory.changed_at);
+              }
+
+              // Find joined date from history for this application
+              const joinedHistory = jobHistory.find((h: any) =>
+                h.application_id === hiredApp.id &&
+                (h.new_status === "Joined" || h.new_status === "Hired" || h.new_status === "hired")
+              );
+              if (joinedHistory) {
+                candidateJoinedDate = new Date(joinedHistory.changed_at);
+              }
+            } else if (offeredApp) {
+              const offerHistory = jobHistory.find((h: any) =>
+                h.application_id === offeredApp.id &&
+                (h.new_status === "Offered" || h.new_status === "offered")
+              );
+              if (offerHistory) {
+                offerReleasedDate = new Date(offerHistory.changed_at);
+              }
+            }
+
+            let timeToOfferStr = "Pending";
+            let timeToHireStr = "Pending";
+
+            if (jobPostedDate && offerReleasedDate) {
+              const diffTime = offerReleasedDate.getTime() - jobPostedDate.getTime();
+              const diffDays = Math.max(0, Math.floor(diffTime / (1000 * 60 * 60 * 24)));
+              timeToOfferStr = `${diffDays} day${diffDays === 1 ? "" : "s"}`;
+            }
+
+            if (jobPostedDate && candidateJoinedDate) {
+              const diffTime = candidateJoinedDate.getTime() - jobPostedDate.getTime();
+              const diffDays = Math.max(0, Math.floor(diffTime / (1000 * 60 * 60 * 24)));
+              timeToHireStr = `${diffDays} day${diffDays === 1 ? "" : "s"}`;
+            }
+
+            return (
+              <div key={job.id} className="bg-white rounded-2xl p-6 shadow-sm">
+                <div className="flex justify-between items-start flex-wrap gap-3">
+                  <div className="flex-1">
+                    <div className="flex items-center gap-2 mb-1">
+                      <h3
+                        className="text-xl font-semibold text-[#3A1F1F] cursor-pointer hover:text-[#FF2B2B] hover:underline transition-all duration-200"
+                        onClick={() => navigate(`/recruiter/dashboard/applicants?job=${encodeURIComponent(job.title)}`)}
+                      >
+                        {job.title}
+                      </h3>
+                      <Badge className={badgeClass}>{effectiveStatus}</Badge>
+                    </div>
+                    <div className="flex items-center gap-4 text-sm text-[#8A8A8A] flex-wrap">
+                      <span className="flex items-center gap-1"><MapPin className="h-3.5 w-3.5" />{job.location}</span>
+                      <span className="flex items-center gap-1"><Briefcase className="h-3.5 w-3.5" />{job.employment_type}</span>
+                      <span className="flex items-center gap-1"><TrendingUp className="h-3.5 w-3.5" />{formatJobSalaryRecruiter(job)}</span>
+                      <span className="flex items-center gap-1"><Clock className="h-3.5 w-3.5" />Posted {new Date(job.created_at).toLocaleDateString()}</span>
+                      {job.deadline && (
+                        <span className="flex items-center gap-1">
+                          <Calendar className="h-3.5 w-3.5" />
+                          Expires {formatJobDeadline(job)} ({getJobDaysRemaining(job)} day{getJobDaysRemaining(job) === 1 ? "" : "s"} left)
+                        </span>
+                      )}
+                    </div>
+                  </div>
+                  <div className="flex gap-2">
+                    <JobShareButton jobId={job.id} title={job.title} className="relative" />
+                    {effectiveStatus === "Expired" ? (
+                      <Button variant="outline" size="icon" className="border-gray-200 rounded-full" onClick={() => refreshJob(job)} disabled={refreshingJobId === job.id} title={`Refresh for ${JOB_EXPIRY_DAYS} days`}>
+                        <RefreshCw className={`h-4 w-4 text-green-500 ${refreshingJobId === job.id ? "animate-spin" : ""}`} />
+                      </Button>
+                    ) : (
+                      <Button variant="outline" size="icon" className="border-gray-200 rounded-full" onClick={() => toggleStatus(job.id, effectiveStatus)} title={effectiveStatus === "Active" ? "Pause" : "Activate"}>
+                        {effectiveStatus === "Active" ? <Pause className="h-4 w-4 text-[#8A8A8A]" /> : <RefreshCw className="h-4 w-4 text-green-500" />}
+                      </Button>
+                    )}
+                    <Button variant="outline" size="icon" className="border-gray-200 rounded-full" onClick={() => navigate(`/recruiter/dashboard/applicants?job=${encodeURIComponent(job.title)}`)} title="View Applicants">
+                      <Users className="h-4 w-4 text-[#FF2B2B]" />
+                    </Button>
+                    <Button variant="outline" size="icon" className="border-gray-200 rounded-full" onClick={() => openEdit(job)} title="Edit Job"><Edit className="h-4 w-4 text-[#3A1F1F]" /></Button>
+                    <Button variant="outline" size="icon" className="border-gray-200 rounded-full" onClick={() => closeJob(job.id)} title="Close Job"><Trash2 className="h-4 w-4 text-[#FF2B2B]" /></Button>
+                  </div>
+                </div>
+                <div className="grid grid-cols-3 gap-4 mt-4 pt-4 border-t border-gray-100">
+                  <div
+                    className="text-center cursor-pointer group"
                     onClick={() => navigate(`/recruiter/dashboard/applicants?job=${encodeURIComponent(job.title)}`)}
                   >
-                    {job.title}
-                  </h3>
-                  <Badge className={badgeClass}>{effectiveStatus}</Badge>
+                    <div className="text-xl font-bold text-[#3A1F1F] group-hover:text-[#FF2B2B] transition-all duration-200">{(job as any).applicant_count ?? 0}</div>
+                    <div className="text-xs text-[#8A8A8A] group-hover:underline">Applicants</div>
+                  </div>
+                  <div className="text-center"><div className="text-xl font-bold text-blue-600">{job.views ?? 0}</div><div className="text-xs text-[#8A8A8A]">Job Views</div></div>
+                  <div className="text-center"><div className="text-xl font-bold text-green-600">{job.openings}</div><div className="text-xs text-[#8A8A8A]">Openings</div></div>
                 </div>
-                <div className="flex items-center gap-4 text-sm text-[#8A8A8A] flex-wrap">
-                  <span className="flex items-center gap-1"><MapPin className="h-3.5 w-3.5" />{job.location}</span>
-                  <span className="flex items-center gap-1"><Briefcase className="h-3.5 w-3.5" />{job.employment_type}</span>
-                  <span className="flex items-center gap-1"><TrendingUp className="h-3.5 w-3.5" />{formatJobSalaryRecruiter(job)}</span>
-                  <span className="flex items-center gap-1"><Clock className="h-3.5 w-3.5" />Posted {new Date(job.created_at).toLocaleDateString()}</span>
-                  {job.deadline && (
-                    <span className="flex items-center gap-1">
-                      <Calendar className="h-3.5 w-3.5" />
-                      Expires {formatJobDeadline(job)} ({getJobDaysRemaining(job)} day{getJobDaysRemaining(job) === 1 ? "" : "s"} left)
-                    </span>
-                  )}
-                </div>
-              </div>
-              <div className="flex gap-2">
-                <JobShareButton jobId={job.id} title={job.title} className="relative" />
-                {effectiveStatus === "Expired" ? (
-                  <Button variant="outline" size="icon" className="border-gray-200 rounded-full" onClick={() => refreshJob(job)} disabled={refreshingJobId === job.id} title={`Refresh for ${JOB_EXPIRY_DAYS} days`}>
-                    <RefreshCw className={`h-4 w-4 text-green-500 ${refreshingJobId === job.id ? "animate-spin" : ""}`} />
-                  </Button>
-                ) : (
-                  <Button variant="outline" size="icon" className="border-gray-200 rounded-full" onClick={() => toggleStatus(job.id, effectiveStatus)} title={effectiveStatus === "Active" ? "Pause" : "Activate"}>
-                    {effectiveStatus === "Active" ? <Pause className="h-4 w-4 text-[#8A8A8A]" /> : <RefreshCw className="h-4 w-4 text-green-500" />}
-                  </Button>
+                {job.skills && job.skills.length > 0 && (
+                  <div className="flex flex-wrap gap-1.5 mt-3">
+                    {job.skills.slice(0, 5).map((s, i) => <Badge key={i} className="bg-[#ECECF4] text-[#3A1F1F] text-xs">{s}</Badge>)}
+                  </div>
                 )}
-                <Button variant="outline" size="icon" className="border-gray-200 rounded-full" onClick={() => navigate(`/recruiter/dashboard/applicants?job=${encodeURIComponent(job.title)}`)} title="View Applicants">
-                  <Users className="h-4 w-4 text-[#FF2B2B]" />
-                </Button>
-                <Button variant="outline" size="icon" className="border-gray-200 rounded-full" onClick={() => openEdit(job)} title="Edit Job"><Edit className="h-4 w-4 text-[#3A1F1F]" /></Button>
-                <Button variant="outline" size="icon" className="border-gray-200 rounded-full" onClick={() => closeJob(job.id)} title="Close Job"><Trash2 className="h-4 w-4 text-[#FF2B2B]" /></Button>
+
+                {/* Hiring Timeline Section */}
+                <div className="mt-4 pt-4 border-t border-gray-100">
+                  <div className="text-xs font-semibold text-[#3A1F1F] mb-3">Hiring Timeline</div>
+
+                  <div className="relative flex items-center justify-between px-6 py-4 bg-gray-50/50 rounded-xl mb-3">
+                    {/* Connecting Line */}
+                    <div className="absolute left-[16%] right-[16%] h-[2px] bg-gray-200 top-[28px] -translate-y-1/2 rounded-full z-0" />
+
+                    {/* Active/Completed Line Segment */}
+                    <div
+                      className="absolute left-[16%] h-[2px] bg-purple-500 top-[28px] -translate-y-1/2 rounded-full z-0 transition-all duration-500"
+                      style={{
+                        width: candidateJoinedDate
+                          ? "68%"
+                          : offerReleasedDate
+                            ? "34%"
+                            : "0%"
+                      }}
+                    />
+
+                    {/* Milestone 1: Job Posted */}
+                    <div className="relative z-10 flex flex-col items-center w-[30%]">
+                      <div className="flex items-center justify-center w-7 h-7 rounded-full bg-purple-50 text-purple-600 shadow-sm mb-1">
+                        <Briefcase className="h-3.5 w-3.5" />
+                      </div>
+                      <div className="w-2 h-2 bg-white border-2 border-purple-500 rotate-45 mb-1 shadow-sm" />
+                      <span className="text-[10px] font-bold text-[#3A1F1F] text-center whitespace-nowrap">Job Posted</span>
+                      <span className="text-[9px] text-[#8A8A8A] mt-0.5 text-center whitespace-nowrap">
+                        {jobPostedDate ? jobPostedDate.toLocaleDateString(undefined, { month: 'short', day: 'numeric', year: 'numeric' }) : "Pending"}
+                      </span>
+                    </div>
+
+                    {/* Milestone 2: Offer Released */}
+                    <div className="relative z-10 flex flex-col items-center w-[30%]">
+                      <div className={`flex items-center justify-center w-7 h-7 rounded-full shadow-sm mb-1 transition-all ${offerReleasedDate ? "bg-purple-50 text-purple-600" : "bg-gray-100 text-gray-400"
+                        }`}>
+                        <Mail className="h-3.5 w-3.5" />
+                      </div>
+                      <div className={`w-2 h-2 bg-white border-2 rotate-45 mb-1 shadow-sm transition-all ${offerReleasedDate ? "border-purple-500" : "border-gray-300"
+                        }`} />
+                      <span className="text-[10px] font-bold text-[#3A1F1F] text-center whitespace-nowrap">Offer Released</span>
+                      <span className="text-[9px] text-[#8A8A8A] mt-0.5 text-center whitespace-nowrap">
+                        {offerReleasedDate
+                          ? offerReleasedDate.toLocaleDateString(undefined, { month: 'short', day: 'numeric', year: 'numeric' })
+                          : "Pending"}
+                      </span>
+                    </div>
+
+                    {/* Milestone 3: Candidate Joined */}
+                    <div className="relative z-10 flex flex-col items-center w-[30%]">
+                      <div className={`flex items-center justify-center w-7 h-7 rounded-full shadow-sm mb-1 transition-all ${candidateJoinedDate ? "bg-purple-50 text-purple-600" : "bg-gray-100 text-gray-400"
+                        }`}>
+                        <Check className="h-3.5 w-3.5" />
+                      </div>
+                      <div className={`w-2 h-2 bg-white border-2 rotate-45 mb-1 shadow-sm transition-all ${candidateJoinedDate ? "border-purple-500" : "border-gray-300"
+                        }`} />
+                      <span className="text-[10px] font-bold text-[#3A1F1F] text-center whitespace-nowrap">Candidate Joined</span>
+                      <span className="text-[9px] text-[#8A8A8A] mt-0.5 text-center whitespace-nowrap">
+                        {candidateJoinedDate
+                          ? candidateJoinedDate.toLocaleDateString(undefined, { month: 'short', day: 'numeric', year: 'numeric' })
+                          : "Pending"}
+                      </span>
+                    </div>
+                  </div>
+
+                  {/* Duration Metrics */}
+                  <div className="flex justify-between items-center px-1 text-xs">
+                    <div className="text-[#5A5A5A] flex items-center gap-1">
+                      <span>Time to Offer:</span>
+                      <span className={`font-semibold ${offerReleasedDate ? "text-purple-600" : "text-[#8A8A8A]"}`}>
+                        {timeToOfferStr}
+                      </span>
+                    </div>
+                    <div className="text-[#5A5A5A] flex items-center gap-1">
+                      <span>Time to Hire:</span>
+                      <span className={`font-semibold ${candidateJoinedDate ? "text-purple-600" : "text-[#8A8A8A]"}`}>
+                        {timeToHireStr}
+                      </span>
+                    </div>
+                  </div>
+                </div>
               </div>
-            </div>
-            <div className="grid grid-cols-3 gap-4 mt-4 pt-4 border-t border-gray-100">
-              <div
-                className="text-center cursor-pointer group"
-                onClick={() => navigate(`/recruiter/dashboard/applicants?job=${encodeURIComponent(job.title)}`)}
-              >
-                <div className="text-xl font-bold text-[#3A1F1F] group-hover:text-[#FF2B2B] transition-all duration-200">{(job as any).applicant_count ?? 0}</div>
-                <div className="text-xs text-[#8A8A8A] group-hover:underline">Applicants</div>
-              </div>
-              <div className="text-center"><div className="text-xl font-bold text-blue-600">{job.views ?? 0}</div><div className="text-xs text-[#8A8A8A]">Job Views</div></div>
-              <div className="text-center"><div className="text-xl font-bold text-green-600">{job.openings}</div><div className="text-xs text-[#8A8A8A]">Openings</div></div>
-            </div>
-            {job.skills && job.skills.length > 0 && (
-              <div className="flex flex-wrap gap-1.5 mt-3">
-                {job.skills.slice(0, 5).map((s, i) => <Badge key={i} className="bg-[#ECECF4] text-[#3A1F1F] text-xs">{s}</Badge>)}
-              </div>
-            )}
-          </div>
-          );
-        })}
-      </div>
+            );
+          })}
+        </div>
       )}
 
       {/* Edit Job Dialog */}
@@ -2785,14 +2971,14 @@ function ManageJobsPage() {
                 <label className="block text-sm font-medium text-[#3A1F1F] mb-1">Employment Type</label>
                 <Select value={editForm.employmentType} onValueChange={v => setEditForm(f => ({ ...f, employmentType: v }))}>
                   <SelectTrigger className="bg-[#F6F6F6] border-gray-200 rounded-xl"><SelectValue placeholder="Select" /></SelectTrigger>
-                  <SelectContent>{["Full-time","Part-time","Contract","Internship","Freelance"].map(t => <SelectItem key={t} value={t}>{t}</SelectItem>)}</SelectContent>
+                  <SelectContent>{["Full-time", "Part-time", "Contract", "Internship", "Freelance"].map(t => <SelectItem key={t} value={t}>{t}</SelectItem>)}</SelectContent>
                 </Select>
               </div>
               <div>
                 <label className="block text-sm font-medium text-[#3A1F1F] mb-1">Work Mode</label>
                 <Select value={editForm.workMode} onValueChange={v => setEditForm(f => ({ ...f, workMode: v }))}>
                   <SelectTrigger className="bg-[#F6F6F6] border-gray-200 rounded-xl"><SelectValue placeholder="Select" /></SelectTrigger>
-                  <SelectContent>{["Work from Office","Work from Home","Hybrid"].map(m => <SelectItem key={m} value={m}>{m}</SelectItem>)}</SelectContent>
+                  <SelectContent>{["Work from Office", "Work from Home", "Hybrid"].map(m => <SelectItem key={m} value={m}>{m}</SelectItem>)}</SelectContent>
                 </Select>
               </div>
             </div>
@@ -3306,28 +3492,28 @@ type RecruiterAppliedJdSearchApplication = {
 function SearchCandidatesPage() {
   const { recruiterProfile } = useAuth();
   // ── Search state ──────────────────────────────────────────
-  const [keywords, setKeywords]       = useState("");
-  const [location, setLocation]       = useState("");
-  const [expMin, setExpMin]           = useState("");
-  const [expMax, setExpMax]           = useState("");
-  const [curSalMin, setCurSalMin]     = useState("");
-  const [curSalMax, setCurSalMax]     = useState("");
-  const [expSalMax, setExpSalMax]     = useState("");
+  const [keywords, setKeywords] = useState("");
+  const [location, setLocation] = useState("");
+  const [expMin, setExpMin] = useState("");
+  const [expMax, setExpMax] = useState("");
+  const [curSalMin, setCurSalMin] = useState("");
+  const [curSalMax, setCurSalMax] = useState("");
+  const [expSalMax, setExpSalMax] = useState("");
   const [noticePeriod, setNoticePeriod] = useState("");
-  const [education, setEducation]     = useState("");
-  const [industry, setIndustry]       = useState("");
+  const [education, setEducation] = useState("");
+  const [industry, setIndustry] = useState("");
   const [currentCompany, setCurrentCompany] = useState("");
-  const [expType, setExpType]         = useState("");
-  const [skillTags, setSkillTags]     = useState<string[]>([]);
-  const [skillInput, setSkillInput]   = useState("");
+  const [expType, setExpType] = useState("");
+  const [skillTags, setSkillTags] = useState<string[]>([]);
+  const [skillInput, setSkillInput] = useState("");
   const [skillSuggestionsOpen, setSkillSuggestionsOpen] = useState(false);
   const searchKeywordRef = useRef<HTMLDivElement>(null);
 
-  const [results, setResults]         = useState<DBCandidate[]>([]);
-  const [searching, setSearching]     = useState(false);
-  const [searched, setSearched]       = useState(false);
+  const [results, setResults] = useState<DBCandidate[]>([]);
+  const [searching, setSearching] = useState(false);
+  const [searched, setSearched] = useState(false);
   const [profileModal, setProfileModal] = useState<DBCandidate | null>(null);
-  const [sortBy, setSortBy]           = useState("relevant");
+  const [sortBy, setSortBy] = useState("relevant");
   const [shortlisted, setShortlisted] = useState<Set<string>>(new Set());
   const [interviewInvited, setInterviewInvited] = useState<Set<string>>(new Set());
 
@@ -3487,7 +3673,7 @@ function SearchCandidatesPage() {
           const tokens = activeKeywords.trim().toLowerCase().split(/\s+/).filter(Boolean);
           (broadSkillCandidates as DBCandidate[]).forEach(candidate => {
             if (!ids.has(candidate.id)) {
-              const hasSkillMatch = (candidate.skills || []).some(skill => 
+              const hasSkillMatch = (candidate.skills || []).some(skill =>
                 tokens.some(token => skillsMatch(skill, token))
               );
               if (hasSkillMatch) {
@@ -3694,7 +3880,7 @@ function SearchCandidatesPage() {
                 <SelectTrigger className="bg-[#F6F6F6] border-gray-200 rounded-lg text-xs h-8 flex-1"><SelectValue placeholder="Min" /></SelectTrigger>
                 <SelectContent>
                   <SelectItem value="any">Any</SelectItem>
-                  {[0,1,2,3,4,5,6,7,8,10,12,15].map(y => <SelectItem key={y} value={String(y)}>{y} yr</SelectItem>)}
+                  {[0, 1, 2, 3, 4, 5, 6, 7, 8, 10, 12, 15].map(y => <SelectItem key={y} value={String(y)}>{y} yr</SelectItem>)}
                 </SelectContent>
               </Select>
               <span className="text-[#8A8A8A] text-xs">–</span>
@@ -3702,7 +3888,7 @@ function SearchCandidatesPage() {
                 <SelectTrigger className="bg-[#F6F6F6] border-gray-200 rounded-lg text-xs h-8 flex-1"><SelectValue placeholder="Max" /></SelectTrigger>
                 <SelectContent>
                   <SelectItem value="any">Any</SelectItem>
-                  {[1,2,3,5,7,10,12,15,20,25].map(y => <SelectItem key={y} value={String(y)}>{y} yr</SelectItem>)}
+                  {[1, 2, 3, 5, 7, 10, 12, 15, 20, 25].map(y => <SelectItem key={y} value={String(y)}>{y} yr</SelectItem>)}
                 </SelectContent>
               </Select>
             </div>
@@ -3738,7 +3924,7 @@ function SearchCandidatesPage() {
               <SelectTrigger className="bg-[#F6F6F6] border-gray-200 rounded-lg text-xs h-8"><SelectValue placeholder="Any" /></SelectTrigger>
               <SelectContent>
                 <SelectItem value="any">Any</SelectItem>
-                {[5,8,10,12,15,20,25,30,40,50].map(v => <SelectItem key={v} value={String(v)}>{v} LPA</SelectItem>)}
+                {[5, 8, 10, 12, 15, 20, 25, 30, 40, 50].map(v => <SelectItem key={v} value={String(v)}>{v} LPA</SelectItem>)}
               </SelectContent>
             </Select>
           </div>
@@ -3763,7 +3949,7 @@ function SearchCandidatesPage() {
               <SelectTrigger className="bg-[#F6F6F6] border-gray-200 rounded-lg text-xs h-8"><SelectValue placeholder="Any" /></SelectTrigger>
               <SelectContent>
                 <SelectItem value="any">Any</SelectItem>
-                {["B.Tech","M.Tech","MBA","B.Com","BCA","MCA","B.Sc","M.Sc","PhD","Diploma"].map(e => <SelectItem key={e} value={e}>{e}</SelectItem>)}
+                {["B.Tech", "M.Tech", "MBA", "B.Com", "BCA", "MCA", "B.Sc", "M.Sc", "PhD", "Diploma"].map(e => <SelectItem key={e} value={e}>{e}</SelectItem>)}
               </SelectContent>
             </Select>
           </div>
@@ -3852,7 +4038,7 @@ function SearchCandidatesPage() {
                   const displayExp = c.total_experience
                     ? c.total_experience
                     : expYrs > 0 ? `${expYrs} yr${expYrs !== 1 ? "s" : ""}`
-                    : c.experience_type === "fresher" ? "Fresher" : null;
+                      : c.experience_type === "fresher" ? "Fresher" : null;
 
                   // Normalize salary — append "LPA" if missing
                   const fmtSal = (s: string | null) => {
@@ -4671,7 +4857,7 @@ function ApplicantsPage() {
                 <SelectTrigger className="bg-[#F6F6F6] border-gray-200 rounded-xl text-sm h-9"><SelectValue placeholder="Any" /></SelectTrigger>
                 <SelectContent>
                   <SelectItem value="any">Any</SelectItem>
-                  {[0,1,2,3,4,5,6,7,8,10,12,15].map(y => <SelectItem key={y} value={String(y)}>{y} yr{y !== 1 ? "s" : ""}</SelectItem>)}
+                  {[0, 1, 2, 3, 4, 5, 6, 7, 8, 10, 12, 15].map(y => <SelectItem key={y} value={String(y)}>{y} yr{y !== 1 ? "s" : ""}</SelectItem>)}
                 </SelectContent>
               </Select>
             </div>
@@ -4681,7 +4867,7 @@ function ApplicantsPage() {
                 <SelectTrigger className="bg-[#F6F6F6] border-gray-200 rounded-xl text-sm h-9"><SelectValue placeholder="Any" /></SelectTrigger>
                 <SelectContent>
                   <SelectItem value="any">Any</SelectItem>
-                  {[1,2,3,4,5,6,7,8,10,12,15,20].map(y => <SelectItem key={y} value={String(y)}>{y} yr{y !== 1 ? "s" : ""}</SelectItem>)}
+                  {[1, 2, 3, 4, 5, 6, 7, 8, 10, 12, 15, 20].map(y => <SelectItem key={y} value={String(y)}>{y} yr{y !== 1 ? "s" : ""}</SelectItem>)}
                 </SelectContent>
               </Select>
             </div>
@@ -4700,7 +4886,7 @@ function ApplicantsPage() {
                 <SelectTrigger className="bg-[#F6F6F6] border-gray-200 rounded-xl text-sm h-9"><SelectValue placeholder="Any" /></SelectTrigger>
                 <SelectContent>
                   <SelectItem value="any">Any</SelectItem>
-                  {[10,15,20,25,30,40,50].map(v => <SelectItem key={v} value={String(v)}>{v} LPA</SelectItem>)}
+                  {[10, 15, 20, 25, 30, 40, 50].map(v => <SelectItem key={v} value={String(v)}>{v} LPA</SelectItem>)}
                 </SelectContent>
               </Select>
             </div>
@@ -4777,210 +4963,210 @@ function ApplicantsPage() {
           <p className="text-[#8A8A8A] text-lg">No applicants match your filters.</p>
         </div>
       ) : (
-      <div className="space-y-3">
-        {sortedApplicants.map(applicant => {
-          const p = applicant.profile;
-          const name = getCandidateDisplayName(p);
-          const initials = getCandidateInitials(name);
-          const skills = p?.skills || [];
-          const workExp = p?.work_experience || [];
-          const edu = p?.education || [];
-          const matchScore = Math.floor(70 + (applicant.id.charCodeAt(0) % 25));
-          return (
-          <div key={applicant.id} className="bg-white rounded-2xl shadow-sm overflow-hidden">
-            <div className="p-5">
-              <div className="flex items-start gap-4">
-                {/* Avatar */}
-                <div className="w-14 h-14 rounded-2xl flex-shrink-0 overflow-hidden bg-[#FF2B2B] flex items-center justify-center text-white font-bold text-lg">
-                  {p?.avatar_url
-                    ? <img src={p.avatar_url} alt={name} className="w-full h-full object-cover" />
-                    : initials}
-                </div>
-
-                <div className="flex-1 min-w-0">
-                  {/* Name + Match */}
-                  <div className="flex items-start justify-between flex-wrap gap-2">
-                    <div>
-                      <h3 className="text-base font-semibold text-[#3A1F1F]">{name}</h3>
-                      <p className="text-sm text-[#5A5A5A] mt-0.5">{p?.current_title}{p?.current_company ? <span> at <span className="text-[#FF2B2B] font-medium">{p.current_company}</span></span> : ""}</p>
+        <div className="space-y-3">
+          {sortedApplicants.map(applicant => {
+            const p = applicant.profile;
+            const name = getCandidateDisplayName(p);
+            const initials = getCandidateInitials(name);
+            const skills = p?.skills || [];
+            const workExp = p?.work_experience || [];
+            const edu = p?.education || [];
+            const matchScore = Math.floor(70 + (applicant.id.charCodeAt(0) % 25));
+            return (
+              <div key={applicant.id} className="bg-white rounded-2xl shadow-sm overflow-hidden">
+                <div className="p-5">
+                  <div className="flex items-start gap-4">
+                    {/* Avatar */}
+                    <div className="w-14 h-14 rounded-2xl flex-shrink-0 overflow-hidden bg-[#FF2B2B] flex items-center justify-center text-white font-bold text-lg">
+                      {p?.avatar_url
+                        ? <img src={p.avatar_url} alt={name} className="w-full h-full object-cover" />
+                        : initials}
                     </div>
-                    <div className="flex items-center gap-2 flex-shrink-0">
-                      <div className="text-center bg-green-50 border border-green-100 rounded-xl px-3 py-1">
-                        <div className="text-base font-bold text-green-600">{matchScore}%</div>
-                        <div className="text-xs text-[#8A8A8A]">Match</div>
-                      </div>
-                    </div>
-                  </div>
 
-                  {/* Applied for + Date */}
-                  <div className="flex items-center gap-1.5 mt-2 text-xs text-[#8A8A8A]">
-                    <FileText className="h-3.5 w-3.5 flex-shrink-0" />
-                    <span>Applied for <span className="text-[#3A1F1F] font-medium">{applicant.job?.title || "—"}</span></span>
-                    <span>·</span>
-                    <span>{new Date(applicant.applied_at).toLocaleDateString("en-IN", { day: "numeric", month: "short", year: "numeric" })}</span>
-                  </div>
-
-                  {/* Location · Expected Salary · Notice */}
-                  <div className="flex items-center gap-3 mt-1.5 text-xs text-[#5A5A5A] flex-wrap">
-                    {p?.location && <span className="flex items-center gap-1"><MapPin className="h-3 w-3 text-[#8A8A8A]" />{p.location}</span>}
-                    {p?.expected_salary && <span className="flex items-center gap-1"><TrendingUp className="h-3 w-3 text-[#8A8A8A]" />Exp: <span className="font-medium text-[#3A1F1F]">{p.expected_salary}</span></span>}
-                    {p?.notice_period && <span className="flex items-center gap-1"><Clock className="h-3 w-3 text-[#8A8A8A]" />Notice: <span className="font-medium text-[#3A1F1F]">{p.notice_period}</span></span>}
-                    {p?.total_experience && <span className="flex items-center gap-1"><Briefcase className="h-3 w-3 text-[#8A8A8A]" />{p.total_experience}</span>}
-                  </div>
-
-                  {/* Skills */}
-                  <div className="flex flex-wrap gap-1.5 mt-2.5">
-                    {skills.slice(0, 5).map((skill: string, i: number) => (
-                      <Badge key={i} className="bg-[#ECECF4] text-[#3A1F1F] text-xs">{skill}</Badge>
-                    ))}
-                    {skills.length > 5 && <Badge className="bg-gray-100 text-[#8A8A8A] text-xs">+{skills.length - 5} more</Badge>}
-                  </div>
-
-                  {/* Summary */}
-                  {p?.about && (
-                    <p className="mt-2.5 text-xs text-[#5A5A5A] leading-relaxed line-clamp-2">{p.about}</p>
-                  )}
-                </div>
-              </div>
-
-              {/* Actions */}
-              <div className="flex items-center justify-between mt-4 pt-3 border-t border-gray-100 flex-wrap gap-2.5">
-                <div className="flex items-center gap-2 flex-shrink-0">
-                  <Badge className={`text-xs ${statusColor(getEffectiveApplicationStatus(applicant))}`}>{getEffectiveApplicationStage(applicant)}</Badge>
-                  <Select
-                    value={getEffectiveApplicationStage(applicant)}
-                    onValueChange={(value) => {
-                      void handleStatusDropdownSelect(applicant, value as PipelineStage);
-                    }}
-                  >
-                    <SelectTrigger className="h-7 min-w-[140px] rounded-full border-gray-200 text-xs">
-                      <span>Move to</span>
-                    </SelectTrigger>
-                    <SelectContent className="max-h-64">
-                      {moveToOptions(getEffectiveApplicationStage(applicant)).map((stage) => (
-                        <SelectItem key={stage} value={stage} className="text-xs">
-                          {stage}
-                        </SelectItem>
-                      ))}
-                    </SelectContent>
-                  </Select>
-                </div>
-                <div className="ml-auto">
-                  {renderStageActions(applicant)}
-                </div>
-              </div>
-            </div>
-
-            {/* Career Timeline — Naukri horizontal style with gap detection + tooltips */}
-            {(workExp.length > 0 || edu.length > 0) && (() => {
-              const parseDateToVal = (d: string | null | undefined): number | null => {
-                if (!d) return null;
-                const mn = ["jan","feb","mar","apr","may","jun","jul","aug","sep","oct","nov","dec"];
-                const parts = d.toLowerCase().split(/[\s\-\/]+/);
-                let year = 0, month = 1;
-                for (const p of parts) {
-                  const n = parseInt(p);
-                  if (!isNaN(n) && n > 1900) year = n;
-                  else if (!isNaN(n) && n >= 1 && n <= 12) month = n;
-                  else { const mi = mn.indexOf(p.slice(0,3)); if (mi >= 0) month = mi + 1; }
-                }
-                return year ? year * 12 + month : null;
-              };
-              const fmtLabel = (val: number, isCurrent = false) => {
-                if (isCurrent) return "till date";
-                const year = Math.floor(val / 12);
-                const month = val % 12 || 12;
-                const m = ["Jan","Feb","Mar","Apr","May","Jun","Jul","Aug","Sep","Oct","Nov","Dec"][month - 1];
-                return month === 1 ? `${year}` : `${m} '${String(year).slice(2)}`;
-              };
-              type TSpan = {startVal: number; endVal: number; type: 'work'|'edu'; tooltip: string};
-              const spans: TSpan[] = [];
-              const nowVal = new Date().getFullYear() * 12 + new Date().getMonth() + 1;
-              edu.forEach(e => {
-                const startYear = e.start_year ? Number(e.start_year) : null;
-                const endYear = e.end_year ? Number(e.end_year) : null;
-                const s = startYear ? startYear * 12 + 1 : null;
-                const en = endYear ? endYear * 12 + 6 : null;
-                if (s && en && en > s) spans.push({startVal: s, endVal: en, type: 'edu', tooltip: `Education: ${e.degree}${e.field ? " in " + e.field : ""} · ${e.institution}`});
-              });
-              workExp.forEach(exp => {
-                const s = parseDateToVal(exp.start_date);
-                const en = exp.is_current ? nowVal : parseDateToVal(exp.end_date);
-                if (s && en && en > s) spans.push({startVal: s, endVal: en, type: 'work', tooltip: `${exp.title} at ${exp.company}`});
-              });
-              if (spans.length === 0) return null;
-              // Collect all unique breakpoints
-              const valSet = new Set<number>();
-              spans.forEach(s => { valSet.add(s.startVal); valSet.add(s.endVal); });
-              const sortedVals = Array.from(valSet).sort((a, b) => a - b);
-              if (sortedVals.length < 2) return null;
-              const minVal = sortedVals[0];
-              const maxVal = sortedVals[sortedVals.length - 1];
-              const range = maxVal - minVal || 1;
-              const toPct = (v: number) => Math.max(0, Math.min(100, ((v - minVal) / range) * 100));
-              // Build event points with tooltip info
-              type TEvt = {val: number; pct: number; label: string; type: 'work'|'edu'; tooltips: string[]};
-              const evtMap = new Map<number, TEvt>();
-              sortedVals.forEach(v => {
-                const isCurrent = v === nowVal && workExp.some(e => e.is_current);
-                const associated = spans.filter(s => s.startVal === v || s.endVal === v);
-                const type = associated.some(s => s.type === 'work') ? 'work' : 'edu';
-                evtMap.set(v, {val: v, pct: toPct(v), label: fmtLabel(v, isCurrent), type, tooltips: associated.map(s => s.tooltip)});
-              });
-              const evts = Array.from(evtMap.values());
-              // Segments: determine color per gap
-              const segments = evts.slice(0, -1).map((ev, i) => {
-                const next = evts[i + 1];
-                const mid = (ev.val + next.val) / 2;
-                const covering = spans.filter(s => s.startVal <= mid && s.endVal >= mid);
-                const hasWork = covering.some(s => s.type === 'work');
-                const hasEdu = covering.some(s => s.type === 'edu');
-                let color = '#D1D5DB';
-                if (hasWork && hasEdu) color = 'linear-gradient(to right,#60A5FA,#A78BFA)';
-                else if (hasWork) color = '#A78BFA';
-                else if (hasEdu) color = '#60A5FA';
-                return {leftPct: ev.pct, widthPct: next.pct - ev.pct, color, isGap: !hasWork && !hasEdu};
-              });
-              return (
-                <div className="border-t border-gray-100 px-5 pt-3 pb-3">
-                  <div className="relative" style={{height: 56}}>
-                    {/* Segments (colored + grey gaps) */}
-                    {segments.map((seg, i) => (
-                      <div key={i} className="absolute h-0.5" style={{left: `${seg.leftPct}%`, width: `${seg.widthPct}%`, top: 22, background: seg.color}} />
-                    ))}
-                    {/* Gap labels */}
-                    {segments.filter(s => s.isGap).map((seg, i) => (
-                      <div key={i} className="absolute flex flex-col items-center" style={{left: `${seg.leftPct + seg.widthPct / 2}%`, transform: 'translateX(-50%)', top: 15}}>
-                        <span className="text-[8px] text-gray-400 bg-white px-1 rounded whitespace-nowrap border border-gray-200">gap</span>
-                      </div>
-                    ))}
-                    {/* Event markers with hover tooltips */}
-                    {evts.map((ev, i) => {
-                      const Icon = ev.type === 'edu' ? GraduationCap : Briefcase;
-                      const color = ev.type === 'edu' ? '#60A5FA' : '#A78BFA';
-                      return (
-                        <div key={i} className="absolute flex flex-col items-center group/tip cursor-default" style={{left: `${ev.pct}%`, transform: 'translateX(-50%)', top: 0, width: 44}}>
-                          {/* Tooltip — appears above marker */}
-                          <div className="absolute bottom-[calc(100%+4px)] left-1/2 -translate-x-1/2 hidden group-hover/tip:flex flex-col gap-0.5 bg-[#1C1C1C] text-white rounded-lg px-2.5 py-1.5 z-30 shadow-xl pointer-events-none min-w-max max-w-[220px]">
-                            {ev.tooltips.map((t, ti) => (
-                              <span key={ti} className="text-[10px] leading-snug">{t}</span>
-                            ))}
-                            <div className="absolute top-full left-1/2 -translate-x-1/2 border-4 border-transparent border-t-[#1C1C1C]" />
-                          </div>
-                          <Icon style={{color, width: 13, height: 13, flexShrink: 0}} />
-                          <div className="w-2.5 h-2.5 bg-white border-2 rotate-45 mt-0.5 flex-shrink-0" style={{borderColor: color}} />
-                          <span className="text-[9px] text-[#8A8A8A] whitespace-nowrap mt-0.5 leading-tight text-center">{ev.label}</span>
+                    <div className="flex-1 min-w-0">
+                      {/* Name + Match */}
+                      <div className="flex items-start justify-between flex-wrap gap-2">
+                        <div>
+                          <h3 className="text-base font-semibold text-[#3A1F1F]">{name}</h3>
+                          <p className="text-sm text-[#5A5A5A] mt-0.5">{p?.current_title}{p?.current_company ? <span> at <span className="text-[#FF2B2B] font-medium">{p.current_company}</span></span> : ""}</p>
                         </div>
-                      );
-                    })}
+                        <div className="flex items-center gap-2 flex-shrink-0">
+                          <div className="text-center bg-green-50 border border-green-100 rounded-xl px-3 py-1">
+                            <div className="text-base font-bold text-green-600">{matchScore}%</div>
+                            <div className="text-xs text-[#8A8A8A]">Match</div>
+                          </div>
+                        </div>
+                      </div>
+
+                      {/* Applied for + Date */}
+                      <div className="flex items-center gap-1.5 mt-2 text-xs text-[#8A8A8A]">
+                        <FileText className="h-3.5 w-3.5 flex-shrink-0" />
+                        <span>Applied for <span className="text-[#3A1F1F] font-medium">{applicant.job?.title || "—"}</span></span>
+                        <span>·</span>
+                        <span>{new Date(applicant.applied_at).toLocaleDateString("en-IN", { day: "numeric", month: "short", year: "numeric" })}</span>
+                      </div>
+
+                      {/* Location · Expected Salary · Notice */}
+                      <div className="flex items-center gap-3 mt-1.5 text-xs text-[#5A5A5A] flex-wrap">
+                        {p?.location && <span className="flex items-center gap-1"><MapPin className="h-3 w-3 text-[#8A8A8A]" />{p.location}</span>}
+                        {p?.expected_salary && <span className="flex items-center gap-1"><TrendingUp className="h-3 w-3 text-[#8A8A8A]" />Exp: <span className="font-medium text-[#3A1F1F]">{p.expected_salary}</span></span>}
+                        {p?.notice_period && <span className="flex items-center gap-1"><Clock className="h-3 w-3 text-[#8A8A8A]" />Notice: <span className="font-medium text-[#3A1F1F]">{p.notice_period}</span></span>}
+                        {p?.total_experience && <span className="flex items-center gap-1"><Briefcase className="h-3 w-3 text-[#8A8A8A]" />{p.total_experience}</span>}
+                      </div>
+
+                      {/* Skills */}
+                      <div className="flex flex-wrap gap-1.5 mt-2.5">
+                        {skills.slice(0, 5).map((skill: string, i: number) => (
+                          <Badge key={i} className="bg-[#ECECF4] text-[#3A1F1F] text-xs">{skill}</Badge>
+                        ))}
+                        {skills.length > 5 && <Badge className="bg-gray-100 text-[#8A8A8A] text-xs">+{skills.length - 5} more</Badge>}
+                      </div>
+
+                      {/* Summary */}
+                      {p?.about && (
+                        <p className="mt-2.5 text-xs text-[#5A5A5A] leading-relaxed line-clamp-2">{p.about}</p>
+                      )}
+                    </div>
+                  </div>
+
+                  {/* Actions */}
+                  <div className="flex items-center justify-between mt-4 pt-3 border-t border-gray-100 flex-wrap gap-2.5">
+                    <div className="flex items-center gap-2 flex-shrink-0">
+                      <Badge className={`text-xs ${statusColor(getEffectiveApplicationStatus(applicant))}`}>{getEffectiveApplicationStage(applicant)}</Badge>
+                      <Select
+                        value={getEffectiveApplicationStage(applicant)}
+                        onValueChange={(value) => {
+                          void handleStatusDropdownSelect(applicant, value as PipelineStage);
+                        }}
+                      >
+                        <SelectTrigger className="h-7 min-w-[140px] rounded-full border-gray-200 text-xs">
+                          <span>Move to</span>
+                        </SelectTrigger>
+                        <SelectContent className="max-h-64">
+                          {moveToOptions(getEffectiveApplicationStage(applicant)).map((stage) => (
+                            <SelectItem key={stage} value={stage} className="text-xs">
+                              {stage}
+                            </SelectItem>
+                          ))}
+                        </SelectContent>
+                      </Select>
+                    </div>
+                    <div className="ml-auto">
+                      {renderStageActions(applicant)}
+                    </div>
                   </div>
                 </div>
-              );
-            })()}
-          </div>
-          );
-        })}
-      </div>
+
+                {/* Career Timeline — Naukri horizontal style with gap detection + tooltips */}
+                {(workExp.length > 0 || edu.length > 0) && (() => {
+                  const parseDateToVal = (d: string | null | undefined): number | null => {
+                    if (!d) return null;
+                    const mn = ["jan", "feb", "mar", "apr", "may", "jun", "jul", "aug", "sep", "oct", "nov", "dec"];
+                    const parts = d.toLowerCase().split(/[\s\-\/]+/);
+                    let year = 0, month = 1;
+                    for (const p of parts) {
+                      const n = parseInt(p);
+                      if (!isNaN(n) && n > 1900) year = n;
+                      else if (!isNaN(n) && n >= 1 && n <= 12) month = n;
+                      else { const mi = mn.indexOf(p.slice(0, 3)); if (mi >= 0) month = mi + 1; }
+                    }
+                    return year ? year * 12 + month : null;
+                  };
+                  const fmtLabel = (val: number, isCurrent = false) => {
+                    if (isCurrent) return "till date";
+                    const year = Math.floor(val / 12);
+                    const month = val % 12 || 12;
+                    const m = ["Jan", "Feb", "Mar", "Apr", "May", "Jun", "Jul", "Aug", "Sep", "Oct", "Nov", "Dec"][month - 1];
+                    return month === 1 ? `${year}` : `${m} '${String(year).slice(2)}`;
+                  };
+                  type TSpan = { startVal: number; endVal: number; type: 'work' | 'edu'; tooltip: string };
+                  const spans: TSpan[] = [];
+                  const nowVal = new Date().getFullYear() * 12 + new Date().getMonth() + 1;
+                  edu.forEach(e => {
+                    const startYear = e.start_year ? Number(e.start_year) : null;
+                    const endYear = e.end_year ? Number(e.end_year) : null;
+                    const s = startYear ? startYear * 12 + 1 : null;
+                    const en = endYear ? endYear * 12 + 6 : null;
+                    if (s && en && en > s) spans.push({ startVal: s, endVal: en, type: 'edu', tooltip: `Education: ${e.degree}${e.field ? " in " + e.field : ""} · ${e.institution}` });
+                  });
+                  workExp.forEach(exp => {
+                    const s = parseDateToVal(exp.start_date);
+                    const en = exp.is_current ? nowVal : parseDateToVal(exp.end_date);
+                    if (s && en && en > s) spans.push({ startVal: s, endVal: en, type: 'work', tooltip: `${exp.title} at ${exp.company}` });
+                  });
+                  if (spans.length === 0) return null;
+                  // Collect all unique breakpoints
+                  const valSet = new Set<number>();
+                  spans.forEach(s => { valSet.add(s.startVal); valSet.add(s.endVal); });
+                  const sortedVals = Array.from(valSet).sort((a, b) => a - b);
+                  if (sortedVals.length < 2) return null;
+                  const minVal = sortedVals[0];
+                  const maxVal = sortedVals[sortedVals.length - 1];
+                  const range = maxVal - minVal || 1;
+                  const toPct = (v: number) => Math.max(0, Math.min(100, ((v - minVal) / range) * 100));
+                  // Build event points with tooltip info
+                  type TEvt = { val: number; pct: number; label: string; type: 'work' | 'edu'; tooltips: string[] };
+                  const evtMap = new Map<number, TEvt>();
+                  sortedVals.forEach(v => {
+                    const isCurrent = v === nowVal && workExp.some(e => e.is_current);
+                    const associated = spans.filter(s => s.startVal === v || s.endVal === v);
+                    const type = associated.some(s => s.type === 'work') ? 'work' : 'edu';
+                    evtMap.set(v, { val: v, pct: toPct(v), label: fmtLabel(v, isCurrent), type, tooltips: associated.map(s => s.tooltip) });
+                  });
+                  const evts = Array.from(evtMap.values());
+                  // Segments: determine color per gap
+                  const segments = evts.slice(0, -1).map((ev, i) => {
+                    const next = evts[i + 1];
+                    const mid = (ev.val + next.val) / 2;
+                    const covering = spans.filter(s => s.startVal <= mid && s.endVal >= mid);
+                    const hasWork = covering.some(s => s.type === 'work');
+                    const hasEdu = covering.some(s => s.type === 'edu');
+                    let color = '#D1D5DB';
+                    if (hasWork && hasEdu) color = 'linear-gradient(to right,#60A5FA,#A78BFA)';
+                    else if (hasWork) color = '#A78BFA';
+                    else if (hasEdu) color = '#60A5FA';
+                    return { leftPct: ev.pct, widthPct: next.pct - ev.pct, color, isGap: !hasWork && !hasEdu };
+                  });
+                  return (
+                    <div className="border-t border-gray-100 px-5 pt-3 pb-3">
+                      <div className="relative" style={{ height: 56 }}>
+                        {/* Segments (colored + grey gaps) */}
+                        {segments.map((seg, i) => (
+                          <div key={i} className="absolute h-0.5" style={{ left: `${seg.leftPct}%`, width: `${seg.widthPct}%`, top: 22, background: seg.color }} />
+                        ))}
+                        {/* Gap labels */}
+                        {segments.filter(s => s.isGap).map((seg, i) => (
+                          <div key={i} className="absolute flex flex-col items-center" style={{ left: `${seg.leftPct + seg.widthPct / 2}%`, transform: 'translateX(-50%)', top: 15 }}>
+                            <span className="text-[8px] text-gray-400 bg-white px-1 rounded whitespace-nowrap border border-gray-200">gap</span>
+                          </div>
+                        ))}
+                        {/* Event markers with hover tooltips */}
+                        {evts.map((ev, i) => {
+                          const Icon = ev.type === 'edu' ? GraduationCap : Briefcase;
+                          const color = ev.type === 'edu' ? '#60A5FA' : '#A78BFA';
+                          return (
+                            <div key={i} className="absolute flex flex-col items-center group/tip cursor-default" style={{ left: `${ev.pct}%`, transform: 'translateX(-50%)', top: 0, width: 44 }}>
+                              {/* Tooltip — appears above marker */}
+                              <div className="absolute bottom-[calc(100%+4px)] left-1/2 -translate-x-1/2 hidden group-hover/tip:flex flex-col gap-0.5 bg-[#1C1C1C] text-white rounded-lg px-2.5 py-1.5 z-30 shadow-xl pointer-events-none min-w-max max-w-[220px]">
+                                {ev.tooltips.map((t, ti) => (
+                                  <span key={ti} className="text-[10px] leading-snug">{t}</span>
+                                ))}
+                                <div className="absolute top-full left-1/2 -translate-x-1/2 border-4 border-transparent border-t-[#1C1C1C]" />
+                              </div>
+                              <Icon style={{ color, width: 13, height: 13, flexShrink: 0 }} />
+                              <div className="w-2.5 h-2.5 bg-white border-2 rotate-45 mt-0.5 flex-shrink-0" style={{ borderColor: color }} />
+                              <span className="text-[9px] text-[#8A8A8A] whitespace-nowrap mt-0.5 leading-tight text-center">{ev.label}</span>
+                            </div>
+                          );
+                        })}
+                      </div>
+                    </div>
+                  );
+                })()}
+              </div>
+            );
+          })}
+        </div>
       )}
 
 
@@ -5211,7 +5397,7 @@ function AnalyticsPage() {
         const currentCount = filteredApplications.length;
         const prevCount = prevApplications.length;
         let growthText = "+0%";
-        
+
         if (prevCount === 0 && currentCount > 0) {
           growthText = "New";
         } else if (prevCount === 0 && currentCount === 0) {
@@ -5266,13 +5452,13 @@ function AnalyticsPage() {
 
       const html = generateReportHTML(
         {
-          company_name:   recruiterProfile.company_name ?? null,
+          company_name: recruiterProfile.company_name ?? null,
           recruiter_name: recruiterProfile.recruiter_name ?? null,
-          logo_url:       recruiterProfile.logo_url ?? null,
-          industry:       recruiterProfile.industry ?? null,
-          location:       recruiterProfile.location ?? null,
-          tagline:        recruiterProfile.tagline ?? null,
-          website:        recruiterProfile.website ?? null,
+          logo_url: recruiterProfile.logo_url ?? null,
+          industry: recruiterProfile.industry ?? null,
+          location: recruiterProfile.location ?? null,
+          tagline: recruiterProfile.tagline ?? null,
+          website: recruiterProfile.website ?? null,
         },
         (jobsRes.data || []) as Parameters<typeof generateReportHTML>[1],
         (appsRes.data || []) as Parameters<typeof generateReportHTML>[2]
@@ -5324,8 +5510,8 @@ function AnalyticsPage() {
 
   const metrics = [
     { label: "Total Jobs Posted", value: totalJobsPosted !== null ? `${totalJobsPosted}` : "—", sub: timePeriod === "7d" ? "Last 7 days" : timePeriod === "90d" ? "Last 90 days" : "Last 30 days", icon: Briefcase, color: "text-blue-600", bg: "bg-blue-50" },
-    { label: "Total Applications", value: totalApplications !== null ? `${totalApplications}` : "—", sub: `${applicationsGrowth} vs previous ${timePeriod === "7d" ? "7 days" : timePeriod === "90d" ? "90 days" : "30 days"}`, icon: Users, color: "text-green-600", bg: "bg-green-50" },
-    { label: "day : hr : min", value: avgTimeToHire, sub: "Industry avg: 25 days", icon: Clock, color: "text-purple-600", bg: "bg-purple-50" },
+    { label: "Total Applications", value: totalApplications !== null ? `${totalApplications}` : "—", sub: `${applicationsGrowth} vs previous ${timePeriod === "7d" ? "7 days" : timePeriod === "90d" ? "90 days" : "30 days"}`, icon: Users, color: "text-green-600", bg: "bg-green-50", onClick: () => navigate("/recruiter/dashboard/applicants") },
+    { label: "day : hr : min", value: avgTimeToHire, sub: "Industry avg: 25 days", icon: Clock, color: "text-purple-600", bg: "bg-purple-50", onClick: () => navigate("/recruiter/dashboard/applicants") },
     { label: "Offer Acceptance Rate", value: offerAcceptanceRate, sub: "+5% vs last quarter", icon: CheckCircle, color: "text-[#FF2B2B]", bg: "bg-red-50" },
     { label: "Job Views", value: jobViews !== null ? jobViews.toLocaleString() : "—", sub: "Across all active jobs", icon: Eye, color: "text-orange-600", bg: "bg-orange-50" },
     { label: "Profile View Rate", value: profileVisitRate, sub: "Profile Appearances", icon: TrendingUp, color: "text-teal-600", bg: "bg-teal-50" },
@@ -5399,7 +5585,12 @@ function AnalyticsPage() {
       {/* Key Metrics */}
       <div className="grid grid-cols-2 md:grid-cols-3 gap-4 mb-6">
         {metrics.map((m, i) => (
-          <div key={i} className="bg-white rounded-2xl p-5 shadow-sm">
+          <div
+            key={i}
+            className={`bg-white rounded-2xl p-5 shadow-sm transition-all ${m.onClick ? "cursor-pointer hover:shadow-md hover:scale-[1.02]" : ""
+              }`}
+            onClick={m.onClick}
+          >
             <div className={`w-10 h-10 ${m.bg} rounded-xl flex items-center justify-center mb-3`}>
               <m.icon className={`h-5 w-5 ${m.color}`} />
             </div>
@@ -5879,7 +6070,7 @@ function parseCompanyDescription(text: string | null | undefined): { aboutCompan
 
   const splitRegex = /(?:<h\d[^>]*>\s*Company\s+Information\s*<\/h\d>|<p[^>]*>\s*<strong>\s*Company\s+Information\s*<\/strong>\s*<\/p>|<strong[^>]*>\s*Company\s+Information\s*<\/strong>|Company\s+Information)/i;
   const match = val.match(splitRegex);
-  
+
   const cleanEmptyTags = (html: string) => {
     let cleaned = html.trim();
     while (cleaned.startsWith("<p>&nbsp;</p>") || cleaned.startsWith("<p><br></p>") || cleaned.startsWith("<p></p>")) {
@@ -5898,13 +6089,13 @@ function parseCompanyDescription(text: string | null | undefined): { aboutCompan
   if (match && match.index !== undefined) {
     let aboutPart = val.substring(0, match.index).trim();
     let infoPart = val.substring(match.index + match[0].length).trim();
-    
+
     const aboutHeaderRegex = /^<h\d[^>]*>\s*About\s+Company\s*<\/h\d>/i;
     aboutPart = aboutPart.replace(aboutHeaderRegex, "").trim();
-    
+
     aboutPart = cleanEmptyTags(aboutPart);
     infoPart = cleanEmptyTags(infoPart);
-    
+
     return { aboutCompany: aboutPart, companyInfo: infoPart };
   } else {
     let aboutPart = val;
@@ -5917,10 +6108,10 @@ function parseCompanyDescription(text: string | null | undefined): { aboutCompan
 
 function formatHtmlForEditor(html: string | null | undefined): string {
   const parsed = parseCompanyDescription(html);
-  
+
   const aboutHeading = `<h2 contenteditable="false" class="select-none py-1 text-[#3A1F1F] font-bold text-base mt-2 mb-1" data-heading="about">About Company</h2>`;
   const infoHeading = `<h2 contenteditable="false" class="select-none py-1 text-[#3A1F1F] font-bold text-base mt-4 mb-1" data-heading="info">Company Information</h2>`;
-  
+
   const cleanPart = (text: string) => {
     let t = text.trim();
     if (!t) return "<p><br></p>";
@@ -5936,18 +6127,18 @@ function formatHtmlForEditor(html: string | null | undefined): string {
 function cleanHtmlForDb(html: string | null | undefined): string {
   let val = (html || "").trim();
   if (!val) return "";
-  
+
   const parsed = parseCompanyDescription(val);
   const cleanAbout = parsed.aboutCompany.trim();
   const cleanInfo = parsed.companyInfo.trim();
-  
+
   const hasAbout = cleanAbout && cleanAbout !== "<p><br></p>" && cleanAbout !== "<p></p>";
   const hasInfo = cleanInfo && cleanInfo !== "<p><br></p>" && cleanInfo !== "<p></p>";
-  
+
   if (!hasAbout && !hasInfo) {
     return "";
   }
-  
+
   return `<h2>About Company</h2>${parsed.aboutCompany}<h2>Company Information</h2>${parsed.companyInfo}`;
 }
 
@@ -6336,10 +6527,10 @@ function CompanyProfilePage() {
           <p className="text-xs text-[#8A8A8A] mt-1">
             {(profile.description
               ? profile.description
-                  .replace(/<h2[^>]*>.*?<\/h2>/gi, "")
-                  .replace(/<[^>]*>/g, "")
-                  .trim()
-                  .length
+                .replace(/<h2[^>]*>.*?<\/h2>/gi, "")
+                .replace(/<[^>]*>/g, "")
+                .trim()
+                .length
               : 0)}/2000 characters
           </p>
         </div>
@@ -6547,13 +6738,12 @@ function PlansPage() {
           return (
             <div
               key={plan.id}
-              className={`bg-white rounded-2xl p-6 shadow-md border-2 transition-all ${
-                isCurrentPlan
-                  ? "border-[#FF2B2B]"
-                  : plan.popular
+              className={`bg-white rounded-2xl p-6 shadow-md border-2 transition-all ${isCurrentPlan
+                ? "border-[#FF2B2B]"
+                : plan.popular
                   ? "border-[#FF2B2B]/40"
                   : "border-gray-100"
-              }`}
+                }`}
             >
               {/* Header */}
               <div className="flex items-start justify-between mb-2">
@@ -6606,11 +6796,10 @@ function PlansPage() {
               ) : (
                 <Button
                   onClick={() => handlePurchase(plan.id)}
-                  className={`w-full rounded-full ${
-                    plan.popular
-                      ? "bg-[#FF2B2B] hover:bg-[#e02525] text-white"
-                      : "bg-white border-2 border-[#FF2B2B] text-[#FF2B2B] hover:bg-[#FF2B2B] hover:text-white"
-                  }`}
+                  className={`w-full rounded-full ${plan.popular
+                    ? "bg-[#FF2B2B] hover:bg-[#e02525] text-white"
+                    : "bg-white border-2 border-[#FF2B2B] text-[#FF2B2B] hover:bg-[#FF2B2B] hover:text-white"
+                    }`}
                 >
                   {activeSub ? "Upgrade to this Plan" : "Purchase Plan"} <ArrowRight className="ml-2 h-4 w-4" />
                 </Button>
