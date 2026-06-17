@@ -4184,30 +4184,41 @@ function ApplicantsPage() {
   const { recruiterProfile } = useAuth();
   const location = useLocation();
   const [applicants, setApplicants] = useState<AppWithProfile[]>([]);
-  const [loading, setLoading] = useState(true);
-  const [statusFilter, setStatusFilter] = useState(() => {
+  const [loading, setLoading] = useState<boolean>(true);
+  const [statusFilter, setStatusFilter] = useState<string>(() => {
     const queryStatus = new URLSearchParams(window.location.search).get("status");
     return queryStatus || "All";
   });
-  const [jobFilter, setJobFilter] = useState(() => {
+  const [jobFilter, setJobFilter] = useState<string>(() => {
     const queryJob = new URLSearchParams(window.location.search).get("job");
     return queryJob || "All";
   });
-  const [searchTerm, setSearchTerm] = useState("");
-  const [sortBy, setSortBy] = useState("recent");
+  const [searchTerm, setSearchTerm] = useState<string>("");
+  const [sortBy, setSortBy] = useState<string>("recent");
   const [expandedCareer, setExpandedCareer] = useState<string | null>(null);
   const [profileModal, setProfileModal] = useState<AppWithProfile | null>(null);
 
   // Naukri-style advanced filters
-  const [expMin, setExpMin] = useState("");
-  const [expMax, setExpMax] = useState("");
-  const [locationFilter, setLocationFilter] = useState("");
-  const [salaryFilter, setSalaryFilter] = useState("");
-  const [noticePeriodFilter, setNoticePeriodFilter] = useState("");
-  const [skillFilter, setSkillFilter] = useState("");
-  const [showFilters, setShowFilters] = useState(false);
-  const [skillDropdownOpen, setSkillDropdownOpen] = useState(false);
+  const [expMin, setExpMin] = useState<string>("");
+  const [expMax, setExpMax] = useState<string>("");
+  const [locationFilter, setLocationFilter] = useState<string>("");
+  const [salaryFilter, setSalaryFilter] = useState<string>("");
+  const [noticePeriodFilter, setNoticePeriodFilter] = useState<string>("");
+  const [skillTags, setSkillTags] = useState<string[]>([]);
+  const [skillInput, setSkillInput] = useState<string>("");
+  const [showFilters, setShowFilters] = useState<boolean>(false);
+  const [skillDropdownOpen, setSkillDropdownOpen] = useState<boolean>(false);
   const skillFilterRef = useRef<HTMLDivElement>(null);
+  const [topSuggestionsOpen, setTopSuggestionsOpen] = useState<boolean>(false);
+  const topSearchRef = useRef<HTMLDivElement>(null);
+
+  const addSkillTag = (tag: string) => {
+    const t = tag.trim();
+    if (t && !skillTags.includes(t)) {
+      setSkillTags(prev => [...prev, t]);
+    }
+    setSkillInput("");
+  };
   const [interviewModalApplicant, setInterviewModalApplicant] = useState<AppWithProfile | null>(null);
   const [interviewModalInitialRound, setInterviewModalInitialRound] = useState<"L1" | "L2" | "L3" | "HR Round" | undefined>(undefined);
   const [feedbackModalApplicant, setFeedbackModalApplicant] = useState<AppWithProfile | null>(null);
