@@ -4198,10 +4198,21 @@ function ApplicantsPage() {
   const [locationFilter, setLocationFilter] = useState("");
   const [salaryFilter, setSalaryFilter] = useState("");
   const [noticePeriodFilter, setNoticePeriodFilter] = useState("");
-  const [skillFilter, setSkillFilter] = useState("");
+  const [skillTags, setSkillTags] = useState<string[]>([]);
+  const [skillInput, setSkillInput] = useState("");
   const [showFilters, setShowFilters] = useState(false);
   const [skillDropdownOpen, setSkillDropdownOpen] = useState(false);
   const skillFilterRef = useRef<HTMLDivElement>(null);
+  const [topSuggestionsOpen, setTopSuggestionsOpen] = useState(false);
+  const topSearchRef = useRef<HTMLDivElement>(null);
+
+  const addSkillTag = (tag: string) => {
+    const t = tag.trim();
+    if (t && !skillTags.includes(t)) {
+      setSkillTags(prev => [...prev, t]);
+    }
+    setSkillInput("");
+  };
   const [interviewModalApplicant, setInterviewModalApplicant] = useState<AppWithProfile | null>(null);
   const [feedbackModalApplicant, setFeedbackModalApplicant] = useState<AppWithProfile | null>(null);
   const [offerModalApplicant, setOfferModalApplicant] = useState<AppWithProfile | null>(null);
@@ -4250,10 +4261,18 @@ function ApplicantsPage() {
   const jobTitles = ["All", ...Array.from(new Set(applicants.map(a => a.job?.title).filter(Boolean)))];
 
   const filteredFilterSkillOptions = useMemo(() => {
-    const query = skillFilter.trim().toLowerCase();
+    const query = skillInput.trim().toLowerCase();
     const options = query ? SEARCH_SUGGESTION_DATASET : SKILL_OPTIONS;
     return options.filter(skill => !query || skill.toLowerCase().includes(query)).slice(0, 50);
-  }, [skillFilter]);
+  }, [skillInput]);
+
+  const filteredTopSuggestions = useMemo(() => {
+    const query = searchTerm.trim().toLowerCase();
+    if (!query) return [];
+    return SEARCH_SUGGESTION_DATASET
+      .filter(item => item.toLowerCase().includes(query))
+      .slice(0, 12);
+  }, [searchTerm]);
 
   useEffect(() => {
     const queryStatus = new URLSearchParams(location.search).get("status") || "All";
@@ -4276,6 +4295,17 @@ function ApplicantsPage() {
     return () => document.removeEventListener("mousedown", handleClickOutside);
   }, [skillDropdownOpen]);
 
+  useEffect(() => {
+    if (!topSuggestionsOpen) return;
+    const handleClickOutside = (event: MouseEvent) => {
+      if (!topSearchRef.current?.contains(event.target as Node)) {
+        setTopSuggestionsOpen(false);
+      }
+    };
+    document.addEventListener("mousedown", handleClickOutside);
+    return () => document.removeEventListener("mousedown", handleClickOutside);
+  }, [topSuggestionsOpen]);
+
   const parseExpYears = (exp: string | null) => {
     if (!exp) return 0;
     const m = exp.match(/(\d+)/);
@@ -4288,7 +4318,7 @@ function ApplicantsPage() {
     return m ? parseInt(m[1]) : 0;
   };
 
-  const activeFilterCount = [expMin, expMax, locationFilter, salaryFilter, noticePeriodFilter, skillFilter].filter(Boolean).length;
+  const activeFilterCount = [expMin, expMax, locationFilter, salaryFilter, noticePeriodFilter].filter(Boolean).length + skillTags.length;
 
   const filtered = applicants
     .filter(a => statusFilter === "All" || getEffectiveApplicationStage(a) === statusFilter)
@@ -4326,9 +4356,9 @@ function ApplicantsPage() {
       return true;
     })
     .filter(a => {
-      if (!skillFilter) return true;
+      if (skillTags.length === 0) return true;
       const skills = a.profile?.skills || [];
-      return skills.some((s: string) => skillsMatch(s, skillFilter));
+      return skillTags.every(tag => skills.some((s: string) => skillsMatch(s, tag)));
     });
 
   const sortedApplicants = useMemo(() => {
@@ -4798,24 +4828,47 @@ function ApplicantsPage() {
         </Button>
       </div>
 
-      {/* Status Tabs */}
-      <div className="flex gap-2 overflow-x-auto pb-2 mb-4">
-        {statuses.map(s => (
-          <button key={s} onClick={() => setStatusFilter(s)}
-            className={`px-4 py-1.5 rounded-full text-sm whitespace-nowrap border transition-colors ${statusFilter === s ? "bg-[#FF2B2B] text-white border-[#FF2B2B]" : "bg-white border-gray-200 text-[#5A5A5A] hover:border-[#FF2B2B]"}`}>
-            {s}
-            {s !== "All" && statusCounts[s] > 0 && (
-              <span className={`ml-1.5 text-xs rounded-full px-1.5 py-0.5 ${statusFilter === s ? "bg-white/30" : "bg-gray-100"}`}>{statusCounts[s]}</span>
-            )}
-          </button>
-        ))}
-      </div>
-
       {/* Search + Filter row */}
       <div className="flex gap-3 mb-3 flex-wrap">
-        <div className="relative flex-1 min-w-[200px]">
+        <div className="relative flex-1 min-w-[200px]" ref={topSearchRef}>
           <Search className="absolute left-3 top-1/2 -translate-y-1/2 h-4 w-4 text-[#8A8A8A]" />
-          <Input value={searchTerm} onChange={e => setSearchTerm(e.target.value)} className="pl-9 bg-white border-gray-200 rounded-xl" placeholder="Search by name or skill..." />
+          <Input
+            value={searchTerm}
+            onChange={e => {
+              setSearchTerm(e.target.value);
+              setTopSuggestionsOpen(true);
+            }}
+            onFocus={() => setTopSuggestionsOpen(true)}
+            onKeyDown={e => {
+              if (e.key === "Enter") {
+                setTopSuggestionsOpen(false);
+              }
+              if (e.key === "Escape") {
+                setTopSuggestionsOpen(false);
+              }
+            }}
+            className="pl-9 bg-white border-gray-200 rounded-xl"
+            placeholder="Search by name or skill..."
+          />
+          {topSuggestionsOpen && filteredTopSuggestions.length > 0 && (
+            <div className="absolute left-0 right-0 top-full z-50 mt-1 overflow-hidden rounded-xl border border-gray-200 bg-white shadow-xl">
+              <div className="max-h-72 overflow-y-auto">
+                {filteredTopSuggestions.map(skill => (
+                  <button
+                    key={skill}
+                    type="button"
+                    onClick={() => {
+                      setSearchTerm(skill);
+                      setTopSuggestionsOpen(false);
+                    }}
+                    className="flex w-full items-center px-3 py-2 text-left text-sm text-[#3A1F1F] hover:bg-[#FFF0F0]"
+                  >
+                    <span>{skill}</span>
+                  </button>
+                ))}
+              </div>
+            </div>
+          )}
         </div>
         <Select value={jobFilter} onValueChange={setJobFilter}>
           <SelectTrigger className="w-52 bg-white border-gray-200 rounded-xl"><SelectValue placeholder="Filter by job" /></SelectTrigger>
@@ -4828,341 +4881,385 @@ function ApplicantsPage() {
             <SelectItem value="match">Match Score</SelectItem>
           </SelectContent>
         </Select>
-        <button onClick={() => setShowFilters(v => !v)}
-          className={`flex items-center gap-2 px-4 py-2 rounded-xl border text-sm font-medium transition-colors ${showFilters || activeFilterCount > 0 ? "bg-[#FF2B2B] text-white border-[#FF2B2B]" : "bg-white border-gray-200 text-[#5A5A5A] hover:border-[#FF2B2B]"}`}>
-          <svg className="h-4 w-4" fill="none" stroke="currentColor" viewBox="0 0 24 24"><path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M3 4a1 1 0 011-1h16a1 1 0 011 1v2a1 1 0 01-.293.707L13 13.414V19a1 1 0 01-.553.894l-4 2A1 1 0 017 21v-7.586L3.293 6.707A1 1 0 013 6V4z" /></svg>
-          Filters {activeFilterCount > 0 && <span className={`text-xs rounded-full px-1.5 py-0.5 font-bold ${showFilters || activeFilterCount > 0 ? "bg-white text-[#FF2B2B]" : "bg-[#FF2B2B] text-white"}`}>{activeFilterCount}</span>}
-        </button>
       </div>
 
-      {/* Naukri-style Advanced Filters Panel */}
-      {showFilters && (
-        <div className="bg-white border border-gray-200 rounded-2xl p-5 mb-4 shadow-sm">
-          <div className="flex items-center justify-between mb-4">
-            <h3 className="font-semibold text-[#3A1F1F] text-sm">Advanced Filters</h3>
+      <div className="flex gap-5 items-start">
+        {/* ── LEFT: Filter Sidebar (Naukri ResdEx style) ── */}
+        <div className="w-64 flex-shrink-0 space-y-0 bg-white border border-gray-200 rounded-2xl shadow-sm overflow-hidden">
+          {/* Status Tabs Section */}
+          <div className="px-4 py-3 border-b border-gray-100">
+            <p className="text-xs font-semibold text-[#3A1F1F] mb-2 uppercase tracking-wide">Status</p>
+            <div className="flex flex-col gap-1">
+              {statuses.map(s => (
+                <button key={s} onClick={() => setStatusFilter(s)}
+                  className={`flex items-center justify-between px-3 py-1.5 rounded-lg text-xs transition-colors w-full border ${statusFilter === s ? "bg-[#FF2B2B] text-white border-[#FF2B2B] font-semibold" : "bg-white border-gray-100 text-[#5A5A5A] hover:border-[#FF2B2B] hover:bg-gray-50"}`}>
+                  <span>{s}</span>
+                  {s === "All" ? (
+                    applicants.length > 0 && (
+                      <span className={`text-[10px] rounded-full px-1.5 py-0.5 font-bold ${statusFilter === s ? "bg-white/30 text-white" : "bg-gray-100 text-gray-600"}`}>{applicants.length}</span>
+                    )
+                  ) : (
+                    statusCounts[s] > 0 && (
+                      <span className={`text-[10px] rounded-full px-1.5 py-0.5 font-bold ${statusFilter === s ? "bg-white/30 text-white" : "bg-gray-100 text-gray-600"}`}>{statusCounts[s]}</span>
+                    )
+                  )}
+                </button>
+              ))}
+            </div>
+          </div>
+
+          <div className="flex items-center justify-between px-4 py-3 border-b border-gray-100">
+            <h3 className="text-sm font-bold text-[#3A1F1F]">Refine Results</h3>
             {activeFilterCount > 0 && (
-              <button onClick={() => { setExpMin(""); setExpMax(""); setLocationFilter(""); setSalaryFilter(""); setNoticePeriodFilter(""); setSkillFilter(""); }}
-                className="text-xs text-[#FF2B2B] hover:underline">Clear all filters</button>
+              <button onClick={() => { setExpMin(""); setExpMax(""); setLocationFilter(""); setSalaryFilter(""); setNoticePeriodFilter(""); setSkillTags([]); setSkillInput(""); }}
+                className="text-xs text-[#FF2B2B] hover:underline">Clear all ({activeFilterCount})</button>
             )}
           </div>
-          <div className="grid grid-cols-2 md:grid-cols-3 lg:grid-cols-6 gap-4">
-            <div>
-              <label className="block text-xs font-medium text-[#5A5A5A] mb-1.5">Experience (Min yrs)</label>
+
+          {/* Experience */}
+          <div className="px-4 py-3 border-b border-gray-100">
+            <p className="text-xs font-semibold text-[#3A1F1F] mb-2 uppercase tracking-wide">Experience</p>
+            <div className="flex gap-2 items-center">
               <Select value={expMin || "any"} onValueChange={v => setExpMin(v === "any" ? "" : v)}>
-                <SelectTrigger className="bg-[#F6F6F6] border-gray-200 rounded-xl text-sm h-9"><SelectValue placeholder="Any" /></SelectTrigger>
+                <SelectTrigger className="bg-[#F6F6F6] border-gray-200 rounded-lg text-xs h-8 flex-1"><SelectValue placeholder="Min" /></SelectTrigger>
                 <SelectContent>
                   <SelectItem value="any">Any</SelectItem>
                   {[0, 1, 2, 3, 4, 5, 6, 7, 8, 10, 12, 15].map(y => <SelectItem key={y} value={String(y)}>{y} yr{y !== 1 ? "s" : ""}</SelectItem>)}
                 </SelectContent>
               </Select>
-            </div>
-            <div>
-              <label className="block text-xs font-medium text-[#5A5A5A] mb-1.5">Experience (Max yrs)</label>
+              <span className="text-[#8A8A8A] text-xs">–</span>
               <Select value={expMax || "any"} onValueChange={v => setExpMax(v === "any" ? "" : v)}>
-                <SelectTrigger className="bg-[#F6F6F6] border-gray-200 rounded-xl text-sm h-9"><SelectValue placeholder="Any" /></SelectTrigger>
+                <SelectTrigger className="bg-[#F6F6F6] border-gray-200 rounded-lg text-xs h-8 flex-1"><SelectValue placeholder="Max" /></SelectTrigger>
                 <SelectContent>
                   <SelectItem value="any">Any</SelectItem>
                   {[1, 2, 3, 4, 5, 6, 7, 8, 10, 12, 15, 20].map(y => <SelectItem key={y} value={String(y)}>{y} yr{y !== 1 ? "s" : ""}</SelectItem>)}
                 </SelectContent>
               </Select>
             </div>
-            <div>
-              <label className="block text-xs font-medium text-[#5A5A5A] mb-1.5">Location</label>
-              <LocationAutocomplete
-                value={locationFilter}
-                onChange={setLocationFilter}
-                placeholder="Enter location"
-                inputClassName="text-sm h-9"
+          </div>
+
+          {/* Location */}
+          <div className="px-4 py-3 border-b border-gray-100">
+            <p className="text-xs font-semibold text-[#3A1F1F] mb-2 uppercase tracking-wide">Location</p>
+            <LocationAutocomplete
+              value={locationFilter}
+              onChange={setLocationFilter}
+              placeholder="Enter location"
+              inputClassName="text-xs h-8 bg-[#F6F6F6] border-gray-200 rounded-lg"
+            />
+          </div>
+
+          {/* Expected Salary */}
+          <div className="px-4 py-3 border-b border-gray-100">
+            <p className="text-xs font-semibold text-[#3A1F1F] mb-2 uppercase tracking-wide">Expected Salary (up to)</p>
+            <Select value={salaryFilter || "any"} onValueChange={v => setSalaryFilter(v === "any" ? "" : v)}>
+              <SelectTrigger className="bg-[#F6F6F6] border-gray-200 rounded-lg text-xs h-8"><SelectValue placeholder="Any" /></SelectTrigger>
+              <SelectContent>
+                <SelectItem value="any">Any</SelectItem>
+                {[10, 15, 20, 25, 30, 40, 50].map(v => <SelectItem key={v} value={String(v)}>{v} LPA</SelectItem>)}
+              </SelectContent>
+            </Select>
+          </div>
+
+          {/* Notice Period */}
+          <div className="px-4 py-3 border-b border-gray-100">
+            <p className="text-xs font-semibold text-[#3A1F1F] mb-2 uppercase tracking-wide">Notice Period</p>
+            <Select value={noticePeriodFilter || "any"} onValueChange={v => setNoticePeriodFilter(v === "any" ? "" : v)}>
+              <SelectTrigger className="bg-[#F6F6F6] border-gray-200 rounded-lg text-xs h-8"><SelectValue placeholder="Any" /></SelectTrigger>
+              <SelectContent>
+                <SelectItem value="any">Any</SelectItem>
+                <SelectItem value="immediate">Immediate</SelectItem>
+                <SelectItem value="15">≤ 15 days</SelectItem>
+                <SelectItem value="30">≤ 30 days</SelectItem>
+                <SelectItem value="60">≤ 60 days</SelectItem>
+              </SelectContent>
+            </Select>
+          </div>
+
+          {/* Skills */}
+          <div className="px-4 py-3 relative" ref={skillFilterRef}>
+            <p className="text-xs font-semibold text-[#3A1F1F] mb-2 uppercase tracking-wide">Skills</p>
+            <div className="flex gap-1.5 mb-2 flex-wrap">
+              {skillTags.map(tag => (
+                <span key={tag} className="flex items-center gap-1 bg-[#FF2B2B] text-white text-xs px-2 py-0.5 rounded-full">
+                  {tag}
+                  <button onClick={() => setSkillTags(prev => prev.filter(t => t !== tag))} className="ml-0.5 hover:opacity-75">×</button>
+                </span>
+              ))}
+            </div>
+            <div className="relative flex gap-1">
+              <Input
+                value={skillInput}
+                onChange={e => {
+                  setSkillInput(e.target.value);
+                  setSkillDropdownOpen(true);
+                }}
+                onFocus={() => setSkillDropdownOpen(true)}
+                onKeyDown={e => {
+                  if (e.key === "Enter" || e.key === ",") {
+                    e.preventDefault();
+                    addSkillTag(skillInput);
+                    setSkillDropdownOpen(false);
+                  }
+                }}
+                className="bg-[#F6F6F6] border-gray-200 rounded-lg text-xs h-8 pr-8 flex-1"
+                placeholder="Type skill + Enter"
               />
+              <button
+                type="button"
+                onClick={() => setSkillDropdownOpen(open => !open)}
+                className="absolute right-9 top-1/2 -translate-y-1/2 text-[#8A8A8A] hover:text-[#3A1F1F]"
+              >
+                <ChevronDown className="h-4 w-4" />
+              </button>
+              <button onClick={() => { addSkillTag(skillInput); setSkillDropdownOpen(false); }} className="px-2 py-1 bg-[#FF2B2B] text-white rounded-lg text-xs hover:bg-[#e02525]">+</button>
             </div>
-            <div>
-              <label className="block text-xs font-medium text-[#5A5A5A] mb-1.5">Exp. Salary (up to)</label>
-              <Select value={salaryFilter || "any"} onValueChange={v => setSalaryFilter(v === "any" ? "" : v)}>
-                <SelectTrigger className="bg-[#F6F6F6] border-gray-200 rounded-xl text-sm h-9"><SelectValue placeholder="Any" /></SelectTrigger>
-                <SelectContent>
-                  <SelectItem value="any">Any</SelectItem>
-                  {[10, 15, 20, 25, 30, 40, 50].map(v => <SelectItem key={v} value={String(v)}>{v} LPA</SelectItem>)}
-                </SelectContent>
-              </Select>
-            </div>
-            <div>
-              <label className="block text-xs font-medium text-[#5A5A5A] mb-1.5">Notice Period</label>
-              <Select value={noticePeriodFilter || "any"} onValueChange={v => setNoticePeriodFilter(v === "any" ? "" : v)}>
-                <SelectTrigger className="bg-[#F6F6F6] border-gray-200 rounded-xl text-sm h-9"><SelectValue placeholder="Any" /></SelectTrigger>
-                <SelectContent>
-                  <SelectItem value="any">Any</SelectItem>
-                  <SelectItem value="immediate">Immediate</SelectItem>
-                  <SelectItem value="15">≤ 15 days</SelectItem>
-                  <SelectItem value="30">≤ 30 days</SelectItem>
-                  <SelectItem value="60">≤ 60 days</SelectItem>
-                </SelectContent>
-              </Select>
-            </div>
-            <div className="relative" ref={skillFilterRef}>
-              <label className="block text-xs font-medium text-[#5A5A5A] mb-1.5">Skill</label>
-              <div className="relative">
-                <Input
-                  value={skillFilter}
-                  onChange={e => {
-                    setSkillFilter(e.target.value);
-                    setSkillDropdownOpen(true);
-                  }}
-                  onFocus={() => setSkillDropdownOpen(true)}
-                  className="bg-[#F6F6F6] border-gray-200 rounded-xl text-sm h-9 pr-8"
-                  placeholder="Enter skill"
-                />
-                <button
-                  type="button"
-                  onClick={() => setSkillDropdownOpen(open => !open)}
-                  className="absolute right-2.5 top-1/2 -translate-y-1/2 text-[#8A8A8A] hover:text-[#3A1F1F]"
-                >
-                  <ChevronDown className="h-4 w-4" />
-                </button>
-              </div>
-              {skillDropdownOpen && (
-                <div className="absolute left-0 right-0 top-full z-[100] mt-1 overflow-hidden rounded-xl border border-gray-200 bg-white shadow-lg">
-                  <div className="max-h-48 overflow-y-auto p-1">
-                    {filteredFilterSkillOptions.length === 0 ? (
-                      <div className="px-3 py-2 text-xs text-[#8A8A8A]">No matching skills</div>
-                    ) : (
-                      filteredFilterSkillOptions.map((skill) => (
-                        <button
-                          key={skill}
-                          type="button"
-                          onClick={() => {
-                            setSkillFilter(skill);
-                            setSkillDropdownOpen(false);
-                          }}
-                          className="flex w-full items-center gap-2 rounded-lg px-3 py-1.5 text-left text-xs text-[#3A1F1F] hover:bg-[#FFF0F0]"
-                        >
-                          <Check className={`h-3.5 w-3.5 ${skillFilter.toLowerCase() === skill.toLowerCase() ? "text-[#FF2B2B] opacity-100" : "opacity-0"}`} />
-                          <span>{skill}</span>
-                        </button>
-                      ))
-                    )}
-                  </div>
+            {skillDropdownOpen && (
+              <div className="absolute left-4 right-4 top-full z-[100] mt-1 overflow-hidden rounded-xl border border-gray-200 bg-white shadow-lg">
+                <div className="max-h-48 overflow-y-auto p-1">
+                  {filteredFilterSkillOptions.length === 0 ? (
+                    <div className="px-3 py-2 text-xs text-[#8A8A8A]">No matching skills</div>
+                  ) : (
+                    filteredFilterSkillOptions.map((skill) => (
+                      <button
+                        key={skill}
+                        type="button"
+                        onClick={() => {
+                          addSkillTag(skill);
+                          setSkillDropdownOpen(false);
+                        }}
+                        className="flex w-full items-center gap-2 rounded-lg px-3 py-1.5 text-left text-xs text-[#3A1F1F] hover:bg-[#FFF0F0]"
+                      >
+                        <Check className={`h-3.5 w-3.5 ${skillTags.includes(skill) ? "text-[#FF2B2B] opacity-100" : "opacity-0"}`} />
+                        <span>{skill}</span>
+                      </button>
+                    ))
+                  )}
                 </div>
-              )}
-            </div>
+              </div>
+            )}
           </div>
         </div>
-      )}
 
-      <p className="text-sm text-[#8A8A8A] mb-4">{filtered.length} applicant{filtered.length !== 1 ? "s" : ""}</p>
+        {/* ── RIGHT: Results ── */}
+        <div className="flex-1 min-w-0">
+          <p className="text-sm text-[#8A8A8A] mb-4">{filtered.length} applicant{filtered.length !== 1 ? "s" : ""}</p>
 
-      {loading ? (
-        <div className="text-center py-12 text-[#8A8A8A]">Loading applicants...</div>
-      ) : filtered.length === 0 ? (
-        <div className="bg-white rounded-2xl p-12 text-center shadow-sm">
-          <Users className="h-12 w-12 text-gray-200 mx-auto mb-4" />
-          <p className="text-[#8A8A8A] text-lg">No applicants match your filters.</p>
-        </div>
-      ) : (
-        <div className="space-y-3">
-          {sortedApplicants.map(applicant => {
-            const p = applicant.profile;
-            const name = getCandidateDisplayName(p);
-            const initials = getCandidateInitials(name);
-            const skills = p?.skills || [];
-            const workExp = p?.work_experience || [];
-            const edu = p?.education || [];
-            const matchScore = Math.floor(70 + (applicant.id.charCodeAt(0) % 25));
-            return (
-              <div key={applicant.id} className="bg-white rounded-2xl shadow-sm overflow-hidden">
-                <div className="p-5">
-                  <div className="flex items-start gap-4">
-                    {/* Avatar */}
-                    <div className="w-14 h-14 rounded-2xl flex-shrink-0 overflow-hidden bg-[#FF2B2B] flex items-center justify-center text-white font-bold text-lg">
-                      {p?.avatar_url
-                        ? <img src={p.avatar_url} alt={name} className="w-full h-full object-cover" />
-                        : initials}
-                    </div>
-
-                    <div className="flex-1 min-w-0">
-                      {/* Name + Match */}
-                      <div className="flex items-start justify-between flex-wrap gap-2">
-                        <div>
-                          <h3 className="text-base font-semibold text-[#3A1F1F]">{name}</h3>
-                          <p className="text-sm text-[#5A5A5A] mt-0.5">{p?.current_title}{p?.current_company ? <span> at <span className="text-[#FF2B2B] font-medium">{p.current_company}</span></span> : ""}</p>
+          {loading ? (
+            <div className="text-center py-12 text-[#8A8A8A]">Loading applicants...</div>
+          ) : filtered.length === 0 ? (
+            <div className="bg-white rounded-2xl p-12 text-center shadow-sm border border-gray-200">
+              <Users className="h-12 w-12 text-gray-200 mx-auto mb-4" />
+              <p className="text-[#8A8A8A] text-lg">No applicants match your filters.</p>
+            </div>
+          ) : (
+            <div className="space-y-3">
+              {sortedApplicants.map(applicant => {
+                const p = applicant.profile;
+                const name = getCandidateDisplayName(p);
+                const initials = getCandidateInitials(name);
+                const skills = p?.skills || [];
+                const workExp = p?.work_experience || [];
+                const edu = p?.education || [];
+                const matchScore = Math.floor(70 + (applicant.id.charCodeAt(0) % 25));
+                return (
+                  <div key={applicant.id} className="bg-white rounded-2xl shadow-sm border border-gray-200 overflow-hidden">
+                    <div className="p-5">
+                      <div className="flex items-start gap-4">
+                        {/* Avatar */}
+                        <div className="w-14 h-14 rounded-2xl flex-shrink-0 overflow-hidden bg-[#FF2B2B] flex items-center justify-center text-white font-bold text-lg">
+                          {p?.avatar_url
+                            ? <img src={p.avatar_url} alt={name} className="w-full h-full object-cover" />
+                            : initials}
                         </div>
-                        <div className="flex items-center gap-2 flex-shrink-0">
-                          <div className="text-center bg-green-50 border border-green-100 rounded-xl px-3 py-1">
-                            <div className="text-base font-bold text-green-600">{matchScore}%</div>
-                            <div className="text-xs text-[#8A8A8A]">Match</div>
-                          </div>
-                        </div>
-                      </div>
 
-                      {/* Applied for + Date */}
-                      <div className="flex items-center gap-1.5 mt-2 text-xs text-[#8A8A8A]">
-                        <FileText className="h-3.5 w-3.5 flex-shrink-0" />
-                        <span>Applied for <span className="text-[#3A1F1F] font-medium">{applicant.job?.title || "—"}</span></span>
-                        <span>·</span>
-                        <span>{new Date(applicant.applied_at).toLocaleDateString("en-IN", { day: "numeric", month: "short", year: "numeric" })}</span>
-                      </div>
-
-                      {/* Location · Expected Salary · Notice */}
-                      <div className="flex items-center gap-3 mt-1.5 text-xs text-[#5A5A5A] flex-wrap">
-                        {p?.location && <span className="flex items-center gap-1"><MapPin className="h-3 w-3 text-[#8A8A8A]" />{p.location}</span>}
-                        {p?.expected_salary && <span className="flex items-center gap-1"><TrendingUp className="h-3 w-3 text-[#8A8A8A]" />Exp: <span className="font-medium text-[#3A1F1F]">{p.expected_salary}</span></span>}
-                        {p?.notice_period && <span className="flex items-center gap-1"><Clock className="h-3 w-3 text-[#8A8A8A]" />Notice: <span className="font-medium text-[#3A1F1F]">{p.notice_period}</span></span>}
-                        {p?.total_experience && <span className="flex items-center gap-1"><Briefcase className="h-3 w-3 text-[#8A8A8A]" />{p.total_experience}</span>}
-                      </div>
-
-                      {/* Skills */}
-                      <div className="flex flex-wrap gap-1.5 mt-2.5">
-                        {skills.slice(0, 5).map((skill: string, i: number) => (
-                          <Badge key={i} className="bg-[#ECECF4] text-[#3A1F1F] text-xs">{skill}</Badge>
-                        ))}
-                        {skills.length > 5 && <Badge className="bg-gray-100 text-[#8A8A8A] text-xs">+{skills.length - 5} more</Badge>}
-                      </div>
-
-                      {/* Summary */}
-                      {p?.about && (
-                        <p className="mt-2.5 text-xs text-[#5A5A5A] leading-relaxed line-clamp-2">{p.about}</p>
-                      )}
-                    </div>
-                  </div>
-
-                  {/* Actions */}
-                  <div className="flex items-center justify-between mt-4 pt-3 border-t border-gray-100 flex-wrap gap-2.5">
-                    <div className="flex items-center gap-2 flex-shrink-0">
-                      <Badge className={`text-xs ${statusColor(getEffectiveApplicationStatus(applicant))}`}>{getEffectiveApplicationStage(applicant)}</Badge>
-                      <Select
-                        value={getEffectiveApplicationStage(applicant)}
-                        onValueChange={(value) => {
-                          void handleStatusDropdownSelect(applicant, value as PipelineStage);
-                        }}
-                      >
-                        <SelectTrigger className="h-7 min-w-[140px] rounded-full border-gray-200 text-xs">
-                          <span>Move to</span>
-                        </SelectTrigger>
-                        <SelectContent className="max-h-64">
-                          {moveToOptions(getEffectiveApplicationStage(applicant)).map((stage) => (
-                            <SelectItem key={stage} value={stage} className="text-xs">
-                              {stage}
-                            </SelectItem>
-                          ))}
-                        </SelectContent>
-                      </Select>
-                    </div>
-                    <div className="ml-auto">
-                      {renderStageActions(applicant)}
-                    </div>
-                  </div>
-                </div>
-
-                {/* Career Timeline — Naukri horizontal style with gap detection + tooltips */}
-                {(workExp.length > 0 || edu.length > 0) && (() => {
-                  const parseDateToVal = (d: string | null | undefined): number | null => {
-                    if (!d) return null;
-                    const mn = ["jan", "feb", "mar", "apr", "may", "jun", "jul", "aug", "sep", "oct", "nov", "dec"];
-                    const parts = d.toLowerCase().split(/[\s\-\/]+/);
-                    let year = 0, month = 1;
-                    for (const p of parts) {
-                      const n = parseInt(p);
-                      if (!isNaN(n) && n > 1900) year = n;
-                      else if (!isNaN(n) && n >= 1 && n <= 12) month = n;
-                      else { const mi = mn.indexOf(p.slice(0, 3)); if (mi >= 0) month = mi + 1; }
-                    }
-                    return year ? year * 12 + month : null;
-                  };
-                  const fmtLabel = (val: number, isCurrent = false) => {
-                    if (isCurrent) return "till date";
-                    const year = Math.floor(val / 12);
-                    const month = val % 12 || 12;
-                    const m = ["Jan", "Feb", "Mar", "Apr", "May", "Jun", "Jul", "Aug", "Sep", "Oct", "Nov", "Dec"][month - 1];
-                    return month === 1 ? `${year}` : `${m} '${String(year).slice(2)}`;
-                  };
-                  type TSpan = { startVal: number; endVal: number; type: 'work' | 'edu'; tooltip: string };
-                  const spans: TSpan[] = [];
-                  const nowVal = new Date().getFullYear() * 12 + new Date().getMonth() + 1;
-                  edu.forEach(e => {
-                    const startYear = e.start_year ? Number(e.start_year) : null;
-                    const endYear = e.end_year ? Number(e.end_year) : null;
-                    const s = startYear ? startYear * 12 + 1 : null;
-                    const en = endYear ? endYear * 12 + 6 : null;
-                    if (s && en && en > s) spans.push({ startVal: s, endVal: en, type: 'edu', tooltip: `Education: ${e.degree}${e.field ? " in " + e.field : ""} · ${e.institution}` });
-                  });
-                  workExp.forEach(exp => {
-                    const s = parseDateToVal(exp.start_date);
-                    const en = exp.is_current ? nowVal : parseDateToVal(exp.end_date);
-                    if (s && en && en > s) spans.push({ startVal: s, endVal: en, type: 'work', tooltip: `${exp.title} at ${exp.company}` });
-                  });
-                  if (spans.length === 0) return null;
-                  // Collect all unique breakpoints
-                  const valSet = new Set<number>();
-                  spans.forEach(s => { valSet.add(s.startVal); valSet.add(s.endVal); });
-                  const sortedVals = Array.from(valSet).sort((a, b) => a - b);
-                  if (sortedVals.length < 2) return null;
-                  const minVal = sortedVals[0];
-                  const maxVal = sortedVals[sortedVals.length - 1];
-                  const range = maxVal - minVal || 1;
-                  const toPct = (v: number) => Math.max(0, Math.min(100, ((v - minVal) / range) * 100));
-                  // Build event points with tooltip info
-                  type TEvt = { val: number; pct: number; label: string; type: 'work' | 'edu'; tooltips: string[] };
-                  const evtMap = new Map<number, TEvt>();
-                  sortedVals.forEach(v => {
-                    const isCurrent = v === nowVal && workExp.some(e => e.is_current);
-                    const associated = spans.filter(s => s.startVal === v || s.endVal === v);
-                    const type = associated.some(s => s.type === 'work') ? 'work' : 'edu';
-                    evtMap.set(v, { val: v, pct: toPct(v), label: fmtLabel(v, isCurrent), type, tooltips: associated.map(s => s.tooltip) });
-                  });
-                  const evts = Array.from(evtMap.values());
-                  // Segments: determine color per gap
-                  const segments = evts.slice(0, -1).map((ev, i) => {
-                    const next = evts[i + 1];
-                    const mid = (ev.val + next.val) / 2;
-                    const covering = spans.filter(s => s.startVal <= mid && s.endVal >= mid);
-                    const hasWork = covering.some(s => s.type === 'work');
-                    const hasEdu = covering.some(s => s.type === 'edu');
-                    let color = '#D1D5DB';
-                    if (hasWork && hasEdu) color = 'linear-gradient(to right,#60A5FA,#A78BFA)';
-                    else if (hasWork) color = '#A78BFA';
-                    else if (hasEdu) color = '#60A5FA';
-                    return { leftPct: ev.pct, widthPct: next.pct - ev.pct, color, isGap: !hasWork && !hasEdu };
-                  });
-                  return (
-                    <div className="border-t border-gray-100 px-5 pt-3 pb-3">
-                      <div className="relative" style={{ height: 56 }}>
-                        {/* Segments (colored + grey gaps) */}
-                        {segments.map((seg, i) => (
-                          <div key={i} className="absolute h-0.5" style={{ left: `${seg.leftPct}%`, width: `${seg.widthPct}%`, top: 22, background: seg.color }} />
-                        ))}
-                        {/* Gap labels */}
-                        {segments.filter(s => s.isGap).map((seg, i) => (
-                          <div key={i} className="absolute flex flex-col items-center" style={{ left: `${seg.leftPct + seg.widthPct / 2}%`, transform: 'translateX(-50%)', top: 15 }}>
-                            <span className="text-[8px] text-gray-400 bg-white px-1 rounded whitespace-nowrap border border-gray-200">gap</span>
-                          </div>
-                        ))}
-                        {/* Event markers with hover tooltips */}
-                        {evts.map((ev, i) => {
-                          const Icon = ev.type === 'edu' ? GraduationCap : Briefcase;
-                          const color = ev.type === 'edu' ? '#60A5FA' : '#A78BFA';
-                          return (
-                            <div key={i} className="absolute flex flex-col items-center group/tip cursor-default" style={{ left: `${ev.pct}%`, transform: 'translateX(-50%)', top: 0, width: 44 }}>
-                              {/* Tooltip — appears above marker */}
-                              <div className="absolute bottom-[calc(100%+4px)] left-1/2 -translate-x-1/2 hidden group-hover/tip:flex flex-col gap-0.5 bg-[#1C1C1C] text-white rounded-lg px-2.5 py-1.5 z-30 shadow-xl pointer-events-none min-w-max max-w-[220px]">
-                                {ev.tooltips.map((t, ti) => (
-                                  <span key={ti} className="text-[10px] leading-snug">{t}</span>
-                                ))}
-                                <div className="absolute top-full left-1/2 -translate-x-1/2 border-4 border-transparent border-t-[#1C1C1C]" />
-                              </div>
-                              <Icon style={{ color, width: 13, height: 13, flexShrink: 0 }} />
-                              <div className="w-2.5 h-2.5 bg-white border-2 rotate-45 mt-0.5 flex-shrink-0" style={{ borderColor: color }} />
-                              <span className="text-[9px] text-[#8A8A8A] whitespace-nowrap mt-0.5 leading-tight text-center">{ev.label}</span>
+                        <div className="flex-1 min-w-0">
+                          {/* Name + Match */}
+                          <div className="flex items-start justify-between flex-wrap gap-2">
+                            <div>
+                              <h3 className="text-base font-semibold text-[#3A1F1F]">{name}</h3>
+                              <p className="text-sm text-[#5A5A5A] mt-0.5">{p?.current_title}{p?.current_company ? <span> at <span className="text-[#FF2B2B] font-medium">{p.current_company}</span></span> : ""}</p>
                             </div>
-                          );
-                        })}
+                            <div className="flex items-center gap-2 flex-shrink-0">
+                              <div className="text-center bg-green-50 border border-green-100 rounded-xl px-3 py-1">
+                                <div className="text-base font-bold text-green-600">{matchScore}%</div>
+                                <div className="text-xs text-[#8A8A8A]">Match</div>
+                              </div>
+                            </div>
+                          </div>
+
+                          {/* Applied for + Date */}
+                          <div className="flex items-center gap-1.5 mt-2 text-xs text-[#8A8A8A]">
+                            <FileText className="h-3.5 w-3.5 flex-shrink-0" />
+                            <span>Applied for <span className="text-[#3A1F1F] font-medium">{applicant.job?.title || "—"}</span></span>
+                            <span>·</span>
+                            <span>{new Date(applicant.applied_at).toLocaleDateString("en-IN", { day: "numeric", month: "short", year: "numeric" })}</span>
+                          </div>
+
+                          {/* Location · Expected Salary · Notice */}
+                          <div className="flex items-center gap-3 mt-1.5 text-xs text-[#5A5A5A] flex-wrap">
+                            {p?.location && <span className="flex items-center gap-1"><MapPin className="h-3 w-3 text-[#8A8A8A]" />{p.location}</span>}
+                            {p?.expected_salary && <span className="flex items-center gap-1"><TrendingUp className="h-3 w-3 text-[#8A8A8A]" />Exp: <span className="font-medium text-[#3A1F1F]">{p.expected_salary}</span></span>}
+                            {p?.notice_period && <span className="flex items-center gap-1"><Clock className="h-3 w-3 text-[#8A8A8A]" />Notice: <span className="font-medium text-[#3A1F1F]">{p.notice_period}</span></span>}
+                            {p?.total_experience && <span className="flex items-center gap-1"><Briefcase className="h-3 w-3 text-[#8A8A8A]" />{p.total_experience}</span>}
+                          </div>
+
+                          {/* Skills */}
+                          <div className="flex flex-wrap gap-1.5 mt-2.5">
+                            {skills.slice(0, 5).map((skill: string, i: number) => (
+                              <Badge key={i} className="bg-[#ECECF4] text-[#3A1F1F] text-xs">{skill}</Badge>
+                            ))}
+                            {skills.length > 5 && <Badge className="bg-gray-100 text-[#8A8A8A] text-xs">+{skills.length - 5} more</Badge>}
+                          </div>
+
+                          {/* Summary */}
+                          {p?.about && (
+                            <p className="mt-2.5 text-xs text-[#5A5A5A] leading-relaxed line-clamp-2">{p.about}</p>
+                          )}
+                        </div>
+                      </div>
+
+                      {/* Actions */}
+                      <div className="flex items-center justify-between mt-4 pt-3 border-t border-gray-100 flex-wrap gap-2.5">
+                        <div className="flex items-center gap-2 flex-shrink-0">
+                          <Badge className={`text-xs ${statusColor(getEffectiveApplicationStatus(applicant))}`}>{getEffectiveApplicationStage(applicant)}</Badge>
+                          <Select
+                            value={getEffectiveApplicationStage(applicant)}
+                            onValueChange={(value) => {
+                              void handleStatusDropdownSelect(applicant, value as PipelineStage);
+                            }}
+                          >
+                            <SelectTrigger className="h-7 min-w-[140px] rounded-full border-gray-200 text-xs">
+                              <span>Move to</span>
+                            </SelectTrigger>
+                            <SelectContent className="max-h-64">
+                              {moveToOptions(getEffectiveApplicationStage(applicant)).map((stage) => (
+                                <SelectItem key={stage} value={stage} className="text-xs">
+                                  {stage}
+                                </SelectItem>
+                              ))}
+                            </SelectContent>
+                          </Select>
+                        </div>
+                        <div className="ml-auto">
+                          {renderStageActions(applicant)}
+                        </div>
                       </div>
                     </div>
-                  );
-                })()}
-              </div>
-            );
-          })}
+
+                    {/* Career Timeline — Naukri horizontal style with gap detection + tooltips */}
+                    {(workExp.length > 0 || edu.length > 0) && (() => {
+                      const parseDateToVal = (d: string | null | undefined): number | null => {
+                        if (!d) return null;
+                        const mn = ["jan", "feb", "mar", "apr", "may", "jun", "jul", "aug", "sep", "oct", "nov", "dec"];
+                        const parts = d.toLowerCase().split(/[\s\-\/]+/);
+                        let year = 0, month = 1;
+                        for (const p of parts) {
+                          const n = parseInt(p);
+                          if (!isNaN(n) && n > 1900) year = n;
+                          else if (!isNaN(n) && n >= 1 && n <= 12) month = n;
+                          else { const mi = mn.indexOf(p.slice(0, 3)); if (mi >= 0) month = mi + 1; }
+                        }
+                        return year ? year * 12 + month : null;
+                      };
+                      const fmtLabel = (val: number, isCurrent = false) => {
+                        if (isCurrent) return "till date";
+                        const year = Math.floor(val / 12);
+                        const month = val % 12 || 12;
+                        const m = ["Jan", "Feb", "Mar", "Apr", "May", "Jun", "Jul", "Aug", "Sep", "Oct", "Nov", "Dec"][month - 1];
+                        return month === 1 ? `${year}` : `${m} '${String(year).slice(2)}`;
+                      };
+                      type TSpan = { startVal: number; endVal: number; type: 'work' | 'edu'; tooltip: string };
+                      const spans: TSpan[] = [];
+                      const nowVal = new Date().getFullYear() * 12 + new Date().getMonth() + 1;
+                      edu.forEach(e => {
+                        const startYear = e.start_year ? Number(e.start_year) : null;
+                        const endYear = e.end_year ? Number(e.end_year) : null;
+                        const s = startYear ? startYear * 12 + 1 : null;
+                        const en = endYear ? endYear * 12 + 6 : null;
+                        if (s && en && en > s) spans.push({ startVal: s, endVal: en, type: 'edu', tooltip: `Education: ${e.degree}${e.field ? " in " + e.field : ""} · ${e.institution}` });
+                      });
+                      workExp.forEach(exp => {
+                        const s = parseDateToVal(exp.start_date);
+                        const en = exp.is_current ? nowVal : parseDateToVal(exp.end_date);
+                        if (s && en && en > s) spans.push({ startVal: s, endVal: en, type: 'work', tooltip: `${exp.title} at ${exp.company}` });
+                      });
+                      if (spans.length === 0) return null;
+                      // Collect all unique breakpoints
+                      const valSet = new Set<number>();
+                      spans.forEach(s => { valSet.add(s.startVal); valSet.add(s.endVal); });
+                      const sortedVals = Array.from(valSet).sort((a, b) => a - b);
+                      if (sortedVals.length < 2) return null;
+                      const minVal = sortedVals[0];
+                      const maxVal = sortedVals[sortedVals.length - 1];
+                      const range = maxVal - minVal || 1;
+                      const toPct = (v: number) => Math.max(0, Math.min(100, ((v - minVal) / range) * 100));
+                      // Build event points with tooltip info
+                      type TEvt = { val: number; pct: number; label: string; type: 'work' | 'edu'; tooltips: string[] };
+                      const evtMap = new Map<number, TEvt>();
+                      sortedVals.forEach(v => {
+                        const isCurrent = v === nowVal && workExp.some(e => e.is_current);
+                        const associated = spans.filter(s => s.startVal === v || s.endVal === v);
+                        const type = associated.some(s => s.type === 'work') ? 'work' : 'edu';
+                        evtMap.set(v, { val: v, pct: toPct(v), label: fmtLabel(v, isCurrent), type, tooltips: associated.map(s => s.tooltip) });
+                      });
+                      const evts = Array.from(evtMap.values());
+                      // Segments: determine color per gap
+                      const segments = evts.slice(0, -1).map((ev, i) => {
+                        const next = evts[i + 1];
+                        const mid = (ev.val + next.val) / 2;
+                        const covering = spans.filter(s => s.startVal <= mid && s.endVal >= mid);
+                        const hasWork = covering.some(s => s.type === 'work');
+                        const hasEdu = covering.some(s => s.type === 'edu');
+                        let color = '#D1D5DB';
+                        if (hasWork && hasEdu) color = 'linear-gradient(to right,#60A5FA,#A78BFA)';
+                        else if (hasWork) color = '#A78BFA';
+                        else if (hasEdu) color = '#60A5FA';
+                        return { leftPct: ev.pct, widthPct: next.pct - ev.pct, color, isGap: !hasWork && !hasEdu };
+                      });
+                      return (
+                        <div className="border-t border-gray-100 px-5 pt-3 pb-3">
+                          <div className="relative" style={{ height: 56 }}>
+                            {/* Segments (colored + grey gaps) */}
+                            {segments.map((seg, i) => (
+                              <div key={i} className="absolute h-0.5" style={{ left: `${seg.leftPct}%`, width: `${seg.widthPct}%`, top: 22, background: seg.color }} />
+                            ))}
+                            {/* Gap labels */}
+                            {segments.filter(s => s.isGap).map((seg, i) => (
+                              <div key={i} className="absolute flex flex-col items-center" style={{ left: `${seg.leftPct + seg.widthPct / 2}%`, transform: 'translateX(-50%)', top: 15 }}>
+                                <span className="text-[8px] text-gray-400 bg-white px-1 rounded whitespace-nowrap border border-gray-200">gap</span>
+                              </div>
+                            ))}
+                            {/* Event markers with hover tooltips */}
+                            {evts.map((ev, i) => {
+                              const Icon = ev.type === 'edu' ? GraduationCap : Briefcase;
+                              const color = ev.type === 'edu' ? '#60A5FA' : '#A78BFA';
+                              return (
+                                <div key={i} className="absolute flex flex-col items-center group/tip cursor-default" style={{ left: `${ev.pct}%`, transform: 'translateX(-50%)', top: 0, width: 44 }}>
+                                  {/* Tooltip — appears above marker */}
+                                  <div className="absolute bottom-[calc(100%+4px)] left-1/2 -translate-x-1/2 hidden group-hover/tip:flex flex-col gap-0.5 bg-[#1C1C1C] text-white rounded-lg px-2.5 py-1.5 z-30 shadow-xl pointer-events-none min-w-max max-w-[220px]">
+                                    {ev.tooltips.map((t, ti) => (
+                                      <span key={ti} className="text-[10px] leading-snug">{t}</span>
+                                    ))}
+                                    <div className="absolute top-full left-1/2 -translate-x-1/2 border-4 border-transparent border-t-[#1C1C1C]" />
+                                  </div>
+                                  <Icon style={{ color, width: 13, height: 13, flexShrink: 0 }} />
+                                  <div className="w-2.5 h-2.5 bg-white border-2 rotate-45 mt-0.5 flex-shrink-0" style={{ borderColor: color }} />
+                                  <span className="text-[9px] text-[#8A8A8A] whitespace-nowrap mt-0.5 leading-tight text-center">{ev.label}</span>
+                                </div>
+                              );
+                            })}
+                          </div>
+                        </div>
+                      );
+                    })()}
+                  </div>
+                );
+              })}
+            </div>
+          )}
         </div>
-      )}
+      </div>
 
 
       <InterviewDetailsModal
