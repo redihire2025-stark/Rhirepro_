@@ -49,11 +49,15 @@ export default function InterviewDetailsModal({
     if (!open) {
       setMessage("");
       setMeetingUrl("");
-      setRound(initialRound || "L1");
+      if (initialRound) {
+        setRound(initialRound);
+      } else {
+        setRound("L1");
+      }
     } else if (initialRound) {
       setRound(initialRound);
     }
-  }, [open, initialRound]);
+  }, [open, initialRound, submitting]);
 
   const normalizedMeetingUrl = normalizeMeetingUrl(meetingUrl);
   const isMeetingUrlValid = Boolean(normalizedMeetingUrl);
