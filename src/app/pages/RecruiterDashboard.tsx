@@ -4221,15 +4221,11 @@ function ApplicantsPage() {
   const [resumePreview, setResumePreview] = useState<{ url: string; candidateName: string } | null>(null);
   const [selectedInterviewRoundApplicantId, setSelectedInterviewRoundApplicantId] = useState<string | null>(null);
 
-  const getEffectiveApplicationStatus = useCallback(
-    (applicant: AppWithProfile) => optimisticStatusByApplicant[applicant.id] ?? applicant.status,
-    [optimisticStatusByApplicant]
-  );
+  const getEffectiveApplicationStatus = (applicant: AppWithProfile) =>
+    optimisticStatusByApplicant[applicant.id] ?? applicant.status;
 
-  const getEffectiveApplicationStage = useCallback(
-    (applicant: AppWithProfile) => mapApplicationStatusToPipelineStage(getEffectiveApplicationStatus(applicant)),
-    [getEffectiveApplicationStatus]
-  );
+  const getEffectiveApplicationStage = (applicant: AppWithProfile) =>
+    mapApplicationStatusToPipelineStage(getEffectiveApplicationStatus(applicant));
 
   const fetchApplicants = useCallback(async () => {
     if (!recruiterProfile?.id) return;
