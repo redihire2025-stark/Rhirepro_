@@ -588,7 +588,7 @@ const STATUS_TRANSITIONS: Record<PipelineStage, PipelineStage[]> = {
   Shortlisted: ["Interview Scheduled"],
   "Interview Scheduled": ["Interview Completed"],
   "Interview Completed": ["Interview Selected", "Interview Rejected"],
-  "Interview Selected": ["Offered", "Interview Rejected"],
+  "Interview Selected": ["Offered"],
   "Interview Rejected": ["Under Review"],
   Offered: ["Joined", "Rejected"],
   Joined: [],
@@ -4209,6 +4209,7 @@ function ApplicantsPage() {
   const [skillDropdownOpen, setSkillDropdownOpen] = useState(false);
   const skillFilterRef = useRef<HTMLDivElement>(null);
   const [interviewModalApplicant, setInterviewModalApplicant] = useState<AppWithProfile | null>(null);
+  const [interviewModalInitialRound, setInterviewModalInitialRound] = useState<"L1" | "L2" | "L3" | "HR Round" | undefined>(undefined);
   const [feedbackModalApplicant, setFeedbackModalApplicant] = useState<AppWithProfile | null>(null);
   const [offerModalApplicant, setOfferModalApplicant] = useState<AppWithProfile | null>(null);
   const [isSendingInterviewDetails, setIsSendingInterviewDetails] = useState(false);
@@ -4218,6 +4219,7 @@ function ApplicantsPage() {
   const [statusUpdateInFlight, setStatusUpdateInFlight] = useState<Set<string>>(new Set());
   const [optimisticStatusByApplicant, setOptimisticStatusByApplicant] = useState<Record<string, Application["status"]>>({});
   const [resumePreview, setResumePreview] = useState<{ url: string; candidateName: string } | null>(null);
+  const [selectedInterviewRoundApplicantId, setSelectedInterviewRoundApplicantId] = useState<string | null>(null);
 
   const getEffectiveApplicationStatus = useCallback(
     (applicant: AppWithProfile) => optimisticStatusByApplicant[applicant.id] ?? applicant.status,
@@ -4234,7 +4236,7 @@ function ApplicantsPage() {
     setLoading(true);
     const { data } = await supabase
       .from("applications")
-      .select("*, profile:profiles(*, work_experience(*), education(*)), job:jobs(title,id)")
+      .select("*, profile:profiles(*, work_experience(*), education(*)), job:jobs(title,id), interview_details(*)")
       .eq("recruiter_id", recruiterProfile.id)
       .order("applied_at", { ascending: false });
     if (data) setApplicants(data as AppWithProfile[]);
@@ -4402,7 +4404,8 @@ function ApplicantsPage() {
     }
   };
 
-  const handleInterviewStatusRequest = (applicant: AppWithProfile) => {
+  const handleInterviewStatusRequest = (applicant: AppWithProfile, round?: "L1" | "L2" | "L3" | "HR Round") => {
+    setInterviewModalInitialRound(round);
     setInterviewModalApplicant(applicant);
   };
 
@@ -4470,20 +4473,49 @@ function ApplicantsPage() {
     }
   };
 
-  const handleStatusDropdownSelect = async (applicant: AppWithProfile, nextStage: PipelineStage) => {
+  const INTERVIEW_ROUND_OPTIONS = ["Interview L1", "Interview L2", "Interview L3", "Interview HR Round"] as const;
+  type InterviewRoundOption = typeof INTERVIEW_ROUND_OPTIONS[number];
+
+  const isInterviewRoundOption = (value: string): value is InterviewRoundOption =>
+    (INTERVIEW_ROUND_OPTIONS as readonly string[]).includes(value);
+
+  const roundFromDropdownValue = (value: InterviewRoundOption): "L1" | "L2" | "L3" | "HR Round" => {
+    if (value === "Interview L1") return "L1";
+    if (value === "Interview L2") return "L2";
+    if (value === "Interview L3") return "L3";
+    return "HR Round";
+  };
+
+  const handleStatusDropdownSelect = async (applicant: AppWithProfile, nextStage: string) => {
     const currentStage = getEffectiveApplicationStage(applicant);
     if (nextStage === currentStage) return;
-    if (!STATUS_TRANSITIONS[currentStage].includes(nextStage)) return;
 
-    if (nextStage === "Interview Scheduled") {
+    // Handle interview round sub-options
+    if (isInterviewRoundOption(nextStage)) {
+      handleInterviewStatusRequest(applicant, roundFromDropdownValue(nextStage));
+      return;
+    }
+
+    let targetStatus = nextStage as PipelineStage;
+    if (currentStage === "Interview Completed") {
+      if (nextStage === "Selected") targetStatus = "Interview Selected";
+      if (nextStage === "Rejected") targetStatus = "Interview Rejected";
+    }
+    if (nextStage === "Interview Complete") {
+      targetStatus = "Interview Completed";
+    }
+
+    if (!STATUS_TRANSITIONS[currentStage].includes(targetStatus)) return;
+
+    if (targetStatus === "Interview Scheduled") {
       handleInterviewStatusRequest(applicant);
       return;
     }
-    if (nextStage === "Offered") {
+    if (targetStatus === "Offered") {
       handleOfferStatusRequest(applicant);
       return;
     }
-    await quickUpdateStatus(applicant.id, nextStage);
+    await quickUpdateStatus(applicant.id, targetStatus);
   };
 
   const sendInterviewDetails = async (message: string, meetingUrl: string, round: "L1" | "L2" | "L3" | "HR Round") => {
@@ -4558,7 +4590,21 @@ function ApplicantsPage() {
       console.error("Failed to send interview details notification:", notificationError.message);
     }
 
-    setApplicants(prev => prev.map(a => a.id === targetApplicant.id ? { ...a, status: "Interview Scheduled" } : a));
+    setApplicants(prev => prev.map(a => a.id === targetApplicant.id ? {
+      ...a,
+      status: "Interview Scheduled",
+      interview_details: {
+        id: a.interview_details?.id || "",
+        application_id: targetApplicant.id,
+        recruiter_id: recruiterProfile.id,
+        candidate_id: targetApplicant.profile_id,
+        interview_message: formattedInterviewMessage,
+        meeting_url: normalizedMeetingUrl,
+        status: "Interview Scheduled",
+        created_at: a.interview_details?.created_at || nowIso,
+        updated_at: nowIso
+      }
+    } : a));
     setProfileModal(prev => prev && prev.id === targetApplicant.id ? { ...prev, status: "Interview Scheduled" } : prev);
     setInterviewModalApplicant(null);
   };
@@ -4683,75 +4729,90 @@ function ApplicantsPage() {
     setFeedbackModalApplicant(null);
   };
 
-  const moveToOptions = (currentStage: PipelineStage): PipelineStage[] => {
-    return [currentStage, ...STATUS_TRANSITIONS[currentStage]];
+  const getInterviewRound = (applicant: AppWithProfile): "L1" | "L2" | "L3" | "HR Round" | null => {
+    const msg = applicant.interview_details?.interview_message || "";
+    const match = msg.match(/^round:\s*(.+)$/im)?.[1]?.trim();
+    if (!match) return null;
+    const upper = match.toUpperCase();
+    if (upper === "L1") return "L1";
+    if (upper === "L2") return "L2";
+    if (upper === "L3") return "L3";
+    if (upper === "HR ROUND") return "HR Round";
+    return null;
+  };
+
+  const moveToOptionsForApplicant = (applicant: AppWithProfile): string[] => {
+    const stage = getEffectiveApplicationStage(applicant);
+    if (stage === "Shortlisted") {
+      return ["Interview"];
+    }
+    if (stage === "Interview Scheduled") {
+      const currentRound = getInterviewRound(applicant);
+      if (currentRound === "L1") {
+        return ["Interview L2", "Interview Complete"];
+      } else if (currentRound === "L2") {
+        return ["Interview L3", "Interview Complete"];
+      } else if (currentRound === "L3") {
+        return ["Interview HR Round", "Interview Complete"];
+      } else if (currentRound === "HR Round") {
+        return ["Interview Complete"];
+      } else {
+        return ["Interview L1", "Interview Complete"];
+      }
+    }
+    if (stage === "Interview Completed") {
+      return ["Selected", "Rejected"];
+    }
+    if (stage === "Interview Selected") {
+      return ["Offered"];
+    }
+    if (stage === "Interview Rejected") {
+      return ["Under Review"];
+    }
+    if (stage === "Offered") {
+      return ["Joined", "Rejected"];
+    }
+    if (stage === "Rejected" || stage === "On Hold") {
+      return ["Under Review"];
+    }
+    return STATUS_TRANSITIONS[stage] || [];
   };
 
   const renderStageActions = (applicant: AppWithProfile) => {
     const stage = getEffectiveApplicationStage(applicant);
-    const resumeUrl = getResumeUrl(applicant);
-    const candidateName = getCandidateDisplayName(applicant.profile);
     const isUpdating = statusUpdateInFlight.has(applicant.id);
     const isLockedAfterHire = stage === "Joined";
     const disableActions = isUpdating;
-    const isInterviewActive = stage === "Interview Scheduled";
-    const isInterviewCompleteActive = stage === "Interview Completed";
-    const isInterviewSelectActive = stage === "Interview Selected";
-    const isInterviewRejectActive = stage === "Interview Rejected";
-    const isShortlistActive = stage === "Shortlisted";
-    const isOfferActive = stage === "Offered";
     const isRejectActive = stage === "Rejected";
     const isHireActive = stage === "Joined";
     const isOnHoldActive = stage === "On Hold";
     const fadedAfterHire = isLockedAfterHire ? "opacity-40" : "";
     const disabledOpacityClass = "disabled:opacity-40";
-    const shortlistDisabledClass = isShortlistActive ? "disabled:opacity-100" : "disabled:opacity-40";
-    const interviewDisabledClass = isInterviewActive ? "disabled:opacity-100" : "disabled:opacity-40";
-    const interviewCompleteDisabledClass = isInterviewCompleteActive ? "disabled:opacity-100" : "disabled:opacity-40";
-    const interviewSelectDisabledClass = isInterviewSelectActive ? "disabled:opacity-100" : "disabled:opacity-40";
-    const interviewRejectDisabledClass = isInterviewRejectActive ? "disabled:opacity-100" : "disabled:opacity-40";
-    const offerDisabledClass = isOfferActive ? "disabled:opacity-100" : "disabled:opacity-40";
     const hireDisabledClass = isHireActive ? "disabled:opacity-100" : "disabled:opacity-40";
     const rejectDisabledClass = isRejectActive ? "disabled:opacity-100" : "disabled:opacity-40";
     const onHoldDisabledClass = isOnHoldActive ? "disabled:opacity-100" : "disabled:opacity-40";
     const openMail = () => { if (applicant.profile?.email) window.location.href = `mailto:${applicant.profile.email}`; };
-    const viewBtn = (
-      <Button size="sm" variant="outline" className="border-2 border-blue-500 bg-blue-50 text-blue-700 hover:bg-blue-100 rounded-full text-xs h-7" asChild>
-        <a href={`/recruiter/applicant/${applicant.id}/profile`} target="_blank" rel="noopener noreferrer">
-          <User className="h-3 w-3 mr-1" /> View Profile
-        </a>
-      </Button>
-    );
-    const messageBtn = (
-      <Button size="sm" variant="outline" className="border-2 border-gray-400 bg-gray-50 text-[#3A1F1F] hover:bg-gray-100 rounded-full text-xs h-7" onClick={openMail}>
-        <Mail className="h-3.5 w-3.5 mr-1" /> Message
-      </Button>
-    );
-    const canShortlist = stage === "Under Review" || stage === "Shortlisted";
-    const canInterview = stage === "Shortlisted" || stage === "Interview Scheduled";
-    const canInterviewComplete = stage === "Interview Scheduled" || stage === "Interview Completed";
-    const canInterviewSelect = stage === "Interview Completed" || stage === "Interview Selected";
-    const canInterviewReject = stage === "Interview Completed" || stage === "Interview Selected" || stage === "Interview Rejected";
-    const canOffer = stage === "Interview Selected" || stage === "Offered";
+
     const canHire = stage === "Offered" || stage === "Joined";
-    const canReject = stage === "Offered" || stage === "Interview Selected" || stage === "Rejected";
+    const canReject = stage !== "Joined" && stage !== "Rejected";
     const canOnHold = stage !== "Joined" && stage !== "Rejected" && stage !== "On Hold";
+    const showFeedback = stage === "Interview Scheduled" || stage === "Interview Completed";
 
     return (
       <div className="flex flex-wrap gap-2 justify-end">
-        {viewBtn}
-        {messageBtn}
-        <Button size="sm" variant="outline" disabled={disableActions || !canShortlist} className={`${isShortlistActive ? "border-2 border-pink-600 bg-pink-50 text-pink-700" : "border-pink-500 text-pink-600 hover:bg-pink-50 opacity-40"} rounded-full text-xs h-7 ${shortlistDisabledClass} ${fadedAfterHire}`} onClick={() => void quickUpdateStatus(applicant.id, "Shortlisted")}><ThumbsUp className="h-3.5 w-3.5 mr-1" /> Shortlist</Button>
-        <Button size="sm" variant="outline" disabled={disableActions || !canInterview} className={`${isInterviewActive ? "border-2 border-purple-600 bg-purple-50 text-purple-700" : "border-purple-400 text-purple-600 hover:bg-purple-50 opacity-40"} rounded-full text-xs h-7 ${interviewDisabledClass} ${fadedAfterHire}`} onClick={() => handleInterviewStatusRequest(applicant)}><Video className="h-3.5 w-3.5 mr-1" /> {stage === "Interview Scheduled" ? "Schedule Next Round" : "Interview"}</Button>
-        {(stage === "Interview Scheduled" || stage === "Interview Completed") && (
+        <Button size="sm" variant="outline" className="border-2 border-blue-500 bg-blue-50 text-blue-700 hover:bg-blue-100 rounded-full text-xs h-7" asChild>
+          <a href={`/recruiter/applicant/${applicant.id}/profile`} target="_blank" rel="noopener noreferrer">
+            <User className="h-3 w-3 mr-1" /> View Profile
+          </a>
+        </Button>
+        <Button size="sm" variant="outline" className="border-2 border-gray-400 bg-gray-50 text-[#3A1F1F] hover:bg-gray-100 rounded-full text-xs h-7" onClick={openMail}>
+          <Mail className="h-3.5 w-3.5 mr-1" /> Message
+        </Button>
+        {(stage === "Interview Scheduled" || stage === "Interview Completed" || stage === "Interview Selected" || stage === "Interview Rejected") && (
           <Button size="sm" variant="outline" disabled={disableActions} className={`border-purple-300 text-purple-700 hover:bg-purple-50 rounded-full text-xs h-7 ${disabledOpacityClass} ${fadedAfterHire}`} onClick={() => void handleInterviewFeedbackRequest(applicant)}>
-            Add Feedback
+            <MessageSquare className="h-3.5 w-3.5 mr-1" /> Feedback
           </Button>
         )}
-        <Button size="sm" variant="outline" disabled={disableActions || !canInterviewComplete} className={`${isInterviewCompleteActive ? "border-2 border-indigo-600 bg-indigo-50 text-indigo-700" : "border-indigo-400 text-indigo-600 hover:bg-indigo-50 opacity-40"} rounded-full text-xs h-7 ${interviewCompleteDisabledClass} ${fadedAfterHire}`} onClick={() => void quickUpdateStatus(applicant.id, "Interview Completed")}>Interview Complete</Button>
-        <Button size="sm" variant="outline" disabled={disableActions || !canInterviewSelect} className={`${isInterviewSelectActive ? "border-2 border-teal-600 bg-teal-50 text-teal-700" : "border-teal-400 text-teal-600 hover:bg-teal-50 opacity-40"} rounded-full text-xs h-7 ${interviewSelectDisabledClass} ${fadedAfterHire}`} onClick={() => void quickUpdateStatus(applicant.id, "Interview Selected")}>Interview Select</Button>
-        <Button size="sm" variant="outline" disabled={disableActions || !canInterviewReject} className={`${isInterviewRejectActive ? "border-2 border-red-600 bg-red-50 text-red-700" : "border-red-400 text-red-600 hover:bg-red-50 opacity-40"} rounded-full text-xs h-7 ${interviewRejectDisabledClass} ${fadedAfterHire}`} onClick={() => void quickUpdateStatus(applicant.id, "Interview Rejected")}>Interview Reject</Button>
-        <Button size="sm" variant="outline" disabled={disableActions || !canOffer} className={`${isOfferActive ? "border-2 border-orange-600 bg-orange-50 text-orange-700" : "border-orange-400 text-orange-700 hover:bg-orange-50 opacity-40"} rounded-full text-xs h-7 ${offerDisabledClass} ${fadedAfterHire}`} onClick={() => handleOfferStatusRequest(applicant)}><Award className="h-3.5 w-3.5 mr-1" /> Offer</Button>
         {isHireActive ? (
           <Button size="sm" variant="outline" disabled className="border-emerald-500 text-emerald-700 bg-emerald-100 ring-1 ring-emerald-300 rounded-full text-xs h-7 disabled:opacity-100"><Check className="h-3.5 w-3.5 mr-1" /> Joined</Button>
         ) : (
@@ -4759,7 +4820,6 @@ function ApplicantsPage() {
         )}
         <Button size="sm" variant="outline" disabled={disableActions || !canReject} className={`${isRejectActive ? "border-2 border-red-600 bg-red-50 text-red-700" : "border-red-400 text-red-500 hover:bg-red-50 opacity-40"} rounded-full text-xs h-7 ${rejectDisabledClass} ${fadedAfterHire}`} onClick={() => void quickUpdateStatus(applicant.id, "Rejected")}><ThumbsDown className="h-3.5 w-3.5 mr-1" /> Reject</Button>
         <Button size="sm" variant="outline" disabled={disableActions || !canOnHold} className={`${isOnHoldActive ? "border-2 border-amber-600 bg-amber-50 text-amber-700" : "border-amber-400 text-amber-600 hover:bg-amber-50 opacity-40"} rounded-full text-xs h-7 ${onHoldDisabledClass} ${fadedAfterHire}`} onClick={() => void quickUpdateStatus(applicant.id, "On Hold")}>On Hold</Button>
-        {(stage === "Rejected" || stage === "On Hold" || stage === "Interview Rejected") && <Button size="sm" variant="outline" disabled={disableActions} className={`border-[#8B5E3C] text-[#8B5E3C] hover:bg-[#F5EEE8] rounded-full text-xs h-7 ${disabledOpacityClass} ${fadedAfterHire}`} onClick={() => void quickUpdateStatus(applicant.id, "Under Review")}><RefreshCw className="h-3.5 w-3.5 mr-1" /> Restore Candidate</Button>}
       </div>
     );
   };
@@ -5034,23 +5094,56 @@ function ApplicantsPage() {
                   <div className="flex items-center justify-between mt-4 pt-3 border-t border-gray-100 flex-wrap gap-2.5">
                     <div className="flex items-center gap-2 flex-shrink-0">
                       <Badge className={`text-xs ${statusColor(getEffectiveApplicationStatus(applicant))}`}>{getEffectiveApplicationStage(applicant)}</Badge>
-                      <Select
-                        value={getEffectiveApplicationStage(applicant)}
-                        onValueChange={(value) => {
-                          void handleStatusDropdownSelect(applicant, value as PipelineStage);
-                        }}
-                      >
-                        <SelectTrigger className="h-7 min-w-[140px] rounded-full border-gray-200 text-xs">
-                          <span>Move to</span>
-                        </SelectTrigger>
-                        <SelectContent className="max-h-64">
-                          {moveToOptions(getEffectiveApplicationStage(applicant)).map((stage) => (
-                            <SelectItem key={stage} value={stage} className="text-xs">
-                              {stage}
-                            </SelectItem>
-                          ))}
-                        </SelectContent>
-                      </Select>
+                      {getEffectiveApplicationStage(applicant) !== "Joined" && (
+                        selectedInterviewRoundApplicantId === applicant.id ? (
+                          <Select
+                            value="__round_placeholder__"
+                            onValueChange={(round) => {
+                              if (round === "__round_placeholder__") return;
+                              if (round === "cancel") {
+                                setSelectedInterviewRoundApplicantId(null);
+                                return;
+                              }
+                              setSelectedInterviewRoundApplicantId(null);
+                              handleInterviewStatusRequest(applicant, round as "L1" | "L2" | "L3" | "HR Round");
+                            }}
+                          >
+                            <SelectTrigger className="h-7 min-w-[140px] rounded-full border-purple-300 text-xs text-purple-700 bg-purple-50">
+                              <span>Select Round</span>
+                            </SelectTrigger>
+                            <SelectContent>
+                              <SelectItem value="L1" className="text-xs text-purple-700 font-medium">L1 Round</SelectItem>
+                              <SelectItem value="L2" className="text-xs text-purple-700 font-medium">L2 Round</SelectItem>
+                              <SelectItem value="L3" className="text-xs text-purple-700 font-medium">L3 Round</SelectItem>
+                              <SelectItem value="HR Round" className="text-xs text-purple-700 font-medium">HR Round</SelectItem>
+                              <SelectItem value="cancel" className="text-xs text-gray-500">Cancel</SelectItem>
+                            </SelectContent>
+                          </Select>
+                        ) : (
+                          <Select
+                            value="__move_to_placeholder__"
+                            onValueChange={(value) => {
+                              if (value === "__move_to_placeholder__") return;
+                              if (value === "Interview") {
+                                setSelectedInterviewRoundApplicantId(applicant.id);
+                                return;
+                              }
+                              void handleStatusDropdownSelect(applicant, value);
+                            }}
+                          >
+                            <SelectTrigger className="h-7 min-w-[140px] rounded-full border-gray-200 text-xs">
+                              <span>Move to</span>
+                            </SelectTrigger>
+                            <SelectContent className="max-h-64">
+                              {moveToOptionsForApplicant(applicant).map((stage) => (
+                                <SelectItem key={stage} value={stage} className="text-xs">
+                                  {stage}
+                                </SelectItem>
+                              ))}
+                            </SelectContent>
+                          </Select>
+                        )
+                      )}
                     </div>
                     <div className="ml-auto">
                       {renderStageActions(applicant)}
@@ -5176,10 +5269,12 @@ function ApplicantsPage() {
         onOpenChange={(open) => {
           if (!open && !isSendingInterviewDetails) {
             setInterviewModalApplicant(null);
+            setInterviewModalInitialRound(undefined);
           }
         }}
         onSubmit={sendInterviewDetails}
         submitting={isSendingInterviewDetails}
+        initialRound={interviewModalInitialRound}
       />
       <OfferDetailsModal
         open={Boolean(offerModalApplicant)}
