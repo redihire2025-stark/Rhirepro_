@@ -4213,8 +4213,7 @@ function ApplicantsPage() {
     }
     setSkillInput("");
   };
-  const [interviewModalApplicant, setInterviewModalApplicant] = useState<AppWithProfile | null>(null);
-  const [interviewModalInitialRound, setInterviewModalInitialRound] = useState<"L1" | "L2" | "L3" | "HR Round" | undefined>(undefined);
+  const [interviewModalData, setInterviewModalData] = useState<{ applicant: AppWithProfile; initialRound?: "L1" | "L2" | "L3" | "HR Round" } | null>(null);
   const [feedbackModalApplicant, setFeedbackModalApplicant] = useState<AppWithProfile | null>(null);
   const [offerModalApplicant, setOfferModalApplicant] = useState<AppWithProfile | null>(null);
   const [isSendingInterviewDetails, setIsSendingInterviewDetails] = useState(false);
@@ -4425,8 +4424,7 @@ function ApplicantsPage() {
   };
 
   const handleInterviewStatusRequest = (applicant: AppWithProfile, round?: "L1" | "L2" | "L3" | "HR Round") => {
-    setInterviewModalInitialRound(round);
-    setInterviewModalApplicant(applicant);
+    setInterviewModalData({ applicant, initialRound: round });
   };
 
   const handleOfferStatusRequest = (applicant: AppWithProfile) => {
@@ -4506,6 +4504,21 @@ function ApplicantsPage() {
     return "HR Round";
   };
 
+  const isPipelineStage = (value: string): value is PipelineStage =>
+    (PIPELINE_STAGES as readonly string[]).includes(value);
+
+  const getNextStatus = (nextStage: string, currentStage: PipelineStage): PipelineStage | null => {
+    if (nextStage === "Interview Complete") return "Interview Completed";
+    if (currentStage === "Interview Completed") {
+      if (nextStage === "Selected") return "Interview Selected";
+      if (nextStage === "Rejected") return "Interview Rejected";
+    }
+    if (isPipelineStage(nextStage)) {
+      return nextStage;
+    }
+    return null;
+  };
+
   const handleStatusDropdownSelect = async (applicant: AppWithProfile, nextStage: string) => {
     const currentStage = getEffectiveApplicationStage(applicant);
     if (nextStage === currentStage) return;
@@ -4516,14 +4529,8 @@ function ApplicantsPage() {
       return;
     }
 
-    let targetStatus = nextStage as PipelineStage;
-    if (currentStage === "Interview Completed") {
-      if (nextStage === "Selected") targetStatus = "Interview Selected";
-      if (nextStage === "Rejected") targetStatus = "Interview Rejected";
-    }
-    if (nextStage === "Interview Complete") {
-      targetStatus = "Interview Completed";
-    }
+    const targetStatus = getNextStatus(nextStage, currentStage);
+    if (!targetStatus) return;
 
     if (!STATUS_TRANSITIONS[currentStage].includes(targetStatus)) return;
 
@@ -4539,11 +4546,11 @@ function ApplicantsPage() {
   };
 
   const sendInterviewDetails = async (message: string, meetingUrl: string, round: "L1" | "L2" | "L3" | "HR Round") => {
-    if (!interviewModalApplicant) return;
+    if (!interviewModalData) return;
     if (!recruiterProfile?.id) return;
     setIsSendingInterviewDetails(true);
 
-    const targetApplicant = interviewModalApplicant;
+    const targetApplicant = interviewModalData.applicant;
     const companyName = recruiterProfile?.company_name || "Recruiter Team";
     const nowIso = new Date().toISOString();
     const normalizedMeetingUrl = meetingUrl.trim();
@@ -4626,7 +4633,7 @@ function ApplicantsPage() {
       }
     } : a));
     setProfileModal(prev => prev && prev.id === targetApplicant.id ? { ...prev, status: "Interview Scheduled" } : prev);
-    setInterviewModalApplicant(null);
+    setInterviewModalData(null);
   };
 
   const sendOfferDetails = async (message: string, offerLetterFile: File) => {
@@ -5352,16 +5359,15 @@ function ApplicantsPage() {
 
 
       <InterviewDetailsModal
-        open={Boolean(interviewModalApplicant)}
+        open={Boolean(interviewModalData)}
         onOpenChange={(open) => {
           if (!open && !isSendingInterviewDetails) {
-            setInterviewModalApplicant(null);
-            setInterviewModalInitialRound(undefined);
+            setInterviewModalData(null);
           }
         }}
         onSubmit={sendInterviewDetails}
         submitting={isSendingInterviewDetails}
-        initialRound={interviewModalInitialRound}
+        initialRound={interviewModalData?.initialRound}
       />
       <OfferDetailsModal
         open={Boolean(offerModalApplicant)}
