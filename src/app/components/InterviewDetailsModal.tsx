@@ -46,18 +46,17 @@ export default function InterviewDetailsModal({
   };
 
   useEffect(() => {
+    if (initialRound) {
+      setRound(initialRound);
+    }
     if (!open) {
       setMessage("");
       setMeetingUrl("");
-      if (initialRound) {
-        setRound(initialRound);
-      } else {
+      if (!initialRound) {
         setRound("L1");
       }
-    } else if (initialRound) {
-      setRound(initialRound);
     }
-  }, [open, initialRound, submitting]);
+  }, [open, initialRound, setMessage, setMeetingUrl, setRound]);
 
   const normalizedMeetingUrl = normalizeMeetingUrl(meetingUrl);
   const isMeetingUrlValid = Boolean(normalizedMeetingUrl);
