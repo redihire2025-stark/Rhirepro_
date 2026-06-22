@@ -349,7 +349,7 @@ export default function JobDetailPage() {
               <div className="bg-white rounded-2xl p-8 shadow-md">
                 <div className="flex items-center gap-4 mb-6">
                   {job.recruiter?.logo_url ? (
-                    <img src={job.recruiter.logo_url} alt="" className="w-16 h-16 rounded-2xl object-cover border border-gray-200" />
+                    <img src={job.recruiter?.logo_url} alt="" className="w-16 h-16 rounded-2xl object-cover border border-gray-200" />
                   ) : (
                     <div className="w-16 h-16 rounded-2xl bg-red-50 flex items-center justify-center text-[#FF2B2B] font-bold text-2xl border border-gray-200">
                       {currentJob.company[0]?.toUpperCase() || "C"}

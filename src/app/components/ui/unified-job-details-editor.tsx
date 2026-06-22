@@ -99,7 +99,7 @@ const isAtEndOfNode = (range: Range, node: Node): boolean => {
   }
   while (curr && curr !== node) {
     if (curr.nextSibling) {
-      let sib: ChildNode | null = curr.nextSibling;
+      let sib = curr.nextSibling;
       while (sib) {
         if (sib.nodeType === Node.ELEMENT_NODE || (sib.nodeType === Node.TEXT_NODE && sib.textContent !== "")) {
           return false;
