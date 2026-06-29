@@ -116,14 +116,9 @@ export default function RecruiterSignIn() {
         throw new Error("This account has been disabled. Please contact your organization admin.");
       }
 
-      // 4. Skip OTP for internal test accounts
-      if (email.endsWith("@redhire.dev")) {
-        navigate("/recruiter/dashboard");
-        return;
-      }
-
-      // 5. Generate & store OTP
-      const generatedOTP = generateOTP();
+      // 4. Fixed OTP for internal test accounts — no email sent
+      const isTestAccount = email.trim().toLowerCase().endsWith("@redhire.dev");
+      const generatedOTP = isTestAccount ? "000000" : generateOTP();
       await storeOTP(data.user.id, generatedOTP);
       setUserId(data.user.id);
       setDisplayName(rp.recruiter_name || "");
@@ -133,7 +128,9 @@ export default function RecruiterSignIn() {
       const isOrgAdminEmail = /^admin_org\d+@redhire\.dev$/i.test(email.trim());
       setIsOrgAdmin(!!rp.is_org_admin || isOrgAdminEmail);
 
-      await sendOTPEmail(email, generatedOTP, rp.recruiter_name || "");
+      if (!isTestAccount) {
+        await sendOTPEmail(email, generatedOTP, rp.recruiter_name || "");
+      }
 
       setStep("otp");
     } catch (err: unknown) {
@@ -148,9 +145,15 @@ export default function RecruiterSignIn() {
     setError("");
     setLoading(true);
     try {
-      const valid = await verifyOTPFromDB(userId, otp.trim());
-      if (!valid) throw new Error("Invalid or expired OTP. Please try again.");
-      await supabase.from("recruiter_profiles").update({ otp_code: null, otp_expires_at: null, last_login_at: new Date().toISOString() }).eq("id", userId);
+      const isTestAccount = email.trim().toLowerCase().endsWith("@redhire.dev");
+      if (isTestAccount) {
+        if (otp.trim() !== "000000") throw new Error("Invalid OTP. Test accounts use 000000.");
+        await supabase.from("recruiter_profiles").update({ last_login_at: new Date().toISOString() }).eq("id", userId);
+      } else {
+        const valid = await verifyOTPFromDB(userId, otp.trim());
+        if (!valid) throw new Error("Invalid or expired OTP. Please try again.");
+        await supabase.from("recruiter_profiles").update({ otp_code: null, otp_expires_at: null, last_login_at: new Date().toISOString() }).eq("id", userId);
+      }
       // Dashboard checks profile completion on load and redirects to company-profile if needed
       navigate(isOrgAdmin ? "/recruiter/org-admin" : "/recruiter/dashboard");
     } catch (err: unknown) {
@@ -366,10 +369,17 @@ export default function RecruiterSignIn() {
                 </p>
               </div>
 
-              <div className="bg-blue-50 border border-blue-200 rounded-xl p-3 mb-4 flex items-center gap-2">
-                <Mail className="h-4 w-4 text-blue-500 shrink-0" />
-                <p className="text-xs text-blue-700">Check your inbox — OTP sent to <strong>{email}</strong>. Valid for 10 minutes.</p>
-              </div>
+              {email.trim().toLowerCase().endsWith("@redhire.dev") ? (
+                <div className="bg-amber-50 border border-amber-200 rounded-xl p-3 mb-4 flex items-center gap-2">
+                  <ShieldCheck className="h-4 w-4 text-amber-500 shrink-0" />
+                  <p className="text-xs text-amber-700">Test account — use default OTP: <strong className="text-amber-900 tracking-widest">000000</strong></p>
+                </div>
+              ) : (
+                <div className="bg-blue-50 border border-blue-200 rounded-xl p-3 mb-4 flex items-center gap-2">
+                  <Mail className="h-4 w-4 text-blue-500 shrink-0" />
+                  <p className="text-xs text-blue-700">Check your inbox — OTP sent to <strong>{email}</strong>. Valid for 10 minutes.</p>
+                </div>
+              )}
 
               {error && (
                 <div className="bg-red-50 border border-red-200 text-red-700 rounded-xl p-3 mb-4 text-sm">{error}</div>
