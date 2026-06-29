@@ -135,10 +135,24 @@ export default function JobListingsPage() {
 
       const appliedJobIds = (applicationsRes.data || []).map((item) => item.job_id);
       const savedJobIds = (savedRes.data || []).map((item) => item.job_id);
-      const preferredInterviewModes = role === "jobseeker" && Array.isArray(profile?.preferred_interview_mode)
-        ? profile.preferred_interview_mode
-            .map((value) => normalizeInterviewMode(value))
-            .filter((value): value is string => Boolean(value))
+      let rawModes: string[] = [];
+      if (role === "jobseeker" && profile?.preferred_interview_mode) {
+        const modeData = profile.preferred_interview_mode as unknown;
+        if (Array.isArray(modeData)) {
+          rawModes = modeData as string[];
+        } else if (typeof modeData === "string") {
+          try {
+            const parsed = JSON.parse(modeData);
+            if (Array.isArray(parsed)) rawModes = parsed as string[];
+          } catch (e) {
+            rawModes = modeData.split(",").map((s: string) => s.trim()).filter(Boolean);
+          }
+        }
+      }
+      const preferredInterviewModes = Array.isArray(rawModes)
+        ? rawModes
+            .map((value: string) => normalizeInterviewMode(value))
+            .filter((value: string | null): value is string => Boolean(value))
         : [];
 
       const visibleIndianJobs = assignBalancedCategories((data || [])

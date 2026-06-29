@@ -77,6 +77,7 @@ create table if not exists recruiter_profiles (
   tagline             text,
   linkedin_url        text,
   cin                 text,
+  founded             text,
   otp_code            text,
   otp_expires_at      timestamptz,
   created_at          timestamptz default now()

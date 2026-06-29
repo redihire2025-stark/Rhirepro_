@@ -462,7 +462,52 @@ function withTimeout<T>(promise: PromiseLike<T>, timeoutMs: number, message: str
   return Promise.race([Promise.resolve(promise), timeoutPromise]).finally(() => clearTimeout(timeoutId));
 }
 
+function parseCompanyDescription(text: string | null | undefined): { aboutCompany: string; companyInfo: string } {
+  const val = (text || "").trim();
+  if (!val) {
+    return { aboutCompany: "", companyInfo: "" };
+  }
+
+  const splitRegex = /(?:<h\d[^>]*>\s*Company\s+Information\s*<\/h\d>|<p[^>]*>\s*<strong>\s*Company\s+Information\s*<\/strong>\s*<\/p>|<strong[^>]*>\s*Company\s+Information\s*<\/strong>|Company\s+Information)/i;
+  const match = val.match(splitRegex);
+  
+  const cleanEmptyTags = (html: string) => {
+    let cleaned = html.trim();
+    while (cleaned.startsWith("<p>&nbsp;</p>") || cleaned.startsWith("<p><br></p>") || cleaned.startsWith("<p></p>")) {
+      if (cleaned.startsWith("<p>&nbsp;</p>")) cleaned = cleaned.substring(13).trim();
+      else if (cleaned.startsWith("<p><br></p>")) cleaned = cleaned.substring(11).trim();
+      else if (cleaned.startsWith("<p></p>")) cleaned = cleaned.substring(7).trim();
+    }
+    while (cleaned.endsWith("<p>&nbsp;</p>") || cleaned.endsWith("<p><br></p>") || cleaned.endsWith("<p></p>")) {
+      if (cleaned.endsWith("<p>&nbsp;</p>")) cleaned = cleaned.substring(0, cleaned.length - 13).trim();
+      else if (cleaned.endsWith("<p><br></p>")) cleaned = cleaned.substring(0, cleaned.length - 11).trim();
+      else if (cleaned.endsWith("<p></p>")) cleaned = cleaned.substring(0, cleaned.length - 7).trim();
+    }
+    return cleaned;
+  };
+
+  if (match && match.index !== undefined) {
+    let aboutPart = val.substring(0, match.index).trim();
+    let infoPart = val.substring(match.index + match[0].length).trim();
+    
+    const aboutHeaderRegex = /^<h\d[^>]*>\s*About\s+Company\s*<\/h\d>/i;
+    aboutPart = aboutPart.replace(aboutHeaderRegex, "").trim();
+    
+    aboutPart = cleanEmptyTags(aboutPart);
+    infoPart = cleanEmptyTags(infoPart);
+    
+    return { aboutCompany: aboutPart, companyInfo: infoPart };
+  } else {
+    let aboutPart = val;
+    const aboutHeaderRegex = /^<h\d[^>]*>\s*About\s+Company\s*<\/h\d>/i;
+    aboutPart = aboutPart.replace(aboutHeaderRegex, "").trim();
+    aboutPart = cleanEmptyTags(aboutPart);
+    return { aboutCompany: aboutPart, companyInfo: "" };
+  }
+}
+
 function escapeLikeValue(value: string): string {
+
   return value.replace(/[%_,]/g, (match) => `\\${match}`);
 }
 
@@ -470,14 +515,14 @@ function buildDashboardJob(job: DBJob): DashboardDisplayJob {
   return {
     id: job.id,
     title: job.title,
-    company: job.company_name,
+    company: job.recruiter?.company_name || job.company_name,
     location: formatDashboardLocation(job),
     salary: formatJobSalary(job),
     salaryMin: job.salary_min || 0,
     type: formatDashboardType(job) as "Full-time" | "Part-time" | "Contract",
     interviewMode: job.interview_mode || undefined,
     description: formatDashboardDescription(job),
-    industry: job.industry || "",
+    industry: job.recruiter?.industry || job.industry || "",
     experience: "",
     isRemote: job.work_mode === "Work from Home",
     isDB: true,
@@ -884,7 +929,7 @@ function FindJobPage() {
 
       let query = supabase
         .from("jobs")
-        .select("*", { count: "exact" })
+        .select("*, recruiter:recruiter_profiles(*)", { count: "exact" })
         .eq("status", "Active");
 
       const trimmedSearch = searchQuery.trim();
@@ -936,9 +981,15 @@ function FindJobPage() {
       if (experienceFilter === "mid") query = query.gte("experience_min", 2).lte("experience_min", 5);
       if (experienceFilter === "senior") query = query.gte("experience_min", 5);
 
-      if (salaryFilter === "0-10") query = query.lt("salary_min", 10);
-      if (salaryFilter === "10-25") query = query.gte("salary_min", 10).lt("salary_min", 25);
-      if (salaryFilter === "25+") query = query.gte("salary_min", 25);
+      if (salaryFilter === "0-10") {
+        query = query.or("salary_min.lt.10,and(salary_min.gte.1000,salary_min.lt.1000000)");
+      }
+      if (salaryFilter === "10-25") {
+        query = query.or("and(salary_min.gte.10,salary_min.lt.25),and(salary_min.gte.1000000,salary_min.lt.2500000)");
+      }
+      if (salaryFilter === "25+") {
+        query = query.or("and(salary_min.gte.25,salary_min.lt.1000),salary_min.gte.2500000");
+      }
 
       if (industryFilter === "healthcare") query = query.ilike("industry", "%Healthcare%");
       if (industryFilter === "finance") query = query.ilike("industry", "%BFSI%");
@@ -1319,18 +1370,34 @@ function FindJobPage() {
           {selectedJob && (
             <div className="bg-white rounded-2xl shadow-sm overflow-hidden sticky top-24 max-h-[calc(100vh-140px)] flex flex-col">
               <div className="p-6 overflow-y-auto flex-1">
-                <div className="flex items-start justify-between mb-1">
-                  <div>
-                    {selectedJob.isDB && (
-                      <span className="text-xs font-medium text-green-700 bg-green-100 px-2 py-0.5 rounded-full mb-2 inline-block">Verified Company</span>
+                <div className="flex items-start justify-between mb-4">
+                  <div className="flex items-center gap-3">
+                    {selectedJob.dbJob?.recruiter?.logo_url ? (
+                      <img src={selectedJob.dbJob.recruiter.logo_url} alt="" className="w-12 h-12 rounded-xl object-cover border border-gray-200" />
+                    ) : (
+                      <div className="w-12 h-12 rounded-xl bg-red-50 flex items-center justify-center text-[#FF2B2B] font-bold text-lg border border-gray-200">
+                        {(selectedJob.company || "C")[0].toUpperCase()}
+                      </div>
                     )}
-                    <p className="text-sm text-[#8A8A8A]">{selectedJob.company}</p>
+                    <div>
+                      {selectedJob.isDB && (
+                        <span className="text-[10px] font-semibold text-green-700 bg-green-50 border border-green-100 px-2 py-0.5 rounded-full mb-1 inline-block">Verified Company</span>
+                      )}
+                      <p className="text-sm font-semibold text-[#3A1F1F]">{selectedJob.company}</p>
+                    </div>
                   </div>
                   <button onClick={() => setSelectedJob(null)} className="text-[#8A8A8A] hover:text-[#3A1F1F] p-1">
                     <X className="h-5 w-5" />
                   </button>
                 </div>
-                <h2 className="text-2xl font-bold text-[#3A1F1F] mb-4">{selectedJob.title}</h2>
+                <div className="flex items-center justify-between gap-4 flex-wrap mb-4">
+                  <h2 className="text-2xl font-bold text-[#3A1F1F]">{selectedJob.title}</h2>
+                  {selectedJob.dbJob?.created_at && (
+                    <span className="text-sm text-[#8A8A8A] font-medium bg-[#ECECF4] px-3 py-1.5 rounded-full shrink-0">
+                      Posted {new Date(selectedJob.dbJob.created_at).toLocaleDateString('en-US', { day: 'numeric', month: 'short', year: 'numeric' })}
+                    </span>
+                  )}
+                </div>
 
                 <div className="flex flex-wrap gap-4 mb-5 pb-5 border-b border-gray-100">
                   <div>
@@ -1377,11 +1444,39 @@ function FindJobPage() {
                   )}
                 </div>
 
-                <h3 className="text-base font-bold text-[#3A1F1F] mb-2">Job Description :</h3>
-                <SafeHtml
-                  content={selectedJob.description}
-                  className="text-[#8A8A8A] text-sm leading-relaxed mb-5 [&_ul]:list-disc [&_ul]:pl-5 [&_ol]:list-decimal [&_ol]:pl-5 [&_h2]:text-base [&_h2]:font-bold [&_h2]:mt-2 [&_h2]:mb-1 [&_h3]:text-sm [&_h3]:font-bold [&_h3]:mt-1.5 [&_h3]:mb-1 [&_a]:text-[#FF2B2B] [&_a]:underline"
-                />
+
+                {/* About the Role */}
+                {selectedJob.description && (
+                  <div className="mb-5">
+                    <h3 className="text-base font-bold text-[#3A1F1F] mb-2">About the Role :</h3>
+                    <SafeHtml
+                      content={selectedJob.description}
+                      className="rich-text-content text-[#8A8A8A] text-sm leading-relaxed [&_ul]:list-disc [&_ul]:pl-5 [&_ol]:list-decimal [&_ol]:pl-5 [&_h2]:text-base [&_h2]:font-bold [&_h2]:mt-2 [&_h2]:mb-1 [&_h3]:text-sm [&_h3]:font-bold [&_h3]:mt-1.5 [&_h3]:mb-1 [&_a]:text-[#FF2B2B] [&_a]:underline"
+                    />
+                  </div>
+                )}
+
+                {/* Roles & Responsibilities */}
+                {selectedJob.dbJob?.roles_responsibilities && selectedJob.dbJob.roles_responsibilities.trim() && (
+                  <div className="mb-5">
+                    <h3 className="text-base font-bold text-[#3A1F1F] mb-2">Roles & Responsibilities :</h3>
+                    <SafeHtml
+                      content={selectedJob.dbJob.roles_responsibilities}
+                      className="rich-text-content text-[#8A8A8A] text-sm leading-relaxed [&_ul]:list-disc [&_ul]:pl-5 [&_ol]:list-decimal [&_ol]:pl-5 [&_h2]:text-base [&_h2]:font-bold [&_h2]:mt-2 [&_h2]:mb-1 [&_h3]:text-sm [&_h3]:font-bold [&_h3]:mt-1.5 [&_h3]:mb-1 [&_a]:text-[#FF2B2B] [&_a]:underline"
+                    />
+                  </div>
+                )}
+
+                {/* Requirements / Qualifications */}
+                {selectedJob.dbJob?.requirements && selectedJob.dbJob.requirements.trim() && (
+                  <div className="mb-5">
+                    <h3 className="text-base font-bold text-[#3A1F1F] mb-2">Requirements / Qualifications :</h3>
+                    <SafeHtml
+                      content={selectedJob.dbJob.requirements}
+                      className="rich-text-content text-[#8A8A8A] text-sm leading-relaxed [&_ul]:list-disc [&_ul]:pl-5 [&_ol]:list-decimal [&_ol]:pl-5 [&_h2]:text-base [&_h2]:font-bold [&_h2]:mt-2 [&_h2]:mb-1 [&_h3]:text-sm [&_h3]:font-bold [&_h3]:mt-1.5 [&_h3]:mb-1 [&_a]:text-[#FF2B2B] [&_a]:underline"
+                    />
+                  </div>
+                )}
 
                 {selectedJob.dbJob?.skills && selectedJob.dbJob.skills.length > 0 && (
                   <>
@@ -1403,6 +1498,126 @@ function FindJobPage() {
                       ))}
                     </div>
                   </>
+                )}
+
+                {selectedJob.dbJob?.recruiter && (
+                  <div className="mt-8 pt-6 border-t border-gray-200/60 space-y-4">
+                    <div className="flex items-center justify-between border-b border-gray-200/60 pb-3">
+                      <h4 className="text-lg font-bold text-[#3A1F1F]">Company Profile</h4>
+                      {selectedJob.dbJob.recruiter.website && (
+                        <a href={selectedJob.dbJob.recruiter.website} target="_blank" rel="noreferrer" className="text-sm text-[#FF2B2B] hover:underline flex items-center gap-1 font-medium">
+                          <Globe className="h-4 w-4" /> Website
+                        </a>
+                      )}
+                    </div>
+
+                    {selectedJob.dbJob.recruiter.tagline && (
+                      <p className="text-sm italic text-[#5A5A5A] border-l-2 border-[#FF2B2B] pl-2">
+                        "{selectedJob.dbJob.recruiter.tagline}"
+                      </p>
+                    )}
+
+                    {(() => {
+                      const { aboutCompany, companyInfo } = parseCompanyDescription(selectedJob.dbJob.recruiter.company_description);
+                      const hasAbout = aboutCompany && aboutCompany !== "<p><br></p>" && aboutCompany !== "<p></p>";
+                      const hasInfo = companyInfo && companyInfo !== "<p><br></p>" && companyInfo !== "<p></p>";
+
+                      return (
+                        <>
+                          {hasAbout && (
+                            <div>
+                              <h5 className="font-semibold text-[#3A1F1F] text-sm mb-1.5">About Company</h5>
+                              <div className="text-sm text-[#6A6A6A] leading-relaxed [&_ul]:list-disc [&_ul]:pl-5 [&_ol]:list-decimal [&_ol]:pl-5 [&_h2]:text-base [&_h2]:font-bold [&_h2]:mt-2 [&_h2]:mb-1 [&_h3]:text-sm [&_h3]:font-bold [&_h3]:mt-1.5 [&_h3]:mb-1 [&_a]:text-[#FF2B2B] [&_a]:underline">
+                                <SafeHtml content={aboutCompany} />
+                              </div>
+                            </div>
+                          )}
+
+                          <h5 className={`font-semibold text-[#3A1F1F] text-sm mb-1.5 mt-4 ${
+                            (selectedJob.dbJob.recruiter.tagline || hasAbout)
+                              ? "pt-3 border-t border-gray-200/60"
+                              : ""
+                          }`}>
+                            Company Information
+                          </h5>
+
+                          {hasInfo && (
+                            <div className="text-sm text-[#6A6A6A] leading-relaxed mb-3 [&_ul]:list-disc [&_ul]:pl-5 [&_ol]:list-decimal [&_ol]:pl-5 [&_h2]:text-base [&_h2]:font-bold [&_h2]:mt-2 [&_h2]:mb-1 [&_h3]:text-sm [&_h3]:font-bold [&_h3]:mt-1.5 [&_h3]:mb-1 [&_a]:text-[#FF2B2B] [&_a]:underline">
+                              <SafeHtml content={companyInfo} />
+                            </div>
+                          )}
+                        </>
+                      );
+                    })()}
+                    <div className="grid grid-cols-2 gap-x-4 gap-y-3">
+                      {selectedJob.dbJob.recruiter.industry && (
+                        <div>
+                          <span className="text-xs text-[#8A8A8A] block mb-0.5">Industry</span>
+                          <span className="font-semibold text-[#3A1F1F] text-sm">{selectedJob.dbJob.recruiter.industry}</span>
+                        </div>
+                      )}
+                      {selectedJob.dbJob.recruiter.company_type && (
+                        <div>
+                          <span className="text-xs text-[#8A8A8A] block mb-0.5">Company Type</span>
+                          <span className="font-semibold text-[#3A1F1F] text-sm">{selectedJob.dbJob.recruiter.company_type}</span>
+                        </div>
+                      )}
+                      {selectedJob.dbJob.recruiter.company_size && (
+                        <div>
+                          <span className="text-xs text-[#8A8A8A] block mb-0.5">Company Size</span>
+                          <span className="font-semibold text-[#3A1F1F] text-sm">{selectedJob.dbJob.recruiter.company_size} employees</span>
+                        </div>
+                      )}
+                      {selectedJob.dbJob.recruiter.founded && (
+                        <div>
+                          <span className="text-xs text-[#8A8A8A] block mb-0.5">Founded Year</span>
+                          <span className="font-semibold text-[#3A1F1F] text-sm">{selectedJob.dbJob.recruiter.founded}</span>
+                        </div>
+                      )}
+                      {selectedJob.dbJob.recruiter.location && (
+                        <div>
+                          <span className="text-xs text-[#8A8A8A] block mb-0.5">Headquarters</span>
+                          <span className="font-semibold text-[#3A1F1F] text-sm flex items-center gap-0.5">
+                            <MapPin className="h-3.5 w-3.5 text-[#FF2B2B]" /> {selectedJob.dbJob.recruiter.location}
+                          </span>
+                        </div>
+                      )}
+                      {selectedJob.dbJob.recruiter.phone && (
+                        <div>
+                          <span className="text-xs text-[#8A8A8A] block mb-0.5">Phone</span>
+                          <span className="font-semibold text-[#3A1F1F] text-sm">{selectedJob.dbJob.recruiter.phone}</span>
+                        </div>
+                      )}
+                      {selectedJob.dbJob.recruiter.cin && (
+                        <div>
+                          <span className="text-xs text-[#8A8A8A] block mb-0.5">CIN Number</span>
+                          <span className="font-semibold text-[#3A1F1F] text-sm">{selectedJob.dbJob.recruiter.cin}</span>
+                        </div>
+                      )}
+                      {selectedJob.dbJob.recruiter.recruiter_name && (
+                        <div>
+                          <span className="text-xs text-[#8A8A8A] block mb-0.5">HR Contact</span>
+                          <span className="font-semibold text-[#3A1F1F] text-sm">{selectedJob.dbJob.recruiter.recruiter_name}</span>
+                        </div>
+                      )}
+                      {selectedJob.dbJob.recruiter.website && (
+                        <div className="col-span-2">
+                          <span className="text-xs text-[#8A8A8A] block mb-0.5">Website</span>
+                          <a href={selectedJob.dbJob.recruiter.website} target="_blank" rel="noreferrer" className="font-semibold text-[#FF2B2B] hover:underline truncate block text-sm">
+                            {selectedJob.dbJob.recruiter.website}
+                          </a>
+                        </div>
+                      )}
+                      {selectedJob.dbJob.recruiter.linkedin_url && (
+                        <div className="col-span-2">
+                          <span className="text-xs text-[#8A8A8A] block mb-0.5">LinkedIn</span>
+                          <a href={selectedJob.dbJob.recruiter.linkedin_url} target="_blank" rel="noreferrer" className="font-semibold text-[#FF2B2B] hover:underline truncate block text-sm">
+                            {selectedJob.dbJob.recruiter.linkedin_url}
+                          </a>
+                        </div>
+                      )}
+                    </div>
+                  </div>
                 )}
               </div>
             </div>
@@ -1438,6 +1653,7 @@ function ProfilePage({ onPendingPrefsChange }: { onPendingPrefsChange?: (pending
   const [skillPickerOpen, setSkillPickerOpen] = useState(false);
   const [skillSearch, setSkillSearch] = useState("");
   const skillFieldRef = useRef<HTMLDivElement>(null);
+  const skillInputRef = useRef<HTMLInputElement>(null);
   const [preferredJobPickerOpen, setPreferredJobPickerOpen] = useState(false);
   const [preferredJobSearch, setPreferredJobSearch] = useState("");
   const [preferredJobOptions, setPreferredJobOptions] = useState<string[]>([]);
@@ -1779,7 +1995,9 @@ function ProfilePage({ onPendingPrefsChange }: { onPendingPrefsChange?: (pending
   useEffect(() => {
     if (!skillPickerOpen) return;
     const handleClickOutside = (event: MouseEvent) => {
-      if (!skillFieldRef.current?.contains(event.target as Node)) {
+      const target = event.target as Node;
+      if (!document.body.contains(target)) return;
+      if (!skillFieldRef.current?.contains(target)) {
         setSkillPickerOpen(false);
       }
     };
@@ -1845,11 +2063,21 @@ function ProfilePage({ onPendingPrefsChange }: { onPendingPrefsChange?: (pending
   // ── Helpers ───────────────────────────────────────────────────────────────
   async function addSkill(skill: string) {
     const s = skill.trim();
-    const alreadySelected = skills.some(existing => existing.toLowerCase() === s.toLowerCase());
-    if (!s || alreadySelected) return;
+    if (!s) return;
 
-    const updated = [...skills, s];
+    const alreadySelected = skills.some(existing => existing.toLowerCase() === s.toLowerCase());
+    let updated: string[];
+    if (alreadySelected) {
+      updated = skills.filter(existing => existing.toLowerCase() !== s.toLowerCase());
+    } else {
+      updated = [...skills, s];
+    }
     setSkills(updated);
+    setSkillSearch("");
+
+    setTimeout(() => {
+      skillInputRef.current?.focus();
+    }, 0);
 
     if (profile?.id) {
       const { error } = await supabase.from("profiles").update({ skills: updated }).eq("id", profile.id);
@@ -2302,11 +2530,11 @@ function ProfilePage({ onPendingPrefsChange }: { onPendingPrefsChange?: (pending
                         .from("avatars")
                         .upload(filePath, file, { upsert: true });
                       if (uploadError) {
-                        console.error("Avatar upload error:", uploadError.message);
-                        alert("Profile pic upload failed: " + uploadError.message);
+                        console.error("Avatar upload error:", uploadError.message || "Unknown error");
+                        alert("Profile pic upload failed: " + (uploadError.message || "Unknown error"));
                         return;
                       }
-                      if (uploadData) {
+                      if (uploadData?.path) {
                         const { data: urlData } = supabase.storage.from("avatars").getPublicUrl(filePath);
                         const { error: dbError } = await supabase.from("profiles").update({ avatar_url: urlData.publicUrl }).eq("id", profile.id);
                         if (dbError) console.error("Avatar DB update error:", dbError.message);
@@ -2421,6 +2649,7 @@ function ProfilePage({ onPendingPrefsChange }: { onPendingPrefsChange?: (pending
                 <div className="relative">
                   <Search className="absolute left-3 top-1/2 h-4 w-4 -translate-y-1/2 text-[#8A8A8A]" />
                   <Input
+                    ref={skillInputRef}
                     value={skillSearch}
                     onFocus={() => setSkillPickerOpen(true)}
                     onChange={(e) => {
@@ -2749,15 +2978,17 @@ function ProfilePage({ onPendingPrefsChange }: { onPendingPrefsChange?: (pending
                   <Download className="h-4 w-4" /> Download
                 </button>
                 <label className="cursor-pointer">
-                  <input type="file" accept=".pdf,.doc,.docx" className="hidden" onChange={async (e) => {
+                  <input type="file" accept=".pdf,.doc,.docx,.png,.jpg,.jpeg,.gif,.webp" className="hidden" onChange={async (e) => {
                     const file = e.target.files?.[0];
                     if (!file || !profile) return;
                     const ext = file.name.split(".").pop();
                     const filePath = `${profile.id}/resume.${ext}`;
                     const { data: uploadData, error: uploadError } = await supabase.storage.from("resumes").upload(filePath, file, { upsert: true });
-                    if (uploadError) { alert("Resume upload failed: " + uploadError.message); return; }
-                    if (uploadData) {
+                    if (uploadError) { alert("Resume upload failed: " + (uploadError.message || "Unknown error")); return; }
+                    if (uploadData?.path) {
                       const { data: urlData } = supabase.storage.from("resumes").getPublicUrl(filePath);
+                      await supabase.from("profiles").update({ resume_url: urlData.publicUrl }).eq("id", profile.id);
+                      await supabase.from("applications").update({ resume_url: urlData.publicUrl }).eq("profile_id", profile.id);
                       const { error: dbError } = await supabase.from("profiles").update({ resume_url: urlData.publicUrl }).eq("id", profile.id);
                       if (dbError) {
                         console.error("Resume DB update error:", dbError.message);
@@ -2772,6 +3003,8 @@ function ProfilePage({ onPendingPrefsChange }: { onPendingPrefsChange?: (pending
                 </label>
                 <Button variant="ghost" size="sm" className="text-red-500 rounded-full" onClick={async () => {
                   if (!profile) return;
+                  await supabase.from("profiles").update({ resume_url: null }).eq("id", profile.id);
+                  await supabase.from("applications").update({ resume_url: null }).eq("profile_id", profile.id);
                   const { error } = await supabase.from("profiles").update({ resume_url: null }).eq("id", profile.id);
                   if (error) {
                     console.error("Resume delete error:", error.message);
@@ -2785,16 +3018,17 @@ function ProfilePage({ onPendingPrefsChange }: { onPendingPrefsChange?: (pending
             </div>
           ) : (
             <label className="cursor-pointer">
-              <input type="file" accept=".pdf,.doc,.docx" className="hidden" onChange={async (e) => {
+              <input type="file" accept=".pdf,.doc,.docx,.png,.jpg,.jpeg,.gif,.webp" className="hidden" onChange={async (e) => {
                 const file = e.target.files?.[0];
                 if (!file || !profile) return;
                 const ext = file.name.split(".").pop();
                 const filePath = `${profile.id}/resume.${ext}`;
-                const { data: uploadData, error: uploadError } = await supabase.storage.from("resumes").upload(filePath, file, { upsert: true });
-                if (uploadError) { alert("Resume upload failed: " + uploadError.message); return; }
-                if (uploadData) {
+                const { data: uploadData, error: uploadError = null } = await supabase.storage.from("resumes").upload(filePath, file, { upsert: true });
+                if (uploadError) { alert("Resume upload failed: " + (uploadError.message || "Unknown error")); return; }
+                if (uploadData?.path) {
                   const { data: urlData } = supabase.storage.from("resumes").getPublicUrl(filePath);
                   await supabase.from("profiles").update({ resume_url: urlData.publicUrl }).eq("id", profile.id);
+                  await supabase.from("applications").update({ resume_url: urlData.publicUrl }).eq("profile_id", profile.id);
                   setResumeFile(urlData.publicUrl);
                   refreshProfile();
                 }
@@ -2802,7 +3036,7 @@ function ProfilePage({ onPendingPrefsChange }: { onPendingPrefsChange?: (pending
               <div className="border-2 border-dashed border-gray-300 rounded-xl p-10 text-center hover:border-[#FF2B2B] transition-colors">
                 <Upload className="h-10 w-10 mx-auto mb-3 text-[#8A8A8A]" />
                 <p className="text-[#3A1F1F] font-medium mb-1">Upload your resume</p>
-                <p className="text-[#8A8A8A] text-sm">PDF, DOC, or DOCX · Max 5MB</p>
+                <p className="text-[#8A8A8A] text-sm">PDF, DOC, DOCX, or Image (PNG, JPG, JPEG) · Max 5MB</p>
                 <Button className="mt-4 bg-[#FF2B2B] hover:bg-[#e02525] text-white rounded-full" asChild><span>Choose File</span></Button>
               </div>
             </label>

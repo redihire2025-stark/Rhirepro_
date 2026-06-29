@@ -65,6 +65,7 @@ export interface RecruiterProfile {
   tagline: string | null;
   linkedin_url: string | null;
   cin: string | null;
+  founded: string | null;
   otp_code: string | null;
   otp_expires_at: string | null;
   created_at: string;
@@ -133,6 +134,7 @@ export interface Job {
   deadline: string | null;
   deadline_time: string | null;
   created_at: string;
+  recruiter?: RecruiterProfile | null;
 }
 
 export interface Application {

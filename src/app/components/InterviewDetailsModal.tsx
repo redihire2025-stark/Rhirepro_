@@ -16,6 +16,7 @@ interface InterviewDetailsModalProps {
   onOpenChange: (open: boolean) => void;
   onSubmit: (message: string, meetingUrl: string, round: "L1" | "L2" | "L3" | "HR Round") => Promise<void>;
   submitting?: boolean;
+  initialRound?: "L1" | "L2" | "L3" | "HR Round";
 }
 
 const MAX_MESSAGE_LENGTH = 2500;
@@ -25,10 +26,11 @@ export default function InterviewDetailsModal({
   onOpenChange,
   onSubmit,
   submitting = false,
+  initialRound,
 }: InterviewDetailsModalProps) {
   const [message, setMessage] = useState("");
   const [meetingUrl, setMeetingUrl] = useState("");
-  const [round, setRound] = useState<"L1" | "L2" | "L3" | "HR Round">("L1");
+  const [round, setRound] = useState<"L1" | "L2" | "L3" | "HR Round">(initialRound || "L1");
 
   const normalizeMeetingUrl = (value: string): string | null => {
     const trimmed = value.trim();
@@ -44,12 +46,17 @@ export default function InterviewDetailsModal({
   };
 
   useEffect(() => {
+    if (initialRound) {
+      setRound(initialRound);
+    }
     if (!open) {
       setMessage("");
       setMeetingUrl("");
-      setRound("L1");
+      if (!initialRound) {
+        setRound("L1");
+      }
     }
-  }, [open]);
+  }, [open, initialRound, setMessage, setMeetingUrl, setRound]);
 
   const normalizedMeetingUrl = normalizeMeetingUrl(meetingUrl);
   const isMeetingUrlValid = Boolean(normalizedMeetingUrl);

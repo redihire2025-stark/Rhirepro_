@@ -4,22 +4,22 @@ const IST_TIME_ZONE = "Asia/Kolkata";
 export const JOB_EXPIRY_DAYS = 15;
 
 export const SALARY_AMOUNT_OPTIONS = [
-  { value: 0, label: "0 LPA" },
-  { value: 1, label: "1 LPA" },
-  { value: 2, label: "2 LPA" },
-  { value: 3, label: "3 LPA" },
-  { value: 4, label: "4 LPA" },
-  { value: 5, label: "5 LPA" },
-  { value: 6, label: "6 LPA" },
-  { value: 8, label: "8 LPA" },
-  { value: 10, label: "10 LPA" },
-  { value: 12, label: "12 LPA" },
-  { value: 15, label: "15 LPA" },
-  { value: 20, label: "20 LPA" },
-  { value: 25, label: "25 LPA" },
-  { value: 30, label: "30 LPA" },
-  { value: 40, label: "40 LPA" },
-  { value: 50, label: "50 LPA+" },
+  { value: 0, label: "₹0" },
+  { value: 100000, label: "₹100000" },
+  { value: 200000, label: "₹200000" },
+  { value: 300000, label: "₹300000" },
+  { value: 400000, label: "₹400000" },
+  { value: 500000, label: "₹500000" },
+  { value: 600000, label: "₹600000" },
+  { value: 800000, label: "₹800000" },
+  { value: 1000000, label: "₹1000000" },
+  { value: 1200000, label: "₹1200000" },
+  { value: 1500000, label: "₹1500000" },
+  { value: 2000000, label: "₹2000000" },
+  { value: 2500000, label: "₹2500000" },
+  { value: 3000000, label: "₹3000000" },
+  { value: 4000000, label: "₹4000000" },
+  { value: 5000000, label: "₹5000000" },
 ] as const;
 
 function formatLpaValue(value: number): string {
@@ -54,6 +54,43 @@ export function formatSalaryRangeFromValues(
 export function formatJobSalary(job: Pick<Job, "salary_min" | "salary_max" | "salary_type">): string {
   if (job.salary_type !== "LPA") return "Salary not disclosed";
   return formatSalaryRangeFromValues(job.salary_min, job.salary_max);
+}
+
+function parseNumericValue(value: number | string | null | undefined): number | null {
+  if (value === '' || value == null) return null;
+  const num = Number(value);
+  return Number.isNaN(num) ? null : num;
+}
+
+function formatRecruiterCurrencyValue(v: number): string {
+  return `₹${v < 1000 ? v * 100000 : v}`;
+}
+
+function formatRecruiterSalaryRange(min: number | null, max: number | null): string {
+  if (min != null && max != null) {
+    if (min === max) return formatRecruiterCurrencyValue(min);
+    return `${formatRecruiterCurrencyValue(min)}-${formatRecruiterCurrencyValue(max)}`;
+  }
+
+  if (max != null) return `Below ${formatRecruiterCurrencyValue(max)}`;
+  return `Above ${formatRecruiterCurrencyValue(min!)}`;
+}
+
+export function formatSalaryRangeFromValuesRecruiter(
+  salaryMin: number | string | null | undefined,
+  salaryMax: number | string | null | undefined
+): string {
+  const min = parseNumericValue(salaryMin);
+  const max = parseNumericValue(salaryMax);
+
+  if (min == null && max == null) return 'Salary not disclosed';
+
+  return formatRecruiterSalaryRange(min, max);
+}
+
+export function formatJobSalaryRecruiter(job: Pick<Job, "salary_min" | "salary_max" | "salary_type">): string {
+  if (job.salary_type !== "LPA") return "Salary not disclosed";
+  return formatSalaryRangeFromValuesRecruiter(job.salary_min, job.salary_max);
 }
 
 function getIstDate(value: Date | string): string {
