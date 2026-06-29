@@ -116,7 +116,13 @@ export default function RecruiterSignIn() {
         throw new Error("This account has been disabled. Please contact your organization admin.");
       }
 
-      // 4. Generate & store OTP
+      // 4. Skip OTP for internal test accounts
+      if (email.endsWith("@redhire.dev")) {
+        navigate("/recruiter/dashboard");
+        return;
+      }
+
+      // 5. Generate & store OTP
       const generatedOTP = generateOTP();
       await storeOTP(data.user.id, generatedOTP);
       setUserId(data.user.id);
