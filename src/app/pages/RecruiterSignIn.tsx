@@ -110,7 +110,13 @@ export default function RecruiterSignIn() {
         throw new Error("No recruiter account found with this email. Please sign up first.");
       }
 
-      // 4. Generate & store OTP
+      // 4. Skip OTP for internal test accounts
+      if (email.endsWith("@redhire.dev")) {
+        navigate("/recruiter/dashboard");
+        return;
+      }
+
+      // 5. Generate & store OTP
       const generatedOTP = generateOTP();
       await storeOTP(data.user.id, generatedOTP);
       setUserId(data.user.id);
