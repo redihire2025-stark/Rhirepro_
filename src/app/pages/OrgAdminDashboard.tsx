@@ -73,7 +73,13 @@ export default function OrgAdminDashboard() {
   const [kpis, setKpis] = useState<OrgKpis>(EMPTY_KPIS);
   const [kpiLoading, setKpiLoading] = useState(true);
 
-  // Auth guard: must be signed in AND flagged as an org admin.
+  // Org admin accounts follow the admin_org{n}@redhire.dev convention (10 companies).
+  // Mirrors the same fallback used at login: the DB flag is the source of truth once the
+  // org_admin_migration.sql backfill has run, but the email pattern keeps these seeded
+  // accounts working even if that migration hasn't been applied yet.
+  const isOrgAdminEmail = !!user?.email && /^admin_org\d+@redhire\.dev$/i.test(user.email.trim());
+
+  // Auth guard: must be signed in AND flagged as an org admin (by DB flag or email pattern).
   // Recruiters who land here by mistake (e.g. stale link) bounce to their own dashboard.
   useEffect(() => {
     if (authLoading) return;
@@ -81,10 +87,10 @@ export default function OrgAdminDashboard() {
       navigate("/recruiter/signin", { replace: true });
       return;
     }
-    if (recruiterProfile && !recruiterProfile.is_org_admin) {
+    if (recruiterProfile && !recruiterProfile.is_org_admin && !isOrgAdminEmail) {
       navigate("/recruiter/dashboard", { replace: true });
     }
-  }, [authLoading, user, recruiterProfile, navigate]);
+  }, [authLoading, user, recruiterProfile, isOrgAdminEmail, navigate]);
 
   const fetchKpis = useCallback(async () => {
     if (!recruiterProfile?.id) return;
@@ -151,7 +157,7 @@ export default function OrgAdminDashboard() {
       </div>
     );
   }
-  if (!user || (recruiterProfile && !recruiterProfile.is_org_admin)) return null;
+  if (!user || (recruiterProfile && !recruiterProfile.is_org_admin && !isOrgAdminEmail)) return null;
 
   const orgInitials = recruiterProfile?.company_name
     ? recruiterProfile.company_name.split(" ").map(w => w[0]).join("").slice(0, 2).toUpperCase()
