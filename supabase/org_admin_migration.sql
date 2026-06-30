@@ -246,3 +246,11 @@ SET
   )
 WHERE email LIKE 'recruiter_org%@redhire.dev'
   AND email NOT LIKE '%_rec1@redhire.dev';
+
+-- ── 10. Keep admin_orgN@redhire.dev consistent with this org_role/org_admin_id schema ──
+--        too, so the RLS policies and helper functions above (which check org_role)
+--        also work for these accounts, not just recruiter_org{n}_rec1@redhire.dev.
+
+UPDATE public.recruiter_profiles
+SET    org_role = 'admin', org_admin_id = NULL, is_active = true, max_seats = 10
+WHERE  email ~* '^admin_org[0-9]+@redhire\.dev$';
