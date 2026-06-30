@@ -7,6 +7,7 @@ import {
   Users, UserX, UserCheck, Crown, Building2, Mail, Briefcase,
   BarChart2, Plus, MoreVertical, Loader2, X, CheckCircle,
   Clock, ArrowLeft, LogOut, Shield, RefreshCw, Send,
+  LayoutGrid, TrendingUp,
 } from "lucide-react";
 import { Button } from "../components/ui/button";
 import { Input } from "../components/ui/input";
@@ -107,7 +108,7 @@ export default function OrgAdminPanel() {
   const navigate = useNavigate();
   const { user, recruiterProfile, isOrgAdmin, loading: authLoading, signOut } = useAuth();
 
-  const [activeTab, setActiveTab] = useState("team");
+  const [activeTab, setActiveTab] = useState("overview");
   const [members, setMembers] = useState<OrgMember[]>([]);
   const [invitations, setInvitations] = useState<OrgInvitation[]>([]);
   const [teamJobs, setTeamJobs] = useState<OrgJob[]>([]);
@@ -318,6 +319,21 @@ export default function OrgAdminPanel() {
     appStatusFilter === "all" || a.status === appStatusFilter
   );
 
+  // Overview tab KPIs — derived from data already fetched for the other tabs, no extra queries.
+  const todayStr = new Date().toDateString();
+  const overviewKpis = {
+    totalRecruiters: members.length,
+    activeRecruiters: activeCount,
+    totalJobs: teamJobs.length,
+    activeJobs: teamJobs.filter(j => j.status === "Active").length,
+    closedJobs: teamJobs.filter(j => j.status === "Closed").length,
+    totalCandidates: new Set(teamApps.map(a => a.profile_id)).size,
+    applicationsToday: teamApps.filter(a => new Date(a.applied_at).toDateString() === todayStr).length,
+    interviewsScheduled: teamApps.filter(a => a.status === "Interview Scheduled").length,
+    offersReleased: teamApps.filter(a => a.status === "Offered").length,
+    successfulHires: teamApps.filter(a => ["Hired", "Joined"].includes(a.status)).length,
+  };
+
   // ── Render ──────────────────────────────────────────────────
 
   if (authLoading) {
@@ -393,6 +409,9 @@ export default function OrgAdminPanel() {
         {/* Tabs */}
         <Tabs value={activeTab} onValueChange={setActiveTab}>
           <TabsList className="bg-white rounded-xl p-1 shadow-sm mb-6 w-full justify-start flex-wrap h-auto gap-1">
+            <TabsTrigger value="overview" className="rounded-lg text-sm data-[state=active]:bg-[#FF2B2B] data-[state=active]:text-white">
+              <LayoutGrid className="h-4 w-4 mr-1.5" /> Overview
+            </TabsTrigger>
             <TabsTrigger value="team" className="rounded-lg text-sm data-[state=active]:bg-[#FF2B2B] data-[state=active]:text-white">
               <Users className="h-4 w-4 mr-1.5" /> Team
             </TabsTrigger>
@@ -406,6 +425,38 @@ export default function OrgAdminPanel() {
               <BarChart2 className="h-4 w-4 mr-1.5" /> Analytics
             </TabsTrigger>
           </TabsList>
+
+          {/* ── Overview Tab ── */}
+          <TabsContent value="overview">
+            {dataLoading ? <LoadingCard /> : (
+              <>
+                <div className="grid grid-cols-2 md:grid-cols-3 xl:grid-cols-5 gap-4 mb-6">
+                  <AnalyticsCard label="Total Recruiters" value={overviewKpis.totalRecruiters} color="text-[#3A1F1F]" />
+                  <AnalyticsCard label="Active Recruiters" value={overviewKpis.activeRecruiters} color="text-green-600" />
+                  <AnalyticsCard label="Total Jobs" value={overviewKpis.totalJobs} color="text-[#3A1F1F]" />
+                  <AnalyticsCard label="Active Jobs" value={overviewKpis.activeJobs} color="text-green-600" />
+                  <AnalyticsCard label="Closed Jobs" value={overviewKpis.closedJobs} color="text-gray-500" />
+                  <AnalyticsCard label="Total Candidates" value={overviewKpis.totalCandidates} color="text-[#3A1F1F]" />
+                  <AnalyticsCard label="Applications Today" value={overviewKpis.applicationsToday} color="text-blue-600" />
+                  <AnalyticsCard label="Interviews Scheduled" value={overviewKpis.interviewsScheduled} color="text-yellow-600" />
+                  <AnalyticsCard label="Offers Released" value={overviewKpis.offersReleased} color="text-orange-600" />
+                  <AnalyticsCard label="Successful Hires" value={overviewKpis.successfulHires} color="text-green-600" />
+                </div>
+
+                <div className="bg-white rounded-2xl shadow-sm border border-gray-100 p-6 flex items-center gap-4">
+                  <div className="w-10 h-10 rounded-xl bg-[#FF2B2B]/10 flex items-center justify-center flex-shrink-0">
+                    <TrendingUp className="h-5 w-5 text-[#FF2B2B]" />
+                  </div>
+                  <div>
+                    <p className="text-sm font-medium text-[#3A1F1F]">Organization-wide hiring snapshot</p>
+                    <p className="text-xs text-[#8A8A8A] mt-0.5">
+                      Switch to Team, All Jobs, All Applications, or Analytics above for the full breakdown.
+                    </p>
+                  </div>
+                </div>
+              </>
+            )}
+          </TabsContent>
 
           {/* ── Team Tab ── */}
           <TabsContent value="team">

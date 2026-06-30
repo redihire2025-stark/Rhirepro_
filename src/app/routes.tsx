@@ -1,4 +1,4 @@
-import { createBrowserRouter, Outlet, ScrollRestoration } from "react-router";
+import { createBrowserRouter, Navigate, Outlet, ScrollRestoration } from "react-router";
 import ApplicantProfilePage from "./pages/ApplicantProfilePage";
 import LandingPage from "./pages/LandingPage";
 import SignInPage from "./pages/SignInPage";
@@ -9,7 +9,6 @@ import RecruiterSignIn from "./pages/RecruiterSignIn";
 import RecruiterSignUp from "./pages/RecruiterSignUp";
 import JobSeekerDashboard from "./pages/JobSeekerDashboard";
 import RecruiterDashboard from "./pages/RecruiterDashboard";
-import OrgAdminDashboard from "./pages/OrgAdminDashboard";
 import PlanDetailsPage from "./pages/PlanDetailsPage";
 import PaymentGatewayPage from "./pages/PaymentGatewayPage";
 import PaymentStatusPage from "./pages/PaymentStatusPage";
@@ -161,7 +160,7 @@ export const router = createBrowserRouter([
   },
   {
     path: "/recruiter/org-admin/*",
-    Component: OrgAdminDashboard,
+    Component: () => <Navigate to="/recruiter/admin" replace />,
     errorElement: <ErrorPage />,
   },
   {
