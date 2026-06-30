@@ -102,7 +102,7 @@ export default function RecruiterSignIn() {
       // 3. Check recruiter profile exists in DB
       const { data: rp, error: rpErr } = await supabase
         .from("recruiter_profiles")
-        .select("id, recruiter_name, is_org_admin, is_disabled")
+        .select("id, recruiter_name, is_org_admin, is_disabled, org_role")
         .eq("id", data.user.id)
         .single();
 
@@ -116,21 +116,19 @@ export default function RecruiterSignIn() {
         throw new Error("This account has been disabled. Please contact your organization admin.");
       }
 
-      // 4. Fixed OTP for internal test accounts — no email sent
-      const isTestAccount = email.trim().toLowerCase().endsWith("@redhire.dev");
-      const generatedOTP = isTestAccount ? "000000" : generateOTP();
+      // 4. Generate & send a real OTP for every account, no bypass
+      const generatedOTP = generateOTP();
       await storeOTP(data.user.id, generatedOTP);
       setUserId(data.user.id);
       setDisplayName(rp.recruiter_name || "");
       // Org admin accounts follow the admin_org{n}@redhire.dev convention (10 companies, org1-org10).
-      // The DB flag (is_org_admin) is the source of truth; the email pattern is a fallback so seeded
-      // org admin accounts route correctly even before the flag has been explicitly backfilled.
+      // org_role defaults to 'admin' for every recruiter_profiles row, so the DB flags
+      // (org_role / is_org_admin) are the source of truth; the email pattern below is a
+      // fallback in case those flags haven't been explicitly set for a given account yet.
       const isOrgAdminEmail = /^admin_org\d+@redhire\.dev$/i.test(email.trim());
-      setIsOrgAdmin(!!rp.is_org_admin || isOrgAdminEmail);
+      setIsOrgAdmin(rp.org_role === "admin" || !!rp.is_org_admin || isOrgAdminEmail);
 
-      if (!isTestAccount) {
-        await sendOTPEmail(email, generatedOTP, rp.recruiter_name || "");
-      }
+      await sendOTPEmail(email, generatedOTP, rp.recruiter_name || "");
 
       setStep("otp");
     } catch (err: unknown) {
@@ -145,15 +143,9 @@ export default function RecruiterSignIn() {
     setError("");
     setLoading(true);
     try {
-      const isTestAccount = email.trim().toLowerCase().endsWith("@redhire.dev");
-      if (isTestAccount) {
-        if (otp.trim() !== "000000") throw new Error("Invalid OTP. Test accounts use 000000.");
-        await supabase.from("recruiter_profiles").update({ otp_code: null, otp_expires_at: null, last_login_at: new Date().toISOString() }).eq("id", userId);
-      } else {
-        const valid = await verifyOTPFromDB(userId, otp.trim());
-        if (!valid) throw new Error("Invalid or expired OTP. Please try again.");
-        await supabase.from("recruiter_profiles").update({ otp_code: null, otp_expires_at: null, last_login_at: new Date().toISOString() }).eq("id", userId);
-      }
+      const valid = await verifyOTPFromDB(userId, otp.trim());
+      if (!valid) throw new Error("Invalid or expired OTP. Please try again.");
+      await supabase.from("recruiter_profiles").update({ otp_code: null, otp_expires_at: null, last_login_at: new Date().toISOString() }).eq("id", userId);
       // Dashboard checks profile completion on load and redirects to company-profile if needed
       navigate(isOrgAdmin ? "/recruiter/org-admin" : "/recruiter/dashboard");
     } catch (err: unknown) {
@@ -369,17 +361,10 @@ export default function RecruiterSignIn() {
                 </p>
               </div>
 
-              {email.trim().toLowerCase().endsWith("@redhire.dev") ? (
-                <div className="bg-amber-50 border border-amber-200 rounded-xl p-3 mb-4 flex items-center gap-2">
-                  <ShieldCheck className="h-4 w-4 text-amber-500 shrink-0" />
-                  <p className="text-xs text-amber-700">Test account — use default OTP: <strong className="text-amber-900 tracking-widest">000000</strong></p>
-                </div>
-              ) : (
-                <div className="bg-blue-50 border border-blue-200 rounded-xl p-3 mb-4 flex items-center gap-2">
-                  <Mail className="h-4 w-4 text-blue-500 shrink-0" />
-                  <p className="text-xs text-blue-700">Check your inbox — OTP sent to <strong>{email}</strong>. Valid for 10 minutes.</p>
-                </div>
-              )}
+              <div className="bg-blue-50 border border-blue-200 rounded-xl p-3 mb-4 flex items-center gap-2">
+                <Mail className="h-4 w-4 text-blue-500 shrink-0" />
+                <p className="text-xs text-blue-700">Check your inbox — OTP sent to <strong>{email}</strong>. Valid for 10 minutes.</p>
+              </div>
 
               {error && (
                 <div className="bg-red-50 border border-red-200 text-red-700 rounded-xl p-3 mb-4 text-sm">{error}</div>
