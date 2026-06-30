@@ -68,6 +68,10 @@ export interface RecruiterProfile {
   founded: string | null;
   otp_code: string | null;
   otp_expires_at: string | null;
+  is_org_admin: boolean;
+  org_id: string | null;
+  is_disabled: boolean;
+  last_login_at: string | null;
   created_at: string;
   // Org admin fields
   org_role: "admin" | "member" | null;

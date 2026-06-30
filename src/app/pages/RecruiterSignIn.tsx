@@ -43,6 +43,7 @@ export default function RecruiterSignIn() {
   const [error, setError] = useState("");
   const [userId, setUserId] = useState("");
   const [displayName, setDisplayName] = useState("");
+  const [isOrgAdmin, setIsOrgAdmin] = useState(false);
   const [forgotEmail, setForgotEmail] = useState("");
   const [forgotLoading, setForgotLoading] = useState(false);
   const [forgotOtp, setForgotOtp] = useState("");
@@ -101,7 +102,7 @@ export default function RecruiterSignIn() {
       // 3. Check recruiter profile exists in DB
       const { data: rp, error: rpErr } = await supabase
         .from("recruiter_profiles")
-        .select("id, recruiter_name")
+        .select("id, recruiter_name, is_org_admin, is_disabled")
         .eq("id", data.user.id)
         .single();
 
@@ -110,12 +111,24 @@ export default function RecruiterSignIn() {
         throw new Error("No recruiter account found with this email. Please sign up first.");
       }
 
+      if (rp.is_disabled) {
+        await supabase.auth.signOut();
+        throw new Error("This account has been disabled. Please contact your organization admin.");
+      }
+
+      // 4. Generate & store OTP
+      const generatedOTP = generateOTP();
       // 4. Fixed OTP for internal test accounts — no email sent
       const isTestAccount = email.trim().toLowerCase().endsWith("@redhire.dev");
       const generatedOTP = isTestAccount ? "000000" : generateOTP();
       await storeOTP(data.user.id, generatedOTP);
       setUserId(data.user.id);
       setDisplayName(rp.recruiter_name || "");
+      // Org admin accounts follow the admin_org{n}@redhire.dev convention (10 companies, org1-org10).
+      // The DB flag (is_org_admin) is the source of truth; the email pattern is a fallback so seeded
+      // org admin accounts route correctly even before the flag has been explicitly backfilled.
+      const isOrgAdminEmail = /^admin_org\d+@redhire\.dev$/i.test(email.trim());
+      setIsOrgAdmin(!!rp.is_org_admin || isOrgAdminEmail);
 
       if (!isTestAccount) {
         await sendOTPEmail(email, generatedOTP, rp.recruiter_name || "");
@@ -134,6 +147,11 @@ export default function RecruiterSignIn() {
     setError("");
     setLoading(true);
     try {
+      const valid = await verifyOTPFromDB(userId, otp.trim());
+      if (!valid) throw new Error("Invalid or expired OTP. Please try again.");
+      await supabase.from("recruiter_profiles").update({ otp_code: null, otp_expires_at: null, last_login_at: new Date().toISOString() }).eq("id", userId);
+      // Dashboard checks profile completion on load and redirects to company-profile if needed
+      navigate(isOrgAdmin ? "/recruiter/org-admin" : "/recruiter/dashboard");
       const isTestAccount = email.trim().toLowerCase().endsWith("@redhire.dev");
       if (isTestAccount) {
         if (otp.trim() !== "000000") throw new Error("Invalid OTP. Test accounts use 000000.");
