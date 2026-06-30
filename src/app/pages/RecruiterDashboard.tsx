@@ -830,7 +830,7 @@ function CandidateProfileModal({ candidate, open, onClose }: { candidate: Candid
 export default function RecruiterDashboard() {
   const navigate = useNavigate();
   const location = useLocation();
-  const { recruiterProfile, user, loading: authLoading, signOut } = useAuth();
+  const { recruiterProfile, user, loading: authLoading, signOut, isOrgAdmin } = useAuth();
 
   // Auth guard — redirect to sign-in if not authenticated
   useEffect(() => {
@@ -981,6 +981,7 @@ export default function RecruiterDashboard() {
 
   const currentTab = () => {
     const path = location.pathname;
+    if (path.includes("/recruiter/admin")) return "admin";
     if (path.includes("manage-jobs")) return "manage-jobs";
     if (path.includes("applicants")) return "applicants";
     if (path.includes("company-profile")) return "company-profile";
@@ -1000,6 +1001,7 @@ export default function RecruiterDashboard() {
     { id: "analytics", label: "Analytics", path: "/recruiter/dashboard/analytics" },
     { id: "company-profile", label: "Company Profile", path: "/recruiter/dashboard/company-profile" },
     { id: "plans", label: "Plans", path: "/recruiter/dashboard/plans" },
+    ...(isOrgAdmin ? [{ id: "admin", label: "Team Admin", path: "/recruiter/admin" }] : []),
   ];
 
   if (authLoading) {

@@ -28,6 +28,8 @@ import NotFound from "./pages/NotFound";
 import ErrorPage from "./pages/ErrorPage";
 import PrivacyPolicyPage from "./pages/PrivacyPolicyPage";
 import TermsOfServicePage from "./pages/TermsOfServicePage";
+import OrgAdminPanel from "./pages/OrgAdminPanel";
+import RecruiterInviteAccept from "./pages/RecruiterInviteAccept";
 
 function RootLayout() {
   return (
@@ -180,6 +182,16 @@ export const router = createBrowserRouter([
   {
     path: "/terms-of-service",
     Component: TermsOfServicePage,
+    errorElement: <ErrorPage />,
+  },
+  {
+    path: "/recruiter/admin",
+    Component: OrgAdminPanel,
+    errorElement: <ErrorPage />,
+  },
+  {
+    path: "/recruiter/join/:token",
+    Component: RecruiterInviteAccept,
     errorElement: <ErrorPage />,
   },
   {

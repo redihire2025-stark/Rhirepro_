@@ -73,6 +73,23 @@ export interface RecruiterProfile {
   is_disabled: boolean;
   last_login_at: string | null;
   created_at: string;
+  // Org admin fields
+  org_role: "admin" | "member" | null;
+  org_admin_id: string | null;
+  is_active: boolean | null;
+  max_seats: number | null;
+}
+
+export interface RecruiterInvitation {
+  id: string;
+  org_admin_id: string;
+  company_name: string;
+  invited_email: string;
+  token: string;
+  role: "admin" | "member";
+  status: "pending" | "accepted" | "expired" | "revoked";
+  created_at: string;
+  expires_at: string;
 }
 
 export interface RecruiterArticle {
