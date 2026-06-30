@@ -37,6 +37,7 @@ import { fetchGeminiInsights, type GeminiInsightsResult } from "../services/gemi
 import { AppliedJobWithJob, SavedJobWithJob, getAppliedJobs, getSavedJobs } from "../services/jobService";
 import SavedJobsComparePage from "./SavedJobsComparePage";
 import JobShareButton from "../components/JobShareButton";
+import ResumeBuilder from "../components/ResumeBuilder";
 import logoImage from "../../logo/logo.png";
 
 // ── Types ──────────────────────────────────────────────────────────────────────
@@ -3041,6 +3042,19 @@ function ProfilePage({ onPendingPrefsChange }: { onPendingPrefsChange?: (pending
               </div>
             </label>
           )}
+
+          {/* ── Resume Builder ── */}
+          <ResumeBuilder
+            basicInfo={basicInfo}
+            summary={summary}
+            skills={skills}
+            experiences={experiences}
+            education={education}
+            projects={projects}
+            certifications={certifications}
+            languages={languages}
+            profilePic={profilePic}
+          />
         </div>
 
         {/* ── Preferred Job Settings ── */}
