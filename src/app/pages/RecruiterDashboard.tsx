@@ -4921,155 +4921,195 @@ function ApplicantsPage() {
         </Button>
       </div>
 
-      {/* Status Tabs */}
-      <div className="flex gap-2 overflow-x-auto pb-2 mb-4">
-        {statuses.map(s => (
-          <button key={s} onClick={() => setStatusFilter(s)}
-            className={`px-4 py-1.5 rounded-full text-sm whitespace-nowrap border transition-colors ${statusFilter === s ? "bg-[#FF2B2B] text-white border-[#FF2B2B]" : "bg-white border-gray-200 text-[#5A5A5A] hover:border-[#FF2B2B]"}`}>
-            {s}
-            {s !== "All" && statusCounts[s] > 0 && (
-              <span className={`ml-1.5 text-xs rounded-full px-1.5 py-0.5 ${statusFilter === s ? "bg-white/30" : "bg-gray-100"}`}>{statusCounts[s]}</span>
-            )}
-          </button>
-        ))}
-      </div>
+      <div className="flex gap-5 items-start">
+        {/* ── LEFT: Filter Sidebar (Naukri ResdEx style) ── */}
+        <div className="w-72 flex-shrink-0 space-y-0 bg-white border border-gray-200 rounded-2xl shadow-sm overflow-hidden">
+          {/* Status Tabs Section */}
+          <div className="px-4 py-4 border-b border-gray-100 bg-gradient-to-b from-[#FFF8F8] to-white">
+            <p className="text-xs font-bold text-[#3A1F1F] mb-3 uppercase tracking-wide flex items-center gap-1.5">
+              <span className="w-1.5 h-1.5 rounded-full bg-[#FF2B2B]" /> Status
+            </p>
+            <div className="flex flex-col gap-1.5">
+              {statuses.map(s => {
+                const isAll = s === "All";
+                const stageStyle = !isAll ? PIPELINE_STAGE_STYLES[s as PipelineStage] : null;
+                const isActive = statusFilter === s;
+                const count = isAll ? applicants.length : statusCounts[s];
+                return (
+                  <button
+                    key={s}
+                    onClick={() => setStatusFilter(s)}
+                    className={`group relative flex items-center justify-between pl-3 pr-2.5 py-2 rounded-xl text-xs font-medium transition-all overflow-hidden ${
+                      isActive
+                        ? "shadow-sm ring-1 ring-black/5"
+                        : "hover:bg-[#F9F9F9]"
+                    }`}
+                    style={isActive ? {
+                      backgroundColor: isAll ? "#FFF0F0" : undefined,
+                    } : undefined}
+                  >
+                    {/* Colored accent bar — distinct per pipeline stage */}
+                    <span
+                      className={`absolute left-0 top-0 bottom-0 w-1 rounded-r-full transition-opacity ${
+                        isActive ? "opacity-100" : "opacity-0 group-hover:opacity-40"
+                      } ${isAll ? "bg-[#FF2B2B]" : stageStyle?.bar}`}
+                    />
+                    <span className={`flex items-center gap-2 ${isActive ? (isAll ? "text-[#FF2B2B] font-semibold" : `${stageStyle?.text} font-semibold`) : "text-[#5A5A5A]"}`}>
+                      {!isAll && <span className={`w-1.5 h-1.5 rounded-full ${stageStyle?.bar}`} />}
+                      {s}
+                    </span>
+                    {count > 0 && (
+                      <span
+                        className={`text-[10px] rounded-full px-1.5 py-0.5 font-bold flex-shrink-0 ${
+                          isActive
+                            ? isAll ? "bg-[#FF2B2B] text-white" : `${stageStyle?.badge} ${stageStyle?.text}`
+                            : "bg-gray-100 text-gray-500"
+                        }`}
+                      >
+                        {count}
+                      </span>
+                    )}
+                  </button>
+                );
+              })}
+            </div>
+          </div>
 
-      {/* Search + Filter row */}
-      <div className="flex gap-3 mb-3 flex-wrap">
-        <div className="relative flex-1 min-w-[200px]">
-          <Search className="absolute left-3 top-1/2 -translate-y-1/2 h-4 w-4 text-[#8A8A8A]" />
-          <Input value={searchTerm} onChange={e => setSearchTerm(e.target.value)} className="pl-9 bg-white border-gray-200 rounded-xl" placeholder="Search by name or skill..." />
-        </div>
-        <Select value={jobFilter} onValueChange={setJobFilter}>
-          <SelectTrigger className="w-52 bg-white border-gray-200 rounded-xl"><SelectValue placeholder="Filter by job" /></SelectTrigger>
-          <SelectContent>{jobTitles.map(j => <SelectItem key={j} value={j}>{j}</SelectItem>)}</SelectContent>
-        </Select>
-        <Select value={sortBy} onValueChange={setSortBy}>
-          <SelectTrigger className="w-40 bg-white border-gray-200 rounded-xl"><SelectValue /></SelectTrigger>
-          <SelectContent>
-            <SelectItem value="recent">Most Recent</SelectItem>
-            <SelectItem value="match">Match Score</SelectItem>
-          </SelectContent>
-        </Select>
-        <button onClick={() => setShowFilters(v => !v)}
-          className={`flex items-center gap-2 px-4 py-2 rounded-xl border text-sm font-medium transition-colors ${showFilters || activeFilterCount > 0 ? "bg-[#FF2B2B] text-white border-[#FF2B2B]" : "bg-white border-gray-200 text-[#5A5A5A] hover:border-[#FF2B2B]"}`}>
-          <svg className="h-4 w-4" fill="none" stroke="currentColor" viewBox="0 0 24 24"><path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M3 4a1 1 0 011-1h16a1 1 0 011 1v2a1 1 0 01-.293.707L13 13.414V19a1 1 0 01-.553.894l-4 2A1 1 0 017 21v-7.586L3.293 6.707A1 1 0 013 6V4z" /></svg>
-          Filters {activeFilterCount > 0 && <span className={`text-xs rounded-full px-1.5 py-0.5 font-bold ${showFilters || activeFilterCount > 0 ? "bg-white text-[#FF2B2B]" : "bg-[#FF2B2B] text-white"}`}>{activeFilterCount}</span>}
-        </button>
-      </div>
-
-      {/* Naukri-style Advanced Filters Panel */}
-      {showFilters && (
-        <div className="bg-white border border-gray-200 rounded-2xl p-5 mb-4 shadow-sm">
-          <div className="flex items-center justify-between mb-4">
-            <h3 className="font-semibold text-[#3A1F1F] text-sm">Advanced Filters</h3>
+          <div className="flex items-center justify-between px-4 py-3 border-b border-gray-100">
+            <h3 className="text-sm font-bold text-[#3A1F1F]">Refine Results</h3>
             {activeFilterCount > 0 && (
-              <button onClick={() => { setExpMin(""); setExpMax(""); setLocationFilter(""); setSalaryFilter(""); setNoticePeriodFilter(""); setSkillFilter(""); }}
-                className="text-xs text-[#FF2B2B] hover:underline">Clear all filters</button>
+              <button onClick={() => { setExpMin(""); setExpMax(""); setLocationFilter(""); setSalaryFilter(""); setNoticePeriodFilter(""); setSkillTags([]); setSkillInput(""); }}
+                className="text-xs text-[#FF2B2B] hover:underline">Clear all ({activeFilterCount})</button>
             )}
           </div>
-          <div className="grid grid-cols-2 md:grid-cols-3 lg:grid-cols-6 gap-4">
-            <div>
-              <label className="block text-xs font-medium text-[#5A5A5A] mb-1.5">Experience (Min yrs)</label>
+
+          {/* Experience */}
+          <div className="px-4 py-3 border-b border-gray-100">
+            <p className="text-xs font-semibold text-[#3A1F1F] mb-2 uppercase tracking-wide">Experience</p>
+            <div className="flex gap-2 items-center">
               <Select value={expMin || "any"} onValueChange={v => setExpMin(v === "any" ? "" : v)}>
-                <SelectTrigger className="bg-[#F6F6F6] border-gray-200 rounded-xl text-sm h-9"><SelectValue placeholder="Any" /></SelectTrigger>
+                <SelectTrigger className="bg-[#F6F6F6] border-gray-200 rounded-lg text-xs h-8 flex-1"><SelectValue placeholder="Min" /></SelectTrigger>
                 <SelectContent>
                   <SelectItem value="any">Any</SelectItem>
                   {[0, 1, 2, 3, 4, 5, 6, 7, 8, 10, 12, 15].map(y => <SelectItem key={y} value={String(y)}>{y} yr{y !== 1 ? "s" : ""}</SelectItem>)}
                 </SelectContent>
               </Select>
-            </div>
-            <div>
-              <label className="block text-xs font-medium text-[#5A5A5A] mb-1.5">Experience (Max yrs)</label>
+              <span className="text-[#8A8A8A] text-xs">–</span>
               <Select value={expMax || "any"} onValueChange={v => setExpMax(v === "any" ? "" : v)}>
-                <SelectTrigger className="bg-[#F6F6F6] border-gray-200 rounded-xl text-sm h-9"><SelectValue placeholder="Any" /></SelectTrigger>
+                <SelectTrigger className="bg-[#F6F6F6] border-gray-200 rounded-lg text-xs h-8 flex-1"><SelectValue placeholder="Max" /></SelectTrigger>
                 <SelectContent>
                   <SelectItem value="any">Any</SelectItem>
                   {[1, 2, 3, 4, 5, 6, 7, 8, 10, 12, 15, 20].map(y => <SelectItem key={y} value={String(y)}>{y} yr{y !== 1 ? "s" : ""}</SelectItem>)}
                 </SelectContent>
               </Select>
             </div>
-            <div>
-              <label className="block text-xs font-medium text-[#5A5A5A] mb-1.5">Location</label>
-              <LocationAutocomplete
-                value={locationFilter}
-                onChange={setLocationFilter}
-                placeholder="Enter location"
-                inputClassName="text-sm h-9"
+          </div>
+
+          {/* Location */}
+          <div className="px-4 py-3 border-b border-gray-100">
+            <p className="text-xs font-semibold text-[#3A1F1F] mb-2 uppercase tracking-wide">Location</p>
+            <LocationAutocomplete
+              value={locationFilter}
+              onChange={setLocationFilter}
+              placeholder="Enter location"
+              inputClassName="text-xs h-8 bg-[#F6F6F6] border-gray-200 rounded-lg"
+            />
+          </div>
+
+          {/* Expected Salary */}
+          <div className="px-4 py-3 border-b border-gray-100">
+            <p className="text-xs font-semibold text-[#3A1F1F] mb-2 uppercase tracking-wide">Expected Salary (up to)</p>
+            <Select value={salaryFilter || "any"} onValueChange={v => setSalaryFilter(v === "any" ? "" : v)}>
+              <SelectTrigger className="bg-[#F6F6F6] border-gray-200 rounded-lg text-xs h-8"><SelectValue placeholder="Any" /></SelectTrigger>
+              <SelectContent>
+                <SelectItem value="any">Any</SelectItem>
+                {[10, 15, 20, 25, 30, 40, 50].map(v => <SelectItem key={v} value={String(v)}>{v} LPA</SelectItem>)}
+              </SelectContent>
+            </Select>
+          </div>
+
+          {/* Notice Period */}
+          <div className="px-4 py-3 border-b border-gray-100">
+            <p className="text-xs font-semibold text-[#3A1F1F] mb-2 uppercase tracking-wide">Notice Period</p>
+            <Select value={noticePeriodFilter || "any"} onValueChange={v => setNoticePeriodFilter(v === "any" ? "" : v)}>
+              <SelectTrigger className="bg-[#F6F6F6] border-gray-200 rounded-lg text-xs h-8"><SelectValue placeholder="Any" /></SelectTrigger>
+              <SelectContent>
+                <SelectItem value="any">Any</SelectItem>
+                <SelectItem value="immediate">Immediate</SelectItem>
+                <SelectItem value="15">≤ 15 days</SelectItem>
+                <SelectItem value="30">≤ 30 days</SelectItem>
+                <SelectItem value="60">≤ 60 days</SelectItem>
+              </SelectContent>
+            </Select>
+          </div>
+
+          {/* Skills */}
+          <div className="px-4 py-3 relative" ref={skillFilterRef}>
+            <p className="text-xs font-semibold text-[#3A1F1F] mb-2 uppercase tracking-wide">Skills</p>
+            <div className="flex gap-1.5 mb-2 flex-wrap">
+              {skillTags.map(tag => (
+                <span key={tag} className="flex items-center gap-1 bg-[#FF2B2B] text-white text-xs px-2 py-0.5 rounded-full">
+                  {tag}
+                  <button onClick={() => setSkillTags(prev => prev.filter(t => t !== tag))} className="ml-0.5 hover:opacity-75">×</button>
+                </span>
+              ))}
+            </div>
+            <div className="relative flex gap-1">
+              <Input
+                value={skillInput}
+                onChange={e => {
+                  setSkillInput(e.target.value);
+                  setSkillDropdownOpen(true);
+                }}
+                onFocus={() => setSkillDropdownOpen(true)}
+                onKeyDown={e => {
+                  if (e.key === "Enter" || e.key === ",") {
+                    e.preventDefault();
+                    addSkillTag(skillInput);
+                    setSkillDropdownOpen(false);
+                  }
+                }}
+                className="bg-[#F6F6F6] border-gray-200 rounded-lg text-xs h-8 pr-8 flex-1"
+                placeholder="Type skill + Enter"
               />
+              <button
+                type="button"
+                onClick={() => setSkillDropdownOpen(open => !open)}
+                className="absolute right-9 top-1/2 -translate-y-1/2 text-[#8A8A8A] hover:text-[#3A1F1F]"
+              >
+                <ChevronDown className="h-4 w-4" />
+              </button>
+              <button onClick={() => { addSkillTag(skillInput); setSkillDropdownOpen(false); }} className="px-2 py-1 bg-[#FF2B2B] text-white rounded-lg text-xs hover:bg-[#e02525]">+</button>
             </div>
-            <div>
-              <label className="block text-xs font-medium text-[#5A5A5A] mb-1.5">Exp. Salary (up to)</label>
-              <Select value={salaryFilter || "any"} onValueChange={v => setSalaryFilter(v === "any" ? "" : v)}>
-                <SelectTrigger className="bg-[#F6F6F6] border-gray-200 rounded-xl text-sm h-9"><SelectValue placeholder="Any" /></SelectTrigger>
-                <SelectContent>
-                  <SelectItem value="any">Any</SelectItem>
-                  {[10, 15, 20, 25, 30, 40, 50].map(v => <SelectItem key={v} value={String(v)}>{v} LPA</SelectItem>)}
-                </SelectContent>
-              </Select>
-            </div>
-            <div>
-              <label className="block text-xs font-medium text-[#5A5A5A] mb-1.5">Notice Period</label>
-              <Select value={noticePeriodFilter || "any"} onValueChange={v => setNoticePeriodFilter(v === "any" ? "" : v)}>
-                <SelectTrigger className="bg-[#F6F6F6] border-gray-200 rounded-xl text-sm h-9"><SelectValue placeholder="Any" /></SelectTrigger>
-                <SelectContent>
-                  <SelectItem value="any">Any</SelectItem>
-                  <SelectItem value="immediate">Immediate</SelectItem>
-                  <SelectItem value="15">≤ 15 days</SelectItem>
-                  <SelectItem value="30">≤ 30 days</SelectItem>
-                  <SelectItem value="60">≤ 60 days</SelectItem>
-                </SelectContent>
-              </Select>
-            </div>
-            <div className="relative" ref={skillFilterRef}>
-              <label className="block text-xs font-medium text-[#5A5A5A] mb-1.5">Skill</label>
-              <div className="relative">
-                <Input
-                  value={skillFilter}
-                  onChange={e => {
-                    setSkillFilter(e.target.value);
-                    setSkillDropdownOpen(true);
-                  }}
-                  onFocus={() => setSkillDropdownOpen(true)}
-                  className="bg-[#F6F6F6] border-gray-200 rounded-xl text-sm h-9 pr-8"
-                  placeholder="Enter skill"
-                />
-                <button
-                  type="button"
-                  onClick={() => setSkillDropdownOpen(open => !open)}
-                  className="absolute right-2.5 top-1/2 -translate-y-1/2 text-[#8A8A8A] hover:text-[#3A1F1F]"
-                >
-                  <ChevronDown className="h-4 w-4" />
-                </button>
-              </div>
-              {skillDropdownOpen && (
-                <div className="absolute left-0 right-0 top-full z-[100] mt-1 overflow-hidden rounded-xl border border-gray-200 bg-white shadow-lg">
-                  <div className="max-h-48 overflow-y-auto p-1">
-                    {filteredFilterSkillOptions.length === 0 ? (
-                      <div className="px-3 py-2 text-xs text-[#8A8A8A]">No matching skills</div>
-                    ) : (
-                      filteredFilterSkillOptions.map((skill) => (
-                        <button
-                          key={skill}
-                          type="button"
-                          onClick={() => {
-                            setSkillFilter(skill);
-                            setSkillDropdownOpen(false);
-                          }}
-                          className="flex w-full items-center gap-2 rounded-lg px-3 py-1.5 text-left text-xs text-[#3A1F1F] hover:bg-[#FFF0F0]"
-                        >
-                          <Check className={`h-3.5 w-3.5 ${skillFilter.toLowerCase() === skill.toLowerCase() ? "text-[#FF2B2B] opacity-100" : "opacity-0"}`} />
-                          <span>{skill}</span>
-                        </button>
-                      ))
-                    )}
-                  </div>
+            {skillDropdownOpen && (
+              <div className="absolute left-4 right-4 top-full z-[100] mt-1 overflow-hidden rounded-xl border border-gray-200 bg-white shadow-lg">
+                <div className="max-h-48 overflow-y-auto p-1">
+                  {filteredFilterSkillOptions.length === 0 ? (
+                    <div className="px-3 py-2 text-xs text-[#8A8A8A]">No matching skills</div>
+                  ) : (
+                    filteredFilterSkillOptions.map((skill) => (
+                      <button
+                        key={skill}
+                        type="button"
+                        onClick={() => {
+                          addSkillTag(skill);
+                          setSkillDropdownOpen(false);
+                        }}
+                        className="flex w-full items-center gap-2 rounded-lg px-3 py-1.5 text-left text-xs text-[#3A1F1F] hover:bg-[#FFF0F0]"
+                      >
+                        <Check className={`h-3.5 w-3.5 ${skillTags.includes(skill) ? "text-[#FF2B2B] opacity-100" : "opacity-0"}`} />
+                        <span>{skill}</span>
+                      </button>
+                    ))
+                  )}
                 </div>
-              )}
-            </div>
+              </div>
+            )}
           </div>
         </div>
-      )}
+
+        {/* ── RIGHT: Results ── */}
+        <div className="flex-1 min-w-0">
 
       <p className="text-sm text-[#8A8A8A] mb-4">{filtered.length} applicant{filtered.length !== 1 ? "s" : ""}</p>
 
@@ -5319,6 +5359,8 @@ function ApplicantsPage() {
           })}
         </div>
       )}
+        </div>
+      </div>
 
 
       <InterviewDetailsModal
