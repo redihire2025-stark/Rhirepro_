@@ -116,8 +116,6 @@ export default function RecruiterSignIn() {
         throw new Error("This account has been disabled. Please contact your organization admin.");
       }
 
-      // 4. Generate & store OTP
-      const generatedOTP = generateOTP();
       // 4. Fixed OTP for internal test accounts — no email sent
       const isTestAccount = email.trim().toLowerCase().endsWith("@redhire.dev");
       const generatedOTP = isTestAccount ? "000000" : generateOTP();
@@ -147,20 +145,17 @@ export default function RecruiterSignIn() {
     setError("");
     setLoading(true);
     try {
-      const valid = await verifyOTPFromDB(userId, otp.trim());
-      if (!valid) throw new Error("Invalid or expired OTP. Please try again.");
-      await supabase.from("recruiter_profiles").update({ otp_code: null, otp_expires_at: null, last_login_at: new Date().toISOString() }).eq("id", userId);
-      // Dashboard checks profile completion on load and redirects to company-profile if needed
-      navigate(isOrgAdmin ? "/recruiter/org-admin" : "/recruiter/dashboard");
       const isTestAccount = email.trim().toLowerCase().endsWith("@redhire.dev");
       if (isTestAccount) {
         if (otp.trim() !== "000000") throw new Error("Invalid OTP. Test accounts use 000000.");
+        await supabase.from("recruiter_profiles").update({ otp_code: null, otp_expires_at: null, last_login_at: new Date().toISOString() }).eq("id", userId);
       } else {
         const valid = await verifyOTPFromDB(userId, otp.trim());
         if (!valid) throw new Error("Invalid or expired OTP. Please try again.");
-        await supabase.from("recruiter_profiles").update({ otp_code: null, otp_expires_at: null }).eq("id", userId);
+        await supabase.from("recruiter_profiles").update({ otp_code: null, otp_expires_at: null, last_login_at: new Date().toISOString() }).eq("id", userId);
       }
-      navigate("/recruiter/dashboard");
+      // Dashboard checks profile completion on load and redirects to company-profile if needed
+      navigate(isOrgAdmin ? "/recruiter/org-admin" : "/recruiter/dashboard");
     } catch (err: unknown) {
       setError(err instanceof Error ? err.message : "OTP verification failed.");
     } finally {
