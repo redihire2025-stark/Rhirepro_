@@ -1005,6 +1005,13 @@ export default function RecruiterDashboard() {
     ...(isOrgAdmin ? [{ id: "admin", label: "Team Admin", path: "/recruiter/admin" }] : []),
   ];
 
+  // Same items, grouped into dropdown categories so the header nav doesn't overflow.
+  const navGroups: { id: string; label: string; items: typeof navItems }[] = [
+    { id: "hiring", label: "Hiring", items: navItems.filter(i => ["post-job", "manage-jobs", "search-candidates", "applicants"].includes(i.id)) },
+    { id: "insights", label: "Insights", items: navItems.filter(i => i.id === "analytics") },
+    { id: "company", label: "Company", items: navItems.filter(i => ["company-profile", "plans"].includes(i.id)) },
+  ];
+
   if (authLoading) {
     return (
       <div className="min-h-screen bg-[#F6F6F6] flex items-center justify-center">
@@ -1050,17 +1057,51 @@ export default function RecruiterDashboard() {
             </Link>
 
             <nav className="hidden lg:flex items-center gap-1">
-              {navItems.map(item => (
-                <Link key={item.id} to={item.path}>
+              <Link to="/recruiter/dashboard">
+                <Button
+                  variant={currentTab() === "dashboard" ? "default" : "ghost"}
+                  className={`text-sm rounded-full px-4 ${currentTab() === "dashboard" ? "bg-[#FF2B2B] hover:bg-[#e02525]" : ""}`}
+                  size="sm"
+                >
+                  Dashboard
+                </Button>
+              </Link>
+
+              {navGroups.map(group => {
+                const groupActive = group.items.some(i => i.id === currentTab());
+                return (
+                  <DropdownMenu key={group.id}>
+                    <DropdownMenuTrigger asChild>
+                      <Button
+                        variant={groupActive ? "default" : "ghost"}
+                        className={`text-sm rounded-full px-4 ${groupActive ? "bg-[#FF2B2B] hover:bg-[#e02525]" : ""}`}
+                        size="sm"
+                      >
+                        {group.label} <ChevronDown className="ml-1 h-3.5 w-3.5" />
+                      </Button>
+                    </DropdownMenuTrigger>
+                    <DropdownMenuContent align="start">
+                      {group.items.map(item => (
+                        <DropdownMenuItem key={item.id} onClick={() => navigate(item.path)}>
+                          {item.label}
+                        </DropdownMenuItem>
+                      ))}
+                    </DropdownMenuContent>
+                  </DropdownMenu>
+                );
+              })}
+
+              {isOrgAdmin && (
+                <Link to="/recruiter/admin">
                   <Button
-                    variant={currentTab() === item.id ? "default" : "ghost"}
-                    className={`text-sm rounded-full px-4 ${currentTab() === item.id ? "bg-[#FF2B2B] hover:bg-[#e02525]" : ""}`}
+                    variant={currentTab() === "admin" ? "default" : "ghost"}
+                    className={`text-sm rounded-full px-4 ${currentTab() === "admin" ? "bg-[#FF2B2B] hover:bg-[#e02525]" : ""}`}
                     size="sm"
                   >
-                    {item.label}
+                    Team Admin
                   </Button>
                 </Link>
-              ))}
+              )}
             </nav>
 
             <div className="flex items-center gap-2">
