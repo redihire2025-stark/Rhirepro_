@@ -9,6 +9,7 @@ import RecruiterSignIn from "./pages/RecruiterSignIn";
 import RecruiterSignUp from "./pages/RecruiterSignUp";
 import JobSeekerDashboard from "./pages/JobSeekerDashboard";
 import RecruiterDashboard from "./pages/RecruiterDashboard";
+import OrgAdminDashboard from "./pages/OrgAdminDashboard";
 import PlanDetailsPage from "./pages/PlanDetailsPage";
 import PaymentGatewayPage from "./pages/PaymentGatewayPage";
 import PaymentStatusPage from "./pages/PaymentStatusPage";
@@ -154,6 +155,11 @@ export const router = createBrowserRouter([
   {
     path: "/recruiter/dashboard/*",
     Component: RecruiterDashboard,
+    errorElement: <ErrorPage />,
+  },
+  {
+    path: "/recruiter/org-admin/*",
+    Component: OrgAdminDashboard,
     errorElement: <ErrorPage />,
   },
   {
