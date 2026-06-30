@@ -148,7 +148,7 @@ export default function RecruiterSignIn() {
       const isTestAccount = email.trim().toLowerCase().endsWith("@redhire.dev");
       if (isTestAccount) {
         if (otp.trim() !== "000000") throw new Error("Invalid OTP. Test accounts use 000000.");
-        await supabase.from("recruiter_profiles").update({ last_login_at: new Date().toISOString() }).eq("id", userId);
+        await supabase.from("recruiter_profiles").update({ otp_code: null, otp_expires_at: null, last_login_at: new Date().toISOString() }).eq("id", userId);
       } else {
         const valid = await verifyOTPFromDB(userId, otp.trim());
         if (!valid) throw new Error("Invalid or expired OTP. Please try again.");
