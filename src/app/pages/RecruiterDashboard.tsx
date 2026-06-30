@@ -28,6 +28,7 @@ import {
   MessageSquare, Video, Award, BookOpen, Globe, Linkedin, Share2,
   ArrowRight, Target, Zap, RefreshCw, MoreVertical, ThumbsUp, ThumbsDown, ExternalLink, Loader2,
   CreditCard, Tag, ShieldCheck, Crown, Check, Minimize2, ShieldAlert,
+  Menu, X,
 } from "lucide-react";
 import { Button } from "../components/ui/button";
 import { Input } from "../components/ui/input";
@@ -841,6 +842,7 @@ export default function RecruiterDashboard() {
   }, [authLoading, user, navigate]);
 
   const [notificationsOpen, setNotificationsOpen] = useState(false);
+  const [mobileNavOpen, setMobileNavOpen] = useState(false);
   const [notifications, setNotifications] = useState<Notification[]>([]);
   const [unreadCount, setUnreadCount] = useState(0);
 
@@ -1104,6 +1106,14 @@ export default function RecruiterDashboard() {
               )}
             </nav>
 
+            <button
+              className="lg:hidden p-2 -mr-2 text-[#3A1F1F]"
+              onClick={() => setMobileNavOpen(true)}
+              aria-label="Open menu"
+            >
+              <Menu className="h-6 w-6" />
+            </button>
+
             <div className="flex items-center gap-2">
               <div className="relative" ref={notifRef}>
                 <Button variant="ghost" size="icon" className="relative" onClick={() => {
@@ -1161,7 +1171,7 @@ export default function RecruiterDashboard() {
 
               <Button
                 variant="outline"
-                className="border-[#FF2B2B] text-[#FF2B2B] hover:bg-[#FF2B2B] hover:text-white rounded-full"
+                className="hidden sm:inline-flex border-[#FF2B2B] text-[#FF2B2B] hover:bg-[#FF2B2B] hover:text-white rounded-full"
                 onClick={handleSignOut}
               >
                 <LogOut className="mr-2 h-4 w-4" /> Sign Out
@@ -1170,6 +1180,68 @@ export default function RecruiterDashboard() {
           </div>
         </div>
       </header>
+
+      {/* Mobile side nav drawer */}
+      {mobileNavOpen && (
+        <div className="fixed inset-0 z-[300] lg:hidden">
+          <div className="absolute inset-0 bg-black/40" onClick={() => setMobileNavOpen(false)} />
+          <div className="absolute left-0 top-0 bottom-0 w-72 bg-white shadow-2xl overflow-y-auto">
+            <div className="flex items-center justify-between px-4 py-4 border-b border-gray-100">
+              <div className="flex items-center gap-2">
+                <img src={logoImage} alt="RhirePro Logo" className="w-8 h-8" />
+                <div className="text-lg font-bold text-[#3A1F1F]">Rhire<span className="text-[#FF2B2B]">Pro</span></div>
+              </div>
+              <button onClick={() => setMobileNavOpen(false)} aria-label="Close menu" className="p-1 text-[#8A8A8A]">
+                <X className="h-5 w-5" />
+              </button>
+            </div>
+
+            <nav className="p-3 space-y-1">
+              <button
+                onClick={() => { navigate("/recruiter/dashboard"); setMobileNavOpen(false); }}
+                className={`w-full text-left px-3 py-2.5 rounded-xl text-sm font-medium ${currentTab() === "dashboard" ? "bg-[#FF2B2B] text-white" : "text-[#3A1F1F] hover:bg-[#F6F6F6]"}`}
+              >
+                Dashboard
+              </button>
+
+              {navGroups.map(group => (
+                <div key={group.id} className="pt-2">
+                  <p className="px-3 text-[10px] font-bold uppercase tracking-wide text-[#8A8A8A] mb-1">{group.label}</p>
+                  {group.items.map(item => (
+                    <button
+                      key={item.id}
+                      onClick={() => { navigate(item.path); setMobileNavOpen(false); }}
+                      className={`w-full text-left px-3 py-2.5 rounded-xl text-sm font-medium ${currentTab() === item.id ? "bg-[#FF2B2B] text-white" : "text-[#3A1F1F] hover:bg-[#F6F6F6]"}`}
+                    >
+                      {item.label}
+                    </button>
+                  ))}
+                </div>
+              ))}
+
+              {isOrgAdmin && (
+                <div className="pt-2">
+                  <button
+                    onClick={() => { navigate("/recruiter/admin"); setMobileNavOpen(false); }}
+                    className={`w-full text-left px-3 py-2.5 rounded-xl text-sm font-medium ${currentTab() === "admin" ? "bg-[#FF2B2B] text-white" : "text-[#3A1F1F] hover:bg-[#F6F6F6]"}`}
+                  >
+                    Team Admin
+                  </button>
+                </div>
+              )}
+
+              <div className="pt-3 mt-2 border-t border-gray-100">
+                <button
+                  onClick={() => { setMobileNavOpen(false); handleSignOut(); }}
+                  className="w-full text-left px-3 py-2.5 rounded-xl text-sm font-medium text-red-500 hover:bg-red-50 flex items-center gap-2"
+                >
+                  <LogOut className="h-4 w-4" /> Sign Out
+                </button>
+              </div>
+            </nav>
+          </div>
+        </div>
+      )}
 
       <Routes>
         <Route index element={<DashboardOverview />} />
@@ -4924,55 +4996,32 @@ function ApplicantsPage() {
       <div className="flex gap-5 items-start">
         {/* ── LEFT: Filter Sidebar (Naukri ResdEx style) ── */}
         <div className="w-72 flex-shrink-0 space-y-0 bg-white border border-gray-200 rounded-2xl shadow-sm overflow-hidden">
-          {/* Status Tabs Section */}
+          {/* Status Filter — Dropdown */}
           <div className="px-4 py-4 border-b border-gray-100 bg-gradient-to-b from-[#FFF8F8] to-white">
-            <p className="text-xs font-bold text-[#3A1F1F] mb-3 uppercase tracking-wide flex items-center gap-1.5">
+            <p className="text-xs font-bold text-[#3A1F1F] mb-2 uppercase tracking-wide flex items-center gap-1.5">
               <span className="w-1.5 h-1.5 rounded-full bg-[#FF2B2B]" /> Status
             </p>
-            <div className="flex flex-col gap-1.5">
-              {statuses.map(s => {
-                const isAll = s === "All";
-                const stageStyle = !isAll ? PIPELINE_STAGE_STYLES[s as PipelineStage] : null;
-                const isActive = statusFilter === s;
-                const count = isAll ? applicants.length : statusCounts[s];
-                return (
-                  <button
-                    key={s}
-                    onClick={() => setStatusFilter(s)}
-                    className={`group relative flex items-center justify-between pl-3 pr-2.5 py-2 rounded-xl text-xs font-medium transition-all overflow-hidden ${
-                      isActive
-                        ? "shadow-sm ring-1 ring-black/5"
-                        : "hover:bg-[#F9F9F9]"
-                    }`}
-                    style={isActive ? {
-                      backgroundColor: isAll ? "#FFF0F0" : undefined,
-                    } : undefined}
-                  >
-                    {/* Colored accent bar — distinct per pipeline stage */}
-                    <span
-                      className={`absolute left-0 top-0 bottom-0 w-1 rounded-r-full transition-opacity ${
-                        isActive ? "opacity-100" : "opacity-0 group-hover:opacity-40"
-                      } ${isAll ? "bg-[#FF2B2B]" : stageStyle?.bar}`}
-                    />
-                    <span className={`flex items-center gap-2 ${isActive ? (isAll ? "text-[#FF2B2B] font-semibold" : `${stageStyle?.text} font-semibold`) : "text-[#5A5A5A]"}`}>
-                      {!isAll && <span className={`w-1.5 h-1.5 rounded-full ${stageStyle?.bar}`} />}
-                      {s}
-                    </span>
-                    {count > 0 && (
-                      <span
-                        className={`text-[10px] rounded-full px-1.5 py-0.5 font-bold flex-shrink-0 ${
-                          isActive
-                            ? isAll ? "bg-[#FF2B2B] text-white" : `${stageStyle?.badge} ${stageStyle?.text}`
-                            : "bg-gray-100 text-gray-500"
-                        }`}
-                      >
-                        {count}
+            <Select value={statusFilter} onValueChange={setStatusFilter}>
+              <SelectTrigger className="w-full bg-white border-gray-200 rounded-xl text-xs h-9">
+                <SelectValue />
+              </SelectTrigger>
+              <SelectContent>
+                {statuses.map(s => {
+                  const isAll = s === "All";
+                  const stageStyle = !isAll ? PIPELINE_STAGE_STYLES[s as PipelineStage] : null;
+                  const count = isAll ? applicants.length : statusCounts[s];
+                  return (
+                    <SelectItem key={s} value={s}>
+                      <span className="flex items-center gap-2">
+                        <span className={`w-1.5 h-1.5 rounded-full ${isAll ? "bg-[#FF2B2B]" : stageStyle?.bar}`} />
+                        {s}
+                        {count > 0 && <span className="text-[10px] text-gray-400 font-semibold">({count})</span>}
                       </span>
-                    )}
-                  </button>
-                );
-              })}
-            </div>
+                    </SelectItem>
+                  );
+                })}
+              </SelectContent>
+            </Select>
           </div>
 
           <div className="flex items-center justify-between px-4 py-3 border-b border-gray-100">
