@@ -7,6 +7,7 @@ import {
   LogOut, Users, Briefcase, FileText, Calendar, Award, CheckCircle,
   TrendingUp, LayoutGrid, Building2, UsersRound, Shield, ClipboardList,
   BarChart2, CreditCard, Bell as BellIcon, FileClock, Settings, Loader2,
+  ChevronDown,
 } from "lucide-react";
 import { Button } from "../components/ui/button";
 
@@ -29,22 +30,55 @@ const EMPTY_KPIS: OrgKpis = {
   interviewsScheduled: 0, offersReleased: 0, successfulHires: 0,
 };
 
-// Sidebar modules — only "dashboard" is live in this phase. The rest are
-// built one at a time per the implementation plan and will light up here
-// as each module ships, without touching this layout.
-const SIDEBAR_SECTIONS: { id: string; label: string; icon: typeof LayoutGrid; available: boolean }[] = [
-  { id: "dashboard", label: "Dashboard", icon: LayoutGrid, available: true },
-  { id: "organization", label: "Organization", icon: Building2, available: false },
-  { id: "recruiters", label: "Recruiters", icon: UsersRound, available: false },
-  { id: "roles", label: "Roles & Permissions", icon: Shield, available: false },
-  { id: "jobs", label: "Jobs", icon: Briefcase, available: false },
-  { id: "candidates", label: "Candidates", icon: Users, available: false },
-  { id: "pipeline", label: "Interview Pipeline", icon: ClipboardList, available: false },
-  { id: "reports", label: "Reports", icon: BarChart2, available: false },
-  { id: "subscription", label: "Subscription & Billing", icon: CreditCard, available: false },
-  { id: "notifications", label: "Notifications", icon: BellIcon, available: false },
-  { id: "audit", label: "Audit Logs", icon: FileClock, available: false },
-  { id: "settings", label: "Settings", icon: Settings, available: false },
+// Sidebar modules grouped into categories with dropdowns — only "dashboard" is
+// live in this phase. The rest are built one at a time per the implementation
+// plan and will light up here as each module ships, without touching this layout.
+interface SidebarItem { id: string; label: string; icon: typeof LayoutGrid; available: boolean }
+interface SidebarGroup { id: string; label: string; items: SidebarItem[] }
+
+const SIDEBAR_GROUPS: SidebarGroup[] = [
+  {
+    id: "overview",
+    label: "Overview",
+    items: [
+      { id: "dashboard", label: "Dashboard", icon: LayoutGrid, available: true },
+    ],
+  },
+  {
+    id: "organization",
+    label: "Organization",
+    items: [
+      { id: "organization", label: "Organization", icon: Building2, available: false },
+      { id: "recruiters", label: "Recruiters", icon: UsersRound, available: false },
+      { id: "roles", label: "Roles & Permissions", icon: Shield, available: false },
+    ],
+  },
+  {
+    id: "hiring",
+    label: "Hiring",
+    items: [
+      { id: "jobs", label: "Jobs", icon: Briefcase, available: false },
+      { id: "candidates", label: "Candidates", icon: Users, available: false },
+      { id: "pipeline", label: "Interview Pipeline", icon: ClipboardList, available: false },
+    ],
+  },
+  {
+    id: "insights",
+    label: "Insights",
+    items: [
+      { id: "reports", label: "Reports", icon: BarChart2, available: false },
+    ],
+  },
+  {
+    id: "account",
+    label: "Account",
+    items: [
+      { id: "subscription", label: "Subscription & Billing", icon: CreditCard, available: false },
+      { id: "notifications", label: "Notifications", icon: BellIcon, available: false },
+      { id: "audit", label: "Audit Logs", icon: FileClock, available: false },
+      { id: "settings", label: "Settings", icon: Settings, available: false },
+    ],
+  },
 ];
 
 function KpiCard({ icon: Icon, label, value, loading }: { icon: typeof Users; label: string; value: number; loading: boolean }) {
@@ -70,6 +104,15 @@ export default function OrgAdminDashboard() {
   const { user, recruiterProfile, loading: authLoading, signOut, isOrgAdmin: dbIsOrgAdmin } = useAuth();
 
   const [activeSection, setActiveSection] = useState("dashboard");
+  const [openGroups, setOpenGroups] = useState<Record<string, boolean>>(() => {
+    const initial: Record<string, boolean> = {};
+    for (const group of SIDEBAR_GROUPS) {
+      initial[group.id] = group.items.some(item => item.id === "dashboard");
+    }
+    return initial;
+  });
+  const toggleGroup = (groupId: string) =>
+    setOpenGroups(prev => ({ ...prev, [groupId]: !prev[groupId] }));
   const [kpis, setKpis] = useState<OrgKpis>(EMPTY_KPIS);
   const [kpiLoading, setKpiLoading] = useState(true);
 
@@ -199,30 +242,52 @@ export default function OrgAdminDashboard() {
         <aside className="hidden lg:block w-60 flex-shrink-0">
           <div className="bg-white rounded-2xl shadow-sm border border-gray-100 p-3 sticky top-20">
             <nav className="space-y-1">
-              {SIDEBAR_SECTIONS.map(item => {
-                const Icon = item.icon;
-                const isActive = activeSection === item.id;
+              {SIDEBAR_GROUPS.map(group => {
+                const isOpen = !!openGroups[group.id];
+                const groupHasActive = group.items.some(item => item.id === activeSection);
                 return (
-                  <button
-                    key={item.id}
-                    disabled={!item.available}
-                    onClick={() => item.available && setActiveSection(item.id)}
-                    className={`w-full flex items-center justify-between gap-2 px-3 py-2.5 rounded-xl text-sm text-left transition-colors ${
-                      isActive
-                        ? "bg-[#FF2B2B] text-white font-medium"
-                        : item.available
-                        ? "text-[#3A1F1F] hover:bg-[#F6F6F6]"
-                        : "text-[#BABABA] cursor-not-allowed"
-                    }`}
-                  >
-                    <span className="flex items-center gap-2.5">
-                      <Icon className="h-4 w-4" />
-                      {item.label}
-                    </span>
-                    {!item.available && (
-                      <span className="text-[10px] uppercase tracking-wide bg-[#F6F6F6] text-[#BABABA] px-1.5 py-0.5 rounded-full">Soon</span>
+                  <div key={group.id}>
+                    <button
+                      onClick={() => toggleGroup(group.id)}
+                      className={`w-full flex items-center justify-between px-3 py-2 rounded-xl text-xs font-semibold uppercase tracking-wide transition-colors ${
+                        groupHasActive ? "text-[#FF2B2B]" : "text-[#8A8A8A] hover:text-[#3A1F1F]"
+                      }`}
+                    >
+                      {group.label}
+                      <ChevronDown className={`h-3.5 w-3.5 transition-transform ${isOpen ? "rotate-180" : ""}`} />
+                    </button>
+
+                    {isOpen && (
+                      <div className="space-y-1 mb-1">
+                        {group.items.map(item => {
+                          const Icon = item.icon;
+                          const isActive = activeSection === item.id;
+                          return (
+                            <button
+                              key={item.id}
+                              disabled={!item.available}
+                              onClick={() => item.available && setActiveSection(item.id)}
+                              className={`w-full flex items-center justify-between gap-2 px-3 py-2.5 rounded-xl text-sm text-left transition-colors ${
+                                isActive
+                                  ? "bg-[#FF2B2B] text-white font-medium"
+                                  : item.available
+                                  ? "text-[#3A1F1F] hover:bg-[#F6F6F6]"
+                                  : "text-[#BABABA] cursor-not-allowed"
+                              }`}
+                            >
+                              <span className="flex items-center gap-2.5">
+                                <Icon className="h-4 w-4" />
+                                {item.label}
+                              </span>
+                              {!item.available && (
+                                <span className="text-[10px] uppercase tracking-wide bg-[#F6F6F6] text-[#BABABA] px-1.5 py-0.5 rounded-full">Soon</span>
+                              )}
+                            </button>
+                          );
+                        })}
+                      </div>
                     )}
-                  </button>
+                  </div>
                 );
               })}
             </nav>
