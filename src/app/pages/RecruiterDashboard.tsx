@@ -3759,8 +3759,13 @@ function SearchCandidatesPage() {
     }
     try {
       let q = supabase
-        .from("profiles")
-        .select("*, work_experience(*), education(*)");
+  .from("profiles")
+  .select(`
+    id, first_name, last_name, avatar_url, headline, current_title, current_company, location, experience_type, total_experience, skills, about,
+    work_experience(id, company, title, start_date, end_date, description, is_current),
+    education(id, institution, degree, field, start_year, end_year)
+  `);
+
 
       // Server-side: keyword search across text columns (token-based)
       if (activeKeywords.trim()) {
@@ -3778,7 +3783,7 @@ function SearchCandidatesPage() {
       // Server-side: current company override
       if (currentCompany.trim()) q = q.ilike("current_company", `%${currentCompany.trim()}%`);
       const { data } = await q.limit(200);
-      let raw = (data || []) as DBCandidate[];
+      let raw = ((data as any) || []) as DBCandidate[];
 
       // Skill keyword also searches the skills array column
       if (activeKeywords.trim()) {
@@ -3787,11 +3792,15 @@ function SearchCandidatesPage() {
         if (allSkillTerms.length > 0) {
           const { data: skillMatches } = await supabase
             .from("profiles")
-            .select("*, work_experience(*), education(*)")
+            .select(`
+              id, first_name, last_name, avatar_url, headline, current_title, current_company, location, experience_type, total_experience, skills, about,
+              work_experience(id, company, title, start_date, end_date, description, is_current),
+              education(id, institution, degree, field, start_year, end_year)
+            `)
             .overlaps("skills", allSkillTerms);
           if (skillMatches) {
             const ids = new Set(raw.map(r => r.id));
-            (skillMatches as DBCandidate[]).forEach(sm => { if (!ids.has(sm.id)) raw.push(sm); });
+            ((skillMatches as any) as DBCandidate[]).forEach(sm => { if (!ids.has(sm.id)) raw.push(sm); });
           }
         }
       }
@@ -3800,7 +3809,11 @@ function SearchCandidatesPage() {
       if (activeKeywords.trim()) {
         let broadSkillQuery = supabase
           .from("profiles")
-          .select("*, work_experience(*), education(*)");
+          .select(`
+            id, first_name, last_name, avatar_url, headline, current_title, current_company, location, experience_type, total_experience, skills, about,
+            work_experience(id, company, title, start_date, end_date, description, is_current),
+            education(id, institution, degree, field, start_year, end_year)
+          `);
         if (location.trim()) broadSkillQuery = broadSkillQuery.ilike("location", `%${location.trim()}%`);
         if (currentCompany.trim()) broadSkillQuery = broadSkillQuery.ilike("current_company", `%${currentCompany.trim()}%`);
 
@@ -3808,7 +3821,7 @@ function SearchCandidatesPage() {
         if (broadSkillCandidates) {
           const ids = new Set(raw.map(r => r.id));
           const tokens = activeKeywords.trim().toLowerCase().split(/\s+/).filter(Boolean);
-          (broadSkillCandidates as DBCandidate[]).forEach(candidate => {
+          ((broadSkillCandidates as any) as DBCandidate[]).forEach(candidate => {
             if (!ids.has(candidate.id)) {
               const hasSkillMatch = (candidate.skills || []).some(skill =>
                 tokens.some(token => skillsMatch(skill, token))
