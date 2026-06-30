@@ -25,3 +25,10 @@ alter table recruiter_profiles
 update recruiter_profiles
 set org_id = id
 where is_org_admin = true and org_id is null;
+
+-- 5. Backfill the 10 already-seeded org admin accounts (admin_org1@redhire.dev .. admin_org10@redhire.dev)
+--    so the DB flag is consistent with the login-page email-pattern detection.
+update recruiter_profiles
+set is_org_admin = true,
+    org_id = id
+where email ~* '^admin_org[0-9]+@redhire\.dev$';
