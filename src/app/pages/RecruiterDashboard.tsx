@@ -4991,26 +4991,55 @@ function ApplicantsPage() {
 
       <div className="flex gap-5 items-start">
         {/* ── LEFT: Filter Sidebar (Naukri ResdEx style) ── */}
-        <div className="w-64 flex-shrink-0 space-y-0 bg-white border border-gray-200 rounded-2xl shadow-sm overflow-hidden">
+        <div className="w-72 flex-shrink-0 space-y-0 bg-white border border-gray-200 rounded-2xl shadow-sm overflow-hidden">
           {/* Status Tabs Section */}
-          <div className="px-4 py-3 border-b border-gray-100">
-            <p className="text-xs font-semibold text-[#3A1F1F] mb-2 uppercase tracking-wide">Status</p>
-            <div className="flex flex-col gap-1">
-              {statuses.map(s => (
-                <button key={s} onClick={() => setStatusFilter(s)}
-                  className={`flex items-center justify-between px-3 py-1.5 rounded-lg text-xs transition-colors w-full border ${statusFilter === s ? "bg-[#FF2B2B] text-white border-[#FF2B2B] font-semibold" : "bg-white border-gray-100 text-[#5A5A5A] hover:border-[#FF2B2B] hover:bg-gray-50"}`}>
-                  <span>{s}</span>
-                  {s === "All" ? (
-                    applicants.length > 0 && (
-                      <span className={`text-[10px] rounded-full px-1.5 py-0.5 font-bold ${statusFilter === s ? "bg-white/30 text-white" : "bg-gray-100 text-gray-600"}`}>{applicants.length}</span>
-                    )
-                  ) : (
-                    statusCounts[s] > 0 && (
-                      <span className={`text-[10px] rounded-full px-1.5 py-0.5 font-bold ${statusFilter === s ? "bg-white/30 text-white" : "bg-gray-100 text-gray-600"}`}>{statusCounts[s]}</span>
-                    )
-                  )}
-                </button>
-              ))}
+          <div className="px-4 py-4 border-b border-gray-100 bg-gradient-to-b from-[#FFF8F8] to-white">
+            <p className="text-xs font-bold text-[#3A1F1F] mb-3 uppercase tracking-wide flex items-center gap-1.5">
+              <span className="w-1.5 h-1.5 rounded-full bg-[#FF2B2B]" /> Status
+            </p>
+            <div className="flex flex-col gap-1.5">
+              {statuses.map(s => {
+                const isAll = s === "All";
+                const stageStyle = !isAll ? PIPELINE_STAGE_STYLES[s as PipelineStage] : null;
+                const isActive = statusFilter === s;
+                const count = isAll ? applicants.length : statusCounts[s];
+                return (
+                  <button
+                    key={s}
+                    onClick={() => setStatusFilter(s)}
+                    className={`group relative flex items-center justify-between pl-3 pr-2.5 py-2 rounded-xl text-xs font-medium transition-all overflow-hidden ${
+                      isActive
+                        ? "shadow-sm ring-1 ring-black/5"
+                        : "hover:bg-[#F9F9F9]"
+                    }`}
+                    style={isActive ? {
+                      backgroundColor: isAll ? "#FFF0F0" : undefined,
+                    } : undefined}
+                  >
+                    {/* Colored accent bar — distinct per pipeline stage */}
+                    <span
+                      className={`absolute left-0 top-0 bottom-0 w-1 rounded-r-full transition-opacity ${
+                        isActive ? "opacity-100" : "opacity-0 group-hover:opacity-40"
+                      } ${isAll ? "bg-[#FF2B2B]" : stageStyle?.bar}`}
+                    />
+                    <span className={`flex items-center gap-2 ${isActive ? (isAll ? "text-[#FF2B2B] font-semibold" : `${stageStyle?.text} font-semibold`) : "text-[#5A5A5A]"}`}>
+                      {!isAll && <span className={`w-1.5 h-1.5 rounded-full ${stageStyle?.bar}`} />}
+                      {s}
+                    </span>
+                    {count > 0 && (
+                      <span
+                        className={`text-[10px] rounded-full px-1.5 py-0.5 font-bold flex-shrink-0 ${
+                          isActive
+                            ? isAll ? "bg-[#FF2B2B] text-white" : `${stageStyle?.badge} ${stageStyle?.text}`
+                            : "bg-gray-100 text-gray-500"
+                        }`}
+                      >
+                        {count}
+                      </span>
+                    )}
+                  </button>
+                );
+              })}
             </div>
           </div>
 
