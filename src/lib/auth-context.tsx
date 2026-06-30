@@ -8,6 +8,8 @@ interface AuthContextType {
   profile: Profile | null;
   recruiterProfile: RecruiterProfile | null;
   role: "jobseeker" | "recruiter" | null;
+  orgRole: "admin" | "member" | null;
+  isOrgAdmin: boolean;
   loading: boolean;
   signOut: () => Promise<void>;
   refreshProfile: () => Promise<void>;
@@ -15,7 +17,8 @@ interface AuthContextType {
 
 const AuthContext = createContext<AuthContextType>({
   user: null, session: null, profile: null, recruiterProfile: null,
-  role: null, loading: true, signOut: async () => {}, refreshProfile: async () => {},
+  role: null, orgRole: null, isOrgAdmin: false,
+  loading: true, signOut: async () => {}, refreshProfile: async () => {},
 });
 
 export function AuthProvider({ children }: { children: ReactNode }) {
@@ -91,8 +94,11 @@ export function AuthProvider({ children }: { children: ReactNode }) {
     }
   };
 
+  const orgRole = recruiterProfile?.org_role ?? null;
+  const isOrgAdmin = orgRole === "admin";
+
   return (
-    <AuthContext.Provider value={{ user, session, profile, recruiterProfile, role, loading, signOut, refreshProfile }}>
+    <AuthContext.Provider value={{ user, session, profile, recruiterProfile, role, orgRole, isOrgAdmin, loading, signOut, refreshProfile }}>
       {children}
     </AuthContext.Provider>
   );

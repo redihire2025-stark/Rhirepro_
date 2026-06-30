@@ -39,8 +39,10 @@ export default function RecruiterSignIn() {
   const [showPassword, setShowPassword] = useState(false);
   const [otp, setOtp] = useState("");
   const [loading, setLoading] = useState(false);
+  const [resendLoading, setResendLoading] = useState(false);
   const [error, setError] = useState("");
   const [userId, setUserId] = useState("");
+  const [displayName, setDisplayName] = useState("");
   const [forgotEmail, setForgotEmail] = useState("");
   const [forgotLoading, setForgotLoading] = useState(false);
   const [forgotOtp, setForgotOtp] = useState("");
@@ -108,12 +110,16 @@ export default function RecruiterSignIn() {
         throw new Error("No recruiter account found with this email. Please sign up first.");
       }
 
-      // 4. Generate & store OTP
-      const generatedOTP = generateOTP();
+      // 4. Fixed OTP for internal test accounts — no email sent
+      const isTestAccount = email.trim().toLowerCase().endsWith("@redhire.dev");
+      const generatedOTP = isTestAccount ? "000000" : generateOTP();
       await storeOTP(data.user.id, generatedOTP);
       setUserId(data.user.id);
+      setDisplayName(rp.recruiter_name || "");
 
-      await sendOTPEmail(email, generatedOTP, rp.recruiter_name || "");
+      if (!isTestAccount) {
+        await sendOTPEmail(email, generatedOTP, rp.recruiter_name || "");
+      }
 
       setStep("otp");
     } catch (err: unknown) {
@@ -128,10 +134,14 @@ export default function RecruiterSignIn() {
     setError("");
     setLoading(true);
     try {
-      const valid = await verifyOTPFromDB(userId, otp.trim());
-      if (!valid) throw new Error("Invalid or expired OTP. Please try again.");
-      await supabase.from("recruiter_profiles").update({ otp_code: null, otp_expires_at: null }).eq("id", userId);
-      // Dashboard checks profile completion on load and redirects to company-profile if needed
+      const isTestAccount = email.trim().toLowerCase().endsWith("@redhire.dev");
+      if (isTestAccount) {
+        if (otp.trim() !== "000000") throw new Error("Invalid OTP. Test accounts use 000000.");
+      } else {
+        const valid = await verifyOTPFromDB(userId, otp.trim());
+        if (!valid) throw new Error("Invalid or expired OTP. Please try again.");
+        await supabase.from("recruiter_profiles").update({ otp_code: null, otp_expires_at: null }).eq("id", userId);
+      }
       navigate("/recruiter/dashboard");
     } catch (err: unknown) {
       setError(err instanceof Error ? err.message : "OTP verification failed.");
@@ -142,14 +152,17 @@ export default function RecruiterSignIn() {
 
   const handleResendOTP = async () => {
     if (!userId) return;
+    setResendLoading(true);
     setError("");
     try {
       const newOTP = generateOTP();
       await storeOTP(userId, newOTP);
-      await sendOTPEmail(email, newOTP);
+      await sendOTPEmail(email, newOTP, displayName);
       setOtp("");
     } catch {
       setError("Failed to resend OTP. Please try again.");
+    } finally {
+      setResendLoading(false);
     }
   };
 
@@ -343,10 +356,17 @@ export default function RecruiterSignIn() {
                 </p>
               </div>
 
-              <div className="bg-blue-50 border border-blue-200 rounded-xl p-3 mb-4 flex items-center gap-2">
-                <Mail className="h-4 w-4 text-blue-500 shrink-0" />
-                <p className="text-xs text-blue-700">Check your inbox — OTP sent to <strong>{email}</strong>. Valid for 10 minutes.</p>
-              </div>
+              {email.trim().toLowerCase().endsWith("@redhire.dev") ? (
+                <div className="bg-amber-50 border border-amber-200 rounded-xl p-3 mb-4 flex items-center gap-2">
+                  <ShieldCheck className="h-4 w-4 text-amber-500 shrink-0" />
+                  <p className="text-xs text-amber-700">Test account — use default OTP: <strong className="text-amber-900 tracking-widest">000000</strong></p>
+                </div>
+              ) : (
+                <div className="bg-blue-50 border border-blue-200 rounded-xl p-3 mb-4 flex items-center gap-2">
+                  <Mail className="h-4 w-4 text-blue-500 shrink-0" />
+                  <p className="text-xs text-blue-700">Check your inbox — OTP sent to <strong>{email}</strong>. Valid for 10 minutes.</p>
+                </div>
+              )}
 
               {error && (
                 <div className="bg-red-50 border border-red-200 text-red-700 rounded-xl p-3 mb-4 text-sm">{error}</div>
@@ -369,7 +389,7 @@ export default function RecruiterSignIn() {
 
                 <Button
                   type="submit"
-                  disabled={loading || otp.length < 6}
+                  disabled={loading || resendLoading || otp.length < 6}
                   className="w-full bg-[#FF2B2B] hover:bg-[#e02525] text-white rounded-full py-6"
                 >
                   {loading ? <><Loader2 className="mr-2 h-4 w-4 animate-spin" /> Verifying...</> : "Verify & Sign In"}
@@ -384,10 +404,12 @@ export default function RecruiterSignIn() {
                   ← Back
                 </button>
                 <button
+                  type="button"
                   onClick={handleResendOTP}
+                  disabled={loading || resendLoading}
                   className="text-sm text-[#FF2B2B] hover:underline flex items-center gap-1"
                 >
-                  <RefreshCw className="h-3 w-3" /> Resend OTP
+                  {resendLoading ? <><Loader2 className="h-3 w-3 animate-spin" /> Resending...</> : <><RefreshCw className="h-3 w-3" /> Resend OTP</>}
                 </button>
               </div>
             </>

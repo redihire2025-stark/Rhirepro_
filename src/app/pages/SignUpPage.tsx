@@ -3,9 +3,17 @@ import { useNavigate } from "react-router";
 import { Button } from "../components/ui/button";
 import { Input } from "../components/ui/input";
 import { Checkbox } from "../components/ui/checkbox";
-import { User, Briefcase, Mail, Lock, UserCircle, Building2, Phone, Eye, EyeOff, Loader2, CheckCircle } from "lucide-react";
+import { User, Briefcase, Mail, Lock, UserCircle, Building2, Phone, Eye, EyeOff, Loader2, CheckCircle, RefreshCw, ShieldCheck } from "lucide-react";
 const logoImage = new URL("../../logo/logo.png", import.meta.url).href;
 import { supabase } from "../../lib/supabase";
+import { sendOTPEmail } from "../../lib/email";
+
+function generateOTP() {
+  return Math.floor(100000 + Math.random() * 900000).toString();
+}
+
+type PendingOTP = { code: string; expiresAt: number };
+const OTP_EXPIRY_MS = 10 * 60 * 1000;
 
 export default function SignUpPage() {
   const [userType, setUserType] = useState<"jobseeker" | "recruiter">("jobseeker");
@@ -20,8 +28,13 @@ export default function SignUpPage() {
   const [showPassword, setShowPassword] = useState(false);
   const [agreeTerms, setAgreeTerms] = useState(false);
   const [loading, setLoading] = useState(false);
+  const [resendLoading, setResendLoading] = useState(false);
   const [error, setError] = useState("");
   const [success, setSuccess] = useState(false);
+  const [step, setStep] = useState<"signup" | "otp">("signup");
+  const [otp, setOtp] = useState("");
+  const [pendingOTP, setPendingOTP] = useState<PendingOTP | null>(null);
+  const [pendingUserType, setPendingUserType] = useState<"jobseeker" | "recruiter">("jobseeker");
   const navigate = useNavigate();
 
   const set = (field: string, value: string) =>
@@ -42,92 +55,137 @@ export default function SignUpPage() {
 
     setLoading(true);
     try {
-      if (userType === "jobseeker") {
-        // Split full name into first / last
-        const parts = formData.name.trim().split(" ");
-        const firstName = parts[0] || "";
-        const lastName = parts.slice(1).join(" ") || "";
+      const generatedOTP = generateOTP();
+      await sendOTPEmail(formData.email, generatedOTP, formData.name);
 
-        const { data: authData, error: signUpError } = await supabase.auth.signUp({
-          email: formData.email,
-          password: formData.password,
-          options: {
-            data: {
-              role: "jobseeker",
-              first_name: firstName,
-              last_name: lastName,
-              phone: formData.phone,
-            },
-          },
-        });
-
-        if (signUpError) throw signUpError;
-        if (!authData.user) throw new Error("Failed to create account.");
-
-        // Try client-side insert (trigger handles it too, this is a fallback)
-        const { error: profileError } = await supabase.from("profiles").insert({
-          id: authData.user.id,
-          email: formData.email,
-          first_name: firstName,
-          last_name: lastName,
-          phone: formData.phone,
-          experience_type: "fresher",
-        });
-        if (profileError && profileError.code !== "23505") {
-          console.warn("Profile insert (non-fatal):", profileError.message);
-        }
-
-        // If auto-confirmed (email confirmation off), go straight to dashboard
-        const { data: { session } } = await supabase.auth.getSession();
-        if (session) {
-          navigate("/jobseeker/dashboard");
-          return;
-        }
-
-      } else {
-        // Recruiter
-        const { data: authData, error: signUpError } = await supabase.auth.signUp({
-          email: formData.email,
-          password: formData.password,
-          options: {
-            data: {
-              role: "recruiter",
-              recruiter_name: formData.name,
-              company_name: formData.company,
-              phone: formData.phone,
-            },
-          },
-        });
-
-        if (signUpError) throw signUpError;
-        if (!authData.user) throw new Error("Failed to create account.");
-
-        const { error: profileError } = await supabase.from("recruiter_profiles").insert({
-          id: authData.user.id,
-          email: formData.email,
-          recruiter_name: formData.name,
-          company_name: formData.company,
-          phone: formData.phone,
-        });
-        if (profileError && profileError.code !== "23505") {
-          console.warn("Recruiter profile insert (non-fatal):", profileError.message);
-        }
-
-        const { data: { session } } = await supabase.auth.getSession();
-        if (session) {
-          navigate("/recruiter/dashboard");
-          return;
-        }
-      }
-
-      setSuccess(true);
-      setTimeout(() => navigate("/signin"), 3000);
+      setPendingOTP({ code: generatedOTP, expiresAt: Date.now() + OTP_EXPIRY_MS });
+      setPendingUserType(userType);
+      setOtp("");
+      setStep("otp");
     } catch (err: unknown) {
-      const message = err instanceof Error ? err.message : "Sign up failed.";
+      const message = err instanceof Error ? err.message : "Failed to send OTP.";
       setError(message.includes("already registered") ? "An account with this email already exists. Please sign in." : message);
     } finally {
       setLoading(false);
     }
+  };
+
+  const createAccount = async () => {
+    if (pendingUserType === "jobseeker") {
+      const parts = formData.name.trim().split(" ");
+      const firstName = parts[0] || "";
+      const lastName = parts.slice(1).join(" ") || "";
+
+      const { data: authData, error: signUpError } = await supabase.auth.signUp({
+        email: formData.email,
+        password: formData.password,
+        options: {
+          data: {
+            role: "jobseeker",
+            first_name: firstName,
+            last_name: lastName,
+            phone: formData.phone,
+          },
+        },
+      });
+
+      if (signUpError) throw signUpError;
+      if (!authData.user) throw new Error("Failed to create account.");
+      if (authData.user.identities?.length === 0) {
+        throw new Error("An account with this email already exists. Please sign in.");
+      }
+
+      const { error: profileError } = await supabase.from("profiles").upsert({
+        id: authData.user.id,
+        email: formData.email,
+        first_name: firstName,
+        last_name: lastName,
+        phone: formData.phone,
+        experience_type: "fresher",
+      }, { onConflict: "id", ignoreDuplicates: true });
+      if (profileError && profileError.code !== "23505") {
+        console.warn("Profile insert (non-fatal):", profileError.message);
+      }
+    } else {
+      const { data: authData, error: signUpError } = await supabase.auth.signUp({
+        email: formData.email,
+        password: formData.password,
+        options: {
+          data: {
+            role: "recruiter",
+            recruiter_name: formData.name,
+            company_name: formData.company,
+            phone: formData.phone,
+          },
+        },
+      });
+
+      if (signUpError) throw signUpError;
+      if (!authData.user) throw new Error("Failed to create account.");
+      if (authData.user.identities?.length === 0) {
+        throw new Error("An account with this email already exists. Please sign in.");
+      }
+
+      const { error: profileError } = await supabase.from("recruiter_profiles").upsert({
+        id: authData.user.id,
+        email: formData.email,
+        recruiter_name: formData.name,
+        company_name: formData.company,
+        phone: formData.phone,
+      }, { onConflict: "id", ignoreDuplicates: true });
+      if (profileError && profileError.code !== "23505") {
+        console.warn("Recruiter profile insert (non-fatal):", profileError.message);
+      }
+    }
+
+    const { data: { session } } = await supabase.auth.getSession();
+    if (session) {
+      navigate(pendingUserType === "jobseeker" ? "/jobseeker/dashboard" : "/recruiter/dashboard");
+      return;
+    }
+
+    setSuccess(true);
+    setTimeout(() => navigate("/signin"), 3000);
+  };
+
+  const handleVerifyOTP = async (e: React.FormEvent) => {
+    e.preventDefault();
+    setError("");
+    setLoading(true);
+    try {
+      if (!pendingOTP || pendingOTP.expiresAt < Date.now()) {
+        throw new Error("OTP has expired. Please request a new one.");
+      }
+      if (pendingOTP.code !== otp.trim()) throw new Error("Invalid OTP. Please try again.");
+
+      await createAccount();
+      setPendingOTP(null);
+    } catch (err: unknown) {
+      setError(err instanceof Error ? err.message : "OTP verification failed.");
+    } finally {
+      setLoading(false);
+    }
+  };
+
+  const handleResendOTP = async () => {
+    setError("");
+    setResendLoading(true);
+    try {
+      const newOTP = generateOTP();
+      await sendOTPEmail(formData.email, newOTP, formData.name);
+      setPendingOTP({ code: newOTP, expiresAt: Date.now() + OTP_EXPIRY_MS });
+    } catch {
+      setError("Failed to resend OTP. Please try again.");
+    } finally {
+      setResendLoading(false);
+    }
+  };
+
+  const handleBackToSignup = () => {
+    setOtp("");
+    setError("");
+    setPendingOTP(null);
+    setStep("signup");
   };
 
   if (success) {
@@ -149,6 +207,76 @@ export default function SignUpPage() {
             <div className="bg-[#FF2B2B] h-full rounded-full animate-pulse w-full" />
           </div>
           <p className="text-xs text-[#8A8A8A]">Redirecting to Sign In...</p>
+        </div>
+      </div>
+    );
+  }
+
+  if (step === "otp") {
+    return (
+      <div className="min-h-screen bg-gradient-to-br from-[#F6F6F6] to-[#ECECF4] flex items-center justify-center p-4 md:p-8">
+        <div className="w-full max-w-md bg-white rounded-3xl shadow-2xl p-8">
+          <div className="text-center mb-8">
+            <button onClick={() => navigate("/")} className="inline-flex items-center justify-center gap-3">
+              <img src={logoImage} alt="RhirePro Logo" className="w-10 h-10" />
+              <div className="text-2xl font-semibold text-[#3A1F1F]">Rhire<span className="text-[#FF2B2B]">Pro</span></div>
+            </button>
+          </div>
+
+          <div className="w-16 h-16 bg-green-50 rounded-full flex items-center justify-center mx-auto mb-5">
+            <ShieldCheck className="h-8 w-8 text-green-500" />
+          </div>
+          <h2 className="text-2xl font-bold text-[#3A1F1F] mb-1 text-center">OTP Verification</h2>
+          <p className="text-[#8A8A8A] mb-6 text-sm text-center">
+            Enter the 6-digit code sent to<br />
+            <strong className="text-[#3A1F1F]">{formData.email}</strong>
+          </p>
+
+          {error && (
+            <div className="bg-red-50 border border-red-200 text-red-700 rounded-xl p-3 mb-4 text-sm">{error}</div>
+          )}
+
+          <form onSubmit={handleVerifyOTP} className="space-y-4">
+            <div className="bg-blue-50 border border-blue-200 rounded-xl p-3 text-sm text-blue-700 flex items-start gap-3">
+              <Mail className="h-4 w-4 mt-0.5 flex-shrink-0" />
+              <p>OTP sent to <strong>{formData.email}</strong>. Check your inbox - valid for 10 minutes.</p>
+            </div>
+            <div>
+              <label className="block mb-1.5 text-sm font-medium text-[#3A1F1F] text-center">Enter OTP</label>
+              <Input
+                type="text"
+                value={otp}
+                onChange={e => setOtp(e.target.value.replace(/\D/g, "").slice(0, 6))}
+                className="bg-[#ECECF4] border-0 rounded-xl text-center text-2xl tracking-widest"
+                placeholder="------"
+                maxLength={6}
+                required
+                autoFocus
+              />
+            </div>
+            <Button type="submit" disabled={loading || resendLoading || otp.length < 6}
+              className="w-full bg-gradient-to-r from-[#FF2B2B] to-[#e02525] hover:from-[#e02525] hover:to-[#FF2B2B] text-white rounded-full py-5 text-base font-semibold disabled:opacity-50">
+              {loading ? <><Loader2 className="mr-2 h-4 w-4 animate-spin" /> Verifying...</> : "Verify Account"}
+            </Button>
+            <div className="flex items-center justify-between">
+              <button
+                type="button"
+                onClick={handleBackToSignup}
+                disabled={loading || resendLoading}
+                className="text-sm text-[#8A8A8A] hover:text-[#3A1F1F] disabled:opacity-50"
+              >
+                ← Back
+              </button>
+              <button
+                type="button"
+                onClick={handleResendOTP}
+                disabled={loading || resendLoading}
+                className="text-sm text-[#FF2B2B] hover:underline flex items-center gap-1 disabled:opacity-50"
+              >
+                {resendLoading ? <><Loader2 className="h-3 w-3 animate-spin" /> Resending...</> : <><RefreshCw className="h-3 w-3" /> Resend OTP</>}
+              </button>
+            </div>
+          </form>
         </div>
       </div>
     );
@@ -227,7 +355,7 @@ export default function SignUpPage() {
                     <UserCircle className="absolute left-3 top-1/2 -translate-y-1/2 h-5 w-5 text-[#8A8A8A]" />
                     <Input type="text" value={formData.name} onChange={e => set("name", e.target.value)}
                       className="pl-10 bg-[#ECECF4] border-0 rounded-xl py-5 focus-visible:ring-2 focus-visible:ring-[#FF2B2B]"
-                      placeholder={userType === "recruiter" ? "Anita Rao" : "Arjun Mehta"} required />
+                      placeholder={userType === "recruiter" ? "Enter your name" : "Enter full name"} required />
                   </div>
                 </div>
 
@@ -258,7 +386,7 @@ export default function SignUpPage() {
                       <Building2 className="absolute left-3 top-1/2 -translate-y-1/2 h-5 w-5 text-[#8A8A8A]" />
                       <Input type="text" value={formData.company} onChange={e => set("company", e.target.value)}
                         className="pl-10 bg-[#ECECF4] border-0 rounded-xl py-5 focus-visible:ring-2 focus-visible:ring-[#FF2B2B]"
-                        placeholder="TechCorp Inc." required />
+                        placeholder="Enter company name" required />
                     </div>
                   </div>
                 )}

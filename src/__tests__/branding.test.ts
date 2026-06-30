@@ -1,3 +1,4 @@
+/// <reference types="node" />
 import { describe, it, expect } from 'vitest';
 import { generateReportHTML } from '../lib/reportGenerator';
 import { readFileSync } from 'fs';

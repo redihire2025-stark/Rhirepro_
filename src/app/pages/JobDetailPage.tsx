@@ -1,25 +1,62 @@
 import { useEffect, useMemo, useState } from "react";
-import { Menu, MapPin, DollarSign, Clock, ChevronRight, Facebook, Instagram, Twitter, Bell, Star, ArrowRight } from "lucide-react";
+import { Menu, MapPin, DollarSign, Clock, ChevronRight, Facebook, Instagram, Twitter, Bell, Star, ArrowRight, Globe } from "lucide-react";
 import { Button } from "../components/ui/button";
 import { Input } from "../components/ui/input";
 import { Sheet, SheetContent, SheetTrigger, SheetTitle, SheetDescription } from "../components/ui/sheet";
 import { useNavigate, useParams } from "react-router";
 import logoImage from "../../logo/logo.png";
 import { supabase, type Job as DBJob } from "../../lib/supabase";
-import { isJobVisibleToSeekers } from "../../lib/jobs";
+import { formatJobSalary, isJobVisibleToSeekers } from "../../lib/jobs";
 import { isIndianLocation } from "../../lib/locationData";
+import { useAuth } from "../../lib/auth-context";
+import { SafeHtml } from "../components/ui/safe-html";
 
-function formatSalary(job: DBJob): string {
-  if (job.salary_min && job.salary_max && job.salary_type) {
-    return `${job.salary_min}-${job.salary_max} ${job.salary_type}`;
+function parseCompanyDescription(text: string | null | undefined): { aboutCompany: string; companyInfo: string } {
+  const val = (text || "").trim();
+  if (!val) {
+    return { aboutCompany: "", companyInfo: "" };
   }
-  if (job.salary_min && job.salary_type) {
-    return `${job.salary_min}+ ${job.salary_type}`;
+
+  const splitRegex = /(?:<h\d[^>]*>\s*Company\s+Information\s*<\/h\d>|<p[^>]*>\s*<strong>\s*Company\s+Information\s*<\/strong>\s*<\/p>|<strong[^>]*>\s*Company\s+Information\s*<\/strong>|Company\s+Information)/i;
+  const match = val.match(splitRegex);
+  
+  const cleanEmptyTags = (html: string) => {
+    let cleaned = html.trim();
+    while (cleaned.startsWith("<p>&nbsp;</p>") || cleaned.startsWith("<p><br></p>") || cleaned.startsWith("<p></p>")) {
+      if (cleaned.startsWith("<p>&nbsp;</p>")) cleaned = cleaned.substring(13).trim();
+      else if (cleaned.startsWith("<p><br></p>")) cleaned = cleaned.substring(11).trim();
+      else if (cleaned.startsWith("<p></p>")) cleaned = cleaned.substring(7).trim();
+    }
+    while (cleaned.endsWith("<p>&nbsp;</p>") || cleaned.endsWith("<p><br></p>") || cleaned.endsWith("<p></p>")) {
+      if (cleaned.endsWith("<p>&nbsp;</p>")) cleaned = cleaned.substring(0, cleaned.length - 13).trim();
+      else if (cleaned.endsWith("<p><br></p>")) cleaned = cleaned.substring(0, cleaned.length - 11).trim();
+      else if (cleaned.endsWith("<p></p>")) cleaned = cleaned.substring(0, cleaned.length - 7).trim();
+    }
+    return cleaned;
+  };
+
+  if (match && match.index !== undefined) {
+    let aboutPart = val.substring(0, match.index).trim();
+    let infoPart = val.substring(match.index + match[0].length).trim();
+    
+    const aboutHeaderRegex = /^<h\d[^>]*>\s*About\s+Company\s*<\/h\d>/i;
+    aboutPart = aboutPart.replace(aboutHeaderRegex, "").trim();
+    
+    aboutPart = cleanEmptyTags(aboutPart);
+    infoPart = cleanEmptyTags(infoPart);
+    
+    return { aboutCompany: aboutPart, companyInfo: infoPart };
+  } else {
+    let aboutPart = val;
+    const aboutHeaderRegex = /^<h\d[^>]*>\s*About\s+Company\s*<\/h\d>/i;
+    aboutPart = aboutPart.replace(aboutHeaderRegex, "").trim();
+    aboutPart = cleanEmptyTags(aboutPart);
+    return { aboutCompany: aboutPart, companyInfo: "" };
   }
-  return "Salary not disclosed";
 }
 
 function splitBulletContent(value: string | null, fallback: string): string[] {
+
   if (!value) return [fallback];
 
   return value
@@ -37,6 +74,7 @@ export default function JobDetailPage() {
   const [loadError, setLoadError] = useState("");
   const navigate = useNavigate();
   const { id } = useParams();
+  const { role } = useAuth();
 
   useEffect(() => {
     let mounted = true;
@@ -53,7 +91,7 @@ export default function JobDetailPage() {
 
       const { data: currentJob, error: jobError } = await supabase
         .from("jobs")
-        .select("*")
+        .select("*, recruiter:recruiter_profiles(*)")
         .eq("id", id)
         .maybeSingle();
 
@@ -99,9 +137,9 @@ export default function JobDetailPage() {
     return {
       id: job.id,
       title: job.title,
-      company: job.company_name,
+      company: job.recruiter?.company_name || job.company_name,
       location: job.location || "India",
-      salary: formatSalary(job),
+      salary: formatJobSalary(job),
       type: job.employment_type || job.work_mode || "Full-time",
       experience:
         job.experience_min || job.experience_max
@@ -110,8 +148,11 @@ export default function JobDetailPage() {
       description: job.description || "Detailed description will be shared by the recruiter.",
       responsibilities: splitBulletContent(job.roles_responsibilities, "Role responsibilities will be shared by the recruiter."),
       qualifications: splitBulletContent(job.requirements, "Job requirements will be shared by the recruiter."),
+      rawResponsibilities: job.roles_responsibilities,
+      rawQualifications: job.requirements,
       additionalInfo: [
         job.work_mode ? `Work mode: ${job.work_mode}` : "",
+        job.interview_mode ? `Interview mode: ${job.interview_mode}` : "",
         job.education ? `Education: ${job.education}` : "",
         job.openings ? `Openings: ${job.openings}` : "",
       ]
@@ -119,6 +160,15 @@ export default function JobDetailPage() {
         .join(" | "),
     };
   }, [job]);
+
+  const handleApplyClick = () => {
+    if (role === "jobseeker") {
+      navigate("/jobseeker/dashboard");
+      return;
+    }
+
+    navigate(`/jobseeker/signin?redirect=${encodeURIComponent(`/job/${currentJob?.id || id || ""}`)}`);
+  };
 
   if (loading) {
     return (
@@ -128,7 +178,7 @@ export default function JobDetailPage() {
     );
   }
 
-  if (!currentJob) {
+  if (!job || !currentJob) {
     return (
       <div className="min-h-screen bg-[#F6F6F6] flex items-center justify-center px-4">
         <div className="text-center">
@@ -260,7 +310,7 @@ export default function JobDetailPage() {
                         </div>
                         <div className="flex items-center gap-1">
                           <DollarSign className="h-3 w-3 text-[#FF2B2B]" />
-                          {formatSalary(job)}
+                          {formatJobSalary(job)}
                         </div>
                       </div>
                       <Button className="w-full bg-white border border-[#FF2B2B] text-[#FF2B2B] hover:bg-[#FF2B2B] hover:text-white rounded-full text-sm py-2">
@@ -297,15 +347,31 @@ export default function JobDetailPage() {
             <div className="lg:col-span-2 space-y-6">
               {/* Job Header Card */}
               <div className="bg-white rounded-2xl p-8 shadow-md">
-                <div className="flex items-start justify-between mb-6">
+                <div className="flex items-center gap-4 mb-6">
+                  {job.recruiter?.logo_url ? (
+                    <img src={job.recruiter.logo_url} alt="" className="w-16 h-16 rounded-2xl object-cover border border-gray-200" />
+                  ) : (
+                    <div className="w-16 h-16 rounded-2xl bg-red-50 flex items-center justify-center text-[#FF2B2B] font-bold text-2xl border border-gray-200">
+                      {currentJob.company[0]?.toUpperCase() || "C"}
+                    </div>
+                  )}
                   <div>
-                    <div className="flex items-center gap-3 mb-2">
-                      <span className="inline-block bg-[#FF2B2B] text-white px-3 py-1 rounded-full text-sm">
+                    <div className="flex items-center gap-3 mb-1">
+                      <span className="inline-block bg-[#FF2B2B] text-white px-3 py-1 rounded-full text-xs font-semibold">
                         {currentJob.company}
                       </span>
-                      <div className="w-3 h-3 bg-[#FF2B2B] rounded-full"></div>
+                      {job.recruiter && (
+                        <span className="text-xs text-green-600 bg-green-50 px-2 py-0.5 rounded-full font-medium">Verified Company</span>
+                      )}
                     </div>
-                    <h2 className="text-3xl font-bold text-[#3A1F1F] mb-4">{currentJob.title}</h2>
+                    <div className="flex items-center justify-between gap-4 flex-wrap mb-4">
+                      <h2 className="text-3xl font-bold text-[#3A1F1F]">{currentJob.title}</h2>
+                      {job?.created_at && (
+                        <span className="text-sm text-[#8A8A8A] font-medium bg-[#ECECF4] px-3 py-1.5 rounded-full shrink-0">
+                          Posted {new Date(job.created_at).toLocaleDateString('en-US', { day: 'numeric', month: 'short', year: 'numeric' })}
+                        </span>
+                      )}
+                    </div>
                   </div>
                 </div>
 
@@ -333,7 +399,7 @@ export default function JobDetailPage() {
                   </div>
                 </div>
 
-                <Button className="bg-[#FF2B2B] hover:bg-[#e02525] text-white rounded-full px-12 py-6">
+                <Button className="bg-[#FF2B2B] hover:bg-[#e02525] text-white rounded-full px-12 py-6" onClick={handleApplyClick}>
                   Apply Now
                 </Button>
               </div>
@@ -341,29 +407,49 @@ export default function JobDetailPage() {
               {/* Job Description */}
               <div className="bg-white rounded-2xl p-8 shadow-md">
                 <h3 className="text-2xl font-bold text-[#3A1F1F] mb-4">Job Description :</h3>
-                <p className="text-[#8A8A8A] leading-relaxed mb-6">
-                  {currentJob.description}
-                </p>
+                <div className="rich-text-content text-[#8A8A8A] leading-relaxed mb-6 [&_ul]:list-disc [&_ul]:pl-5 [&_ol]:list-decimal [&_ol]:pl-5 [&_h2]:text-base [&_h2]:font-bold [&_h2]:mt-2 [&_h2]:mb-1 [&_h3]:text-sm [&_h3]:font-bold [&_h3]:mt-1.5 [&_h3]:mb-1 [&_a]:text-[#FF2B2B] [&_a]:underline">
+                  <SafeHtml content={currentJob.description} />
+                </div>
 
-                <h3 className="text-2xl font-bold text-[#3A1F1F] mb-4 mt-8">Key Responsibilities:</h3>
-                <ul className="space-y-3 mb-6">
-                  {currentJob.responsibilities.map((item, index) => (
-                    <li key={index} className="flex items-start gap-3">
-                      <div className="w-2 h-2 bg-[#FF2B2B] rounded-full mt-2 flex-shrink-0"></div>
-                      <span className="text-[#8A8A8A]">{item}</span>
-                    </li>
-                  ))}
-                </ul>
+                {currentJob.rawResponsibilities && currentJob.rawResponsibilities.trim() && (
+                  <>
+                    <h3 className="text-2xl font-bold text-[#3A1F1F] mb-4 mt-8">Key Responsibilities:</h3>
+                    {/<[a-z][\s\S]*>/i.test(currentJob.rawResponsibilities) ? (
+                      <div className="rich-text-content text-[#8A8A8A] leading-relaxed mb-6 [&_ul]:list-disc [&_ul]:pl-5 [&_ol]:list-decimal [&_ol]:pl-5 [&_h2]:text-base [&_h2]:font-bold [&_h2]:mt-2 [&_h2]:mb-1 [&_h3]:text-sm [&_h3]:font-bold [&_h3]:mt-1.5 [&_h3]:mb-1 [&_a]:text-[#FF2B2B] [&_a]:underline">
+                        <SafeHtml content={currentJob.rawResponsibilities} />
+                      </div>
+                    ) : (
+                      <ul className="space-y-3 mb-6">
+                        {currentJob.responsibilities.map((item, index) => (
+                          <li key={index} className="flex items-start gap-3">
+                            <div className="w-2 h-2 bg-[#FF2B2B] rounded-full mt-2 flex-shrink-0"></div>
+                            <span className="text-[#8A8A8A]">{item}</span>
+                          </li>
+                        ))}
+                      </ul>
+                    )}
+                  </>
+                )}
 
-                <h3 className="text-2xl font-bold text-[#3A1F1F] mb-4 mt-8">Qualifications:</h3>
-                <ul className="space-y-3 mb-6">
-                  {currentJob.qualifications.map((item, index) => (
-                    <li key={index} className="flex items-start gap-3">
-                      <div className="w-2 h-2 bg-[#FF2B2B] rounded-full mt-2 flex-shrink-0"></div>
-                      <span className="text-[#8A8A8A]">{item}</span>
-                    </li>
-                  ))}
-                </ul>
+                {currentJob.rawQualifications && currentJob.rawQualifications.trim() && (
+                  <>
+                    <h3 className="text-2xl font-bold text-[#3A1F1F] mb-4 mt-8">Qualifications:</h3>
+                    {/<[a-z][\s\S]*>/i.test(currentJob.rawQualifications) ? (
+                      <div className="rich-text-content text-[#8A8A8A] leading-relaxed mb-6 [&_ul]:list-disc [&_ul]:pl-5 [&_ol]:list-decimal [&_ol]:pl-5 [&_h2]:text-base [&_h2]:font-bold [&_h2]:mt-2 [&_h2]:mb-1 [&_h3]:text-sm [&_h3]:font-bold [&_h3]:mt-1.5 [&_h3]:mb-1 [&_a]:text-[#FF2B2B] [&_a]:underline">
+                        <SafeHtml content={currentJob.rawQualifications} />
+                      </div>
+                    ) : (
+                      <ul className="space-y-3 mb-6">
+                        {currentJob.qualifications.map((item, index) => (
+                          <li key={index} className="flex items-start gap-3">
+                            <div className="w-2 h-2 bg-[#FF2B2B] rounded-full mt-2 flex-shrink-0"></div>
+                            <span className="text-[#8A8A8A]">{item}</span>
+                          </li>
+                        ))}
+                      </ul>
+                    )}
+                  </>
+                )}
 
                 {currentJob.additionalInfo && (
                   <p className="text-[#8A8A8A] text-sm italic mt-8">
@@ -371,9 +457,129 @@ export default function JobDetailPage() {
                   </p>
                 )}
 
-                <Button className="mt-8 bg-[#FF2B2B] hover:bg-[#e02525] text-white rounded-full px-12 py-6">
+                <Button className="mt-8 bg-[#FF2B2B] hover:bg-[#e02525] text-white rounded-full px-12 py-6" onClick={handleApplyClick}>
                   Apply Now
                 </Button>
+
+                {job.recruiter && (
+                  <div className="mt-8 pt-6 border-t border-gray-200 space-y-4">
+                    <div className="flex items-center justify-between border-b border-gray-200 pb-3 mb-4">
+                      <h3 className="text-xl font-bold text-[#3A1F1F]">Company Profile</h3>
+                      {job.recruiter.website && (
+                        <a href={job.recruiter.website} target="_blank" rel="noreferrer" className="text-sm text-[#FF2B2B] hover:underline flex items-center gap-1 font-medium">
+                          <Globe className="h-4 w-4" /> Visit Website
+                        </a>
+                      )}
+                    </div>
+
+                    {job.recruiter.tagline && (
+                      <p className="text-base italic text-[#5A5A5A] border-l-4 border-[#FF2B2B] pl-3 mb-4">
+                        "{job.recruiter.tagline}"
+                      </p>
+                    )}
+
+                    {(() => {
+                      const { aboutCompany, companyInfo } = parseCompanyDescription(job.recruiter.company_description);
+                      const hasAbout = aboutCompany && aboutCompany !== "<p><br></p>" && aboutCompany !== "<p></p>";
+                      const hasInfo = companyInfo && companyInfo !== "<p><br></p>" && companyInfo !== "<p></p>";
+
+                      return (
+                        <>
+                          {hasAbout && (
+                            <div className="mb-4">
+                              <h4 className="font-bold text-[#3A1F1F] text-base mb-1.5">About Company</h4>
+                              <div className="text-base text-[#6A6A6A] leading-relaxed [&_ul]:list-disc [&_ul]:pl-5 [&_ol]:list-decimal [&_ol]:pl-5 [&_h2]:text-base [&_h2]:font-bold [&_h2]:mt-2 [&_h2]:mb-1 [&_h3]:text-sm [&_h3]:font-bold [&_h3]:mt-1.5 [&_h3]:mb-1 [&_a]:text-[#FF2B2B] [&_a]:underline">
+                                <SafeHtml content={aboutCompany} />
+                              </div>
+                            </div>
+                          )}
+
+                          <h4 className={`font-bold text-[#3A1F1F] text-base mb-1.5 mt-4 ${
+                            (job.recruiter.tagline || hasAbout)
+                              ? "pt-3 border-t border-gray-100"
+                              : ""
+                          }`}>
+                            Company Information
+                          </h4>
+
+                          {hasInfo && (
+                            <div className="text-base text-[#6A6A6A] leading-relaxed mb-4 [&_ul]:list-disc [&_ul]:pl-5 [&_ol]:list-decimal [&_ol]:pl-5 [&_h2]:text-base [&_h2]:font-bold [&_h2]:mt-2 [&_h2]:mb-1 [&_h3]:text-sm [&_h3]:font-bold [&_h3]:mt-1.5 [&_h3]:mb-1 [&_a]:text-[#FF2B2B] [&_a]:underline">
+                              <SafeHtml content={companyInfo} />
+                            </div>
+                          )}
+                        </>
+                      );
+                    })()}
+                    <div className="grid sm:grid-cols-2 md:grid-cols-3 gap-x-4 gap-y-3 mt-3">
+                      {job.recruiter.industry && (
+                        <div>
+                          <span className="text-[#8A8A8A] block text-sm mb-0.5">Industry</span>
+                          <span className="font-semibold text-[#3A1F1F] text-base">{job.recruiter.industry}</span>
+                        </div>
+                      )}
+                      {job.recruiter.company_type && (
+                        <div>
+                          <span className="text-[#8A8A8A] block text-sm mb-0.5">Company Type</span>
+                          <span className="font-semibold text-[#3A1F1F] text-base">{job.recruiter.company_type}</span>
+                        </div>
+                      )}
+                      {job.recruiter.company_size && (
+                        <div>
+                          <span className="text-[#8A8A8A] block text-sm mb-0.5">Company Size</span>
+                          <span className="font-semibold text-[#3A1F1F] text-base">{job.recruiter.company_size} employees</span>
+                        </div>
+                      )}
+                      {job.recruiter.founded && (
+                        <div>
+                          <span className="text-[#8A8A8A] block text-sm mb-0.5">Founded Year</span>
+                          <span className="font-semibold text-[#3A1F1F] text-base">{job.recruiter.founded}</span>
+                        </div>
+                      )}
+                      {job.recruiter.location && (
+                        <div>
+                          <span className="text-[#8A8A8A] block text-sm mb-0.5">Headquarters</span>
+                          <span className="font-semibold text-[#3A1F1F] text-base flex items-center gap-0.5">
+                            <MapPin className="h-3.5 w-3.5 text-[#FF2B2B]" /> {job.recruiter.location}
+                          </span>
+                        </div>
+                      )}
+                      {job.recruiter.phone && (
+                        <div>
+                          <span className="text-[#8A8A8A] block text-sm mb-0.5">Phone</span>
+                          <span className="font-semibold text-[#3A1F1F] text-base">{job.recruiter.phone}</span>
+                        </div>
+                      )}
+                      {job.recruiter.cin && (
+                        <div>
+                          <span className="text-[#8A8A8A] block text-sm mb-0.5">CIN Number</span>
+                          <span className="font-semibold text-[#3A1F1F] text-base">{job.recruiter.cin}</span>
+                        </div>
+                      )}
+                      {job.recruiter.recruiter_name && (
+                        <div>
+                          <span className="text-[#8A8A8A] block text-sm mb-0.5">HR Contact</span>
+                          <span className="font-semibold text-[#3A1F1F] text-base">{job.recruiter.recruiter_name}</span>
+                        </div>
+                      )}
+                      {job.recruiter.website && (
+                        <div className="col-span-2 md:col-span-3">
+                          <span className="text-[#8A8A8A] block text-sm mb-0.5">Website</span>
+                          <a href={job.recruiter.website} target="_blank" rel="noreferrer" className="font-semibold text-[#FF2B2B] hover:underline truncate block text-base">
+                            {job.recruiter.website}
+                          </a>
+                        </div>
+                      )}
+                      {job.recruiter.linkedin_url && (
+                        <div className="col-span-2 md:col-span-3">
+                          <span className="text-[#8A8A8A] block text-sm mb-0.5">LinkedIn</span>
+                          <a href={job.recruiter.linkedin_url} target="_blank" rel="noreferrer" className="font-semibold text-[#FF2B2B] hover:underline truncate block text-base">
+                            {job.recruiter.linkedin_url}
+                          </a>
+                        </div>
+                      )}
+                    </div>
+                  </div>
+                )}
               </div>
             </div>
           </div>

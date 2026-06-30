@@ -2,6 +2,7 @@
 import { useEffect, useState, useRef } from "react";
 import { useNavigate } from "react-router";
 import { supabase } from "../../lib/supabase";
+import { calculateGst, getPlanById } from "../../lib/plans";
 import { Button } from "../components/ui/button";
 import { CheckCircle, XCircle, RefreshCw, Home, Loader2 } from "lucide-react";
 import logoImage from "../../logo/logo.png";
@@ -13,6 +14,13 @@ export default function PaymentStatusPage() {
   const [status, setStatus] = useState<Status>("verifying");
   const [txnRef, setTxnRef] = useState<string>("");
   const [errorMsg, setErrorMsg] = useState<string>("");
+  const [receipt, setReceipt] = useState<{
+    planName: string;
+    basePrice: number;
+    gstAmount: number;
+    discountAmount: number;
+    totalPaid: number;
+  } | null>(null);
   const verified = useRef(false);
 
   useEffect(() => {
@@ -40,6 +48,15 @@ export default function PaymentStatusPage() {
 
       try {
         ctx = JSON.parse(raw);
+        const plan = getPlanById(ctx.plan_id);
+        const basePrice = plan?.price ?? ctx.amount;
+        setReceipt({
+          planName: plan?.name ?? ctx.plan_id,
+          basePrice,
+          gstAmount: calculateGst(basePrice),
+          discountAmount: ctx.discount_amount ?? 0,
+          totalPaid: ctx.final_amount,
+        });
       } catch {
         setErrorMsg("Invalid transaction data. Please try again.");
         setStatus("failed");
@@ -103,6 +120,32 @@ export default function PaymentStatusPage() {
               </div>
               <h2 className="text-2xl font-bold text-[#3A1F1F] mb-2">Payment Successful!</h2>
               <p className="text-[#8A8A8A] mb-2">Your plan has been activated.</p>
+              {receipt && (
+                <div className="mb-5 rounded-xl border border-gray-100 bg-gray-50 p-4 text-left text-sm">
+                  <div className="mb-2 flex justify-between">
+                    <span className="text-[#8A8A8A]">Plan</span>
+                    <span className="font-medium text-[#3A1F1F]">{receipt.planName}</span>
+                  </div>
+                  <div className="flex justify-between">
+                    <span className="text-[#8A8A8A]">Base Price</span>
+                    <span className="text-[#3A1F1F]">₹{receipt.basePrice}</span>
+                  </div>
+                  <div className="flex justify-between">
+                    <span className="text-[#8A8A8A]">GST (18%)</span>
+                    <span className="text-[#3A1F1F]">₹{receipt.gstAmount}</span>
+                  </div>
+                  {receipt.discountAmount > 0 && (
+                    <div className="flex justify-between text-green-600">
+                      <span>Promo Discount</span>
+                      <span>−₹{receipt.discountAmount}</span>
+                    </div>
+                  )}
+                  <div className="mt-2 flex justify-between border-t border-gray-200 pt-2 font-semibold">
+                    <span className="text-[#3A1F1F]">Total Paid</span>
+                    <span className="text-[#FF2B2B]">₹{receipt.totalPaid}</span>
+                  </div>
+                </div>
+              )}
               {txnRef && (
                 <p className="text-xs text-[#8A8A8A] bg-gray-50 rounded-lg px-3 py-2 mb-6 font-mono break-all">
                   Ref: {txnRef}
