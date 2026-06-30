@@ -121,7 +121,11 @@ export default function RecruiterSignIn() {
       await storeOTP(data.user.id, generatedOTP);
       setUserId(data.user.id);
       setDisplayName(rp.recruiter_name || "");
-      setIsOrgAdmin(!!rp.is_org_admin);
+      // Org admin accounts follow the admin_org{n}@redhire.dev convention (10 companies, org1-org10).
+      // The DB flag (is_org_admin) is the source of truth; the email pattern is a fallback so seeded
+      // org admin accounts route correctly even before the flag has been explicitly backfilled.
+      const isOrgAdminEmail = /^admin_org\d+@redhire\.dev$/i.test(email.trim());
+      setIsOrgAdmin(!!rp.is_org_admin || isOrgAdminEmail);
 
       await sendOTPEmail(email, generatedOTP, rp.recruiter_name || "");
 
