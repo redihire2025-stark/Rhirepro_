@@ -927,10 +927,16 @@ function FindJobPage() {
       setJobsLoading(true);
       setJobsError("");
 
-      let query = supabase
-        .from("jobs")
-        .select("*, recruiter:recruiter_profiles(*)", { count: "exact" })
-        .eq("status", "Active");
+     let query = supabase
+  .from("jobs")
+  .select(
+    `id, title, description, roles_responsibilities, requirements, skills, perks, location, 
+     salary_min, salary_max, salary_type, experience_min, experience_max, employment_type, 
+     work_mode, created_at, status, deadline, deadline_time,
+     recruiter:recruiter_profiles(logo_url, company_name, website, tagline, company_description, industry, company_type, company_size, founded, location)`,
+    { count: "exact" }
+  )
+  .eq("status", "Active");  
 
       const trimmedSearch = searchQuery.trim();
       const shouldShowOnlyRecommended =
@@ -1021,7 +1027,7 @@ function FindJobPage() {
         return;
       }
 
-      const visibleJobs = (data || []).filter((job) => isJobVisibleToSeekers(job));
+      const visibleJobs = ((data as unknown as DBJob[]) || []).filter((job) => isJobVisibleToSeekers(job));
 
       if (shouldShowOnlyRecommended) {
         const recommendationTerms = profileSkills
