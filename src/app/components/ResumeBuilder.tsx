@@ -771,7 +771,7 @@ export function buildResumeHTML(
               <p style="margin:0;font-size:13px;color:#b91c1c;font-weight:600;text-transform:uppercase;letter-spacing:0.5px;">${headline}</p>
             </div>
             <div style="margin-bottom:14px;">
-              <h2 style="margin:0 0 6px;color:#b91c1c;font-size:13px;font-weight:700;text-transform:uppercase;letter-spacing:0.5px;">About Me</h2>
+              <h2 style="margin:0 0 6px;color:#b91c1c;font-size:13px;font-weight:700;text-transform:uppercase;letter-spacing:0.5px;">Professional Summary</h2>
               <p style="margin:0;color:#444;font-size:10.5px;line-height:1.5;text-align:justify;">${summary}</p>
             </div>
             ${page1Experiences.length > 0 ? `
