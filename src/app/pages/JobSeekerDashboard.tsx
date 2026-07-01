@@ -5164,8 +5164,8 @@ function ResumePreviewPage() {
       }
 
       // 5. Load languages
-      if (Array.isArray(profile.languages)) {
-        setLanguages(profile.languages.map((l: any, idx: number) => ({
+      if (profile && Array.isArray((profile as any).languages)) {
+        setLanguages(((profile as any).languages).map((l: any, idx: number) => ({
           id: idx,
           language: l.language || "",
           proficiency: l.proficiency || "Beginner",
@@ -5179,7 +5179,7 @@ function ResumePreviewPage() {
       console.error("Unexpected error loading profile sections:", err);
       setLoading(false);
     });
-  }, [profile?.id, profile?.languages]);
+  }, [profile?.id, (profile as any)?.languages]);
 
   const basicInfo = useMemo(() => {
     const fullName = `${profile?.first_name || ""} ${profile?.last_name || ""}`.trim();
@@ -5189,12 +5189,12 @@ function ResumePreviewPage() {
       phone: profile?.phone || "",
       email: profile?.email || "",
       location: profile?.location || "",
-      linkedin: profile?.linkedin || "",
-      portfolio: profile?.portfolio || "",
+      linkedin: profile?.linkedin_url || "",
+      portfolio: profile?.portfolio_url || "",
     };
   }, [profile]);
 
-  const summary = profile?.summary || "";
+  const summary = profile?.about || "";
   const skills = Array.isArray(profile?.skills)
     ? profile.skills.filter((s): s is string => typeof s === "string")
     : [];
