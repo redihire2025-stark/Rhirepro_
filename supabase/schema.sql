@@ -58,6 +58,19 @@ create table if not exists education (
   created_at   timestamptz default now()
 );
 
+-- ── 3.5. CERTIFICATIONS ──────────────────────────────────────
+create table if not exists certifications (
+  id           uuid primary key default gen_random_uuid(),
+  profile_id   uuid references profiles(id) on delete cascade,
+  name         text not null,
+  issuer       text,
+  issue_date   text,
+  expiry_date  text,
+  no_expiry    boolean not null default false,
+  credential_id text,
+  created_at   timestamptz default now()
+);
+
 -- ── 4. RECRUITER PROFILES ────────────────────────────────────
 create table if not exists recruiter_profiles (
   id                  uuid references auth.users on delete cascade primary key,
@@ -221,6 +234,7 @@ create table if not exists feedback (
 alter table profiles enable row level security;
 alter table work_experience enable row level security;
 alter table education enable row level security;
+alter table certifications enable row level security;
 alter table recruiter_profiles enable row level security;
 alter table jobs enable row level security;
 alter table recruiter_articles enable row level security;
@@ -257,6 +271,16 @@ create policy "Own education"
   on education for all using (profile_id = auth.uid());
 create policy "Recruiters read education"
   on education for select using (
+    exists (select 1 from recruiter_profiles where id = auth.uid())
+  );
+
+-- certifications
+drop policy if exists "Own certifications" on certifications;
+drop policy if exists "Recruiters read certifications" on certifications;
+create policy "Own certifications"
+  on certifications for all using (profile_id = auth.uid());
+create policy "Recruiters read certifications"
+  on certifications for select using (
     exists (select 1 from recruiter_profiles where id = auth.uid())
   );
 
