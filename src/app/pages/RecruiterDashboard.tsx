@@ -3641,7 +3641,7 @@ function SearchCandidatesPage() {
       // Server-side: current company override
       if (currentCompany.trim()) q = q.ilike("current_company", `%${currentCompany.trim()}%`);
       const { data } = await q.limit(200);
-      let raw = ((data as any) || []) as DBCandidate[];
+      let raw = (data as unknown as DBCandidate[]) || [];
 
       // Skill keyword also searches the skills array column
       if (activeKeywords.trim()) {
@@ -3658,7 +3658,7 @@ function SearchCandidatesPage() {
             .overlaps("skills", allSkillTerms);
           if (skillMatches) {
             const ids = new Set(raw.map(r => r.id));
-            ((skillMatches as any) as DBCandidate[]).forEach(sm => { if (!ids.has(sm.id)) raw.push(sm); });
+            (skillMatches as unknown as DBCandidate[]).forEach(sm => { if (!ids.has(sm.id)) raw.push(sm); });
           }
         }
       }
@@ -3679,7 +3679,7 @@ function SearchCandidatesPage() {
         if (broadSkillCandidates) {
           const ids = new Set(raw.map(r => r.id));
           const tokens = activeKeywords.trim().toLowerCase().split(/\s+/).filter(Boolean);
-          ((broadSkillCandidates as any) as DBCandidate[]).forEach(candidate => {
+          (broadSkillCandidates as unknown as DBCandidate[]).forEach(candidate => {
             if (!ids.has(candidate.id)) {
               const hasSkillMatch = (candidate.skills || []).some(skill =>
                 tokens.some(token => skillsMatch(skill, token))

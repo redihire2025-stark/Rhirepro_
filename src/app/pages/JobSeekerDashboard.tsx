@@ -1027,7 +1027,7 @@ function FindJobPage() {
         return;
       }
 
-      const visibleJobs = ((data as any) || []).filter((job: any) => isJobVisibleToSeekers(job)) as DBJob[];
+      const visibleJobs = ((data as unknown as DBJob[]) || []).filter((job) => isJobVisibleToSeekers(job));
 
       if (shouldShowOnlyRecommended) {
         const recommendationTerms = profileSkills
