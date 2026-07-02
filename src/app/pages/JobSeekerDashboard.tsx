@@ -37,6 +37,7 @@ import { fetchGeminiInsights, type GeminiInsightsResult } from "../services/gemi
 import { AppliedJobWithJob, SavedJobWithJob, getAppliedJobs, getSavedJobs } from "../services/jobService";
 import SavedJobsComparePage from "./SavedJobsComparePage";
 import JobShareButton from "../components/JobShareButton";
+import ResumeBuilder, { buildResumeHTML } from "../components/ResumeBuilder";
 import logoImage from "../../logo/logo.png";
 
 // ── Types ──────────────────────────────────────────────────────────────────────
@@ -757,6 +758,15 @@ export default function JobSeekerDashboard() {
   }
   if (!user) return null;
 
+  const isResumePreviewPage = location.pathname.endsWith("/profile/resume");
+  if (isResumePreviewPage) {
+    return (
+      <Routes>
+        <Route path="profile/resume" element={<ResumePreviewPage />} />
+      </Routes>
+    );
+  }
+
   // Show spinner while checking profile completion (only on root path)
   if (checkingCompletion) {
     return (
@@ -864,6 +874,7 @@ export default function JobSeekerDashboard() {
         <Route index element={<FindJobPage />} />
         <Route path="saved-jobs/compare" element={<SavedJobsComparePage />} />
         <Route path="profile" element={<ProfilePage onPendingPrefsChange={setProfilePrefsHasUnsavedChanges} />} />
+        <Route path="profile/resume" element={<ResumePreviewPage />} />
         <Route path="analytics" element={<AnalyticsPage />} />
         <Route path="insights" element={<InsightsPage />} />
       </Routes>
@@ -927,10 +938,16 @@ function FindJobPage() {
       setJobsLoading(true);
       setJobsError("");
 
-      let query = supabase
-        .from("jobs")
-        .select("*, recruiter:recruiter_profiles(*)", { count: "exact" })
-        .eq("status", "Active");
+     let query = supabase
+  .from("jobs")
+  .select(
+    `id, title, description, roles_responsibilities, requirements, skills, perks, location, 
+     salary_min, salary_max, salary_type, experience_min, experience_max, employment_type, 
+     work_mode, created_at, status, deadline, deadline_time,
+     recruiter:recruiter_profiles(logo_url, company_name, website, tagline, company_description, industry, company_type, company_size, founded, location)`,
+    { count: "exact" }
+  )
+  .eq("status", "Active");  
 
       const trimmedSearch = searchQuery.trim();
       const shouldShowOnlyRecommended =
@@ -1021,7 +1038,7 @@ function FindJobPage() {
         return;
       }
 
-      const visibleJobs = (data || []).filter((job) => isJobVisibleToSeekers(job));
+      const visibleJobs = ((data as unknown as DBJob[]) || []).filter((job) => isJobVisibleToSeekers(job));
 
       if (shouldShowOnlyRecommended) {
         const recommendationTerms = profileSkills
@@ -3041,6 +3058,19 @@ function ProfilePage({ onPendingPrefsChange }: { onPendingPrefsChange?: (pending
               </div>
             </label>
           )}
+
+          {/* ── Resume Builder ── */}
+          <ResumeBuilder
+            basicInfo={basicInfo}
+            summary={summary}
+            skills={skills}
+            experiences={experiences}
+            education={education}
+            projects={projects}
+            certifications={certifications}
+            languages={languages}
+            profilePic={profilePic}
+          />
         </div>
 
         {/* ── Preferred Job Settings ── */}
@@ -5005,6 +5035,252 @@ function InsightsPage() {
           )}
         </div>
       </div>
+    </div>
+  );
+}
+
+// ── Resume Preview Page ──────────────────────────────────────────────────────────
+function ResumePreviewPage() {
+  const { profile } = useAuth();
+  const location = useLocation();
+  const queryParams = new URLSearchParams(location.search);
+  const selectedTemplate = queryParams.get("template") || "template-3";
+
+  const [loading, setLoading] = useState(true);
+  const [experiences, setExperiences] = useState<WorkExp[]>([]);
+  const [education, setEducation] = useState<Education[]>([]);
+  const [projects, setProjects] = useState<Project[]>([]);
+  const [certifications, setCertifications] = useState<Certification[]>([]);
+  const [languages, setLanguages] = useState<Language[]>([]);
+
+  useEffect(() => {
+    if (!profile?.id) return;
+
+    const loadProfileSections = async () => {
+      // 1. Load experiences
+      const { data: workExperienceData, error: workExperienceError } = await supabase
+        .from("work_experience")
+        .select("*")
+        .eq("profile_id", profile.id)
+        .order("created_at", { ascending: false });
+
+      if (workExperienceError) {
+        console.error("Error loading work experience:", workExperienceError.message);
+      } else if (workExperienceData && workExperienceData.length > 0) {
+        setExperiences(workExperienceData.map(e => {
+          const startParts = (e.start_date || "").split(" ");
+          const endParts = (e.end_date || "").split(" ");
+          return {
+            id: e.id,
+            title: e.title,
+            company: e.company,
+            location: e.location || "",
+            startMonth: startParts[0] || "Jan",
+            startYear: startParts[1] || "2022",
+            endMonth: endParts[0] || "Jan",
+            endYear: endParts[1] || "2024",
+            current: e.is_current || false,
+            description: e.description || "",
+          };
+        }));
+      }
+
+      // 2. Load education
+      const { data: educationData, error: educationError } = await supabase
+        .from("education")
+        .select("*")
+        .eq("profile_id", profile.id)
+        .order("created_at", { ascending: false });
+
+      if (educationError) {
+        console.error("Error loading education:", educationError.message);
+      } else if (educationData && educationData.length > 0) {
+        setEducation(educationData.map(e => ({
+          id: e.id,
+          degree: e.degree,
+          field: e.field || "",
+          college: e.institution,
+          startYear: e.start_year || "",
+          endYear: e.end_year || "",
+          score: e.score || "",
+        })));
+      }
+
+      // 3. Load projects
+      const { data: projectsData, error: projectsError } = await supabase
+        .from("projects")
+        .select("*")
+        .eq("profile_id", profile.id)
+        .order("created_at", { ascending: false });
+
+      if (projectsError) {
+        console.error("Error loading projects:", projectsError.message);
+      } else if (projectsData && projectsData.length > 0) {
+        setProjects(projectsData.map(p => ({
+          id: p.id,
+          name: p.name,
+          url: p.url || "",
+          startYear: p.start_year || "",
+          endYear: p.end_year || "",
+          description: p.description || "",
+        })));
+      }
+
+      // 4. Load certifications
+      const { data: certificationsData, error: certificationsError } = await supabase
+        .from("certifications")
+        .select("*")
+        .eq("profile_id", profile.id)
+        .order("created_at", { ascending: false });
+
+      if (certificationsError) {
+        console.error("Error loading certifications:", certificationsError.message);
+      } else if (certificationsData && certificationsData.length > 0) {
+        setCertifications(certificationsData.map(c => ({
+          id: c.id,
+          name: c.name,
+          issuer: c.issuer || "",
+          issueDate: c.issue_date || "",
+          expiryDate: c.expiry_date || "",
+          noExpiry: Boolean(c.no_expiry),
+          credentialId: c.credential_id || "",
+        })));
+      }
+
+      // 5. Load languages
+      if (profile && Array.isArray((profile as any).languages)) {
+        setLanguages(((profile as any).languages).map((l: any, idx: number) => ({
+          id: idx,
+          language: l.language || "",
+          proficiency: l.proficiency || "Beginner",
+        })));
+      }
+
+      setLoading(false);
+    };
+
+    loadProfileSections().catch((err) => {
+      console.error("Unexpected error loading profile sections:", err);
+      setLoading(false);
+    });
+  }, [profile?.id, (profile as any)?.languages]);
+
+  const basicInfo = useMemo(() => {
+    const fullName = `${profile?.first_name || ""} ${profile?.last_name || ""}`.trim();
+    return {
+      name: fullName || "Your Name",
+      headline: profile?.headline || "",
+      phone: profile?.phone || "",
+      email: profile?.email || "",
+      location: profile?.location || "",
+      linkedin: profile?.linkedin_url || "",
+      portfolio: profile?.portfolio_url || "",
+    };
+  }, [profile]);
+
+  const summary = profile?.about || "";
+  const skills = Array.isArray(profile?.skills)
+    ? profile.skills.filter((s): s is string => typeof s === "string")
+    : [];
+  const profilePic = profile?.avatar_url || null;
+
+  // Preload avatar to base64 to avoid CORS issues in browsers
+  const [resolvedPic, setResolvedPic] = useState<string | null>(null);
+  useEffect(() => {
+    if (!profilePic) {
+      setResolvedPic(null);
+      return;
+    }
+    let active = true;
+    const convert = async () => {
+      try {
+        const res = await fetch(profilePic, { mode: "cors" });
+        if (res.ok) {
+          const blob = await res.blob();
+          const reader = new FileReader();
+          reader.onloadend = () => {
+            if (active) setResolvedPic(reader.result as string);
+          };
+          reader.readAsDataURL(blob);
+        }
+      } catch {
+        if (active) setResolvedPic(profilePic);
+      }
+    };
+    convert();
+    return () => { active = false; };
+  }, [profilePic]);
+
+  if (loading) {
+    return (
+      <div className="min-h-screen bg-[#F6F6F6] flex items-center justify-center">
+        <div className="text-center">
+          <div className="w-10 h-10 border-4 border-[#FF2B2B] border-t-transparent rounded-full animate-spin mx-auto mb-3" />
+          <p className="text-[#8A8A8A] text-sm">Loading resume preview...</p>
+        </div>
+      </div>
+    );
+  }
+
+  const resumeProps = {
+    basicInfo,
+    summary,
+    skills,
+    experiences,
+    education,
+    projects,
+    certifications,
+    languages,
+    profilePic: resolvedPic,
+  };
+
+  const htmlContent = buildResumeHTML(resumeProps, resolvedPic, selectedTemplate);
+
+  return (
+    <div className="min-h-screen bg-[#F6F6F6] py-10 px-4 flex flex-col items-center gap-6">
+      <style dangerouslySetInnerHTML={{__html: `
+        .resume-page {
+          box-shadow: 0 10px 15px -3px rgba(0, 0, 0, 0.1), 0 4px 6px -2px rgba(0, 0, 0, 0.05);
+          border: 1px solid #E5E7EB;
+          background-color: #ffffff;
+          box-sizing: border-box;
+          margin-bottom: 24px;
+        }
+        .resume-page:last-child {
+          margin-bottom: 0;
+        }
+        @media print {
+          body {
+            padding: 0;
+            background-color: #ffffff;
+            gap: 0;
+          }
+          .resume-page {
+            box-shadow: none;
+            border: none;
+            margin-bottom: 0 !important;
+            page-break-after: always;
+          }
+          .no-print {
+            display: none !important;
+          }
+        }
+      `}} />
+
+      <div className="w-[794px] flex justify-between items-center mb-2 no-print bg-white px-6 py-3 rounded-xl shadow-sm border border-gray-100">
+        <span className="text-sm font-semibold text-gray-700">Resume Preview Mode</span>
+        <button 
+          onClick={() => window.print()}
+          className="bg-[#FF2B2B] hover:bg-[#e02525] text-white font-medium text-xs px-4 py-2 rounded-full cursor-pointer flex items-center gap-1.5 transition-colors"
+        >
+          <svg className="w-3.5 h-3.5" fill="none" viewBox="0 0 24 24" stroke="currentColor" strokeWidth={2}>
+            <path strokeLinecap="round" strokeLinejoin="round" d="M17 17h2a2 2 0 002-2v-4a2 2 0 00-2-2H5a2 2 0 00-2 2v4a2 2 0 002 2h2m2 4h6a2 2 0 002-2v-4a2 2 0 00-2-2H9a2 2 0 00-2 2v4a2 2 0 002 2zm8-12V5a2 2 0 00-2-2H9a2 2 0 00-2 2v4h10z" />
+          </svg>
+          Print / Save PDF
+        </button>
+      </div>
+
+      <div dangerouslySetInnerHTML={{ __html: htmlContent }} />
     </div>
   );
 }
