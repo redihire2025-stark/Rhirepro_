@@ -4346,6 +4346,7 @@ function ApplicantsPage() {
   const [sortBy, setSortBy] = useState<string>("recent");
   const [expandedCareer, setExpandedCareer] = useState<string | null>(null);
   const [profileModal, setProfileModal] = useState<AppWithProfile | null>(null);
+  const [currentPage, setCurrentPage] = useState<number>(1);
 
   // Naukri-style advanced filters
   const [expMin, setExpMin] = useState<string>("");
@@ -4391,10 +4392,15 @@ function ApplicantsPage() {
     setLoading(true);
     const { data } = await supabase
       .from("applications")
-      .select("*, profile:profiles(*, work_experience(*), education(*)), job:jobs(title,id), interview_details(*)")
+      .select(`
+        id, status, applied_at, cover_letter, resume_url, recruiter_id, profile_id, job_id,
+        profile:profiles(id, first_name, last_name, email, avatar_url, headline, location, total_experience, skills, current_title, current_company, expected_salary, notice_period, current_salary, about, work_experience(id, company, title, start_date, end_date, description, is_current), education(id, institution, degree, field, start_year, end_year)),
+        job:jobs(id, title),
+        interview_details(id, interview_message, meeting_url, status, created_at, updated_at)
+      `)
       .eq("recruiter_id", recruiterProfile.id)
       .order("applied_at", { ascending: false });
-    if (data) setApplicants(data as AppWithProfile[]);
+    if (data) setApplicants(data as unknown as AppWithProfile[]);
     setLoading(false);
   }, [recruiterProfile?.id]);
 
@@ -4523,6 +4529,25 @@ function ApplicantsPage() {
       return new Date(b.applied_at).getTime() - new Date(a.applied_at).getTime();
     });
   }, [filtered, sortBy]);
+
+  const ITEMS_PER_PAGE = 20;
+
+  const totalPages = useMemo(() => {
+    return Math.ceil(sortedApplicants.length / ITEMS_PER_PAGE);
+  }, [sortedApplicants]);
+
+  const visibleApplicants = useMemo(() => {
+    return sortedApplicants.slice((currentPage - 1) * ITEMS_PER_PAGE, currentPage * ITEMS_PER_PAGE);
+  }, [sortedApplicants, currentPage]);
+
+  useEffect(() => {
+    setCurrentPage(1);
+  }, [statusFilter, jobFilter, searchTerm, expMin, expMax, locationFilter, salaryFilter, noticePeriodFilter, skillTags, sortBy]);
+
+  // Scroll to top of window when page changes
+  useEffect(() => {
+    window.scrollTo({ top: 0, behavior: "smooth" });
+  }, [currentPage]);
 
   const updateStatus = async (id: string, newStatus: Application["status"]) => {
     const statusWriteAttempts: Record<Application["status"], string[]> = {
@@ -5278,7 +5303,7 @@ function ApplicantsPage() {
             </div>
           ) : (
             <div className="space-y-3">
-              {sortedApplicants.map(applicant => {
+              {visibleApplicants.map(applicant => {
                 const p = applicant.profile;
                 const name = getCandidateDisplayName(p);
                 const initials = getCandidateInitials(name);
@@ -5513,6 +5538,83 @@ function ApplicantsPage() {
                   </div>
                 );
               })}
+              
+              {/* Numbered Pagination Control Bar */}
+              {totalPages > 1 && (
+                <div className="flex items-center justify-between border-t border-gray-100 px-4 py-3 sm:px-6 bg-white rounded-2xl shadow-sm mt-4 border border-gray-200">
+                  <div className="flex flex-1 justify-between sm:hidden">
+                    <button
+                      onClick={() => setCurrentPage(prev => Math.max(prev - 1, 1))}
+                      disabled={currentPage === 1}
+                      className="relative inline-flex items-center rounded-md border border-gray-300 bg-white px-4 py-2 text-sm font-medium text-gray-700 hover:bg-gray-50 disabled:opacity-50 disabled:cursor-not-allowed"
+                    >
+                      Previous
+                    </button>
+                    <button
+                      onClick={() => setCurrentPage(prev => Math.min(prev + 1, totalPages))}
+                      disabled={currentPage === totalPages}
+                      className="relative ml-3 inline-flex items-center rounded-md border border-gray-300 bg-white px-4 py-2 text-sm font-medium text-gray-700 hover:bg-gray-50 disabled:opacity-50 disabled:cursor-not-allowed"
+                    >
+                      Next
+                    </button>
+                  </div>
+                  <div className="hidden sm:flex sm:flex-1 sm:items-center sm:justify-between">
+                    <div>
+                      <p className="text-sm text-gray-700">
+                        Showing <span className="font-semibold text-[#3A1F1F]">{(currentPage - 1) * ITEMS_PER_PAGE + 1}</span> to{' '}
+                        <span className="font-semibold text-[#3A1F1F]">
+                          {Math.min(currentPage * ITEMS_PER_PAGE, sortedApplicants.length)}
+                        </span>{' '}
+                        of <span className="font-semibold text-[#3A1F1F]">{sortedApplicants.length}</span> results
+                      </p>
+                    </div>
+                    <div>
+                      <nav className="isolate inline-flex -space-x-px rounded-xl shadow-sm border border-gray-200" aria-label="Pagination">
+                        <button
+                          onClick={() => setCurrentPage(prev => Math.max(prev - 1, 1))}
+                          disabled={currentPage === 1}
+                          className="relative inline-flex items-center rounded-l-xl px-3 py-2 text-gray-400 ring-1 ring-inset ring-gray-300 hover:bg-gray-50 focus:z-20 focus:outline-offset-0 disabled:opacity-40 disabled:cursor-not-allowed"
+                        >
+                          <span className="sr-only">Previous</span>
+                          &larr;
+                        </button>
+                        {Array.from({ length: Math.min(5, totalPages) }, (_, index) => {
+                          let targetPage = index + 1;
+                          if (currentPage > 3 && totalPages > 5) {
+                            if (currentPage + 2 <= totalPages) {
+                              targetPage = currentPage - 3 + index + 1;
+                            } else {
+                              targetPage = totalPages - 5 + index + 1;
+                            }
+                          }
+                          return (
+                            <button
+                              key={targetPage}
+                              onClick={() => setCurrentPage(targetPage)}
+                              aria-current={currentPage === targetPage ? "page" : undefined}
+                              className={`relative inline-flex items-center px-4 py-2 text-sm font-semibold focus:z-20 focus-visible:outline focus-visible:outline-2 focus-visible:outline-offset-2 ${
+                                currentPage === targetPage
+                                  ? "z-10 bg-[#FF2B2B] text-white focus-visible:outline-[#FF2B2B]"
+                                  : "text-gray-900 ring-1 ring-inset ring-gray-200 hover:bg-gray-50"
+                              }`}
+                            >
+                              {targetPage}
+                            </button>
+                          );
+                        })}
+                        <button
+                          onClick={() => setCurrentPage(prev => Math.min(prev + 1, totalPages))}
+                          disabled={currentPage === totalPages}
+                          className="relative inline-flex items-center rounded-r-xl px-3 py-2 text-gray-400 ring-1 ring-inset ring-gray-300 hover:bg-gray-50 focus:z-20 focus:outline-offset-0 disabled:opacity-40 disabled:cursor-not-allowed"
+                        >
+                          <span className="sr-only">Next</span>
+                          &rarr;
+                        </button>
+                      </nav>
+                    </div>
+                  </div>
+                </div>
+              )}
             </div>
           )}
         </div>
