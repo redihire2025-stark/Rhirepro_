@@ -400,10 +400,10 @@ export default function OrgAdminPanel() {
       <div className="container mx-auto px-4 py-8 max-w-7xl">
         {/* Summary cards */}
         <div className="grid grid-cols-2 md:grid-cols-4 gap-4 mb-8">
-          <SummaryCard icon={<Users className="h-5 w-5 text-[#FF2B2B]" />} label="Team Members" value={`${activeCount} active`} sub={`${members.length} total`} />
-          <SummaryCard icon={<Shield className="h-5 w-5 text-blue-500" />} label="Seats Used" value={`${activeCount} / ${maxSeats}`} sub={`${maxSeats - activeCount} remaining`} />
-          <SummaryCard icon={<Briefcase className="h-5 w-5 text-green-500" />} label="Total Jobs" value={String(teamJobs.length)} sub={`${teamJobs.filter(j => j.status === "Active").length} active`} />
-          <SummaryCard icon={<BarChart2 className="h-5 w-5 text-purple-500" />} label="Total Applications" value={String(teamApps.length)} sub={`${teamApps.filter(a => ["Hired", "Joined"].includes(a.status)).length} hired`} />
+          <SummaryCard icon={<Users className="h-5 w-5 text-[#FF2B2B]" />} label="Team Members" value={`${activeCount} active`} sub={`${members.length} total`} onClick={() => setActiveTab("team")} />
+          <SummaryCard icon={<Shield className="h-5 w-5 text-blue-500" />} label="Sub-Users" value={`${activeCount} / ${maxSeats}`} sub={`${maxSeats - activeCount} remaining`} onClick={() => setActiveTab("team")} />
+          <SummaryCard icon={<Briefcase className="h-5 w-5 text-green-500" />} label="Total Jobs" value={String(teamJobs.length)} sub={`${teamJobs.filter(j => j.status === "Active").length} active`} onClick={() => setActiveTab("jobs")} />
+          <SummaryCard icon={<BarChart2 className="h-5 w-5 text-purple-500" />} label="Total Applications" value={String(teamApps.length)} sub={`${teamApps.filter(a => ["Hired", "Joined"].includes(a.status)).length} hired`} onClick={() => setActiveTab("applications")} />
         </div>
 
         {/* Tabs */}
@@ -431,16 +431,16 @@ export default function OrgAdminPanel() {
             {dataLoading ? <LoadingCard /> : (
               <>
                 <div className="grid grid-cols-2 md:grid-cols-3 xl:grid-cols-5 gap-4 mb-6">
-                  <AnalyticsCard label="Total Recruiters" value={overviewKpis.totalRecruiters} color="text-[#3A1F1F]" />
-                  <AnalyticsCard label="Active Recruiters" value={overviewKpis.activeRecruiters} color="text-green-600" />
-                  <AnalyticsCard label="Total Jobs" value={overviewKpis.totalJobs} color="text-[#3A1F1F]" />
-                  <AnalyticsCard label="Active Jobs" value={overviewKpis.activeJobs} color="text-green-600" />
-                  <AnalyticsCard label="Closed Jobs" value={overviewKpis.closedJobs} color="text-gray-500" />
-                  <AnalyticsCard label="Total Candidates" value={overviewKpis.totalCandidates} color="text-[#3A1F1F]" />
-                  <AnalyticsCard label="Applications Today" value={overviewKpis.applicationsToday} color="text-blue-600" />
-                  <AnalyticsCard label="Interviews Scheduled" value={overviewKpis.interviewsScheduled} color="text-yellow-600" />
-                  <AnalyticsCard label="Offers Released" value={overviewKpis.offersReleased} color="text-orange-600" />
-                  <AnalyticsCard label="Successful Hires" value={overviewKpis.successfulHires} color="text-green-600" />
+                  <AnalyticsCard label="Total Recruiters" value={overviewKpis.totalRecruiters} color="text-[#3A1F1F]" onClick={() => setActiveTab("team")} />
+                  <AnalyticsCard label="Active Recruiters" value={overviewKpis.activeRecruiters} color="text-green-600" onClick={() => setActiveTab("team")} />
+                  <AnalyticsCard label="Total Jobs" value={overviewKpis.totalJobs} color="text-[#3A1F1F]" onClick={() => setActiveTab("jobs")} />
+                  <AnalyticsCard label="Active Jobs" value={overviewKpis.activeJobs} color="text-green-600" onClick={() => setActiveTab("jobs")} />
+                  <AnalyticsCard label="Closed Jobs" value={overviewKpis.closedJobs} color="text-gray-500" onClick={() => setActiveTab("jobs")} />
+                  <AnalyticsCard label="Total Candidates" value={overviewKpis.totalCandidates} color="text-[#3A1F1F]" onClick={() => setActiveTab("team")} />
+                  <AnalyticsCard label="Applications Today" value={overviewKpis.applicationsToday} color="text-blue-600" onClick={() => setActiveTab("applications")} />
+                  <AnalyticsCard label="Interviews Scheduled" value={overviewKpis.interviewsScheduled} color="text-yellow-600" onClick={() => setActiveTab("applications")} />
+                  <AnalyticsCard label="Offers Released" value={overviewKpis.offersReleased} color="text-orange-600" onClick={() => setActiveTab("applications")} />
+                  <AnalyticsCard label="Successful Hires" value={overviewKpis.successfulHires} color="text-green-600" onClick={() => setActiveTab("applications")} />
                 </div>
 
                 <div className="bg-white rounded-2xl shadow-sm border border-gray-100 p-6 flex items-center gap-4">
@@ -464,7 +464,7 @@ export default function OrgAdminPanel() {
             <div className="bg-white rounded-2xl p-6 mb-6 shadow-sm">
               <div className="flex items-center justify-between mb-3">
                 <div>
-                  <h3 className="font-semibold text-[#3A1F1F]">Seat Capacity</h3>
+                  <h3 className="font-semibold text-[#3A1F1F]">Sub User Used</h3>
                   <p className="text-sm text-[#8A8A8A] mt-0.5">
                     {activeCount} of {maxSeats} seats used
                     {maxSeats - activeCount > 0 && ` · ${maxSeats - activeCount} available`}
@@ -742,8 +742,8 @@ export default function OrgAdminPanel() {
                   <option value="all">All statuses</option>
                   {["Applied", "Under Review", "Shortlisted", "Interview Scheduled",
                     "Offered", "Joined", "Hired", "Rejected", "On Hold"].map(s => (
-                    <option key={s} value={s}>{s}</option>
-                  ))}
+                      <option key={s} value={s}>{s}</option>
+                    ))}
                 </select>
               </div>
               {dataLoading ? <LoadingCard /> : (
@@ -957,15 +957,20 @@ export default function OrgAdminPanel() {
 // ─── Sub-components ───────────────────────────────────────────────────────────
 
 function SummaryCard({
-  icon, label, value, sub,
+  icon, label, value, sub, onClick,
 }: {
   icon: React.ReactNode;
   label: string;
   value: string;
   sub: string;
+  onClick?: () => void;
 }) {
   return (
-    <div className="bg-white rounded-2xl p-5 shadow-sm">
+    <div
+      onClick={onClick}
+      className={`bg-white rounded-2xl p-5 shadow-sm border border-gray-100 ${onClick ? "hover:shadow-md cursor-pointer transition-all duration-200 active:scale-[0.98]" : ""
+        }`}
+    >
       <div className="flex items-center gap-3 mb-3">
         <div className="w-9 h-9 rounded-xl bg-[#F6F6F6] flex items-center justify-center">
           {icon}
@@ -978,9 +983,20 @@ function SummaryCard({
   );
 }
 
-function AnalyticsCard({ label, value, color }: { label: string; value: number; color: string }) {
+function AnalyticsCard({
+  label, value, color, onClick,
+}: {
+  label: string;
+  value: number;
+  color: string;
+  onClick?: () => void;
+}) {
   return (
-    <div className="bg-white rounded-2xl p-5 shadow-sm">
+    <div
+      onClick={onClick}
+      className={`bg-white rounded-2xl p-5 shadow-sm border border-gray-100 ${onClick ? "hover:shadow-md cursor-pointer transition-all duration-200 active:scale-[0.98]" : ""
+        }`}
+    >
       <p className="text-xs text-[#8A8A8A] font-medium mb-2">{label}</p>
       <p className={`text-3xl font-bold ${color}`}>{value}</p>
     </div>
