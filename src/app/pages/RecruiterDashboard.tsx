@@ -11,7 +11,6 @@ import {
   formatSalaryRangeFromValues,
   getEffectiveJobStatus,
   getJobDaysRemaining,
-  getJobDeadlineDateValue,
   isJobExpired,
   JOB_EXPIRY_DAYS,
 } from "../../lib/jobs";
@@ -2640,7 +2639,6 @@ function ManageJobsPage() {
       location: job.location || "",
       salaryMin: getSalaryFormValue(job.salary_min),
       salaryMax: getSalaryFormValue(job.salary_max),
-      salaryType: "LPA",
       employmentType: job.employment_type || "",
       workMode: job.work_mode || "",
       openings: String(job.openings),
@@ -4379,10 +4377,10 @@ function ApplicantsPage() {
   const jobTitles = ["All", ...Array.from(new Set(applicants.map(a => a.job?.title).filter(Boolean)))];
 
   const filteredFilterSkillOptions = useMemo(() => {
-    const query = skillFilter.trim().toLowerCase();
+    const query = skillInput.trim().toLowerCase();
     const options = query ? SEARCH_SUGGESTION_DATASET : SKILL_OPTIONS;
     return options.filter(skill => !query || skill.toLowerCase().includes(query)).slice(0, 50);
-  }, [skillFilter]);
+  }, [skillInput]);
 
   useEffect(() => {
     const queryStatus = new URLSearchParams(location.search).get("status") || "All";
@@ -4417,7 +4415,7 @@ function ApplicantsPage() {
     return m ? parseInt(m[1]) : 0;
   };
 
-  const activeFilterCount = [expMin, expMax, locationFilter, salaryFilter, noticePeriodFilter, skillFilter].filter(Boolean).length;
+  const activeFilterCount = [expMin, expMax, locationFilter, salaryFilter, noticePeriodFilter].filter(Boolean).length + skillTags.length;
 
   const filtered = applicants
     .filter(a => statusFilter === "All" || getEffectiveApplicationStage(a) === statusFilter)
@@ -4455,9 +4453,9 @@ function ApplicantsPage() {
       return true;
     })
     .filter(a => {
-      if (!skillFilter) return true;
+      if (skillTags.length === 0) return true;
       const skills = a.profile?.skills || [];
-      return skills.some((s: string) => skillsMatch(s, skillFilter));
+      return skillTags.every(tag => skills.some((s: string) => skillsMatch(s, tag)));
     });
 
   const sortedApplicants = useMemo(() => {
