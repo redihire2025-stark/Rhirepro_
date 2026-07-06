@@ -30,6 +30,15 @@ import {
   Menu, X,
 } from "lucide-react";
 import { Button } from "../components/ui/button";
+import {
+  Pagination,
+  PaginationContent,
+  PaginationItem,
+  PaginationLink,
+  PaginationNext,
+  PaginationPrevious,
+  PaginationEllipsis,
+} from "../components/ui/pagination";
 import { Input } from "../components/ui/input";
 import { Textarea } from "../components/ui/textarea";
 import { RichTextEditor } from "../components/ui/rich-text-editor";
@@ -2619,6 +2628,7 @@ function ManageJobsPage() {
   })[]>([]);
   const [filter, setFilter] = useState("All");
   const [loading, setLoading] = useState(true);
+  const [currentPage, setCurrentPage] = useState<number>(1);
   const [editingJob, setEditingJob] = useState<Job | null>(null);
   const [editForm, setEditForm] = useState({ title: "", location: "", salaryMin: "", salaryMax: "", salaryType: "LPA", employmentType: "", workMode: "", openings: "1", skills: "" });
   const [saving, setSaving] = useState(false);
@@ -2754,6 +2764,30 @@ function ManageJobsPage() {
 
   const filtered = filter === "All" ? jobs : jobs.filter(j => getEffectiveJobStatus(j) === filter);
 
+  const JOBS_PER_PAGE = 10;
+
+  const totalPages = useMemo(() => {
+    return Math.ceil(filtered.length / JOBS_PER_PAGE);
+  }, [filtered]);
+
+  const pageNumbers = useMemo(
+    () => Array.from({ length: totalPages }, (_, index) => index + 1),
+    [totalPages]
+  );
+
+  const visibleJobs = useMemo(() => {
+    return filtered.slice((currentPage - 1) * JOBS_PER_PAGE, currentPage * JOBS_PER_PAGE);
+  }, [filtered, currentPage]);
+
+  useEffect(() => {
+    setCurrentPage(1);
+  }, [filter]);
+
+  // Scroll to top of window when page changes
+  useEffect(() => {
+    window.scrollTo({ top: 0, behavior: "smooth" });
+  }, [currentPage]);
+
   const toggleStatus = async (id: string, currentStatus: string) => {
     const newStatus = currentStatus === "Active" ? "Paused" : "Active";
     await supabase.from("jobs").update({ status: newStatus }).eq("id", id);
@@ -2841,7 +2875,7 @@ function ManageJobsPage() {
         </div>
       ) : (
         <div className="space-y-4">
-          {filtered.map(job => {
+          {visibleJobs.map(job => {
             const effectiveStatus = getEffectiveJobStatus(job);
             const badgeClass = effectiveStatus === "Active"
               ? "bg-green-100 text-green-700"
@@ -3056,6 +3090,78 @@ function ManageJobsPage() {
               </div>
             );
           })}
+          
+          {/* Pagination matching JobSeekerDashboard style */}
+          {totalPages > 1 && (
+            <div className="flex justify-center mt-8 pb-4" id="manage-jobs-pagination">
+              <Pagination>
+                <PaginationContent className="flex-wrap justify-center gap-2">
+                  <PaginationItem>
+                    <PaginationPrevious
+                      href="#manage-jobs-pagination"
+                      onClick={(event) => {
+                        event.preventDefault();
+                        if (currentPage > 1) setCurrentPage((page) => page - 1);
+                      }}
+                      className={currentPage === 1 ? "pointer-events-none opacity-50" : ""}
+                    />
+                  </PaginationItem>
+
+                  {(() => {
+                    const delta = 1;
+                    const range: (number | string)[] = [];
+                    for (let i = 1; i <= totalPages; i++) {
+                      if (i === 1 || i === totalPages || (i >= currentPage - delta && i <= currentPage + delta)) {
+                        range.push(i);
+                      } else if (range[range.length - 1] !== "...") {
+                        range.push("...");
+                      }
+                    }
+                    return range.map((page, idx) => {
+                      if (page === "...") {
+                        return (
+                          <PaginationItem key={`ellipsis-${idx}`}>
+                            <PaginationEllipsis className="text-[#8A8A8A]" />
+                          </PaginationItem>
+                        );
+                      }
+                      const pageNumber = page as number;
+                      return (
+                        <PaginationItem key={pageNumber}>
+                          <PaginationLink
+                            href="#manage-jobs-pagination"
+                            isActive={currentPage === pageNumber}
+                            onClick={(event) => {
+                              event.preventDefault();
+                              setCurrentPage(pageNumber);
+                            }}
+                            className={
+                              currentPage === pageNumber
+                                ? "border-[#FF2B2B] bg-[#FF2B2B] text-white hover:bg-[#e02525] hover:text-white"
+                                : "text-[#3A1F1F]"
+                            }
+                          >
+                            {pageNumber}
+                          </PaginationLink>
+                        </PaginationItem>
+                      );
+                    });
+                  })()}
+
+                  <PaginationItem>
+                    <PaginationNext
+                      href="#manage-jobs-pagination"
+                      onClick={(event) => {
+                        event.preventDefault();
+                        if (currentPage < totalPages) setCurrentPage((page) => page + 1);
+                      }}
+                      className={currentPage === totalPages ? "pointer-events-none opacity-50" : ""}
+                    />
+                  </PaginationItem>
+                </PaginationContent>
+              </Pagination>
+            </div>
+          )}
         </div>
       )}
 
@@ -3626,6 +3732,7 @@ function SearchCandidatesPage() {
   const [sortBy, setSortBy] = useState("relevant");
   const [shortlisted, setShortlisted] = useState<Set<string>>(new Set());
   const [interviewInvited, setInterviewInvited] = useState<Set<string>>(new Set());
+  const [searchPage, setSearchPage] = useState<number>(1);
 
   const toggleShortlist = (id: string) => setShortlisted(prev => { const s = new Set(prev); s.has(id) ? s.delete(id) : s.add(id); return s; });
   const toggleInterview = (id: string) => setInterviewInvited(prev => { const s = new Set(prev); s.has(id) ? s.delete(id) : s.add(id); return s; });
@@ -3920,6 +4027,7 @@ function SearchCandidatesPage() {
         }
       }
 
+      setSearchPage(1);
       setResults(raw);
     } finally {
       setSearching(false);
@@ -3932,7 +4040,28 @@ function SearchCandidatesPage() {
     setExpMin(""); setExpMax(""); setCurSalMin(""); setCurSalMax("");
     setExpSalMax(""); setNoticePeriod(""); setEducation("");
     setIndustry(""); setCurrentCompany(""); setExpType(""); setSkillTags([]);
+    setSearchPage(1);
   };
+
+  const CANDIDATES_PER_PAGE = 20;
+
+  const totalSearchPages = useMemo(() => {
+    return Math.ceil(results.length / CANDIDATES_PER_PAGE);
+  }, [results]);
+
+  const searchPageNumbers = useMemo(
+    () => Array.from({ length: totalSearchPages }, (_, index) => index + 1),
+    [totalSearchPages]
+  );
+
+  const visibleCandidates = useMemo(() => {
+    return results.slice((searchPage - 1) * CANDIDATES_PER_PAGE, searchPage * CANDIDATES_PER_PAGE);
+  }, [results, searchPage]);
+
+  // Scroll to top of window when search page changes
+  useEffect(() => {
+    window.scrollTo({ top: 0, behavior: "smooth" });
+  }, [searchPage]);
 
   const activeFilterCount = [expMin, expMax, curSalMin, curSalMax, expSalMax, noticePeriod, education, industry, currentCompany, expType].filter(Boolean).length + skillTags.length;
 
@@ -4177,7 +4306,7 @@ function SearchCandidatesPage() {
               </div>
 
               <div className="space-y-3">
-                {results.map(c => {
+                {visibleCandidates.map(c => {
                   const name = getCandidateDisplayName(c);
                   const initials = getCandidateInitials(name);
                   const skills = c.skills || [];
@@ -4285,6 +4414,78 @@ function SearchCandidatesPage() {
                   );
                 })}
               </div>
+
+              {/* Pagination matching JobSeekerDashboard style */}
+              {totalSearchPages > 1 && (
+                <div className="flex justify-center mt-8 pb-12" id="candidates-results-pagination">
+                  <Pagination>
+                    <PaginationContent className="flex-wrap justify-center gap-2">
+                      <PaginationItem>
+                        <PaginationPrevious
+                          href="#candidates-results-pagination"
+                          onClick={(event) => {
+                            event.preventDefault();
+                            if (searchPage > 1) setSearchPage((page) => page - 1);
+                          }}
+                          className={searchPage === 1 ? "pointer-events-none opacity-50" : ""}
+                        />
+                      </PaginationItem>
+
+                      {(() => {
+                        const delta = 1;
+                        const range: (number | string)[] = [];
+                        for (let i = 1; i <= totalSearchPages; i++) {
+                          if (i === 1 || i === totalSearchPages || (i >= searchPage - delta && i <= searchPage + delta)) {
+                            range.push(i);
+                          } else if (range[range.length - 1] !== "...") {
+                            range.push("...");
+                          }
+                        }
+                        return range.map((page, idx) => {
+                          if (page === "...") {
+                            return (
+                              <PaginationItem key={`ellipsis-${idx}`}>
+                                <PaginationEllipsis className="text-[#8A8A8A]" />
+                              </PaginationItem>
+                            );
+                          }
+                          const pageNumber = page as number;
+                          return (
+                            <PaginationItem key={pageNumber}>
+                              <PaginationLink
+                                href="#candidates-results-pagination"
+                                isActive={searchPage === pageNumber}
+                                onClick={(event) => {
+                                  event.preventDefault();
+                                  setSearchPage(pageNumber);
+                                }}
+                                className={
+                                  searchPage === pageNumber
+                                    ? "border-[#FF2B2B] bg-[#FF2B2B] text-white hover:bg-[#e02525] hover:text-white"
+                                    : "text-[#3A1F1F]"
+                                }
+                              >
+                                {pageNumber}
+                              </PaginationLink>
+                            </PaginationItem>
+                          );
+                        });
+                      })()}
+
+                      <PaginationItem>
+                        <PaginationNext
+                          href="#candidates-results-pagination"
+                          onClick={(event) => {
+                            event.preventDefault();
+                            if (searchPage < totalSearchPages) setSearchPage((page) => page + 1);
+                          }}
+                          className={searchPage === totalSearchPages ? "pointer-events-none opacity-50" : ""}
+                        />
+                      </PaginationItem>
+                    </PaginationContent>
+                  </Pagination>
+                </div>
+              )}
             </>
           )}
         </div>
@@ -5541,78 +5742,73 @@ function ApplicantsPage() {
               
               {/* Numbered Pagination Control Bar */}
               {totalPages > 1 && (
-                <div className="flex items-center justify-between border-t border-gray-100 px-4 py-3 sm:px-6 bg-white rounded-2xl shadow-sm mt-4 border border-gray-200">
-                  <div className="flex flex-1 justify-between sm:hidden">
-                    <button
-                      onClick={() => setCurrentPage(prev => Math.max(prev - 1, 1))}
-                      disabled={currentPage === 1}
-                      className="relative inline-flex items-center rounded-md border border-gray-300 bg-white px-4 py-2 text-sm font-medium text-gray-700 hover:bg-gray-50 disabled:opacity-50 disabled:cursor-not-allowed"
-                    >
-                      Previous
-                    </button>
-                    <button
-                      onClick={() => setCurrentPage(prev => Math.min(prev + 1, totalPages))}
-                      disabled={currentPage === totalPages}
-                      className="relative ml-3 inline-flex items-center rounded-md border border-gray-300 bg-white px-4 py-2 text-sm font-medium text-gray-700 hover:bg-gray-50 disabled:opacity-50 disabled:cursor-not-allowed"
-                    >
-                      Next
-                    </button>
-                  </div>
-                  <div className="hidden sm:flex sm:flex-1 sm:items-center sm:justify-between">
-                    <div>
-                      <p className="text-sm text-gray-700">
-                        Showing <span className="font-semibold text-[#3A1F1F]">{(currentPage - 1) * ITEMS_PER_PAGE + 1}</span> to{' '}
-                        <span className="font-semibold text-[#3A1F1F]">
-                          {Math.min(currentPage * ITEMS_PER_PAGE, sortedApplicants.length)}
-                        </span>{' '}
-                        of <span className="font-semibold text-[#3A1F1F]">{sortedApplicants.length}</span> results
-                      </p>
-                    </div>
-                    <div>
-                      <nav className="isolate inline-flex -space-x-px rounded-xl shadow-sm border border-gray-200" aria-label="Pagination">
-                        <button
-                          onClick={() => setCurrentPage(prev => Math.max(prev - 1, 1))}
-                          disabled={currentPage === 1}
-                          className="relative inline-flex items-center rounded-l-xl px-3 py-2 text-gray-400 ring-1 ring-inset ring-gray-300 hover:bg-gray-50 focus:z-20 focus:outline-offset-0 disabled:opacity-40 disabled:cursor-not-allowed"
-                        >
-                          <span className="sr-only">Previous</span>
-                          &larr;
-                        </button>
-                        {Array.from({ length: Math.min(5, totalPages) }, (_, index) => {
-                          let targetPage = index + 1;
-                          if (currentPage > 3 && totalPages > 5) {
-                            if (currentPage + 2 <= totalPages) {
-                              targetPage = currentPage - 3 + index + 1;
-                            } else {
-                              targetPage = totalPages - 5 + index + 1;
-                            }
+                <div className="flex justify-center mt-8 pb-4" id="applicants-pagination">
+                  <Pagination>
+                    <PaginationContent className="flex-wrap justify-center gap-2">
+                      <PaginationItem>
+                        <PaginationPrevious
+                          href="#applicants-pagination"
+                          onClick={(event) => {
+                            event.preventDefault();
+                            if (currentPage > 1) setCurrentPage((page) => page - 1);
+                          }}
+                          className={currentPage === 1 ? "pointer-events-none opacity-50" : ""}
+                        />
+                      </PaginationItem>
+
+                      {(() => {
+                        const delta = 1;
+                        const range: (number | string)[] = [];
+                        for (let i = 1; i <= totalPages; i++) {
+                          if (i === 1 || i === totalPages || (i >= currentPage - delta && i <= currentPage + delta)) {
+                            range.push(i);
+                          } else if (range[range.length - 1] !== "...") {
+                            range.push("...");
                           }
+                        }
+                        return range.map((page, idx) => {
+                          if (page === "...") {
+                            return (
+                              <PaginationItem key={`ellipsis-${idx}`}>
+                                <PaginationEllipsis className="text-[#8A8A8A]" />
+                              </PaginationItem>
+                            );
+                          }
+                          const pageNumber = page as number;
                           return (
-                            <button
-                              key={targetPage}
-                              onClick={() => setCurrentPage(targetPage)}
-                              aria-current={currentPage === targetPage ? "page" : undefined}
-                              className={`relative inline-flex items-center px-4 py-2 text-sm font-semibold focus:z-20 focus-visible:outline focus-visible:outline-2 focus-visible:outline-offset-2 ${
-                                currentPage === targetPage
-                                  ? "z-10 bg-[#FF2B2B] text-white focus-visible:outline-[#FF2B2B]"
-                                  : "text-gray-900 ring-1 ring-inset ring-gray-200 hover:bg-gray-50"
-                              }`}
-                            >
-                              {targetPage}
-                            </button>
+                            <PaginationItem key={pageNumber}>
+                              <PaginationLink
+                                href="#applicants-pagination"
+                                isActive={currentPage === pageNumber}
+                                onClick={(event) => {
+                                  event.preventDefault();
+                                  setCurrentPage(pageNumber);
+                                }}
+                                className={
+                                  currentPage === pageNumber
+                                    ? "border-[#FF2B2B] bg-[#FF2B2B] text-white hover:bg-[#e02525] hover:text-white"
+                                    : "text-[#3A1F1F]"
+                                }
+                              >
+                                {pageNumber}
+                              </PaginationLink>
+                            </PaginationItem>
                           );
-                        })}
-                        <button
-                          onClick={() => setCurrentPage(prev => Math.min(prev + 1, totalPages))}
-                          disabled={currentPage === totalPages}
-                          className="relative inline-flex items-center rounded-r-xl px-3 py-2 text-gray-400 ring-1 ring-inset ring-gray-300 hover:bg-gray-50 focus:z-20 focus:outline-offset-0 disabled:opacity-40 disabled:cursor-not-allowed"
-                        >
-                          <span className="sr-only">Next</span>
-                          &rarr;
-                        </button>
-                      </nav>
-                    </div>
-                  </div>
+                        });
+                      })()}
+
+                      <PaginationItem>
+                        <PaginationNext
+                          href="#applicants-pagination"
+                          onClick={(event) => {
+                            event.preventDefault();
+                            if (currentPage < totalPages) setCurrentPage((page) => page + 1);
+                          }}
+                          className={currentPage === totalPages ? "pointer-events-none opacity-50" : ""}
+                        />
+                      </PaginationItem>
+                    </PaginationContent>
+                  </Pagination>
                 </div>
               )}
             </div>

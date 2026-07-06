@@ -26,6 +26,7 @@ import {
   PaginationLink,
   PaginationNext,
   PaginationPrevious,
+  PaginationEllipsis,
 } from "../components/ui/pagination";
 import { Textarea } from "../components/ui/textarea";
 import { Select, SelectContent, SelectItem, SelectTrigger, SelectValue } from "../components/ui/select";
@@ -945,7 +946,7 @@ function FindJobPage() {
   .select(
     `id, title, description, roles_responsibilities, requirements, skills, perks, location, 
      salary_min, salary_max, salary_type, experience_min, experience_max, employment_type, 
-     work_mode, created_at, status, deadline, deadline_time,
+     work_mode, created_at, status, deadline, deadline_time, recruiter_id,
      recruiter:recruiter_profiles(logo_url, company_name, website, tagline, company_description, industry, company_type, company_size, founded, location)`,
     { count: "exact" }
   )
@@ -1349,25 +1350,46 @@ function FindJobPage() {
                       />
                     </PaginationItem>
 
-                    {pageNumbers.map((pageNumber) => (
-                      <PaginationItem key={pageNumber}>
-                        <PaginationLink
-                          href="#job-results-pagination"
-                          isActive={currentPage === pageNumber}
-                          onClick={(event) => {
-                            event.preventDefault();
-                            setCurrentPage(pageNumber);
-                          }}
-                          className={
-                            currentPage === pageNumber
-                              ? "border-[#FF2B2B] bg-[#FF2B2B] text-white hover:bg-[#e02525] hover:text-white"
-                              : "text-[#3A1F1F]"
-                          }
-                        >
-                          {pageNumber}
-                        </PaginationLink>
-                      </PaginationItem>
-                    ))}
+                    {(() => {
+                      const delta = 1;
+                      const range: (number | string)[] = [];
+                      for (let i = 1; i <= totalPages; i++) {
+                        if (i === 1 || i === totalPages || (i >= currentPage - delta && i <= currentPage + delta)) {
+                          range.push(i);
+                        } else if (range[range.length - 1] !== "...") {
+                          range.push("...");
+                        }
+                      }
+                      return range.map((page, idx) => {
+                        if (page === "...") {
+                          return (
+                            <PaginationItem key={`ellipsis-${idx}`}>
+                              <PaginationEllipsis className="text-[#8A8A8A]" />
+                            </PaginationItem>
+                          );
+                        }
+                        const pageNumber = page as number;
+                        return (
+                          <PaginationItem key={pageNumber}>
+                            <PaginationLink
+                              href="#job-results-pagination"
+                              isActive={currentPage === pageNumber}
+                              onClick={(event) => {
+                                event.preventDefault();
+                                setCurrentPage(pageNumber);
+                              }}
+                              className={
+                                currentPage === pageNumber
+                                  ? "border-[#FF2B2B] bg-[#FF2B2B] text-white hover:bg-[#e02525] hover:text-white"
+                                  : "text-[#3A1F1F]"
+                              }
+                            >
+                              {pageNumber}
+                            </PaginationLink>
+                          </PaginationItem>
+                        );
+                      });
+                    })()}
 
                     <PaginationItem>
                       <PaginationNext
