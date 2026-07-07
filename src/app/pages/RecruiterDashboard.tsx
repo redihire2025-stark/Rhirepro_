@@ -3191,6 +3191,12 @@ function SearchCandidateProfileModal({
       setResumeError("");
       if (!candidate?.resume_url) return;
 
+      // Track resume view in database
+      if (recruiterProfile?.id) {
+        supabase.rpc("increment_recruiter_resume_views", { p_recruiter_id: recruiterProfile.id })
+          .then(({ error }) => { if (error) console.error("Error tracking resume view:", error); });
+      }
+
       const storageObject = getStorageObjectFromUrl(candidate.resume_url);
       if (!storageObject) {
         setResolvedResumeUrl(candidate.resume_url);
@@ -3734,6 +3740,15 @@ function SearchCandidatesPage() {
     setSearched(true);
     setSkillSuggestionsOpen(false);
     const activeKeywords = typeof overrideKeywords === "string" ? overrideKeywords : keywords;
+
+    // Track keywords used in database
+    if (recruiterProfile?.id && activeKeywords.trim()) {
+      const kws = activeKeywords.trim().toLowerCase().split(/\s+/).filter(Boolean);
+      kws.forEach(kw => {
+        supabase.rpc("track_recruiter_keyword", { p_recruiter_id: recruiterProfile.id, p_keyword: kw })
+          .then(({ error }) => { if (error) console.error("Error tracking keyword:", error); });
+      });
+    }
     try {
       let q = supabase
         .from("profiles")

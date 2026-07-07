@@ -7,7 +7,7 @@ import {
   Users, UserX, UserCheck, Crown, Building2, Mail, Briefcase,
   BarChart2, Plus, MoreVertical, Loader2, X, CheckCircle,
   Clock, ArrowLeft, LogOut, Shield, RefreshCw, Send,
-  LayoutGrid, TrendingUp,
+  LayoutGrid, TrendingUp, CreditCard,
 } from "lucide-react";
 import { Button } from "../components/ui/button";
 import { Input } from "../components/ui/input";
@@ -32,6 +32,8 @@ type OrgMember = {
   jobs_count: number;
   applications_count: number;
   hires_count: number;
+  resumes_viewed_count?: number;
+  keywords_used?: string[];
   created_at: string;
 };
 
@@ -423,6 +425,9 @@ export default function OrgAdminPanel() {
             </TabsTrigger>
             <TabsTrigger value="analytics" className="rounded-lg text-sm data-[state=active]:bg-[#FF2B2B] data-[state=active]:text-white">
               <BarChart2 className="h-4 w-4 mr-1.5" /> Analytics
+            </TabsTrigger>
+            <TabsTrigger value="subscription_usage" className="rounded-lg text-sm data-[state=active]:bg-[#FF2B2B] data-[state=active]:text-white">
+              <CreditCard className="h-4 w-4 mr-1.5" /> Subscription Usage
             </TabsTrigger>
           </TabsList>
 
@@ -870,6 +875,77 @@ export default function OrgAdminPanel() {
                   </div>
                 </div>
               </>
+            )}
+          </TabsContent>
+
+          {/* ── Subscription Usage Tab ── */}
+          <TabsContent value="subscription_usage">
+            {dataLoading ? (
+              <LoadingCard />
+            ) : (
+              <div className="bg-white rounded-2xl shadow-sm overflow-hidden mb-6">
+                <div className="px-6 py-4 border-b border-gray-100 flex items-center justify-between">
+                  <h3 className="font-semibold text-[#3A1F1F]">
+                    Subscription Usage <span className="text-[#8A8A8A] font-normal">({members.length})</span>
+                  </h3>
+                  <Button variant="ghost" size="sm" onClick={loadData} className="text-[#8A8A8A]">
+                    <RefreshCw className="h-4 w-4" />
+                  </Button>
+                </div>
+                <div className="overflow-x-auto">
+                  <table className="w-full">
+                    <thead>
+                      <tr className="bg-[#F6F6F6] text-xs text-[#8A8A8A] font-medium uppercase tracking-wide">
+                        <th className="text-left px-6 py-3">Recruiter Name</th>
+                        <th className="text-left px-6 py-3">No. of Resumes Viewed</th>
+                        <th className="text-left px-6 py-3">Keywords Used</th>
+                      </tr>
+                    </thead>
+                    <tbody className="divide-y divide-gray-50">
+                      {members.map(member => (
+                        <tr key={member.id} className="hover:bg-[#FFF8F8] transition-colors">
+                          <td className="px-6 py-4">
+                            <div className="flex items-center gap-3">
+                              <div className="w-9 h-9 rounded-full bg-[#FF2B2B] text-white flex items-center justify-center text-xs font-bold flex-shrink-0">
+                                {initials(member.recruiter_name, member.email)}
+                              </div>
+                              <div>
+                                <p className="text-sm font-medium text-[#3A1F1F]">
+                                  {member.recruiter_name || "(No name)"}
+                                </p>
+                                <p className="text-xs text-[#8A8A8A]">{member.email}</p>
+                              </div>
+                            </div>
+                          </td>
+                          <td className="px-6 py-4 text-sm text-[#3A1F1F] font-medium">
+                            {member.resumes_viewed_count ?? 0}
+                          </td>
+                          <td className="px-6 py-4">
+                            <div className="flex flex-wrap gap-1">
+                              {member.keywords_used && member.keywords_used.length > 0 ? (
+                                member.keywords_used.map((kw, idx) => (
+                                  <Badge key={idx} variant="secondary" className="text-xs bg-[#F6F6F6] text-[#3A1F1F] hover:bg-gray-200">
+                                    {kw}
+                                  </Badge>
+                                ))
+                              ) : (
+                                <span className="text-xs text-[#8A8A8A] italic">—</span>
+                              )}
+                            </div>
+                          </td>
+                        </tr>
+                      ))}
+                      {members.length === 0 && (
+                        <tr>
+                          <td colSpan={3} className="px-6 py-12 text-center text-[#8A8A8A] text-sm">
+                            No members found in the organization.
+                          </td>
+                        </tr>
+                      )}
+                    </tbody>
+                  </table>
+                </div>
+              </div>
             )}
           </TabsContent>
         </Tabs>
