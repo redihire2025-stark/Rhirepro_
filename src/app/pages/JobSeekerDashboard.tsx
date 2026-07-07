@@ -913,6 +913,11 @@ function FindJobPage() {
   const [applyingId, setApplyingId] = useState<string | null>(null);
   const [selectedJob, setSelectedJob] = useState<DashboardDisplayJob | null>(null);
 
+  // Scroll to top of window when page changes
+  useEffect(() => {
+    window.scrollTo({ top: 0, behavior: "smooth" });
+  }, [currentPage]);
+
   useEffect(() => {
     if (userId) {
       supabase.from("applications").select("job_id").eq("profile_id", userId).then(({ data }) => {
