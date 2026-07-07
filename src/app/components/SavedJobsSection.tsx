@@ -70,6 +70,11 @@ export default function SavedJobsSection({
   const [compareError, setCompareError] = useState("");
   const appliedJobIdSet = useMemo(() => new Set(appliedJobIds), [appliedJobIds]);
 
+  // Scroll to top of window when page changes
+  useEffect(() => {
+    window.scrollTo({ top: 0, behavior: "smooth" });
+  }, [currentPage]);
+
   useEffect(() => {
     const currentUserId = userId;
     if (!currentUserId) {

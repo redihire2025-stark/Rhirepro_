@@ -231,6 +231,11 @@ export default function AppliedJobsSection({ userId, compact = false, onJobsLoad
   const [interviewDetailsFor, setInterviewDetailsFor] = useState<AppliedJobWithJob | null>(null);
   const [selectedInterviewRound, setSelectedInterviewRound] = useState<AppliedJobWithJob["interviews"][number] | null>(null);
 
+  // Scroll to top of window when page changes
+  useEffect(() => {
+    window.scrollTo({ top: 0, behavior: "smooth" });
+  }, [currentPage]);
+
   const filteredJobs = useMemo(() => {
     if (!filterStatus) return appliedJobs;
     if (filterStatus === "interview") {
