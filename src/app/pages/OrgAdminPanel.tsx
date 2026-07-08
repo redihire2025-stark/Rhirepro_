@@ -1,4 +1,4 @@
-import { useState, useEffect, useCallback } from "react";
+import { useState, useEffect, useCallback, useRef } from "react";
 import { Link, useNavigate } from "react-router";
 import { supabase } from "../../lib/supabase";
 import { useAuth } from "../../lib/auth-context";
@@ -104,19 +104,28 @@ const APP_STATUS_COLOR: Record<string, string> = {
   "On Hold": "bg-gray-100 text-gray-500",
 };
 
-// ─── Main Component ───────────────────────────────────────────────────────────
+// Memory cache to prevent reloading flicker when navigating back to OrgAdminPanel
+let orgCache: {
+  members: OrgMember[];
+  invitations: OrgInvitation[];
+  teamJobs: OrgJob[];
+  teamApps: OrgApplication[];
+  activeSub: any | null;
+} | null = null;
 
 export default function OrgAdminPanel() {
   const navigate = useNavigate();
   const { user, recruiterProfile, isOrgAdmin, loading: authLoading, signOut } = useAuth();
 
+  const initialMountRef = useRef(true);
+
   const [activeTab, setActiveTab] = useState("overview");
-  const [members, setMembers] = useState<OrgMember[]>([]);
-  const [invitations, setInvitations] = useState<OrgInvitation[]>([]);
-  const [teamJobs, setTeamJobs] = useState<OrgJob[]>([]);
-  const [teamApps, setTeamApps] = useState<OrgApplication[]>([]);
-  const [activeSub, setActiveSub] = useState<any | null>(null);
-  const [dataLoading, setDataLoading] = useState(true);
+  const [members, setMembers] = useState<OrgMember[]>(orgCache?.members || []);
+  const [invitations, setInvitations] = useState<OrgInvitation[]>(orgCache?.invitations || []);
+  const [teamJobs, setTeamJobs] = useState<OrgJob[]>(orgCache?.teamJobs || []);
+  const [teamApps, setTeamApps] = useState<OrgApplication[]>(orgCache?.teamApps || []);
+  const [activeSub, setActiveSub] = useState<any | null>(orgCache?.activeSub || null);
+  const [dataLoading, setDataLoading] = useState(!orgCache);
   const [actionLoading, setActionLoading] = useState<string | null>(null);
 
   // Invite dialog
@@ -183,12 +192,11 @@ export default function OrgAdminPanel() {
         .select("id, title, status, recruiter_id, company_name, location, created_at, deadline, views, openings")
         .in("recruiter_id", allIds)
         .order("created_at", { ascending: false });
-      setTeamJobs(
-        (jobsData || []).map(j => ({
-          ...j,
-          recruiter_name: nameMap[j.recruiter_id] || "Unknown",
-        }))
-      );
+      const mappedJobs = (jobsData || []).map(j => ({
+        ...j,
+        recruiter_name: nameMap[j.recruiter_id] || "Unknown",
+      }));
+      setTeamJobs(mappedJobs);
 
       // All team applications (capped at 500)
       const { data: appsData } = await supabase
@@ -202,32 +210,48 @@ export default function OrgAdminPanel() {
         .order("applied_at", { ascending: false })
         .limit(500);
 
-      setTeamApps(
-        (appsData || []).map((a: any) => ({
-          id: a.id,
-          job_id: a.job_id,
-          profile_id: a.profile_id,
-          recruiter_id: a.recruiter_id,
-          status: a.status,
-          applied_at: a.applied_at,
-          job_title: a.job?.title || "Unknown Job",
-          candidate_name: a.profile
-            ? `${a.profile.first_name || ""} ${a.profile.last_name || ""}`.trim() || a.profile.email
-            : "Unknown",
-          recruiter_name: nameMap[a.recruiter_id] || "Unknown",
-        }))
-      );
+      const mappedApps = (appsData || []).map((a: any) => ({
+        id: a.id,
+        job_id: a.job_id,
+        profile_id: a.profile_id,
+        recruiter_id: a.recruiter_id,
+        status: a.status,
+        applied_at: a.applied_at,
+        job_title: a.job?.title || "Unknown Job",
+        candidate_name: a.profile
+          ? `${a.profile.first_name || ""} ${a.profile.last_name || ""}`.trim() || a.profile.email
+          : "Unknown",
+        recruiter_name: nameMap[a.recruiter_id] || "Unknown",
+      }));
+      setTeamApps(mappedApps);
+
+      // Cache the loaded data
+      orgCache = {
+        members: membersList,
+        invitations: invData || [],
+        teamJobs: mappedJobs,
+        teamApps: mappedApps,
+        activeSub: subData,
+      };
     } finally {
       if (!silent) setDataLoading(false);
     }
   }, [user, recruiterProfile]);
 
   useEffect(() => {
-    if (user && recruiterProfile && isOrgAdmin) loadData(false);
+    if (user && recruiterProfile && isOrgAdmin) {
+      loadData(!!orgCache);
+    }
   }, [user, recruiterProfile, isOrgAdmin, loadData]);
 
   useEffect(() => {
-    if (user && recruiterProfile && isOrgAdmin) loadData(true);
+    if (initialMountRef.current) {
+      initialMountRef.current = false;
+      return;
+    }
+    if (user && recruiterProfile && isOrgAdmin) {
+      loadData(true);
+    }
   }, [activeTab, user, recruiterProfile, isOrgAdmin, loadData]);
 
   // ── Invite handler ──────────────────────────────────────────
