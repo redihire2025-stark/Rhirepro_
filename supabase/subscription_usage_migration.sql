@@ -36,6 +36,7 @@ $$;
 GRANT EXECUTE ON FUNCTION public.increment_recruiter_keywords(uuid, integer) TO authenticated;
 
 -- ── 4. Re-create get_org_members_with_stats function to return usage metrics ──
+DROP FUNCTION IF EXISTS public.get_org_members_with_stats(uuid);
 CREATE OR REPLACE FUNCTION public.get_org_members_with_stats(p_admin_id uuid)
 RETURNS TABLE (
   id                   uuid,

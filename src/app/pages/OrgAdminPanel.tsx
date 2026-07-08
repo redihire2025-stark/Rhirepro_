@@ -140,9 +140,9 @@ export default function OrgAdminPanel() {
 
   // ── Data fetching ───────────────────────────────────────────
 
-  const loadData = useCallback(async () => {
+  const loadData = useCallback(async (silent = false) => {
     if (!user || !recruiterProfile) return;
-    setDataLoading(true);
+    if (!silent) setDataLoading(true);
     try {
       // Fetch active subscription
       const { data: subData } = await supabase
@@ -218,13 +218,17 @@ export default function OrgAdminPanel() {
         }))
       );
     } finally {
-      setDataLoading(false);
+      if (!silent) setDataLoading(false);
     }
   }, [user, recruiterProfile]);
 
   useEffect(() => {
-    if (user && recruiterProfile && isOrgAdmin) loadData();
+    if (user && recruiterProfile && isOrgAdmin) loadData(false);
   }, [user, recruiterProfile, isOrgAdmin, loadData]);
+
+  useEffect(() => {
+    if (user && recruiterProfile && isOrgAdmin) loadData(true);
+  }, [activeTab, user, recruiterProfile, isOrgAdmin, loadData]);
 
   // ── Invite handler ──────────────────────────────────────────
 

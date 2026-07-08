@@ -4236,13 +4236,6 @@ function SearchCandidatesPage() {
                                                             href={`/recruiter/candidate/${c.id}/profile`}
                                                             target="_blank"
                                                             rel="noopener noreferrer"
-                                                            onClick={() => {
-                                                                if (c?.id) {
-                                                                    void supabase.rpc("increment_profile_views", { target_profile_id: c.id }).then(({ error }) => {
-                                                                        if (error) console.warn("Failed to increment profile views (migration might not be run):", error.message);
-                                                                    });
-                                                                }
-                                                            }}
                                                         >
                                                             <Eye className="h-3.5 w-3.5 mr-1" /> View Full Profile
                                                         </a>

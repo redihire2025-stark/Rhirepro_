@@ -98,26 +98,43 @@ interface ApplicantProfile extends Profile {
   willing_to_relocate?: string | null;
 }
 
+// Memory cache to prevent reloading flicker when switching tabs
+const profileCache: Record<string, {
+  profile: ApplicantProfile | null;
+  application: Application | null;
+  experiences: WorkExp[];
+  education: Education[];
+  projects: Project[];
+  certifications: Certification[];
+  languages: Language[];
+  resumeUrl: string | null;
+  resolvedResumeUrl: string | null;
+  resumePreviewUrl: string | null;
+}> = {};
+
 export default function ApplicantProfilePage() {
   const { applicantId, candidateId } = useParams();
   const id = applicantId || candidateId;
   const { recruiterProfile, loading: authLoading } = useAuth();
   const navigate = useNavigate();
 
-  const [loading, setLoading] = useState(true);
+  const cachedData = id ? profileCache[id] : null;
+
+  const [loading, setLoading] = useState(!cachedData);
   const [error, setError] = useState<string | null>(null);
-  const [application, setApplication] = useState<Application | null>(null);
-  const [profile, setProfile] = useState<ApplicantProfile | null>(null);
+  const [application, setApplication] = useState<Application | null>(cachedData?.application || null);
+  const [profile, setProfile] = useState<ApplicantProfile | null>(cachedData?.profile || null);
 
-  const [experiences, setExperiences] = useState<WorkExp[]>([]);
-  const [education, setEducation] = useState<Education[]>([]);
-  const [projects, setProjects] = useState<Project[]>([]);
-  const [certifications, setCertifications] = useState<Certification[]>([]);
-  const [languages, setLanguages] = useState<Language[]>([]);
+  const [experiences, setExperiences] = useState<WorkExp[]>(cachedData?.experiences || []);
+  const [education, setEducation] = useState<Education[]>(cachedData?.education || []);
+  const [projects, setProjects] = useState<Project[]>(cachedData?.projects || []);
+  const [certifications, setCertifications] = useState<Certification[]>(cachedData?.certifications || []);
+  const [languages, setLanguages] = useState<Language[]>(cachedData?.languages || []);
 
-  const [resumeUrl, setResumeUrl] = useState<string | null>(null);
-  const [resolvedResumeUrl, setResolvedResumeUrl] = useState<string | null>(null);
-  const [resumePreviewUrl, setResumePreviewUrl] = useState<string | null>(null);
+  const [resumeUrl, setResumeUrl] = useState<string | null>(cachedData?.resumeUrl || null);
+  const [resolvedResumeUrl, setResolvedResumeUrl] = useState<string | null>(cachedData?.resolvedResumeUrl || null);
+  const [resumePreviewUrl, setResumePreviewUrl] = useState<string | null>(cachedData?.resumePreviewUrl || null);
+  
   const pdfPreviewRef = useRef<HTMLDivElement | null>(null);
   const fullscreenResumeRef = useRef<HTMLDivElement | null>(null);
   const [pdfRendering, setPdfRendering] = useState(false);
@@ -132,7 +149,9 @@ export default function ApplicantProfilePage() {
 
   const fetchApplicantDetails = useCallback(async () => {
     if (!id || !recruiterProfile?.id) return;
-    setLoading(true);
+    if (!profileCache[id]) {
+      setLoading(true);
+    }
     setError(null);
 
     try {
@@ -193,8 +212,9 @@ export default function ApplicantProfilePage() {
         supabase.from("certifications").select("*").eq("profile_id", profData.id).order("created_at", { ascending: false })
       ]);
 
+      let mappedExp: WorkExp[] = [];
       if (expRes.data) {
-        setExperiences(expRes.data.map(e => {
+        mappedExp = expRes.data.map(e => {
           const startParts = (e.start_date || "").split(" ");
           const endParts = (e.end_date || "").split(" ");
           return {
@@ -209,58 +229,86 @@ export default function ApplicantProfilePage() {
             current: e.is_current || false,
             description: e.description || "",
           };
-        }));
+        });
+        setExperiences(mappedExp);
       }
 
+      let mappedEdu: Education[] = [];
       if (eduRes.data) {
-        setEducation(eduRes.data.map(e => ({
+        mappedEdu = eduRes.data.map(e => ({
           id: e.id, degree: e.degree, field: e.field || "",
           college: e.institution, startYear: e.start_year || "",
           endYear: e.end_year || "", score: e.score || "",
-        })));
+        }));
+        setEducation(mappedEdu);
       }
 
+      let mappedProj: Project[] = [];
       if (projRes.data) {
-        setProjects(projRes.data.map(p => ({
+        mappedProj = projRes.data.map(p => ({
           id: p.id, name: p.name, url: p.url || "",
           startYear: p.start_year || "", endYear: p.end_year || "", description: p.description || "",
-        })));
+        }));
+        setProjects(mappedProj);
       }
 
+      let mappedCert: Certification[] = [];
       if (certRes.data) {
-        setCertifications(certRes.data.map(c => ({
+        mappedCert = certRes.data.map(c => ({
           id: c.id, name: c.name, issuer: c.issuer || "",
           issueDate: c.issue_date || "", credentialId: c.credential_id || "",
-        })));
+        }));
+        setCertifications(mappedCert);
       }
 
+      let mappedLang: Language[] = [];
       if (profData.languages?.length) {
-        setLanguages((profData.languages as { language: string; proficiency: string }[]).map((l, i) => ({ ...l, id: i })));
+        mappedLang = (profData.languages as { language: string; proficiency: string }[]).map((l, i) => ({ ...l, id: i }));
+        setLanguages(mappedLang);
       }
 
-      // 5. Increment profile views count
-      if (profData.id) {
-        void supabase.rpc("increment_profile_views", { target_profile_id: profData.id }).then(({ error: viewError }) => {
-          if (viewError) console.warn("Failed to increment profile views:", viewError.message);
-        });
+      // 5. Increment profile views count (only once per recruiter per candidate to avoid duplicate counts on reload/reopen/realtime updates)
+      if (profData.id && recruiterProfile?.id) {
+        const viewKey = `viewed_profile_${recruiterProfile.id}_${profData.id}`;
+        if (!localStorage.getItem(viewKey)) {
+          localStorage.setItem(viewKey, "true");
+          void supabase.rpc("increment_profile_views", { target_profile_id: profData.id }).then(({ error: viewError }) => {
+            if (viewError) {
+              console.warn("Failed to increment profile views:", viewError.message);
+              localStorage.removeItem(viewKey);
+            }
+          });
+        }
       }
 
       // 6. Resolve resume url
       const rawResumeUrl = profData.resume_url || appData?.resume_url || null;
+      let resolvedUrl = null;
+      let previewUrl = null;
+
       if (rawResumeUrl) {
         setResumeUrl(rawResumeUrl);
         
-        // Increment resumes used by recruiter profile
-        if (recruiterProfile?.id) {
-          void supabase.rpc("increment_recruiter_resumes", { p_recruiter_id: recruiterProfile.id }).then(({ error: rErr }) => {
-            if (rErr) console.warn("Failed to increment resumes used count:", rErr.message);
-          });
+        // Increment resumes used by recruiter profile (only once per recruiter per candidate)
+        if (recruiterProfile?.id && profData.id) {
+          const resumeViewKey = `viewed_resume_${recruiterProfile.id}_${profData.id}`;
+          if (!localStorage.getItem(resumeViewKey)) {
+            localStorage.setItem(resumeViewKey, "true");
+            void supabase.rpc("increment_recruiter_resumes", { p_recruiter_id: recruiterProfile.id }).then(({ error: rErr }) => {
+              if (rErr) {
+                console.warn("Failed to increment resumes used count:", rErr.message);
+                localStorage.removeItem(resumeViewKey);
+              }
+            });
+          }
         }
 
         const storageObject = getStorageObjectFromUrl(rawResumeUrl);
         if (!storageObject) {
-          setResolvedResumeUrl(rawResumeUrl);
-          setResumePreviewUrl(buildPreviewUrl(rawResumeUrl));
+          resolvedUrl = rawResumeUrl;
+          previewUrl = buildPreviewUrl(rawResumeUrl);
+          setResolvedResumeUrl(resolvedUrl);
+          setResumePreviewUrl(previewUrl);
         } else {
           setResumeLoading(true);
           const { data: signData, error: signError } = await supabase.storage
@@ -270,11 +318,29 @@ export default function ApplicantProfilePage() {
           if (signError) {
             setResumeError(signError.message || "Resume file could not be previewed.");
           } else if (signData?.signedUrl) {
-            setResolvedResumeUrl(signData.signedUrl);
-            setResumePreviewUrl(buildPreviewUrl(signData.signedUrl));
+            resolvedUrl = signData.signedUrl;
+            previewUrl = buildPreviewUrl(signData.signedUrl);
+            setResolvedResumeUrl(resolvedUrl);
+            setResumePreviewUrl(previewUrl);
           }
           setResumeLoading(false);
         }
+      }
+
+      // Cache the loaded data
+      if (id) {
+        profileCache[id] = {
+          profile: profData,
+          application: appError || !appData ? null : appData,
+          experiences: mappedExp,
+          education: mappedEdu,
+          projects: mappedProj,
+          certifications: mappedCert,
+          languages: mappedLang,
+          resumeUrl: rawResumeUrl,
+          resolvedResumeUrl: resolvedUrl,
+          resumePreviewUrl: previewUrl,
+        };
       }
 
     } catch (err) {
