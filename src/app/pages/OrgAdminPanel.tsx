@@ -247,6 +247,13 @@ export default function OrgAdminPanel() {
         return;
       }
 
+      const adminDomain = recruiterProfile.email?.split("@")[1]?.toLowerCase();
+      const inviteDomain = inviteEmail.trim().split("@")[1]?.toLowerCase();
+      if (!adminDomain || !inviteDomain || adminDomain !== inviteDomain) {
+        setInviteError(`You can only invite members with a matching email domain (@${adminDomain || ""}).`);
+        return;
+      }
+
       const res = await fetch("/api/send-invite", {
         method: "POST",
         headers: { "Content-Type": "application/json" },

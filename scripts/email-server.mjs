@@ -166,9 +166,27 @@ const server = http.createServer(async (req, res) => {
       if (!org_admin_id || !company_name || !invited_email)
         return fail(400, "Missing required fields.");
 
-      const token = randomBytes(32).toString("hex");
       const admin = adminClient();
 
+      // Fetch org admin profile to verify domains match
+      const { data: adminProfile, error: adminErr } = await admin
+        .from("recruiter_profiles")
+        .select("email")
+        .eq("id", org_admin_id)
+        .maybeSingle();
+
+      if (adminErr || !adminProfile) {
+        return fail(404, "Org admin profile not found.");
+      }
+
+      const adminDomain = adminProfile.email.split("@")[1]?.toLowerCase();
+      const inviteDomain = invited_email.split("@")[1]?.toLowerCase();
+
+      if (!adminDomain || !inviteDomain || adminDomain !== inviteDomain) {
+        return fail(400, `You can only invite users with a matching email domain (@${adminDomain || ""})`);
+      }
+
+      const token = randomBytes(32).toString("hex");
       const { error: insertErr } = await admin.from("recruiter_invitations").insert({
         org_admin_id,
         company_name,

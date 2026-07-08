@@ -38,6 +38,45 @@ export default async (request) => {
     );
   }
 
+  // Fetch org admin profile to verify email domains match
+  const adminRes = await fetch(
+    `${supabaseUrl}/rest/v1/recruiter_profiles?id=eq.${org_admin_id}&select=email`,
+    {
+      method: "GET",
+      headers: {
+        apikey: serviceKey,
+        Authorization: `Bearer ${serviceKey}`,
+      },
+    }
+  );
+
+  if (!adminRes.ok) {
+    const err = await adminRes.text();
+    return new Response(
+      JSON.stringify({ error: `Failed to fetch admin profile: ${err}` }),
+      { status: 500, headers: { "Content-Type": "application/json" } }
+    );
+  }
+
+  const adminProfiles = await adminRes.json();
+  if (!adminProfiles || adminProfiles.length === 0) {
+    return new Response(
+      JSON.stringify({ error: "Org admin profile not found" }),
+      { status: 404, headers: { "Content-Type": "application/json" } }
+    );
+  }
+
+  const adminEmail = adminProfiles[0].email;
+  const adminDomain = adminEmail.split("@")[1]?.toLowerCase();
+  const inviteDomain = invited_email.split("@")[1]?.toLowerCase();
+
+  if (!adminDomain || !inviteDomain || adminDomain !== inviteDomain) {
+    return new Response(
+      JSON.stringify({ error: `You can only invite users with a matching email domain (@${adminDomain || ""})` }),
+      { status: 400, headers: { "Content-Type": "application/json" } }
+    );
+  }
+
   // 1. Generate token and insert invitation into DB via service role (bypasses RLS)
   const token = randomBytes(32).toString("hex");
 
