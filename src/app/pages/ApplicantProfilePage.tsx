@@ -249,6 +249,14 @@ export default function ApplicantProfilePage() {
       const rawResumeUrl = profData.resume_url || appData?.resume_url || null;
       if (rawResumeUrl) {
         setResumeUrl(rawResumeUrl);
+        
+        // Increment resumes used by recruiter profile
+        if (recruiterProfile?.id) {
+          void supabase.rpc("increment_recruiter_resumes", { p_recruiter_id: recruiterProfile.id }).then(({ error: rErr }) => {
+            if (rErr) console.warn("Failed to increment resumes used count:", rErr.message);
+          });
+        }
+
         const storageObject = getStorageObjectFromUrl(rawResumeUrl);
         if (!storageObject) {
           setResolvedResumeUrl(rawResumeUrl);

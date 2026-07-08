@@ -446,7 +446,7 @@ async function main() {
 
   console.log("\n============================================================");
   console.log("✅ Seeding Complete! Please remember to run the SQL migration.");
-  console.log("============================================================");
+  console.log("============================================================\n");
 }
 
 main().catch(console.error);

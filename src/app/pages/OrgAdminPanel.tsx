@@ -32,9 +32,9 @@ type OrgMember = {
   jobs_count: number;
   applications_count: number;
   hires_count: number;
-  resumes_viewed_count?: number;
-  keywords_used?: string[];
   created_at: string;
+  resumes_used: number;
+  keywords_used: number;
 };
 
 type OrgInvitation = {
@@ -115,6 +115,7 @@ export default function OrgAdminPanel() {
   const [invitations, setInvitations] = useState<OrgInvitation[]>([]);
   const [teamJobs, setTeamJobs] = useState<OrgJob[]>([]);
   const [teamApps, setTeamApps] = useState<OrgApplication[]>([]);
+  const [activeSub, setActiveSub] = useState<any | null>(null);
   const [dataLoading, setDataLoading] = useState(true);
   const [actionLoading, setActionLoading] = useState<string | null>(null);
 
@@ -143,6 +144,17 @@ export default function OrgAdminPanel() {
     if (!user || !recruiterProfile) return;
     setDataLoading(true);
     try {
+      // Fetch active subscription
+      const { data: subData } = await supabase
+        .from("recruiter_subscriptions")
+        .select("*")
+        .eq("recruiter_id", user.id)
+        .eq("status", "active")
+        .order("created_at", { ascending: false })
+        .limit(1)
+        .maybeSingle();
+      setActiveSub(subData);
+
       // Members + stats via security-definer function
       const { data: membersData } = await supabase.rpc(
         "get_org_members_with_stats",
@@ -880,72 +892,84 @@ export default function OrgAdminPanel() {
 
           {/* ── Subscription Usage Tab ── */}
           <TabsContent value="subscription_usage">
-            {dataLoading ? (
-              <LoadingCard />
-            ) : (
-              <div className="bg-white rounded-2xl shadow-sm overflow-hidden mb-6">
-                <div className="px-6 py-4 border-b border-gray-100 flex items-center justify-between">
-                  <h3 className="font-semibold text-[#3A1F1F]">
-                    Subscription Usage <span className="text-[#8A8A8A] font-normal">({members.length})</span>
-                  </h3>
-                  <Button variant="ghost" size="sm" onClick={loadData} className="text-[#8A8A8A]">
-                    <RefreshCw className="h-4 w-4" />
-                  </Button>
+            {dataLoading ? <LoadingCard /> : (
+              <>
+                {/* Summary cards */}
+                <div className="grid grid-cols-1 md:grid-cols-4 gap-4 mb-6">
+                  <div className="bg-white rounded-2xl p-5 shadow-sm border border-gray-100">
+                    <p className="text-xs text-[#8A8A8A] font-medium mb-2">Current Plan</p>
+                    <p className="text-2xl font-bold text-[#FF2B2B] capitalize">
+                      {activeSub ? activeSub.plan_id.replace(/[_-]/g, " ") : "Free Trial"}
+                    </p>
+                  </div>
+                  <div className="bg-white rounded-2xl p-5 shadow-sm border border-gray-100">
+                    <p className="text-xs text-[#8A8A8A] font-medium mb-2">Expires On</p>
+                    <p className="text-2xl font-bold text-[#3A1F1F]">
+                      {activeSub ? fmtDate(activeSub.expires_at) : "N/A"}
+                    </p>
+                  </div>
+                  <div className="bg-white rounded-2xl p-5 shadow-sm border border-gray-100">
+                    <p className="text-xs text-[#8A8A8A] font-medium mb-2">Total Resumes Watched</p>
+                    <p className="text-2xl font-bold text-[#3A1F1F]">
+                      {members.reduce((acc, m) => acc + (m.resumes_used || 0), 0)}
+                    </p>
+                  </div>
+                  <div className="bg-white rounded-2xl p-5 shadow-sm border border-gray-100">
+                    <p className="text-xs text-[#8A8A8A] font-medium mb-2">Total Search Keywords</p>
+                    <p className="text-2xl font-bold text-[#3A1F1F]">
+                      {members.reduce((acc, m) => acc + (m.keywords_used || 0), 0)}
+                    </p>
+                  </div>
                 </div>
-                <div className="overflow-x-auto">
-                  <table className="w-full">
-                    <thead>
-                      <tr className="bg-[#F6F6F6] text-xs text-[#8A8A8A] font-medium uppercase tracking-wide">
-                        <th className="text-left px-6 py-3">Recruiter Name</th>
-                        <th className="text-left px-6 py-3">No. of Resumes Viewed</th>
-                        <th className="text-left px-6 py-3">Keywords Used</th>
-                      </tr>
-                    </thead>
-                    <tbody className="divide-y divide-gray-50">
-                      {members.map(member => (
-                        <tr key={member.id} className="hover:bg-[#FFF8F8] transition-colors">
-                          <td className="px-6 py-4">
-                            <div className="flex items-center gap-3">
-                              <div className="w-9 h-9 rounded-full bg-[#FF2B2B] text-white flex items-center justify-center text-xs font-bold flex-shrink-0">
-                                {initials(member.recruiter_name, member.email)}
-                              </div>
-                              <div>
-                                <p className="text-sm font-medium text-[#3A1F1F]">
-                                  {member.recruiter_name || "(No name)"}
-                                </p>
-                                <p className="text-xs text-[#8A8A8A]">{member.email}</p>
-                              </div>
-                            </div>
-                          </td>
-                          <td className="px-6 py-4 text-sm text-[#3A1F1F] font-medium">
-                            {member.resumes_viewed_count ?? 0}
-                          </td>
-                          <td className="px-6 py-4">
-                            <div className="flex flex-wrap gap-1">
-                              {member.keywords_used && member.keywords_used.length > 0 ? (
-                                member.keywords_used.map((kw, idx) => (
-                                  <Badge key={idx} variant="secondary" className="text-xs bg-[#F6F6F6] text-[#3A1F1F] hover:bg-gray-200">
-                                    {kw}
-                                  </Badge>
-                                ))
-                              ) : (
-                                <span className="text-xs text-[#8A8A8A] italic">—</span>
-                              )}
-                            </div>
-                          </td>
+
+                {/* Per-member usage breakdown */}
+                <div className="bg-white rounded-2xl shadow-sm overflow-hidden">
+                  <div className="px-6 py-4 border-b border-gray-100">
+                    <h3 className="font-semibold text-[#3A1F1F]">Recruiter Usage Statistics</h3>
+                  </div>
+                  <div className="overflow-x-auto">
+                    <table className="w-full">
+                      <thead>
+                        <tr className="bg-[#F6F6F6] text-xs text-[#8A8A8A] font-medium uppercase tracking-wide">
+                          <th className="text-left px-6 py-3">Recruiter Name</th>
+                          <th className="text-left px-6 py-3">Jobs Posted</th>
+                          <th className="text-left px-6 py-3">Resumes Watched</th>
+                          <th className="text-left px-6 py-3">Search Keywords Used</th>
                         </tr>
-                      ))}
-                      {members.length === 0 && (
-                        <tr>
-                          <td colSpan={3} className="px-6 py-12 text-center text-[#8A8A8A] text-sm">
-                            No members found in the organization.
-                          </td>
-                        </tr>
-                      )}
-                    </tbody>
-                  </table>
+                      </thead>
+                      <tbody className="divide-y divide-gray-50">
+                        {members.map(m => (
+                          <tr key={m.id} className="hover:bg-[#FFF8F8] transition-colors">
+                            <td className="px-6 py-4">
+                              <div className="flex items-center gap-3">
+                                <div className="w-8 h-8 rounded-full bg-[#FF2B2B] text-white flex items-center justify-center text-xs font-bold">
+                                  {initials(m.recruiter_name, m.email)}
+                                </div>
+                                <div>
+                                  <p className="text-sm font-medium text-[#3A1F1F]">
+                                    {m.recruiter_name || "(No name)"}
+                                    {m.id === user?.id && <span className="ml-1 text-xs text-[#8A8A8A]">(You)</span>}
+                                  </p>
+                                  <p className="text-xs text-[#8A8A8A]">{m.email}</p>
+                                </div>
+                              </div>
+                            </td>
+                            <td className="px-6 py-4 text-sm font-semibold text-[#3A1F1F]">
+                              {m.jobs_count}
+                            </td>
+                            <td className="px-6 py-4 text-sm font-semibold text-[#3A1F1F]">
+                              {m.resumes_used || 0}
+                            </td>
+                            <td className="px-6 py-4 text-sm font-semibold text-[#3A1F1F]">
+                              {m.keywords_used || 0}
+                            </td>
+                          </tr>
+                        ))}
+                      </tbody>
+                    </table>
+                  </div>
                 </div>
-              </div>
+              </>
             )}
           </TabsContent>
         </Tabs>
