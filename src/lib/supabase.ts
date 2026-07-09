@@ -142,6 +142,7 @@ export interface Job {
   deadline_time: string | null;
   created_at: string;
   recruiter?: RecruiterProfile | null;
+  applicant_count?: number;
 }
 
 export interface Application {

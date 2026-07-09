@@ -1,5 +1,5 @@
 import { useEffect, useMemo, useState } from "react";
-import { Menu, Search, MapPin, DollarSign, Clock, ChevronRight, Facebook, Instagram, Twitter, Bell, Star, ArrowRight } from "lucide-react";
+import { Menu, Search, MapPin, DollarSign, Clock, ChevronRight, Facebook, Instagram, Twitter, Bell, Star, ArrowRight, Users } from "lucide-react";
 import { Button } from "../components/ui/button";
 import { Input } from "../components/ui/input";
 import {
@@ -38,6 +38,7 @@ type DisplayJob = {
   featured: boolean;
   category: JobCategory | null;
   dbJob?: DBJob;
+  applicantCount?: number;
 };
 
 const JOBS_PER_PAGE = 12;
@@ -170,6 +171,7 @@ export default function JobListingsPage() {
           category: null,
           featured: false,
           dbJob: job,
+          applicantCount: job.applicant_count || 0,
         })));
 
       const recommended = getRecommendedJobs(visibleIndianJobs, {
@@ -192,6 +194,49 @@ export default function JobListingsPage() {
       mounted = false;
     };
   }, [profile, role]);
+
+  // Subscribe to real-time jobs table changes to update counts automatically
+  useEffect(() => {
+    const channel = supabase
+      .channel("joblistings-jobs-realtime")
+      .on(
+        "postgres_changes",
+        {
+          event: "UPDATE",
+          schema: "public",
+          table: "jobs",
+        },
+        (payload) => {
+          const updatedJob = payload.new as DBJob;
+          if (updatedJob && updatedJob.id) {
+            setJobs((prev) =>
+              prev.map((job) => {
+                if (job.id === updatedJob.id) {
+                  const dbJob = job.dbJob;
+                  if (dbJob) {
+                    const updatedDbJob = {
+                      ...dbJob,
+                      applicant_count: updatedJob.applicant_count || 0,
+                    };
+                    return {
+                      ...job,
+                      dbJob: updatedDbJob,
+                      applicantCount: updatedJob.applicant_count || 0,
+                    };
+                  }
+                }
+                return job;
+              })
+            );
+          }
+        }
+      )
+      .subscribe();
+
+    return () => {
+      supabase.removeChannel(channel);
+    };
+  }, []);
 
   function handleSearchSubmit() {
     recordJobSearch(searchTerm, role === "jobseeker" ? profile?.id : null);
@@ -437,10 +482,18 @@ export default function JobListingsPage() {
                 }}
               >
                 <JobShareButton jobId={job.id} title={job.title} className="absolute right-4 top-4" />
+                <div 
+                  className="absolute top-4 right-16 bg-[#FFF2F2] text-[#FF2B2B] rounded-full px-2.5 py-1 text-xs font-semibold flex items-center gap-1.5 border border-red-100 shadow-sm shrink-0"
+                  title={`${job.applicantCount || 0} candidates applied`}
+                  onClick={(e) => e.stopPropagation()}
+                >
+                  <Users className="h-3.5 w-3.5 shrink-0" />
+                  <span>{job.applicantCount || 0} applied</span>
+                </div>
                 {job.featured && (
-                  <div className="absolute top-5 right-16 w-3 h-3 bg-[#FF2B2B] rounded-full"></div>
+                  <div className="absolute top-5 right-[144px] w-3 h-3 bg-[#FF2B2B] rounded-full" title="Featured Job"></div>
                 )}
-                <div className="mb-4 pr-12">
+                <div className="mb-4 pr-[150px]">
                   <span className="text-sm text-[#8A8A8A]">{job.company}</span>
                   <h3 className="text-xl font-bold text-[#3A1F1F] mt-1">{job.title}</h3>
                 </div>
