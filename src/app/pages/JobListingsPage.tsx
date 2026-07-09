@@ -104,6 +104,10 @@ export default function JobListingsPage() {
   const navigate = useNavigate();
   const { profile, role } = useAuth();
 
+  const [esSearchResults, setEsSearchResults] = useState<DisplayJob[] | null>(null);
+  const [isSearching, setIsSearching] = useState(false);
+  const [preferredModes, setPreferredModes] = useState<string[]>([]);
+
   useEffect(() => {
     let mounted = true;
 
@@ -155,6 +159,8 @@ export default function JobListingsPage() {
             .map((value: string) => normalizeInterviewMode(value))
             .filter((value: string | null): value is string => Boolean(value))
         : [];
+
+      setPreferredModes(preferredInterviewModes);
 
       const visibleIndianJobs = assignBalancedCategories((data || [])
         .filter((job) => isJobVisibleToSeekers(job) && isIndianLocation(job.location))
@@ -238,9 +244,54 @@ export default function JobListingsPage() {
     };
   }, []);
 
-  function handleSearchSubmit() {
+  async function handleSearchSubmit() {
     recordJobSearch(searchTerm, role === "jobseeker" ? profile?.id : null);
+    
+    if (!searchTerm.trim()) {
+      setEsSearchResults(null);
+      return;
+    }
+    
+    setIsSearching(true);
+    try {
+      const response = await fetch(`http://localhost:8000/jobs/search?q=${encodeURIComponent(searchTerm)}`);
+      if (response.ok) {
+        const data = await response.json();
+        const filteredJobsList = (data.jobs || [])
+          .filter((dbJob: any) => isJobVisibleToSeekers(dbJob) && isIndianLocation(dbJob.location))
+          .filter((dbJob: any) => jobMatchesInterviewModes(dbJob, preferredModes));
+
+        const mappedResults: DisplayJob[] = filteredJobsList.map((dbJob: any) => ({
+          id: dbJob.id,
+          title: dbJob.title,
+          company: dbJob.company_name || "",
+          location: formatLocation(dbJob),
+          salary: formatJobSalary(dbJob),
+          type: formatType(dbJob),
+          interviewMode: dbJob.interview_mode || undefined,
+          description: formatDescription(dbJob),
+          category: null,
+          featured: false,
+          dbJob: dbJob,
+        }));
+        const resultsWithCategories = assignBalancedCategories(mappedResults);
+        setEsSearchResults(resultsWithCategories);
+      } else {
+        setEsSearchResults(null);
+      }
+    } catch (err) {
+      console.error("Elasticsearch search query failed, using fallback client search:", err);
+      setEsSearchResults(null);
+    } finally {
+      setIsSearching(false);
+    }
   }
+
+  useEffect(() => {
+    if (!searchTerm.trim()) {
+      setEsSearchResults(null);
+    }
+  }, [searchTerm]);
 
   useEffect(() => {
     if (selectedCategory !== "ALL" && !visibleCategories.includes(selectedCategory as JobCategory)) {
@@ -251,8 +302,19 @@ export default function JobListingsPage() {
   const categories = useMemo(() => ["ALL", ...visibleCategories], [visibleCategories]);
 
   const filteredJobs = useMemo(() => {
+    const term = searchTerm.trim().toLowerCase();
+    
+    if (esSearchResults !== null) {
+      return esSearchResults.filter((job) => {
+        const matchesCategory =
+          selectedCategory === "ALL"
+            ? true
+            : job.category === selectedCategory;
+        return matchesCategory;
+      });
+    }
+    
     return jobs.filter((job) => {
-      const term = searchTerm.trim().toLowerCase();
       const matchesSearch =
         !term ||
         job.title.toLowerCase().includes(term) ||
@@ -264,7 +326,7 @@ export default function JobListingsPage() {
           : job.category === selectedCategory;
       return matchesSearch && matchesCategory;
     });
-  }, [jobs, searchTerm, selectedCategory, visibleCategories]);
+  }, [jobs, esSearchResults, searchTerm, selectedCategory, visibleCategories]);
 
   const displayJobs = useMemo(() => {
     if (selectedCategory !== "ALL") return filteredJobs;
