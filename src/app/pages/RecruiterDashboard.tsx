@@ -3735,14 +3735,13 @@ function SearchCandidatesPage() {
         setSkillSuggestionsOpen(false);
         const activeKeywords = typeof overrideKeywords === "string" ? overrideKeywords : keywords;
 
-        // Track keywords used
+        // Track and store keywords used
         if (activeKeywords.trim() && recruiterProfile?.id) {
             const tokens = activeKeywords.trim().toLowerCase().split(/\s+/).filter(Boolean);
-            const count = tokens.length;
-            if (count > 0) {
-                void supabase.rpc("increment_recruiter_keywords", { p_recruiter_id: recruiterProfile.id, p_count: count })
+            if (tokens.length > 0) {
+                void supabase.rpc("log_recruiter_keywords", { p_recruiter_id: recruiterProfile.id, p_keywords: tokens })
                     .then(({ error: kErr }) => {
-                        if (kErr) console.warn("Failed to increment keywords used:", kErr.message);
+                        if (kErr) console.warn("Failed to log search keywords:", kErr.message);
                     });
             }
         }
