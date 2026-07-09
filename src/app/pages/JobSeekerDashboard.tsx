@@ -12,7 +12,7 @@ import {
   User, BarChart3, Lightbulb, Upload, Plus, X, Pencil, Trash2,
   GraduationCap, Award, Globe, Phone, Mail, Camera, Clock, CheckCircle,
   TrendingUp, ArrowRight, Loader2, Check, ChevronsUpDown, FileText,
-  Eye, Download,
+  Eye, Download, Users,
 } from "lucide-react";
 import { Button } from "../components/ui/button";
 import { Input } from "../components/ui/input";
@@ -56,7 +56,12 @@ interface DashboardDisplayJob {
   experience: string;
   isRemote: boolean;
   isDB: true;
-  dbJob: DBJob;
+  dbJob: DBJobWithApplications;
+  applicantCount?: number;
+}
+
+interface DBJobWithApplications extends DBJob {
+  applications?: { id: string }[];
 }
 
 interface WorkExp {
@@ -513,7 +518,8 @@ function escapeLikeValue(value: string): string {
   return value.replace(/[%_,]/g, (match) => `\\${match}`);
 }
 
-function buildDashboardJob(job: DBJob): DashboardDisplayJob {
+function buildDashboardJob(job: DBJobWithApplications): DashboardDisplayJob {
+  const applicantCount = job.applicant_count || 0;
   return {
     id: job.id,
     title: job.title,
@@ -529,6 +535,7 @@ function buildDashboardJob(job: DBJob): DashboardDisplayJob {
     isRemote: job.work_mode === "Work from Home",
     isDB: true,
     dbJob: job,
+    applicantCount,
   };
 }
 
@@ -902,7 +909,7 @@ function FindJobPage() {
   const [industryFilter, setIndustryFilter] = useState("");
   const [jobTypeFilter, setJobTypeFilter] = useState("");
   const [remoteFilter, setRemoteFilter] = useState("");
-  const [dbJobs, setDbJobs] = useState<DBJob[]>([]);
+  const [dbJobs, setDbJobs] = useState<DBJobWithApplications[]>([]);
   const [totalJobsCount, setTotalJobsCount] = useState(0);
   const [jobsLoading, setJobsLoading] = useState(true);
   const [jobsError, setJobsError] = useState("");
@@ -950,7 +957,8 @@ function FindJobPage() {
     `id, title, description, roles_responsibilities, requirements, skills, perks, location, 
      salary_min, salary_max, salary_type, experience_min, experience_max, employment_type, 
      work_mode, created_at, status, deadline, deadline_time, recruiter_id,
-     recruiter:recruiter_profiles(logo_url, company_name, website, tagline, company_description, industry, company_type, company_size, founded, location)`,
+     recruiter:recruiter_profiles(logo_url, company_name, website, tagline, company_description, industry, company_type, company_size, founded, location),
+     applicant_count`,
     { count: "exact" }
   )
   .eq("status", "Active");  
@@ -1044,7 +1052,7 @@ function FindJobPage() {
         return;
       }
 
-      const visibleJobs = ((data as unknown as DBJob[]) || []).filter((job) => isJobVisibleToSeekers(job));
+      const visibleJobs = ((data as unknown as DBJobWithApplications[]) || []).filter((job) => isJobVisibleToSeekers(job));
 
       if (shouldShowOnlyRecommended) {
         const recommendationTerms = profileSkills
@@ -1080,6 +1088,58 @@ function FindJobPage() {
     preferredInterviewModeKey,
   ]);
 
+  // Subscribe to real-time jobs table changes to update counts automatically
+  useEffect(() => {
+    const channel = supabase
+      .channel("jobseeker-jobs-realtime")
+      .on(
+        "postgres_changes",
+        {
+          event: "UPDATE",
+          schema: "public",
+          table: "jobs",
+        },
+        (payload) => {
+          const updatedJob = payload.new as DBJob;
+          if (updatedJob && updatedJob.id) {
+            setDbJobs((prev) =>
+              prev.map((job) => {
+                if (job.id === updatedJob.id) {
+                  return {
+                    ...job,
+                    applicant_count: updatedJob.applicant_count || 0,
+                    dbJob: {
+                      ...job.dbJob,
+                      applicant_count: updatedJob.applicant_count || 0,
+                    },
+                  };
+                }
+                return job;
+              })
+            );
+            setSelectedJob((prev) => {
+              if (prev && prev.id === updatedJob.id) {
+                return {
+                  ...prev,
+                  applicantCount: updatedJob.applicant_count || 0,
+                  dbJob: {
+                    ...prev.dbJob,
+                    applicant_count: updatedJob.applicant_count || 0,
+                  },
+                };
+              }
+              return prev;
+            });
+          }
+        }
+      )
+      .subscribe();
+
+    return () => {
+      supabase.removeChannel(channel);
+    };
+  }, []);
+
   const handleApply = async (job: DBJob) => {
     if (!userId) return;
     if (appliedJobIds.includes(job.id)) return;
@@ -1095,6 +1155,32 @@ function FindJobPage() {
       });
       recordJobInteraction(job, userId);
       setAppliedJobIds(prev => [...prev, job.id]);
+      setDbJobs(prev => prev.map(j => {
+        if (j.id === job.id) {
+          return {
+            ...j,
+            applicant_count: (j.applicant_count || 0) + 1,
+            dbJob: {
+              ...j.dbJob,
+              applicant_count: (j.dbJob.applicant_count || 0) + 1,
+            }
+          };
+        }
+        return j;
+      }));
+      setSelectedJob(prev => {
+        if (prev && prev.id === job.id) {
+          return {
+            ...prev,
+            applicantCount: (prev.applicantCount || 0) + 1,
+            dbJob: {
+              ...prev.dbJob,
+              applicant_count: (prev.dbJob.applicant_count || 0) + 1,
+            }
+          };
+        }
+        return prev;
+      });
     } finally {
       setApplyingId(null);
     }
@@ -1302,13 +1388,23 @@ function FindJobPage() {
                     >
                       <JobShareButton jobId={String(job.id)} title={job.title} className="absolute right-4 top-4" />
                       {job.isDB && (
-                        <div className={`absolute top-3 right-16 text-center rounded-xl px-2 py-1 min-w-[44px] ${matchBadgeClass}`}>
-                          <div className="text-sm font-bold leading-none">{matchPercentage}%</div>
-                          <div className="text-[10px] font-medium leading-tight mt-0.5 opacity-80">match</div>
-                        </div>
+                        <>
+                          <div 
+                            className="absolute top-3.5 right-16 bg-[#FFF2F2] text-[#FF2B2B] rounded-full px-2 py-1 text-[11px] font-semibold flex items-center gap-1 border border-red-100 shadow-sm shrink-0"
+                            title={`${job.applicantCount || 0} candidates applied`}
+                            onClick={(e) => e.stopPropagation()}
+                          >
+                            <Users className="h-3.5 w-3.5 shrink-0" />
+                            <span>{job.applicantCount || 0} applied</span>
+                          </div>
+                          <div className={`absolute top-3 right-[148px] text-center rounded-xl px-2 py-1 min-w-[44px] ${matchBadgeClass}`}>
+                            <div className="text-sm font-bold leading-none">{matchPercentage}%</div>
+                            <div className="text-[10px] font-medium leading-tight mt-0.5 opacity-80">match</div>
+                          </div>
+                        </>
                       )}
-                      <p className="text-xs text-[#8A8A8A] mb-0.5 pr-24">{job.company}</p>
-                      <h3 className="font-bold text-[#3A1F1F] text-lg mb-2 leading-snug pr-24">{job.title}</h3>
+                      <p className="text-xs text-[#8A8A8A] mb-0.5 pr-[200px]">{job.company}</p>
+                      <h3 className="font-bold text-[#3A1F1F] text-lg mb-2 leading-snug pr-[200px]">{job.title}</h3>
                       <p className="text-[#8A8A8A] text-sm mb-3 line-clamp-2 flex-1">{stripHtml(job.description)}</p>
                       <div className="space-y-1 mb-4">
                         <div className="flex items-center text-sm text-[#8A8A8A]">
@@ -1430,9 +1526,20 @@ function FindJobPage() {
                       <p className="text-sm font-semibold text-[#3A1F1F]">{selectedJob.company}</p>
                     </div>
                   </div>
-                  <button onClick={() => setSelectedJob(null)} className="text-[#8A8A8A] hover:text-[#3A1F1F] p-1">
-                    <X className="h-5 w-5" />
-                  </button>
+                  <div className="flex items-center gap-2">
+                    {selectedJob.isDB && (
+                      <div 
+                        className="bg-[#FFF2F2] text-[#FF2B2B] rounded-full px-2.5 py-1 text-xs font-semibold flex items-center gap-1.5 border border-red-100 shadow-sm shrink-0"
+                        title={`${selectedJob.applicantCount || 0} candidates applied`}
+                      >
+                        <Users className="h-3.5 w-3.5 shrink-0" />
+                        <span>{selectedJob.applicantCount || 0} applied</span>
+                      </div>
+                    )}
+                    <button onClick={() => setSelectedJob(null)} className="text-[#8A8A8A] hover:text-[#3A1F1F] p-1">
+                      <X className="h-5 w-5" />
+                    </button>
+                  </div>
                 </div>
                 <div className="flex items-center justify-between gap-4 flex-wrap mb-4">
                   <h2 className="text-2xl font-bold text-[#3A1F1F]">{selectedJob.title}</h2>
