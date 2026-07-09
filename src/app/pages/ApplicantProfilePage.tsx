@@ -272,9 +272,19 @@ export default function ApplicantProfilePage() {
         const viewKey = `viewed_profile_${recruiterProfile.id}_${profData.id}`;
         if (!localStorage.getItem(viewKey)) {
           localStorage.setItem(viewKey, "true");
+          
+          // Increment candidate profile views
           void supabase.rpc("increment_profile_views", { target_profile_id: profData.id }).then(({ error: viewError }) => {
             if (viewError) {
               console.warn("Failed to increment profile views:", viewError.message);
+              localStorage.removeItem(viewKey);
+            }
+          });
+
+          // Increment recruiter profiles viewed count
+          void supabase.rpc("increment_recruiter_profiles_viewed", { p_recruiter_id: recruiterProfile.id }).then(({ error: recViewError }) => {
+            if (recViewError) {
+              console.warn("Failed to increment recruiter profiles viewed (migration might not be run):", recViewError.message);
               localStorage.removeItem(viewKey);
             }
           });

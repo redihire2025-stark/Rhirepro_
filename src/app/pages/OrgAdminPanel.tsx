@@ -35,6 +35,7 @@ type OrgMember = {
   created_at: string;
   resumes_used: number;
   keywords_used: number;
+  profiles_viewed: number;
 };
 
 type OrgInvitation = {
@@ -930,7 +931,7 @@ export default function OrgAdminPanel() {
             {dataLoading ? <LoadingCard /> : (
               <>
                 {/* Summary cards */}
-                <div className="grid grid-cols-1 md:grid-cols-4 gap-4 mb-6">
+                <div className="grid grid-cols-1 md:grid-cols-5 gap-4 mb-6">
                   <div className="bg-white rounded-2xl p-5 shadow-sm border border-gray-100">
                     <p className="text-xs text-[#8A8A8A] font-medium mb-2">Current Plan</p>
                     <p className="text-2xl font-bold text-[#FF2B2B] capitalize">
@@ -941,6 +942,12 @@ export default function OrgAdminPanel() {
                     <p className="text-xs text-[#8A8A8A] font-medium mb-2">Expires On</p>
                     <p className="text-2xl font-bold text-[#3A1F1F]">
                       {activeSub ? fmtDate(activeSub.expires_at) : "N/A"}
+                    </p>
+                  </div>
+                  <div className="bg-white rounded-2xl p-5 shadow-sm border border-gray-100">
+                    <p className="text-xs text-[#8A8A8A] font-medium mb-2">Total Profiles Viewed</p>
+                    <p className="text-2xl font-bold text-[#3A1F1F]">
+                      {members.reduce((acc, m) => acc + (m.profiles_viewed || 0), 0)}
                     </p>
                   </div>
                   <div className="bg-white rounded-2xl p-5 shadow-sm border border-gray-100">
@@ -968,6 +975,7 @@ export default function OrgAdminPanel() {
                         <tr className="bg-[#F6F6F6] text-xs text-[#8A8A8A] font-medium uppercase tracking-wide">
                           <th className="text-left px-6 py-3">Recruiter Name</th>
                           <th className="text-left px-6 py-3">Jobs Posted</th>
+                          <th className="text-left px-6 py-3">Profiles Viewed</th>
                           <th className="text-left px-6 py-3">Resumes Watched</th>
                           <th className="text-left px-6 py-3">Search Keywords Used</th>
                         </tr>
@@ -991,6 +999,9 @@ export default function OrgAdminPanel() {
                             </td>
                             <td className="px-6 py-4 text-sm font-semibold text-[#3A1F1F]">
                               {m.jobs_count}
+                            </td>
+                            <td className="px-6 py-4 text-sm font-semibold text-[#3A1F1F]">
+                              {m.profiles_viewed || 0}
                             </td>
                             <td className="px-6 py-4 text-sm font-semibold text-[#3A1F1F]">
                               {m.resumes_used || 0}

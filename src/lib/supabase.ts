@@ -80,6 +80,7 @@ export interface RecruiterProfile {
   max_seats: number | null;
   resumes_used?: number;
   keywords_used?: number;
+  profiles_viewed?: number;
 }
 
 export interface RecruiterInvitation {
