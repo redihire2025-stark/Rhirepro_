@@ -16,7 +16,7 @@ import {
 } from "../../lib/jobs";
 import { PLANS, FREE_DAILY_POST_LIMIT, getPlanById, validatePromo, getPlanPriceBreakdown } from "../../lib/plans";
 import { INDIA_CITY_OPTIONS } from "../../lib/locationData";
-import { SEARCH_SUGGESTION_DATASET, SKILL_OPTIONS, getSkillSearchTerms, skillsMatch } from "../../lib/skillKeywords";
+import { SEARCH_SUGGESTION_DATASET, SKILL_OPTIONS, getSkillSearchTerms, skillsMatch, fuzzyMatch } from "../../lib/skillKeywords";
 import { useAuth } from "../../lib/auth-context";
 import logoImage from "../../logo/logo.png";
 import {
@@ -175,15 +175,9 @@ function LocationAutocomplete({
   }, [open]);
 
   const filteredCities = useMemo(() => {
-    const query = search.trim().toLowerCase();
+    const query = search.trim();
     if (!query) return INDIA_CITY_OPTIONS;
-
-    const startsWith = INDIA_CITY_OPTIONS.filter(city => city.toLowerCase().startsWith(query));
-    const includes = INDIA_CITY_OPTIONS.filter(city => {
-      const normalized = city.toLowerCase();
-      return !normalized.startsWith(query) && normalized.includes(query);
-    });
-    return [...startsWith, ...includes];
+    return INDIA_CITY_OPTIONS.filter(city => fuzzyMatch(query, city)).slice(0, 50);
   }, [search]);
 
   const selectCity = (city: string, submit = false) => {
@@ -1766,9 +1760,9 @@ function PostJobPage() {
     Boolean(formData.salaryMin && formData.salaryMax) &&
     Number(formData.salaryMax) < Number(formData.salaryMin);
   const filteredSkillOptions = useMemo(() => {
-    const query = skillSearch.trim().toLowerCase();
+    const query = skillSearch.trim();
     const options = query ? SEARCH_SUGGESTION_DATASET : SKILL_OPTIONS;
-    return options.filter(skill => !query || skill.toLowerCase().includes(query)).slice(0, 120);
+    return options.filter(skill => fuzzyMatch(query, skill)).slice(0, 120);
   }, [skillSearch]);
   const filteredDepartmentOptions = useMemo(() => {
     const query = departmentSearch.trim().toLowerCase();
@@ -3479,6 +3473,115 @@ function SearchCandidateProfileModal({
   );
 }
 
+const DESIGNATION_OPTIONS = [
+  "Software Engineer",
+  "Frontend Developer",
+  "Backend Developer",
+  "Full Stack Developer",
+  "React Developer",
+  "Node.js Developer",
+  "Java Developer",
+  "Python Developer",
+  "Go Developer",
+  "Mobile Developer",
+  "Android Developer",
+  "iOS Developer",
+  "DevOps Engineer",
+  "Cloud Architect",
+  "System Administrator",
+  "Database Administrator",
+  "QA Engineer",
+  "Automation Engineer",
+  "Data Scientist",
+  "Data Analyst",
+  "Data Engineer",
+  "Machine Learning Engineer",
+  "AI Engineer",
+  "Product Manager",
+  "Project Manager",
+  "Scrum Master",
+  "Business Analyst",
+  "System Analyst",
+  "UI/UX Designer",
+  "Product Designer",
+  "Graphic Designer",
+  "Web Designer",
+  "Motion Designer",
+  "Marketing Manager",
+  "Digital Marketing Specialist",
+  "SEO Analyst",
+  "Content Writer",
+  "Copywriter",
+  "Sales Manager",
+  "Sales Executive",
+  "Business Development Executive",
+  "BDM",
+  "Account Manager",
+  "HR Manager",
+  "HR Generalist",
+  "Recruiter",
+  "Talent Acquisition Specialist",
+  "Finance Manager",
+  "Accountant",
+  "Financial Analyst",
+  "Operations Manager",
+  "Operations Executive",
+  "Customer Support Executive",
+  "Customer Success Manager",
+  "Technical Support Engineer",
+];
+
+const ALL_SKILL_OPTIONS = Array.from(
+  new Set([...SEARCH_SUGGESTION_DATASET, ...SKILL_OPTIONS])
+).sort((a, b) => a.localeCompare(b));
+
+const ALL_LOCATION_OPTIONS = Array.from(
+  new Set([
+    "India",
+    "NCR",
+    "New Delhi",
+    "Bangalore",
+    "Gurugram",
+    "Trivandrum",
+    "Jammu",
+    "Kashmir",
+    "Andaman and Nicobar",
+    "Andhra Pradesh",
+    "Arunachal Pradesh",
+    "Assam",
+    "Bihar",
+    "Chhattisgarh",
+    "Goa",
+    "Gujarat",
+    "Haryana",
+    "Himachal Pradesh",
+    "Jharkhand",
+    "Karnataka",
+    "Kerala",
+    "Madhya Pradesh",
+    "Maharashtra",
+    "Manipur",
+    "Meghalaya",
+    "Mizoram",
+    "Nagaland",
+    "Odisha",
+    "Punjab",
+    "Rajasthan",
+    "Sikkim",
+    "Tamil Nadu",
+    "Telangana",
+    "Tripura",
+    "Uttar Pradesh",
+    "Uttarakhand",
+    "West Bengal",
+    ...INDIA_CITY_OPTIONS,
+  ])
+).sort((a, b) => a.localeCompare(b));
+
+const ALL_ROLE_AND_DEPT_OPTIONS = Array.from(
+  new Set([...DESIGNATION_OPTIONS, ...DEPARTMENT_OPTIONS])
+).sort((a, b) => a.localeCompare(b));
+
 type RecruiterAppliedJdSearchApplication = {
   profile: DBCandidate | null;
   job: Job | null;
@@ -3489,6 +3592,9 @@ function SearchCandidatesPage() {
   // ── Search state ──────────────────────────────────────────
   const [keywords, setKeywords] = useState("");
   const [location, setLocation] = useState("");
+  const [highlightedIndex, setHighlightedIndex] = useState(-1);
+  const keywordInputRef = useRef<HTMLInputElement>(null);
+  const dropdownContainerRef = useRef<HTMLDivElement>(null);
   const [expMin, setExpMin] = useState("");
   const [expMax, setExpMax] = useState("");
   const [curSalMin, setCurSalMin] = useState("");
@@ -3562,6 +3668,26 @@ function SearchCandidatesPage() {
     return dayMatch ? parseInt(dayMatch[1]) : 999;
   };
 
+  // ── Boolean keyword parser ─────────────────────────────────
+  // Splits a search string like "React AND Python", "Bangalore OR Hyderabad",
+  // "Hyderabad, Bangalore", or "React Python" into clean search tokens,
+  // stripping out Boolean operators and detecting OR vs AND intent.
+  const parseSearchTokens = (input: string): { tokens: string[]; isOr: boolean } => {
+    const trimmed = input.trim();
+    if (!trimmed) return { tokens: [], isOr: false };
+    const isOr = /\bor\b/i.test(trimmed) || trimmed.includes(",");
+    if (isOr) {
+      // Split on OR operators and commas, then clean each segment
+      const segments = trimmed.split(/\bor\b|,/i).map(s => s.trim()).filter(Boolean);
+      const tokens = segments.map(seg => seg.replace(/\b(?:and|not)\b/gi, "").trim()).filter(Boolean);
+      return { tokens, isOr: true };
+    } else {
+      // AND mode: split on whitespace, remove Boolean operators
+      const tokens = trimmed.split(/\s+/).filter(t => !/^(and|or|not)$/i.test(t));
+      return { tokens, isOr: false };
+    }
+  };
+
   const jdMatchesKeyword = (job: Job | null, keyword: string): boolean => {
     if (!job) return false;
     const keywordLower = keyword.trim().toLowerCase();
@@ -3590,13 +3716,109 @@ function SearchCandidatesPage() {
     setSkillInput("");
   };
 
-  const filteredKeywordSuggestions = useMemo(() => {
-    const query = keywords.trim().toLowerCase();
-    if (!query) return [];
-    return SEARCH_SUGGESTION_DATASET
-      .filter(item => item.toLowerCase().includes(query))
-      .slice(0, 12);
+  const getCurrentSearchToken = (text: string) => {
+    const lastCommaIndex = text.lastIndexOf(",");
+    const operatorRegex = /\b(AND|OR|NOT)\b/gi;
+    let match;
+    let lastOperatorIndex = -1;
+    let lastOperatorLength = 0;
+    
+    while ((match = operatorRegex.exec(text)) !== null) {
+      lastOperatorIndex = match.index;
+      lastOperatorLength = match[0].length;
+    }
+    
+    if (lastCommaIndex === -1 && lastOperatorIndex === -1) {
+      return { token: text, prefix: "", separatorType: "none" as const };
+    }
+    
+    if (lastCommaIndex > lastOperatorIndex) {
+      const prefix = text.slice(0, lastCommaIndex + 1);
+      const token = text.slice(lastCommaIndex + 1);
+      return { token, prefix, separatorType: "comma" as const };
+    } else {
+      const prefix = text.slice(0, lastOperatorIndex + lastOperatorLength);
+      const token = text.slice(lastOperatorIndex + lastOperatorLength);
+      return { token, prefix, separatorType: "operator" as const };
+    }
+  };
+
+  const filteredSuggestions = useMemo(() => {
+    const { token } = getCurrentSearchToken(keywords);
+    const query = token.trim();
+    if (!query) return { skills: [], locations: [], designations: [] };
+
+    const normalizedInputKeywords = keywords
+      .toLowerCase()
+      .split(/,|\b(?:and|or|not)\b/i)
+      .map(k => k.trim())
+      .filter(Boolean);
+
+    const isAlreadyPresent = (item: string) => {
+      return normalizedInputKeywords.includes(item.toLowerCase());
+    };
+
+    const matchedSkills = ALL_SKILL_OPTIONS
+      .filter(skill => fuzzyMatch(query, skill) && !isAlreadyPresent(skill))
+      .slice(0, 8);
+
+    const matchedLocations = ALL_LOCATION_OPTIONS
+      .filter(city => fuzzyMatch(query, city) && !isAlreadyPresent(city))
+      .slice(0, 5);
+
+    const matchedDesignations = ALL_ROLE_AND_DEPT_OPTIONS
+      .filter(role => fuzzyMatch(query, role) && !isAlreadyPresent(role))
+      .slice(0, 5);
+
+    return {
+      skills: matchedSkills,
+      locations: matchedLocations,
+      designations: matchedDesignations,
+    };
   }, [keywords]);
+
+  const flatSuggestionsList = useMemo(() => {
+    const list: Array<{ value: string; type: "skill" | "location" | "designation" }> = [];
+    filteredSuggestions.skills.forEach(skill => list.push({ value: skill, type: "skill" }));
+    filteredSuggestions.locations.forEach(loc => list.push({ value: loc, type: "location" }));
+    filteredSuggestions.designations.forEach(role => list.push({ value: role, type: "designation" }));
+    return list;
+  }, [filteredSuggestions]);
+
+  const hasSuggestions = useMemo(() => {
+    return flatSuggestionsList.length > 0;
+  }, [flatSuggestionsList]);
+
+  useEffect(() => {
+    setHighlightedIndex(-1);
+  }, [keywords]);
+
+  useEffect(() => {
+    if (highlightedIndex < 0 || !dropdownContainerRef.current) return;
+    const container = dropdownContainerRef.current;
+    const buttons = container.querySelectorAll("button");
+    const activeBtn = buttons[highlightedIndex];
+    if (activeBtn) {
+      activeBtn.scrollIntoView({ block: "nearest" });
+    }
+  }, [highlightedIndex]);
+
+  const selectSuggestion = (suggestionValue: string) => {
+    const { prefix, separatorType } = getCurrentSearchToken(keywords);
+    let nextKeywords = "";
+    if (separatorType === "none") {
+      nextKeywords = suggestionValue + " ";
+    } else if (separatorType === "comma") {
+      nextKeywords = prefix.trim() + " " + suggestionValue + ", ";
+    } else {
+      nextKeywords = prefix.trim() + " " + suggestionValue + " ";
+    }
+    setKeywords(nextKeywords);
+    setSkillSuggestionsOpen(false);
+    if (keywordInputRef.current) {
+      keywordInputRef.current.focus();
+    }
+  };
 
   useEffect(() => {
     if (!skillSuggestionsOpen) return;
@@ -3616,99 +3838,161 @@ function SearchCandidatesPage() {
     setSkillSuggestionsOpen(false);
     const activeKeywords = typeof overrideKeywords === "string" ? overrideKeywords : keywords;
     try {
-      let q = supabase
-  .from("profiles")
-  .select(`
-    id, first_name, last_name, avatar_url, headline, current_title, current_company, location, experience_type, total_experience, skills, about,
-    work_experience(id, company, title, start_date, end_date, description, is_current),
-    education(id, institution, degree, field, start_year, end_year)
-  `);
-
-
-      // Server-side: keyword search across text columns (token-based)
-      if (activeKeywords.trim()) {
-        const tokens = activeKeywords.trim().toLowerCase().split(/\s+/).filter(Boolean);
-        tokens.forEach(token => {
-          q = q.or(
-            `first_name.ilike.%${token}%,last_name.ilike.%${token}%,` +
-            `headline.ilike.%${token}%,current_title.ilike.%${token}%,` +
-            `current_company.ilike.%${token}%,about.ilike.%${token}%`
-          );
-        });
-      }
-      // Server-side: location
-      if (location.trim()) q = q.ilike("location", `%${location.trim()}%`);
-      // Server-side: current company override
-      if (currentCompany.trim()) q = q.ilike("current_company", `%${currentCompany.trim()}%`);
-      const { data } = await q.limit(200);
-      let raw = (data as unknown as DBCandidate[]) || [];
-
-      // Skill keyword also searches the skills array column
-      if (activeKeywords.trim()) {
-        const tokens = activeKeywords.trim().toLowerCase().split(/\s+/).filter(Boolean);
-        const allSkillTerms = tokens.flatMap(token => getSkillSearchTerms(token)).slice(0, 30);
-        if (allSkillTerms.length > 0) {
-          const { data: skillMatches } = await supabase
-            .from("profiles")
-            .select(`
-              id, first_name, last_name, avatar_url, headline, current_title, current_company, location, experience_type, total_experience, skills, about,
-              work_experience(id, company, title, start_date, end_date, description, is_current),
-              education(id, institution, degree, field, start_year, end_year)
-            `)
-            .overlaps("skills", allSkillTerms);
-          if (skillMatches) {
-            const ids = new Set(raw.map(r => r.id));
-            (skillMatches as unknown as DBCandidate[]).forEach(sm => { if (!ids.has(sm.id)) raw.push(sm); });
+      let raw: DBCandidate[] = [];
+      let esSuccess = false;
+      
+      try {
+        const esUrl = `http://localhost:8000/candidates/search?q=${encodeURIComponent(activeKeywords)}` +
+          `&location=${encodeURIComponent(location)}` +
+          `&current_company=${encodeURIComponent(currentCompany)}` +
+          `&skills=${encodeURIComponent(skillTags.join(","))}` +
+          `&experience_type=${encodeURIComponent(expType)}` +
+          `&experience_min=${encodeURIComponent(expMin)}` +
+          `&experience_max=${encodeURIComponent(expMax)}`;
+        const esRes = await fetch(esUrl);
+        if (esRes.ok) {
+          const data = await esRes.json();
+          const matchedIds = data.candidates.map((c: any) => c.id);
+          
+          if (matchedIds.length > 0) {
+            const { data: hydratedData } = await supabase
+              .from("profiles")
+              .select(`
+                id, first_name, last_name, avatar_url, headline, current_title, current_company, location, experience_type, total_experience, skills, about,
+                work_experience(id, company, title, start_date, end_date, description, is_current),
+                education(id, institution, degree, field, start_year, end_year)
+              `)
+              .in("id", matchedIds);
+              
+            if (hydratedData) {
+              const idToCandidateMap = new Map(hydratedData.map((c: any) => [c.id, c]));
+              raw = matchedIds
+                .map((id: string) => idToCandidateMap.get(id))
+                .filter(Boolean) as DBCandidate[];
+            }
           }
+          esSuccess = true;
         }
+      } catch (err) {
+        console.error("Elasticsearch candidate query failed, falling back to local database search:", err);
       }
 
-      // ── Client-side filters ──────────────────────────────────────────────────
-      if (activeKeywords.trim()) {
-        let broadSkillQuery = supabase
+      if (!esSuccess) {
+        let q = supabase
           .from("profiles")
           .select(`
             id, first_name, last_name, avatar_url, headline, current_title, current_company, location, experience_type, total_experience, skills, about,
             work_experience(id, company, title, start_date, end_date, description, is_current),
             education(id, institution, degree, field, start_year, end_year)
           `);
-        if (location.trim()) broadSkillQuery = broadSkillQuery.ilike("location", `%${location.trim()}%`);
-        if (currentCompany.trim()) broadSkillQuery = broadSkillQuery.ilike("current_company", `%${currentCompany.trim()}%`);
 
-        const { data: broadSkillCandidates } = await broadSkillQuery.limit(1000);
-        if (broadSkillCandidates) {
-          const ids = new Set(raw.map(r => r.id));
-          const tokens = activeKeywords.trim().toLowerCase().split(/\s+/).filter(Boolean);
-          (broadSkillCandidates as unknown as DBCandidate[]).forEach(candidate => {
-            if (!ids.has(candidate.id)) {
-              const hasSkillMatch = (candidate.skills || []).some(skill =>
-                tokens.some(token => skillsMatch(skill, token))
-              );
-              if (hasSkillMatch) {
-                raw.push(candidate);
-                ids.add(candidate.id);
-              }
+        if (activeKeywords.trim()) {
+          const { tokens: searchTokens, isOr: isOrQuery } = parseSearchTokens(activeKeywords);
+          
+          if (isOrQuery) {
+            // OR: combine all token clauses into one .or() call
+            const clauses = searchTokens.flatMap(term => [
+              `first_name.ilike.%${term}%`,
+              `last_name.ilike.%${term}%`,
+              `headline.ilike.%${term}%`,
+              `current_title.ilike.%${term}%`,
+              `current_company.ilike.%${term}%`,
+              `about.ilike.%${term}%`,
+              `location.ilike.%${term}%`
+            ]);
+            if (clauses.length > 0) {
+              q = q.or(clauses.join(","));
             }
-          });
+          } else {
+            // AND: each token must match at least one field (chained .or())
+            searchTokens.forEach(token => {
+              q = q.or(
+                `first_name.ilike.%${token}%,last_name.ilike.%${token}%,` +
+                `headline.ilike.%${token}%,current_title.ilike.%${token}%,` +
+                `current_company.ilike.%${token}%,about.ilike.%${token}%,location.ilike.%${token}%`
+              );
+            });
+          }
+        }
+        if (location.trim()) q = q.ilike("location", `%${location.trim()}%`);
+        if (currentCompany.trim()) q = q.ilike("current_company", `%${currentCompany.trim()}%`);
+        const { data } = await q.limit(200);
+        raw = (data as unknown as DBCandidate[]) || [];
+
+        if (activeKeywords.trim()) {
+          const { tokens: skillSearchTokens } = parseSearchTokens(activeKeywords.toLowerCase());
+          const allSkillTerms = skillSearchTokens.flatMap(token => getSkillSearchTerms(token)).slice(0, 30);
+          if (allSkillTerms.length > 0) {
+            const { data: skillMatches } = await supabase
+              .from("profiles")
+              .select(`
+                id, first_name, last_name, avatar_url, headline, current_title, current_company, location, experience_type, total_experience, skills, about,
+                work_experience(id, company, title, start_date, end_date, description, is_current),
+                education(id, institution, degree, field, start_year, end_year)
+              `)
+              .overlaps("skills", allSkillTerms);
+            if (skillMatches) {
+              const ids = new Set(raw.map(r => r.id));
+              (skillMatches as unknown as DBCandidate[]).forEach(sm => { if (!ids.has(sm.id)) raw.push(sm); });
+            }
+          }
         }
 
-        const tokens = activeKeywords.trim().toLowerCase().split(/\s+/).filter(Boolean);
-        raw = raw.filter(candidate => {
-          const searchableText = [
-            candidate.first_name,
-            candidate.last_name,
-            candidate.headline,
-            candidate.current_title,
-            candidate.current_company,
-            candidate.about,
-            candidate.location,
-          ].filter(Boolean).join(" ").toLowerCase();
+        if (activeKeywords.trim()) {
+          let broadSkillQuery = supabase
+            .from("profiles")
+            .select(`
+              id, first_name, last_name, avatar_url, headline, current_title, current_company, location, experience_type, total_experience, skills, about,
+              work_experience(id, company, title, start_date, end_date, description, is_current),
+              education(id, institution, degree, field, start_year, end_year)
+            `);
+          if (location.trim()) broadSkillQuery = broadSkillQuery.ilike("location", `%${location.trim()}%`);
+          if (currentCompany.trim()) broadSkillQuery = broadSkillQuery.ilike("current_company", `%${currentCompany.trim()}%`);
 
-          return tokens.every(token =>
-            searchableText.includes(token) ||
-            (candidate.skills || []).some(skill => skillsMatch(skill, token))
-          );
-        });
+          const { data: broadSkillCandidates } = await broadSkillQuery.limit(1000);
+          if (broadSkillCandidates) {
+            const ids = new Set(raw.map(r => r.id));
+            const { tokens } = parseSearchTokens(activeKeywords.toLowerCase());
+            (broadSkillCandidates as unknown as DBCandidate[]).forEach(candidate => {
+              if (!ids.has(candidate.id)) {
+                const hasSkillMatch = (candidate.skills || []).some(skill =>
+                  tokens.some(token => skillsMatch(skill, token))
+                );
+                if (hasSkillMatch) {
+                  raw.push(candidate);
+                  ids.add(candidate.id);
+                }
+              }
+            });
+          }
+
+          const { tokens: filterTokens, isOr: isOrFilter } = parseSearchTokens(activeKeywords);
+          raw = raw.filter(candidate => {
+            const searchableText = [
+              candidate.first_name,
+              candidate.last_name,
+              candidate.headline,
+              candidate.current_title,
+              candidate.current_company,
+              candidate.about,
+              candidate.location,
+            ].filter(Boolean).join(" ").toLowerCase();
+
+            const matchToken = (token: string) => {
+              const t = token.toLowerCase();
+              if (!t) return false;
+              return (
+                searchableText.includes(t) ||
+                (candidate.skills || []).some(skill => skillsMatch(skill, t))
+              );
+            };
+
+            if (filterTokens.length === 0) return true;
+            return isOrFilter
+              ? filterTokens.some(t => matchToken(t))
+              : filterTokens.every(t => matchToken(t));
+          });
+        }
       }
 
       // Experience type (client-side so null values aren't excluded)
@@ -3805,6 +4089,7 @@ function SearchCandidatesPage() {
           <div className="relative flex-1 min-w-[220px]" ref={searchKeywordRef}>
             <Search className="absolute left-3 top-1/2 -translate-y-1/2 h-4 w-4 text-[#8A8A8A]" />
             <Input
+              ref={keywordInputRef}
               value={keywords}
               onFocus={() => setSkillSuggestionsOpen(true)}
               onChange={e => {
@@ -3812,35 +4097,116 @@ function SearchCandidatesPage() {
                 setSkillSuggestionsOpen(true);
               }}
               onKeyDown={e => {
-                if (e.key === "Enter") {
-                  e.preventDefault();
+                if (e.key === "ArrowDown") {
+                  if (skillSuggestionsOpen && flatSuggestionsList.length > 0) {
+                    e.preventDefault();
+                    setHighlightedIndex(prev => (prev + 1) % flatSuggestionsList.length);
+                  } else {
+                    setSkillSuggestionsOpen(true);
+                  }
+                } else if (e.key === "ArrowUp") {
+                  if (skillSuggestionsOpen && flatSuggestionsList.length > 0) {
+                    e.preventDefault();
+                    setHighlightedIndex(prev => (prev - 1 + flatSuggestionsList.length) % flatSuggestionsList.length);
+                  }
+                } else if (e.key === "Enter") {
+                  if (skillSuggestionsOpen && highlightedIndex >= 0 && highlightedIndex < flatSuggestionsList.length) {
+                    e.preventDefault();
+                    selectSuggestion(flatSuggestionsList[highlightedIndex].value);
+                  } else {
+                    e.preventDefault();
+                    setSkillSuggestionsOpen(false);
+                    handleSearch();
+                  }
+                } else if (e.key === "Escape") {
                   setSkillSuggestionsOpen(false);
-                  handleSearch();
-                }
-                if (e.key === "Escape") {
-                  setSkillSuggestionsOpen(false);
+                } else if (e.key === "Tab") {
+                  if (skillSuggestionsOpen && highlightedIndex >= 0 && highlightedIndex < flatSuggestionsList.length) {
+                    e.preventDefault();
+                    selectSuggestion(flatSuggestionsList[highlightedIndex].value);
+                  }
                 }
               }}
               className="pl-9 bg-[#F6F6F6] border-gray-200 rounded-xl"
               placeholder="Skills, designation, company name..."
             />
-            {skillSuggestionsOpen && filteredKeywordSuggestions.length > 0 && (
-              <div className="absolute left-0 right-0 top-full z-50 mt-1 overflow-hidden rounded-xl border border-gray-200 bg-white shadow-xl">
+            {skillSuggestionsOpen && hasSuggestions && (
+              <div 
+                ref={dropdownContainerRef}
+                className="absolute left-0 right-0 top-full z-50 mt-1 overflow-hidden rounded-xl border border-gray-200 bg-white shadow-xl"
+              >
                 <div className="max-h-72 overflow-y-auto">
-                  {filteredKeywordSuggestions.map(skill => (
-                    <button
-                      key={skill}
-                      type="button"
-                      onClick={() => {
-                        setKeywords(skill);
-                        setSkillSuggestionsOpen(false);
-                        handleSearch(skill);
-                      }}
-                      className="flex w-full items-center px-3 py-2 text-left text-sm text-[#3A1F1F] hover:bg-[#FFF0F0]"
-                    >
-                      <span>{skill}</span>
-                    </button>
-                  ))}
+                  {filteredSuggestions.skills.length > 0 && (
+                    <div>
+                      <div className="px-3 py-1.5 text-[10px] font-bold text-gray-400 bg-gray-50 uppercase tracking-wider">Skills</div>
+                      {filteredSuggestions.skills.map(skill => {
+                        const globalIndex = flatSuggestionsList.findIndex(item => item.value === skill && item.type === "skill");
+                        const isHighlighted = globalIndex === highlightedIndex;
+                        return (
+                          <button
+                            key={`skill-${skill}`}
+                            type="button"
+                            onClick={() => selectSuggestion(skill)}
+                            onMouseEnter={() => setHighlightedIndex(globalIndex)}
+                            className={`flex w-full items-center px-3 py-2 text-left text-sm transition-colors ${
+                              isHighlighted ? "bg-[#FFF0F0] text-[#FF2B2B] font-medium" : "text-[#3A1F1F] hover:bg-gray-50"
+                            }`}
+                          >
+                            <Tag className="h-3.5 w-3.5 mr-2 opacity-60 text-[#FF2B2B]" />
+                            <span>{skill}</span>
+                          </button>
+                        );
+                      })}
+                    </div>
+                  )}
+
+                  {filteredSuggestions.locations.length > 0 && (
+                    <div>
+                      <div className="px-3 py-1.5 text-[10px] font-bold text-gray-400 bg-gray-50 uppercase tracking-wider">Locations</div>
+                      {filteredSuggestions.locations.map(loc => {
+                        const globalIndex = flatSuggestionsList.findIndex(item => item.value === loc && item.type === "location");
+                        const isHighlighted = globalIndex === highlightedIndex;
+                        return (
+                          <button
+                            key={`loc-${loc}`}
+                            type="button"
+                            onClick={() => selectSuggestion(loc)}
+                            onMouseEnter={() => setHighlightedIndex(globalIndex)}
+                            className={`flex w-full items-center px-3 py-2 text-left text-sm transition-colors ${
+                              isHighlighted ? "bg-[#FFF0F0] text-[#FF2B2B] font-medium" : "text-[#3A1F1F] hover:bg-gray-50"
+                            }`}
+                          >
+                            <MapPin className="h-3.5 w-3.5 mr-2 opacity-60 text-blue-500" />
+                            <span>{loc}</span>
+                          </button>
+                        );
+                      })}
+                    </div>
+                  )}
+
+                  {filteredSuggestions.designations.length > 0 && (
+                    <div>
+                      <div className="px-3 py-1.5 text-[10px] font-bold text-gray-400 bg-gray-50 uppercase tracking-wider">Roles / Designations</div>
+                      {filteredSuggestions.designations.map(role => {
+                        const globalIndex = flatSuggestionsList.findIndex(item => item.value === role && item.type === "designation");
+                        const isHighlighted = globalIndex === highlightedIndex;
+                        return (
+                          <button
+                            key={`role-${role}`}
+                            type="button"
+                            onClick={() => selectSuggestion(role)}
+                            onMouseEnter={() => setHighlightedIndex(globalIndex)}
+                            className={`flex w-full items-center px-3 py-2 text-left text-sm transition-colors ${
+                              isHighlighted ? "bg-[#FFF0F0] text-[#FF2B2B] font-medium" : "text-[#3A1F1F] hover:bg-gray-50"
+                            }`}
+                          >
+                            <Briefcase className="h-3.5 w-3.5 mr-2 opacity-60 text-emerald-600" />
+                            <span>{role}</span>
+                          </button>
+                        );
+                      })}
+                    </div>
+                  )}
                 </div>
               </div>
             )}
@@ -4271,16 +4637,16 @@ function ApplicantsPage() {
   const jobTitles = ["All", ...Array.from(new Set(applicants.map(a => a.job?.title).filter(Boolean)))];
 
   const filteredFilterSkillOptions = useMemo(() => {
-    const query = skillInput.trim().toLowerCase();
+    const query = skillInput.trim();
     const options = query ? SEARCH_SUGGESTION_DATASET : SKILL_OPTIONS;
-    return options.filter(skill => !query || skill.toLowerCase().includes(query)).slice(0, 50);
+    return options.filter(skill => fuzzyMatch(query, skill)).slice(0, 50);
   }, [skillInput]);
 
   const filteredTopSuggestions = useMemo(() => {
-    const query = searchTerm.trim().toLowerCase();
+    const query = searchTerm.trim();
     if (!query) return [];
     return SEARCH_SUGGESTION_DATASET
-      .filter(item => item.toLowerCase().includes(query))
+      .filter(item => fuzzyMatch(query, item))
       .slice(0, 12);
   }, [searchTerm]);
 
