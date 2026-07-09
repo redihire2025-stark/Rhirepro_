@@ -3,7 +3,7 @@ import { useNavigate, Routes, Route, Link, useLocation } from "react-router";
 import { supabase, Job as DBJob, Notification } from "../../lib/supabase";
 import { formatJobSalary, isJobVisibleToSeekers } from "../../lib/jobs";
 import { recordJobInteraction, recordJobSearch } from "../../lib/jobRecommendations";
-import { SKILL_OPTIONS, skillsMatch } from "../../lib/skillKeywords";
+import { SKILL_OPTIONS, skillsMatch, fuzzyMatch } from "../../lib/skillKeywords";
 import { useAuth } from "../../lib/auth-context";
 import AppliedJobsSection from "../components/AppliedJobsSection";
 import ResumePreviewDialog, { getStorageObjectFromUrl, buildPreviewUrl } from "../components/ResumePreviewDialog";
@@ -532,7 +532,7 @@ function buildDashboardJob(job: DBJobWithApplications): DashboardDisplayJob {
     description: formatDashboardDescription(job),
     industry: job.recruiter?.industry || job.industry || "",
     experience: "",
-    isRemote: job.work_mode === "Work from Home",
+    isRemote: job.work_mode === "Work from Home" || job.work_mode === "Remote",
     isDB: true,
     dbJob: job,
     applicantCount,
@@ -951,17 +951,13 @@ function FindJobPage() {
       setJobsLoading(true);
       setJobsError("");
 
-     let query = supabase
-  .from("jobs")
-  .select(
-    `id, title, description, roles_responsibilities, requirements, skills, perks, location, 
-     salary_min, salary_max, salary_type, experience_min, experience_max, employment_type, 
-     work_mode, created_at, status, deadline, deadline_time, recruiter_id,
-     recruiter:recruiter_profiles(logo_url, company_name, website, tagline, company_description, industry, company_type, company_size, founded, location),
-     applicant_count`,
-    { count: "exact" }
-  )
-  .eq("status", "Active");  
+      let data: DBJob[] | null = null;
+      let error: any = null;
+      let count = 0;
+      let esSuccess = false;
+
+      const from = (currentPage - 1) * JOBS_PER_PAGE;
+      const to = from + JOBS_PER_PAGE - 1;
 
       const trimmedSearch = searchQuery.trim();
       const shouldShowOnlyRecommended =
@@ -975,72 +971,134 @@ function FindJobPage() {
         !remoteFilter;
 
       if (trimmedSearch) {
-        const escaped = escapeLikeValue(trimmedSearch);
-        query = query.or(
-          `title.ilike.%${escaped}%,company_name.ilike.%${escaped}%,description.ilike.%${escaped}%,location.ilike.%${escaped}%`
-        );
+        try {
+          const esUrl = `http://localhost:8000/jobs/search?q=${encodeURIComponent(trimmedSearch)}` +
+            `&work_mode=${remoteFilter === "yes" || selectedChip === "Remote" || locationFilter === "remote" ? "Work from Home" : ""}` +
+            `&employment_type=${selectedChip === "Full-time" ? "Full-time" : selectedChip === "Part-time" ? "Part-time" : selectedChip === "Contract" ? "Contract" : jobTypeFilter === "fulltime" ? "Full-time" : jobTypeFilter === "parttime" ? "Part-time" : jobTypeFilter === "contract" ? "Contract" : ""}` +
+            `&location=${locationFilter && locationFilter !== "remote" ? locationFilter : ""}` +
+            `&salary_min=${salaryFilter === "10-25" ? "10" : salaryFilter === "25+" ? "25" : ""}` +
+            `&salary_max=${salaryFilter === "0-10" ? "10" : salaryFilter === "10-25" ? "25" : ""}` +
+            `&experience_min=${experienceFilter === "mid" ? "2" : experienceFilter === "senior" ? "5" : ""}` +
+            `&experience_max=${experienceFilter === "entry" ? "1" : experienceFilter === "mid" ? "5" : ""}` +
+            `&page=${currentPage}&size=${JOBS_PER_PAGE}`;
+            
+          const esRes = await fetch(esUrl);
+          if (esRes.ok) {
+            const esData = await esRes.json();
+            const matchedIds = (esData.jobs || []).map((j: any) => j.id);
+            count = esData.total || 0;
+            
+            if (matchedIds.length > 0) {
+              const { data: hydratedData, error: hydError } = await supabase
+                .from("jobs")
+                .select(
+                  `id, title, description, roles_responsibilities, requirements, skills, perks, location, 
+                   salary_min, salary_max, salary_type, experience_min, experience_max, employment_type, 
+                   work_mode, created_at, status, deadline, deadline_time, recruiter_id,
+                   recruiter:recruiter_profiles(logo_url, company_name, website, tagline, company_description, industry, company_type, company_size, founded, location),
+                   applicant_count`
+                )
+                .in("id", matchedIds);
+                
+              if (hydratedData) {
+                const idToJobMap = new Map(hydratedData.map((j: any) => [j.id, j]));
+                data = matchedIds.map((id: string) => idToJobMap.get(id)).filter(Boolean) as DBJob[];
+              } else if (hydError) {
+                error = hydError;
+              }
+            } else {
+              data = [];
+            }
+            esSuccess = true;
+          }
+        } catch (err) {
+          console.error("Elasticsearch jobseeker dashboard search query failed, using fallback:", err);
+        }
       }
 
-      if (selectedChip === "Full-time" || selectedChip === "Part-time" || selectedChip === "Contract") {
-        query = query.eq("employment_type", selectedChip);
-      } else if (jobTypeFilter === "fulltime") {
-        query = query.eq("employment_type", "Full-time");
-      } else if (jobTypeFilter === "parttime") {
-        query = query.eq("employment_type", "Part-time");
-      } else if (jobTypeFilter === "contract") {
-        query = query.eq("employment_type", "Contract");
+      if (!esSuccess) {
+        let query = supabase
+          .from("jobs")
+          .select(
+            `id, title, description, roles_responsibilities, requirements, skills, perks, location, 
+             salary_min, salary_max, salary_type, experience_min, experience_max, employment_type, 
+             work_mode, created_at, status, deadline, deadline_time, recruiter_id,
+             recruiter:recruiter_profiles(logo_url, company_name, website, tagline, company_description, industry, company_type, company_size, founded, location),
+             applicant_count`,
+            { count: "exact" }
+          )
+          .eq("status", "Active");
+
+        if (trimmedSearch) {
+          const escaped = escapeLikeValue(trimmedSearch);
+          query = query.or(
+            `title.ilike.%${escaped}%,company_name.ilike.%${escaped}%,description.ilike.%${escaped}%,location.ilike.%${escaped}%`
+          );
+        }
+
+        if (selectedChip === "Full-time" || selectedChip === "Part-time" || selectedChip === "Contract") {
+          query = query.eq("employment_type", selectedChip);
+        } else if (jobTypeFilter === "fulltime") {
+          query = query.eq("employment_type", "Full-time");
+        } else if (jobTypeFilter === "parttime") {
+          query = query.eq("employment_type", "Part-time");
+        } else if (jobTypeFilter === "contract") {
+          query = query.eq("employment_type", "Contract");
+        }
+
+        if (selectedChip === "Remote" || locationFilter === "remote" || remoteFilter === "yes") {
+          query = query.in("work_mode", ["Work from Home", "Remote"]);
+        } else if (remoteFilter === "no") {
+          query = query.neq("work_mode", "Work from Home").neq("work_mode", "Remote");
+        }
+
+        const preferredInterviewModes = normalizeInterviewModes(profile?.preferred_interview_mode);
+        if (preferredInterviewModes.length > 0) {
+          query = query.in("interview_mode", preferredInterviewModes);
+        }
+
+        if (locationFilter === "bengaluru") query = query.ilike("location", "%Bengaluru%");
+        if (locationFilter === "mumbai") query = query.ilike("location", "%Mumbai%");
+        if (locationFilter === "hyderabad") query = query.ilike("location", "%Hyderabad%");
+        if (locationFilter === "delhi") query = query.ilike("location", "%Delhi%");
+        if (locationFilter === "pune") query = query.ilike("location", "%Pune%");
+
+        if (experienceFilter === "entry") query = query.lte("experience_min", 1);
+        if (experienceFilter === "mid") query = query.gte("experience_min", 2).lte("experience_min", 5);
+        if (experienceFilter === "senior") query = query.gte("experience_min", 5);
+
+        if (salaryFilter === "0-10") {
+          query = query.or("salary_min.lt.10,and(salary_min.gte.1000,salary_min.lt.1000000)");
+        }
+        if (salaryFilter === "10-25") {
+          query = query.or("and(salary_min.gte.10,salary_min.lt.25),and(salary_min.gte.1000000,salary_min.lt.2500000)");
+        }
+        if (salaryFilter === "25+") {
+          query = query.or("and(salary_min.gte.25,salary_min.lt.1000),salary_min.gte.2500000");
+        }
+
+        if (industryFilter === "healthcare") query = query.ilike("industry", "%Healthcare%");
+        if (industryFilter === "finance") query = query.ilike("industry", "%BFSI%");
+        if (industryFilter === "media") query = query.ilike("industry", "%Media%");
+        if (industryFilter === "tech") query = query.or("industry.ilike.%IT / Software%,industry.ilike.%E-commerce%,industry.ilike.%Consulting%");
+        if (industryFilter === "marketing") query = query.or("industry.ilike.%Consulting%,industry.ilike.%Media%");
+        if (industryFilter === "design") query = query.ilike("department", "%Design%");
+
+        const orderedQuery = query.order("created_at", { ascending: false });
+
+        const res = await withTimeout(
+          shouldShowOnlyRecommended ? orderedQuery.limit(DEFAULT_RECOMMENDATION_FETCH_LIMIT) : orderedQuery.range(from, to),
+          JOBS_QUERY_TIMEOUT_MS,
+          "Jobs request timed out",
+        ).catch((err) => {
+          console.error("Unable to load jobs:", err);
+          return { data: null, error: err, count: 0 };
+        });
+
+        data = res.data as unknown as DBJob[];
+        error = res.error;
+        count = res.count || 0;
       }
-
-      if (selectedChip === "Remote" || locationFilter === "remote" || remoteFilter === "yes") {
-        query = query.eq("work_mode", "Work from Home");
-      } else if (remoteFilter === "no") {
-        query = query.neq("work_mode", "Work from Home");
-      }
-
-      const preferredInterviewModes = normalizeInterviewModes(profile?.preferred_interview_mode);
-      if (preferredInterviewModes.length > 0) {
-        query = query.in("interview_mode", preferredInterviewModes);
-      }
-
-      if (locationFilter === "bengaluru") query = query.ilike("location", "%Bengaluru%");
-      if (locationFilter === "mumbai") query = query.ilike("location", "%Mumbai%");
-      if (locationFilter === "hyderabad") query = query.ilike("location", "%Hyderabad%");
-      if (locationFilter === "delhi") query = query.ilike("location", "%Delhi%");
-      if (locationFilter === "pune") query = query.ilike("location", "%Pune%");
-
-      if (experienceFilter === "entry") query = query.lte("experience_min", 1);
-      if (experienceFilter === "mid") query = query.gte("experience_min", 2).lte("experience_min", 5);
-      if (experienceFilter === "senior") query = query.gte("experience_min", 5);
-
-      if (salaryFilter === "0-10") {
-        query = query.or("salary_min.lt.10,and(salary_min.gte.1000,salary_min.lt.1000000)");
-      }
-      if (salaryFilter === "10-25") {
-        query = query.or("and(salary_min.gte.10,salary_min.lt.25),and(salary_min.gte.1000000,salary_min.lt.2500000)");
-      }
-      if (salaryFilter === "25+") {
-        query = query.or("and(salary_min.gte.25,salary_min.lt.1000),salary_min.gte.2500000");
-      }
-
-      if (industryFilter === "healthcare") query = query.ilike("industry", "%Healthcare%");
-      if (industryFilter === "finance") query = query.ilike("industry", "%BFSI%");
-      if (industryFilter === "media") query = query.ilike("industry", "%Media%");
-      if (industryFilter === "tech") query = query.or("industry.ilike.%IT / Software%,industry.ilike.%E-commerce%,industry.ilike.%Consulting%");
-      if (industryFilter === "marketing") query = query.or("industry.ilike.%Consulting%,industry.ilike.%Media%");
-      if (industryFilter === "design") query = query.ilike("department", "%Design%");
-
-      const from = (currentPage - 1) * JOBS_PER_PAGE;
-      const to = from + JOBS_PER_PAGE - 1;
-      const orderedQuery = query.order("created_at", { ascending: false });
-
-      const { data, error, count } = await withTimeout(
-        shouldShowOnlyRecommended ? orderedQuery.limit(DEFAULT_RECOMMENDATION_FETCH_LIMIT) : orderedQuery.range(from, to),
-        JOBS_QUERY_TIMEOUT_MS,
-        "Jobs request timed out",
-      ).catch((error) => {
-        console.error("Unable to load jobs:", error);
-        return { data: null, error, count: 0 };
-      });
 
       if (cancelled) return;
 
@@ -2120,9 +2178,9 @@ function ProfilePage({ onPendingPrefsChange }: { onPendingPrefsChange?: (pending
 
   const completionColor = completion >= 80 ? "bg-green-500" : completion >= 50 ? "bg-yellow-500" : "bg-[#FF2B2B]";
   const filteredSkillOptions = useMemo(() => {
-    const query = skillSearch.trim().toLowerCase();
+    const query = skillSearch.trim();
     return PROFILE_SKILL_OPTIONS
-      .filter(skill => !query || skill.toLowerCase().includes(query))
+      .filter(skill => fuzzyMatch(query, skill))
       .slice(0, 80);
   }, [skillSearch]);
   const selectedPreferredJobTitles = useMemo(
