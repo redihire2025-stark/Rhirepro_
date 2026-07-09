@@ -298,20 +298,6 @@ export default function ApplicantProfilePage() {
 
       if (rawResumeUrl) {
         setResumeUrl(rawResumeUrl);
-        
-        // Increment resumes used by recruiter profile (only once per recruiter per candidate)
-        if (recruiterProfile?.id && profData.id) {
-          const resumeViewKey = `viewed_resume_${recruiterProfile.id}_${profData.id}`;
-          if (!localStorage.getItem(resumeViewKey)) {
-            localStorage.setItem(resumeViewKey, "true");
-            void supabase.rpc("increment_recruiter_resumes", { p_recruiter_id: recruiterProfile.id }).then(({ error: rErr }) => {
-              if (rErr) {
-                console.warn("Failed to increment resumes used count:", rErr.message);
-                localStorage.removeItem(resumeViewKey);
-              }
-            });
-          }
-        }
 
         const storageObject = getStorageObjectFromUrl(rawResumeUrl);
         if (!storageObject) {
@@ -480,8 +466,23 @@ export default function ApplicantProfilePage() {
     return () => document.removeEventListener("fullscreenchange", handleFullscreenChange);
   }, []);
 
+  const triggerResumeView = useCallback(() => {
+    if (!recruiterProfile?.id || !id) return;
+    const resumeViewKey = `viewed_resume_${recruiterProfile.id}_${id}`;
+    if (!localStorage.getItem(resumeViewKey)) {
+      localStorage.setItem(resumeViewKey, "true");
+      void supabase.rpc("increment_recruiter_resumes", { p_recruiter_id: recruiterProfile.id }).then(({ error: rErr }) => {
+        if (rErr) {
+          console.warn("Failed to increment resumes used count:", rErr.message);
+          localStorage.removeItem(resumeViewKey);
+        }
+      });
+    }
+  }, [recruiterProfile, id]);
+
   const toggleResumeFullscreen = async () => {
     if (!fullscreenResumeRef.current) return;
+    triggerResumeView();
     try {
       if (document.fullscreenElement) {
         await document.exitFullscreen();
@@ -495,6 +496,7 @@ export default function ApplicantProfilePage() {
 
   const handleDownloadResume = useCallback(async () => {
     if (!resumeUrl) return;
+    triggerResumeView();
 
     const storageObject = getStorageObjectFromUrl(resumeUrl);
     if (!storageObject) {
@@ -512,7 +514,7 @@ export default function ApplicantProfilePage() {
     }
 
     window.open(data.signedUrl, "_blank", "noopener,noreferrer");
-  }, [resumeUrl]);
+  }, [resumeUrl, triggerResumeView]);
 
   // Auth gate checks
   if (authLoading || (loading && !error)) {
