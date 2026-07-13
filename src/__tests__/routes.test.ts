@@ -85,7 +85,7 @@ describe('Router — route definitions', () => {
     // /, /signin, /signup, /jobs, /job/:id, /services, /blog, /blog/:id,
     // /jobseeker/signin, /jobseeker/signup, /recruiter/signin, /recruiter/signup,
     // /jobseeker/dashboard/*, /recruiter/dashboard/*, *
-    expect(getChildPaths().length).toBe(26);
+    expect(getChildPaths().length).toBe(32);
   });
 
   it('each child route has a Component', () => {

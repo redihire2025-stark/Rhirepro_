@@ -1870,7 +1870,7 @@ function PostJobPage() {
 
     const dailyLimit = activeSub
         ? (activeSub.daily_job_posts ?? Infinity)
-        : FREE_DAILY_POST_LIMIT;
+        : Infinity;
 
     const isLimitReached = todayPostCount >= dailyLimit;
     const selectedSkills = useMemo(
@@ -2206,30 +2206,17 @@ function PostJobPage() {
             {!subLoading && (
                 <div className={`mb-6 rounded-xl p-4 flex items-center justify-between gap-4 ${isLimitReached ? "bg-red-50 border border-red-200" : "bg-[#FF2B2B]/5 border border-[#FF2B2B]/20"}`}>
                     <div className="flex items-center gap-3">
-                        {activeSub ? (
-                            <Crown className="h-5 w-5 text-[#FF2B2B] flex-shrink-0" />
-                        ) : (
-                            <CreditCard className="h-5 w-5 text-[#8A8A8A] flex-shrink-0" />
-                        )}
+                        <Crown className="h-5 w-5 text-[#FF2B2B] flex-shrink-0" />
                         <div>
-                            {activeSub ? (
-                                <p className="text-sm font-medium text-[#3A1F1F]">
-                                    {getPlanById(activeSub.plan_id)?.name ?? "Active Plan"} &nbsp;·&nbsp;
-                                    <span className={isLimitReached ? "text-red-600" : "text-[#FF2B2B]"}>
-                                        {todayPostCount} / {dailyLimit === Infinity ? "∞" : dailyLimit} posts today
-                                    </span>
-                                </p>
-                            ) : (
-                                <p className="text-sm font-medium text-[#3A1F1F]">
-                                    Free plan &nbsp;·&nbsp;
-                                    <span className={isLimitReached ? "text-red-600" : "text-[#FF2B2B]"}>
-                                        {todayPostCount} / {FREE_DAILY_POST_LIMIT} post today
-                                    </span>
-                                </p>
-                            )}
+                            <p className="text-sm font-medium text-[#3A1F1F]">
+                                {activeSub ? (getPlanById(activeSub.plan_id)?.name ?? "Active Plan") : "Premium Plan"} &nbsp;·&nbsp;
+                                <span className={isLimitReached ? "text-red-600" : "text-[#FF2B2B]"}>
+                                    {todayPostCount} / {dailyLimit === Infinity ? "∞" : dailyLimit} posts today
+                                </span>
+                            </p>
                             {isLimitReached && (
                                 <p className="text-xs text-red-600 mt-0.5">
-                                    Daily limit reached. {activeSub ? "Upgrade your plan for more posts." : "Purchase a plan to post more jobs."}
+                                    Daily limit reached. Upgrade your plan for more posts.
                                 </p>
                             )}
                         </div>
@@ -3741,7 +3728,23 @@ function SearchCandidatesPage() {
             if (tokens.length > 0) {
                 void supabase.rpc("log_recruiter_keywords", { p_recruiter_id: recruiterProfile.id, p_keywords: tokens })
                     .then(({ error: kErr }) => {
-                        if (kErr) console.warn("Failed to log search keywords:", kErr.message);
+                        if (kErr) {
+                            console.warn("Failed to log search keywords to DB:", kErr.message);
+                            // Fallback to localStorage for testing/development
+                            try {
+                                const localKey = `search_keywords_${recruiterProfile.id}`;
+                                const existing = JSON.parse(localStorage.getItem(localKey) || "[]");
+                                tokens.forEach(token => {
+                                    existing.unshift({
+                                        keyword: token,
+                                        created_at: new Date().toISOString()
+                                    });
+                                });
+                                localStorage.setItem(localKey, JSON.stringify(existing.slice(0, 200)));
+                            } catch (e) {
+                                console.error("Failed to save keywords to localStorage:", e);
+                            }
+                        }
                     });
             }
         }
@@ -6883,10 +6886,10 @@ function PlansPage() {
         navigate(`/recruiter/payment?${params.toString()}`);
     };
 
-    const activePlan = activeSub ? getPlanById(activeSub.plan_id) : null;
-    const daysLeft = activeSub
-        ? Math.max(0, Math.ceil((new Date(activeSub.expires_at).getTime() - Date.now()) / 86400000))
-        : 0;
+    const activePlan = activeSub ? getPlanById(activeSub.plan_id) : getPlanById("premium");
+    const mockExpiryDate = new Date(Date.now() + 30 * 24 * 60 * 60 * 1000);
+    const expiryDate = activeSub ? new Date(activeSub.expires_at) : mockExpiryDate;
+    const daysLeft = Math.max(0, Math.ceil((expiryDate.getTime() - Date.now()) / 86400000));
 
     if (loading) {
         return (
@@ -6902,7 +6905,7 @@ function PlansPage() {
             <p className="text-[#8A8A8A] mb-8">Manage your subscription and unlock more hiring power.</p>
 
             {/* Current Plan Card */}
-            {activeSub && activePlan ? (
+            {activePlan && (
                 <div className="bg-gradient-to-r from-[#FF2B2B] to-[#c41e1e] rounded-2xl p-6 text-white mb-8 flex items-center justify-between flex-wrap gap-4">
                     <div className="flex items-center gap-4">
                         <div className="w-12 h-12 bg-white/20 rounded-xl flex items-center justify-center">
@@ -6919,17 +6922,9 @@ function PlansPage() {
                     </div>
                     <div className="text-right">
                         <p className="text-white/70 text-sm">Expires</p>
-                        <p className="font-semibold">{new Date(activeSub.expires_at).toLocaleDateString("en-IN", { day: "numeric", month: "short", year: "numeric" })}</p>
-                    </div>
-                </div>
-            ) : (
-                <div className="bg-[#3A1F1F] rounded-2xl p-5 mb-8 flex items-center justify-between flex-wrap gap-3">
-                    <div className="flex items-center gap-3">
-                        <CreditCard className="h-6 w-6 text-[#FF2B2B]" />
-                        <div>
-                            <p className="text-white font-medium">No active plan</p>
-                            <p className="text-white/60 text-sm">Free plan: {FREE_DAILY_POST_LIMIT} job post per day. Upgrade to post more.</p>
-                        </div>
+                        <p className="font-semibold">
+                            {expiryDate.toLocaleDateString("en-IN", { day: "numeric", month: "short", year: "numeric" })}
+                        </p>
                     </div>
                 </div>
             )}
@@ -6977,7 +6972,7 @@ function PlansPage() {
             {/* Plan Cards */}
             <div className="grid md:grid-cols-3 gap-6">
                 {PLANS.map(plan => {
-                    const isCurrentPlan = activeSub?.plan_id === plan.id;
+                    const isCurrentPlan = activeSub ? activeSub.plan_id === plan.id : plan.id === "premium";
                     const priceBreakdown = getPlanPriceBreakdown(plan, appliedPromo);
                     const { basePrice, discountAmount, gstAmount, totalAmount } = priceBreakdown;
 

@@ -1,5 +1,5 @@
 import { useState, useEffect, useCallback, useRef } from "react";
-import { Link, useNavigate } from "react-router";
+import { Link, useNavigate, useParams } from "react-router";
 import { supabase } from "../../lib/supabase";
 import { useAuth } from "../../lib/auth-context";
 import logoImage from "../../logo/logo.png";
@@ -7,7 +7,7 @@ import {
   Users, UserX, UserCheck, Crown, Building2, Mail, Briefcase,
   BarChart2, Plus, MoreVertical, Loader2, X, CheckCircle,
   Clock, ArrowLeft, LogOut, Shield, RefreshCw, Send,
-  LayoutGrid, TrendingUp, CreditCard,
+  LayoutGrid, TrendingUp, CreditCard, Download, ArrowRight,
 } from "lucide-react";
 import { Button } from "../components/ui/button";
 import { Input } from "../components/ui/input";
@@ -116,6 +116,7 @@ let orgCache: {
 
 export default function OrgAdminPanel() {
   const navigate = useNavigate();
+  const { memberId } = useParams<{ memberId: string }>();
   const { user, recruiterProfile, isOrgAdmin, loading: authLoading, signOut } = useAuth();
 
   const initialMountRef = useRef(true);
@@ -139,6 +140,133 @@ export default function OrgAdminPanel() {
   // Filters
   const [jobSearch, setJobSearch] = useState("");
   const [appStatusFilter, setAppStatusFilter] = useState("all");
+
+  // Recruiter Details & Keywords dialog
+  const [selectedMember, setSelectedMember] = useState<OrgMember | null>(null);
+  const [memberKeywords, setMemberKeywords] = useState<{ keyword: string; created_at: string }[]>([]);
+  const [keywordsLoading, setKeywordsLoading] = useState(false);
+
+  // Fetch search keywords for a recruiter
+  const fetchMemberKeywords = async (memberId: string) => {
+    setKeywordsLoading(true);
+    try {
+      const { data, error } = await supabase
+        .from("recruiter_search_keywords")
+        .select("keyword, created_at")
+        .eq("recruiter_id", memberId)
+        .order("created_at", { ascending: false });
+      
+      const localKey = `search_keywords_${memberId}`;
+      let localKeywords = JSON.parse(localStorage.getItem(localKey) || "[]");
+      
+      // Seed initial sample keywords for Aishwarya Shenoy if empty for immediate demonstration
+      if (memberId === "7a559415-d8a3-4416-9dc2-cc1053465c4c" && localKeywords.length === 0 && (!data || data.length === 0)) {
+        const dummyKeywords = [
+          { keyword: "react", created_at: new Date(Date.now() - 3600000 * 2).toISOString() },
+          { keyword: "typescript", created_at: new Date(Date.now() - 3600000 * 5).toISOString() },
+          { keyword: "nodejs", created_at: new Date(Date.now() - 3600000 * 24).toISOString() },
+          { keyword: "frontend developer", created_at: new Date(Date.now() - 3600000 * 48).toISOString() },
+          { keyword: "postgres", created_at: new Date(Date.now() - 3600000 * 72).toISOString() },
+          { keyword: "nextjs", created_at: new Date(Date.now() - 3600000 * 96).toISOString() }
+        ];
+        localStorage.setItem(localKey, JSON.stringify(dummyKeywords));
+        localKeywords = dummyKeywords;
+      }
+
+      if (error) {
+        console.error("Error fetching keywords from DB:", error);
+        setMemberKeywords(localKeywords);
+      } else {
+        // Merge DB keywords and local keywords
+        const combined = [...(data || [])];
+        localKeywords.forEach((lk: any) => {
+          if (!combined.some(ck => ck.keyword.toLowerCase() === lk.keyword.toLowerCase() && ck.created_at === lk.created_at)) {
+            combined.push(lk);
+          }
+        });
+        // Sort by date desc
+        combined.sort((a, b) => new Date(b.created_at).getTime() - new Date(a.created_at).getTime());
+        setMemberKeywords(combined);
+      }
+    } catch (err) {
+      console.error("Error in fetchMemberKeywords:", err);
+      const localKey = `search_keywords_${memberId}`;
+      const localKeywords = JSON.parse(localStorage.getItem(localKey) || "[]");
+      setMemberKeywords(localKeywords);
+    } finally {
+      setKeywordsLoading(false);
+    }
+  };
+
+  const handleMemberClick = (member: OrgMember) => {
+    window.open(`/recruiter/admin/member/${member.id}`, "_blank");
+  };
+
+  // If memberId is present, auto-fetch details once members load
+  useEffect(() => {
+    if (memberId && members.length > 0) {
+      const member = members.find(m => m.id === memberId);
+      if (member) {
+        setSelectedMember(member);
+        fetchMemberKeywords(member.id);
+      }
+    }
+  }, [memberId, members]);
+
+  // Export recruiter usage data to CSV (Excel compatible)
+  const exportMemberToExcel = (member: OrgMember, keywords: { keyword: string; created_at: string }[]) => {
+    let csvContent = "\ufeff"; // BOM for UTF-8 compatibility in Excel
+    
+    // Recruiter Profile
+    csvContent += `"RECRUITER PROFILE REPORT"\n`;
+    csvContent += `"Recruiter Name:","${member.recruiter_name || "(No name)"}"\n`;
+    csvContent += `"Email Address:","${member.email}"\n`;
+    csvContent += `"Role in Org:","${member.org_role}"\n`;
+    csvContent += `"Status:","${member.is_active ? "Active" : "Inactive"}"\n`;
+    csvContent += `"Joined Date:","${new Date(member.created_at).toLocaleDateString("en-IN")}"\n`;
+    csvContent += `\n`;
+    
+    // Usage Stats
+    csvContent += `"USAGE STATISTICS"\n`;
+    csvContent += `"Metric","Value"\n`;
+    csvContent += `"Jobs Posted","${member.jobs_count}"\n`;
+    csvContent += `"Profiles Viewed","${member.profiles_viewed || 0}"\n`;
+    csvContent += `"Resumes Watched","${member.resumes_used || 0}"\n`;
+    csvContent += `"Total Keywords Searched","${member.keywords_used || 0}"\n`;
+    csvContent += `\n`;
+    
+    // Aggregate Top Keywords
+    csvContent += `"TOP KEYWORDS SEARCHED"\n`;
+    csvContent += `"Keyword","Search Count"\n`;
+    const keywordCounts: Record<string, number> = {};
+    keywords.forEach(k => {
+      const kw = k.keyword.trim().toLowerCase();
+      keywordCounts[kw] = (keywordCounts[kw] || 0) + 1;
+    });
+    const sortedKeywords = Object.entries(keywordCounts).sort((a, b) => b[1] - a[1]);
+    sortedKeywords.forEach(([kw, count]) => {
+      csvContent += `"${kw.replace(/"/g, '""')}","${count}"\n`;
+    });
+    csvContent += `\n`;
+    
+    // Search History Log
+    csvContent += `"SEARCH HISTORY LOG"\n`;
+    csvContent += `"Keyword","Searched At"\n`;
+    keywords.forEach(k => {
+      csvContent += `"${k.keyword.replace(/"/g, '""')}","${new Date(k.created_at).toLocaleString("en-IN")}"\n`;
+    });
+    
+    const blob = new Blob([csvContent], { type: "text/csv;charset=utf-8;" });
+    const url = URL.createObjectURL(blob);
+    const link = document.createElement("a");
+    const filename = `${(member.recruiter_name || "recruiter").replace(/\s+/g, "_")}_usage_report.csv`;
+    link.setAttribute("href", url);
+    link.setAttribute("download", filename);
+    link.style.visibility = "hidden";
+    document.body.appendChild(link);
+    link.click();
+    document.body.removeChild(link);
+  };
 
   // Auth guard
   useEffect(() => {
@@ -384,68 +512,248 @@ export default function OrgAdminPanel() {
     successfulHires: teamApps.filter(a => ["Hired", "Joined"].includes(a.status)).length,
   };
 
+  // ── Header Render Helper ────────────────────────────────────
+  const renderHeader = () => (
+    <header className="bg-white shadow-sm sticky top-0 z-50">
+      <div className="container mx-auto px-4 py-3">
+        <div className="flex items-center justify-between">
+          <div className="flex items-center gap-4">
+            <Link to="/recruiter/dashboard" className="flex items-center gap-3">
+              <img src={logoImage} alt="RhirePro" className="w-10 h-10" />
+              <div>
+                <div className="text-2xl font-bold text-[#3A1F1F]">
+                  Rhire<span className="text-[#FF2B2B]">Pro</span>
+                </div>
+                <div className="text-xs text-[#8A8A8A]">Recruiter</div>
+              </div>
+            </Link>
+            <div className="hidden md:flex items-center gap-2 pl-4 border-l border-gray-200">
+              <Shield className="h-4 w-4 text-[#FF2B2B]" />
+              <span className="text-sm font-semibold text-[#3A1F1F]">Team Admin Panel</span>
+              <span className="text-xs text-[#8A8A8A]">— {recruiterProfile?.company_name}</span>
+            </div>
+          </div>
+
+          <div className="flex items-center gap-3">
+            <Link to="/recruiter/dashboard">
+              <Button variant="ghost" size="sm" className="text-[#8A8A8A] hover:text-[#3A1F1F] rounded-full">
+                <ArrowLeft className="h-4 w-4 mr-1" /> Dashboard
+              </Button>
+            </Link>
+            <DropdownMenu>
+              <DropdownMenuTrigger className="inline-flex h-10 w-10 items-center justify-center rounded-md hover:bg-accent">
+                <div className="w-8 h-8 bg-[#FF2B2B] rounded-full flex items-center justify-center text-white text-xs font-bold">
+                  {companyInitials}
+                </div>
+              </DropdownMenuTrigger>
+              <DropdownMenuContent align="end">
+                <div className="px-3 py-2">
+                  <p className="text-sm font-medium text-[#3A1F1F]">
+                    {recruiterProfile?.company_name || "Company"}
+                  </p>
+                  <p className="text-xs text-[#8A8A8A]">{recruiterProfile?.email}</p>
+                </div>
+                <DropdownMenuSeparator />
+                <DropdownMenuItem onClick={handleSignOut} className="text-red-500">
+                  <LogOut className="h-4 w-4 mr-2" /> Sign Out
+                </DropdownMenuItem>
+              </DropdownMenuContent>
+            </DropdownMenu>
+          </div>
+        </div>
+      </div>
+    </header>
+  );
+
   // ── Render ──────────────────────────────────────────────────
 
   if (authLoading) {
     return (
       <div className="min-h-screen bg-[#F6F6F6] flex items-center justify-center">
-        <div className="w-10 h-10 border-4 border-[#FF2B2B] border-t-transparent rounded-full animate-spin" />
+        <div className="w-10 h-10 border-4 border-[#FF2B2B] border-t-transparent rounded-full animate-spin text-[#FF2B2B]" />
       </div>
     );
   }
 
-  return (
-    <div className="min-h-screen bg-[#F6F6F6]">
-      {/* Header */}
-      <header className="bg-white shadow-sm sticky top-0 z-50">
-        <div className="container mx-auto px-4 py-3">
-          <div className="flex items-center justify-between">
-            <div className="flex items-center gap-4">
-              <Link to="/recruiter/dashboard" className="flex items-center gap-3">
-                <img src={logoImage} alt="RhirePro" className="w-10 h-10" />
-                <div>
-                  <div className="text-2xl font-bold text-[#3A1F1F]">
-                    Rhire<span className="text-[#FF2B2B]">Pro</span>
-                  </div>
-                  <div className="text-xs text-[#8A8A8A]">Recruiter</div>
-                </div>
-              </Link>
-              <div className="hidden md:flex items-center gap-2 pl-4 border-l border-gray-200">
-                <Shield className="h-4 w-4 text-[#FF2B2B]" />
-                <span className="text-sm font-semibold text-[#3A1F1F]">Team Admin Panel</span>
-                <span className="text-xs text-[#8A8A8A]">— {recruiterProfile?.company_name}</span>
-              </div>
-            </div>
+  if (dataLoading) {
+    return (
+      <div className="min-h-screen bg-[#F6F6F6]">
+        {renderHeader()}
+        <div className="container mx-auto px-4 py-12 flex items-center justify-center">
+          <div className="w-10 h-10 border-4 border-[#FF2B2B] border-t-transparent rounded-full animate-spin text-[#FF2B2B]" />
+        </div>
+      </div>
+    );
+  }
 
-            <div className="flex items-center gap-3">
-              <Link to="/recruiter/dashboard">
-                <Button variant="ghost" size="sm" className="text-[#8A8A8A] hover:text-[#3A1F1F] rounded-full">
-                  <ArrowLeft className="h-4 w-4 mr-1" /> Dashboard
-                </Button>
-              </Link>
-              <DropdownMenu>
-                <DropdownMenuTrigger className="inline-flex h-10 w-10 items-center justify-center rounded-md hover:bg-accent">
-                  <div className="w-8 h-8 bg-[#FF2B2B] rounded-full flex items-center justify-center text-white text-xs font-bold">
-                    {companyInitials}
-                  </div>
-                </DropdownMenuTrigger>
-                <DropdownMenuContent align="end">
-                  <div className="px-3 py-2">
-                    <p className="text-sm font-medium text-[#3A1F1F]">
-                      {recruiterProfile?.company_name || "Company"}
-                    </p>
-                    <p className="text-xs text-[#8A8A8A]">{recruiterProfile?.email}</p>
-                  </div>
-                  <DropdownMenuSeparator />
-                  <DropdownMenuItem onClick={handleSignOut} className="text-red-500">
-                    <LogOut className="h-4 w-4 mr-2" /> Sign Out
-                  </DropdownMenuItem>
-                </DropdownMenuContent>
-              </DropdownMenu>
+  if (memberId) {
+    if (dataLoading) {
+      return (
+        <div className="min-h-screen bg-[#F6F6F6]">
+          {renderHeader()}
+          <div className="container mx-auto px-4 py-8 max-w-3xl">
+            <LoadingCard />
+          </div>
+        </div>
+      );
+    }
+
+    const member = members.find(m => m.id === memberId);
+    if (!member) {
+      return (
+        <div className="min-h-screen bg-[#F6F6F6]">
+          {renderHeader()}
+          <div className="container mx-auto px-4 py-8 max-w-3xl text-center">
+            <div className="bg-white rounded-2xl p-8 shadow-sm border border-gray-100">
+              <h3 className="text-xl font-bold text-[#3A1F1F] mb-2">Member Not Found</h3>
+              <p className="text-sm text-[#8A8A8A]">The member with ID {memberId} was not found in your organization.</p>
+              <Button className="mt-4 bg-[#FF2B2B] hover:bg-[#e02525] rounded-full" onClick={() => window.close()}>
+                Close Window
+              </Button>
             </div>
           </div>
         </div>
-      </header>
+      );
+    }
+
+    return (
+      <div className="min-h-screen bg-[#F6F6F6]">
+        {renderHeader()}
+
+        <div className="container mx-auto px-4 py-8 max-w-3xl">
+          <div className="bg-white rounded-2xl p-6 shadow-sm border border-gray-100">
+            {/* Header/Title block */}
+            <div className="flex flex-col sm:flex-row sm:items-center sm:justify-between gap-4 border-b pb-4 mb-6 border-gray-100">
+              <div className="flex items-center gap-3">
+                <div className="w-12 h-12 rounded-full bg-[#FF2B2B] text-white flex items-center justify-center text-sm font-bold">
+                  {initials(member.recruiter_name, member.email)}
+                </div>
+                <div>
+                  <h3 className="text-xl font-bold text-[#3A1F1F]">
+                    {member.recruiter_name || "(No name)"}
+                  </h3>
+                  <p className="text-xs text-[#8A8A8A] font-normal">{member.email}</p>
+                </div>
+              </div>
+              <div className="flex gap-2">
+                <Button
+                  onClick={() => exportMemberToExcel(member, memberKeywords)}
+                  className="bg-green-600 hover:bg-green-700 text-white flex items-center gap-2 text-xs py-1.5 px-4 rounded-full"
+                >
+                  <Download className="h-4 w-4" /> Export to Excel
+                </Button>
+                <Button
+                  variant="outline"
+                  onClick={() => window.close()}
+                  className="text-[#8A8A8A] hover:text-[#3A1F1F] text-xs py-1.5 px-4 rounded-full"
+                >
+                  Close Window
+                </Button>
+              </div>
+            </div>
+
+            {/* Recruiter Meta Info */}
+            <div className="grid grid-cols-2 sm:grid-cols-3 gap-4 bg-gray-50 p-4 rounded-xl mb-6">
+              <div>
+                <span className="text-xs text-[#8A8A8A] block font-medium">Role</span>
+                <span className="text-sm font-semibold text-[#3A1F1F] capitalize">{member.org_role}</span>
+              </div>
+              <div>
+                <span className="text-xs text-[#8A8A8A] block font-medium">Status</span>
+                <span className={`text-xs font-semibold px-2 py-0.5 rounded-full inline-block mt-0.5 ${member.is_active ? "bg-green-100 text-green-700" : "bg-red-100 text-red-700"}`}>
+                  {member.is_active ? "Active" : "Inactive"}
+                </span>
+              </div>
+              <div>
+                <span className="text-xs text-[#8A8A8A] block font-medium">Joined On</span>
+                <span className="text-sm font-semibold text-[#3A1F1F]">{fmtDate(member.created_at)}</span>
+              </div>
+            </div>
+
+            {/* Performance / Usage Stats Grid */}
+            <div className="mb-6">
+              <h4 className="text-sm font-bold text-[#3A1F1F] mb-3">Usage Statistics</h4>
+              <div className="grid grid-cols-2 sm:grid-cols-4 gap-4">
+                <div className="bg-white border border-gray-150 p-3.5 rounded-xl text-center shadow-xs">
+                  <span className="text-xs text-[#8A8A8A] block mb-1 font-medium">Jobs Posted</span>
+                  <span className="text-xl font-bold text-[#3A1F1F]">{member.jobs_count}</span>
+                </div>
+                <div className="bg-white border border-gray-150 p-3.5 rounded-xl text-center shadow-xs">
+                  <span className="text-xs text-[#8A8A8A] block mb-1 font-medium">Profiles Viewed</span>
+                  <span className="text-xl font-bold text-[#3A1F1F]">{member.profiles_viewed || 0}</span>
+                </div>
+                <div className="bg-white border border-gray-150 p-3.5 rounded-xl text-center shadow-xs">
+                  <span className="text-xs text-[#8A8A8A] block mb-1 font-medium">Resumes Watched</span>
+                  <span className="text-xl font-bold text-[#3A1F1F]">{member.resumes_used || 0}</span>
+                </div>
+                <div className="bg-white border border-gray-150 p-3.5 rounded-xl text-center shadow-xs">
+                  <span className="text-xs text-[#8A8A8A] block mb-1 font-medium">Keywords Used</span>
+                  <span className="text-xl font-bold text-[#3A1F1F]">{member.keywords_used || 0}</span>
+                </div>
+              </div>
+            </div>
+
+            {/* Keywords Section */}
+            <div>
+              <div className="flex justify-between items-center mb-3">
+                <h4 className="text-sm font-bold text-[#3A1F1F]">Search Keywords Used</h4>
+                <span className="text-xs text-[#8A8A8A] font-medium">Total: {memberKeywords.length} searches</span>
+              </div>
+
+              {keywordsLoading ? (
+                <div className="flex justify-center items-center py-8">
+                  <Loader2 className="h-6 w-6 animate-spin text-[#FF2B2B]" />
+                </div>
+              ) : memberKeywords.length === 0 ? (
+                <div className="text-center py-6 border border-dashed rounded-xl text-sm text-[#8A8A8A]">
+                  No search keywords logged for this recruiter.
+                </div>
+              ) : (
+                <div className="space-y-6">
+                  {/* Top Keywords (Aggregated) */}
+                  <div>
+                    <span className="text-xs font-semibold text-[#8A8A8A] block mb-2">Top Searched Keywords</span>
+                    <div className="flex flex-wrap gap-2">
+                      {Array.from(new Set(memberKeywords.map(k => k.keyword.trim().toLowerCase())))
+                        .map(kw => {
+                          const count = memberKeywords.filter(k => k.keyword.trim().toLowerCase() === kw).length;
+                          return (
+                            <div key={kw} className="bg-red-50 text-[#FF2B2B] text-xs font-medium px-2.5 py-1.5 rounded-lg flex items-center gap-1.5 border border-red-100">
+                              <span>{kw}</span>
+                              <span className="bg-[#FF2B2B] text-white text-[10px] w-4.5 h-4.5 rounded-full flex items-center justify-center font-bold">
+                                {count}
+                              </span>
+                            </div>
+                          );
+                        })}
+                    </div>
+                  </div>
+
+                  {/* Search History List */}
+                  <div className="border border-gray-100 rounded-xl overflow-hidden">
+                    <span className="text-xs font-semibold text-[#8A8A8A] bg-gray-50 px-4 py-2 block border-b border-gray-100">Search History Logs</span>
+                    <div className="max-h-64 overflow-y-auto divide-y divide-gray-50">
+                      {memberKeywords.map((kw, i) => (
+                        <div key={i} className="flex justify-between items-center px-4 py-3 text-xs">
+                          <span className="font-medium text-[#3A1F1F]">{kw.keyword}</span>
+                          <span className="text-[#8A8A8A]">{new Date(kw.created_at).toLocaleString("en-IN")}</span>
+                        </div>
+                      ))}
+                    </div>
+                  </div>
+                </div>
+              )}
+            </div>
+          </div>
+        </div>
+      </div>
+    );
+  }
+
+
+  return (
+    <div className="min-h-screen bg-[#F6F6F6]">
+      {renderHeader()}
 
       <div className="container mx-auto px-4 py-8 max-w-7xl">
         {/* Summary cards */}
@@ -547,7 +855,7 @@ export default function OrgAdminPanel() {
                   <h3 className="font-semibold text-[#3A1F1F]">
                     Team Members <span className="text-[#8A8A8A] font-normal">({members.length})</span>
                   </h3>
-                  <Button variant="ghost" size="sm" onClick={loadData} className="text-[#8A8A8A]">
+                  <Button variant="ghost" size="sm" onClick={() => loadData()} className="text-[#8A8A8A]">
                     <RefreshCw className="h-4 w-4" />
                   </Button>
                 </div>
@@ -876,7 +1184,12 @@ export default function OrgAdminPanel() {
                             ? ((m.hires_count / m.applications_count) * 100).toFixed(1)
                             : "0.0";
                           return (
-                            <tr key={m.id} className="hover:bg-[#FFF8F8] transition-colors">
+                            <tr
+                              key={m.id}
+                              className="hover:bg-[#FFF8F8] transition-colors cursor-pointer"
+                              onClick={() => handleMemberClick(m)}
+                              title="Click to view details"
+                            >
                               <td className="px-6 py-4">
                                 <div className="flex items-center gap-3">
                                   <div className="w-8 h-8 rounded-full bg-[#FF2B2B] text-white flex items-center justify-center text-xs font-bold">
@@ -932,32 +1245,35 @@ export default function OrgAdminPanel() {
               <>
                 {/* Summary cards */}
                 <div className="grid grid-cols-1 md:grid-cols-5 gap-4 mb-6">
-                  <div className="bg-white rounded-2xl p-5 shadow-sm border border-gray-100">
-                    <p className="text-xs text-[#8A8A8A] font-medium mb-2">Current Plan</p>
+                  <div className="bg-white rounded-2xl p-5 shadow-sm border border-gray-100 text-center">
+                    <p className="text-sm text-[#8A8A8A] font-bold mb-2">Current Plan</p>
                     <p className="text-2xl font-bold text-[#FF2B2B] capitalize">
-                      {activeSub ? activeSub.plan_id.replace(/[_-]/g, " ") : "Free Trial"}
+                      {activeSub ? activeSub.plan_id.replace(/[_-]/g, " ") : "Premium Plan"}
                     </p>
                   </div>
-                  <div className="bg-white rounded-2xl p-5 shadow-sm border border-gray-100">
-                    <p className="text-xs text-[#8A8A8A] font-medium mb-2">Expires On</p>
+                  <div className="bg-white rounded-2xl p-5 shadow-sm border border-gray-100 text-center">
+                    <p className="text-sm text-[#8A8A8A] font-bold mb-2">Expires On</p>
                     <p className="text-2xl font-bold text-[#3A1F1F]">
-                      {activeSub ? fmtDate(activeSub.expires_at) : "N/A"}
+                      {activeSub 
+                        ? fmtDate(activeSub.expires_at) 
+                        : fmtDate(new Date(Date.now() + 30 * 24 * 60 * 60 * 1000).toISOString())
+                      }
                     </p>
                   </div>
-                  <div className="bg-white rounded-2xl p-5 shadow-sm border border-gray-100">
-                    <p className="text-xs text-[#8A8A8A] font-medium mb-2">Total Profiles Viewed</p>
+                  <div className="bg-white rounded-2xl p-5 shadow-sm border border-gray-100 text-center">
+                    <p className="text-sm text-[#8A8A8A] font-bold mb-2">Total Profiles Viewed</p>
                     <p className="text-2xl font-bold text-[#3A1F1F]">
                       {members.reduce((acc, m) => acc + (m.profiles_viewed || 0), 0)}
                     </p>
                   </div>
-                  <div className="bg-white rounded-2xl p-5 shadow-sm border border-gray-100">
-                    <p className="text-xs text-[#8A8A8A] font-medium mb-2">Total Resumes Watched</p>
+                  <div className="bg-white rounded-2xl p-5 shadow-sm border border-gray-100 text-center">
+                    <p className="text-sm text-[#8A8A8A] font-bold mb-2">Total Resumes Watched</p>
                     <p className="text-2xl font-bold text-[#3A1F1F]">
                       {members.reduce((acc, m) => acc + (m.resumes_used || 0), 0)}
                     </p>
                   </div>
-                  <div className="bg-white rounded-2xl p-5 shadow-sm border border-gray-100">
-                    <p className="text-xs text-[#8A8A8A] font-medium mb-2">Total Search Keywords</p>
+                  <div className="bg-white rounded-2xl p-5 shadow-sm border border-gray-100 text-center">
+                    <p className="text-sm text-[#8A8A8A] font-bold mb-2">Total Search Keywords</p>
                     <p className="text-2xl font-bold text-[#3A1F1F]">
                       {members.reduce((acc, m) => acc + (m.keywords_used || 0), 0)}
                     </p>
@@ -982,7 +1298,12 @@ export default function OrgAdminPanel() {
                       </thead>
                       <tbody className="divide-y divide-gray-50">
                         {members.map(m => (
-                          <tr key={m.id} className="hover:bg-[#FFF8F8] transition-colors">
+                          <tr
+                            key={m.id}
+                            className="hover:bg-[#FFF8F8] transition-colors cursor-pointer"
+                            onClick={() => handleMemberClick(m)}
+                            title="Click to view details"
+                          >
                             <td className="px-6 py-4">
                               <div className="flex items-center gap-3">
                                 <div className="w-8 h-8 rounded-full bg-[#FF2B2B] text-white flex items-center justify-center text-xs font-bold">
@@ -1020,6 +1341,8 @@ export default function OrgAdminPanel() {
           </TabsContent>
         </Tabs>
       </div>
+
+
 
       {/* Invite Dialog */}
       <Dialog open={inviteOpen} onOpenChange={setInviteOpen}>

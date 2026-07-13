@@ -1,4 +1,4 @@
-import { useState, useCallback } from "react";
+import { useState, useCallback, useEffect } from "react";
 import { useNavigate, useSearchParams } from "react-router";
 import { supabase } from "../../lib/supabase";
 import { useAuth } from "../../lib/auth-context";
@@ -15,7 +15,7 @@ import phonePeQR from "../../logo/qr.jpg";
 export default function PaymentGatewayPage() {
   const navigate = useNavigate();
   const [searchParams] = useSearchParams();
-  const { recruiterProfile } = useAuth();
+  const { recruiterProfile, refreshProfile } = useAuth();
 
   const planId      = searchParams.get("plan")     ?? "standard";
   const amount      = Number(searchParams.get("amount"))   || 0;
@@ -32,12 +32,21 @@ export default function PaymentGatewayPage() {
   const [status, setStatus] = useState<"idle" | "loading" | "failed" | "success">("idle");
   const [txnRef, setTxnRef] = useState<string>("");
 
+  useEffect(() => {
+    if (status === "success") {
+      const timer = setTimeout(() => {
+        navigate("/recruiter/admin");
+      }, 2500);
+      return () => clearTimeout(timer);
+    }
+  }, [status, navigate]);
+
   const handlePay = useCallback(async () => {
     if (!recruiterProfile?.id) return;
     setStatus("loading");
 
-    // ── TEST MODE: RHIRE20 bypasses PhonePe and activates plan directly ──────
-    if (promoCode.toUpperCase() === "RHIRE20") {
+    // ── TEST MODE: Any applied promo/coupon code bypasses PhonePe and activates plan directly ──────
+    if (promoCode && promoCode.trim() !== "") {
       try {
         const now = new Date();
         const expiresAt = new Date(now.getTime() + 30 * 24 * 60 * 60 * 1000);
@@ -84,6 +93,21 @@ export default function PaymentGatewayPage() {
           });
 
         if (subErr) throw subErr;
+
+        // Make user an admin in the database
+        const { error: profileErr } = await supabase
+          .from("recruiter_profiles")
+          .update({
+            org_role: "admin",
+            max_seats: 10,
+            is_org_admin: true,
+          })
+          .eq("id", recruiterProfile.id);
+
+        if (profileErr) throw profileErr;
+
+        // Refresh profile context
+        await refreshProfile();
 
         setTxnRef(testRef);
         setStatus("success");
@@ -135,31 +159,25 @@ export default function PaymentGatewayPage() {
     return (
       <div className="min-h-screen bg-[#F6F6F6] flex items-center justify-center p-4">
         <div className="bg-white rounded-2xl p-8 shadow-xl max-w-md w-full text-center">
-          <div className="w-20 h-20 bg-green-100 rounded-full flex items-center justify-center mx-auto mb-4">
+          <div className="w-20 h-20 bg-green-100 rounded-full flex items-center justify-center mx-auto mb-4 animate-bounce">
             <CheckCircle className="h-10 w-10 text-green-500" />
           </div>
           <div className="inline-flex items-center gap-1.5 bg-yellow-100 text-yellow-700 text-xs font-medium px-3 py-1 rounded-full mb-4">
-            <TestTube2 className="h-3.5 w-3.5" /> Test Mode — RHIRE20
+            <TestTube2 className="h-3.5 w-3.5" /> Test Mode — {promoCode.toUpperCase()}
           </div>
-          <h2 className="text-2xl font-bold text-[#3A1F1F] mb-2">Plan Activated!</h2>
-          <p className="text-[#8A8A8A] mb-2">Your <span className="font-semibold text-[#3A1F1F]">{plan?.name}</span> plan is now active for 30 days.</p>
+          <h2 className="text-2xl font-bold text-[#3A1F1F] mb-2">Payment Successful!</h2>
+          <p className="text-[#8A8A8A] mb-6">
+            Your <span className="font-semibold text-[#3A1F1F]">{plan?.name}</span> plan is now active. You have been upgraded to Organization Admin!
+          </p>
+          <div className="flex flex-col items-center justify-center gap-3 text-sm text-[#FF2B2B] bg-[#FF2B2B]/5 border border-[#FF2B2B]/10 rounded-2xl py-5 px-4 mb-6">
+            <RefreshCw className="h-6 w-6 animate-spin text-[#FF2B2B]" />
+            <span className="font-semibold text-[#3A1F1F]">Navigating to Team Admin Panel...</span>
+          </div>
           {txnRef && (
-            <p className="text-xs text-[#8A8A8A] bg-gray-50 rounded-lg px-3 py-2 mb-6 font-mono break-all">
+            <p className="text-xs text-[#8A8A8A] bg-gray-50 rounded-lg px-3 py-2 font-mono break-all">
               Ref: {txnRef}
             </p>
           )}
-          <Button
-            onClick={() => navigate("/recruiter/dashboard/plans")}
-            className="w-full bg-[#FF2B2B] hover:bg-[#e02525] text-white rounded-full py-6"
-          >
-            Go to My Plans
-          </Button>
-          <button
-            onClick={() => navigate("/recruiter/dashboard")}
-            className="w-full mt-3 text-sm text-[#8A8A8A] hover:text-[#3A1F1F] transition-colors py-2"
-          >
-            Back to Dashboard
-          </button>
         </div>
       </div>
     );
