@@ -1,4 +1,5 @@
-import { createBrowserRouter, Outlet, ScrollRestoration } from "react-router";
+import { createBrowserRouter, Navigate, Outlet, ScrollRestoration } from "react-router";
+import ApplicantProfilePage from "./pages/ApplicantProfilePage";
 import LandingPage from "./pages/LandingPage";
 import SignInPage from "./pages/SignInPage";
 import SignUpPage from "./pages/SignUpPage";
@@ -26,6 +27,8 @@ import NotFound from "./pages/NotFound";
 import ErrorPage from "./pages/ErrorPage";
 import PrivacyPolicyPage from "./pages/PrivacyPolicyPage";
 import TermsOfServicePage from "./pages/TermsOfServicePage";
+import OrgAdminPanel from "./pages/OrgAdminPanel";
+import RecruiterInviteAccept from "./pages/RecruiterInviteAccept";
 
 function RootLayout() {
   return (
@@ -156,6 +159,21 @@ export const router = createBrowserRouter([
     errorElement: <ErrorPage />,
   },
   {
+    path: "/recruiter/org-admin/*",
+    Component: () => <Navigate to="/recruiter/admin" replace />,
+    errorElement: <ErrorPage />,
+  },
+  {
+    path: "/recruiter/candidate/:candidateId/profile",
+    Component: ApplicantProfilePage,
+    errorElement: <ErrorPage />,
+  },
+  {
+    path: "/recruiter/applicant/:applicantId/profile",
+    Component: ApplicantProfilePage,
+    errorElement: <ErrorPage />,
+  },
+  {
     path: "/privacy-policy",
     Component: PrivacyPolicyPage,
     errorElement: <ErrorPage />,
@@ -163,6 +181,21 @@ export const router = createBrowserRouter([
   {
     path: "/terms-of-service",
     Component: TermsOfServicePage,
+    errorElement: <ErrorPage />,
+  },
+  {
+    path: "/recruiter/admin",
+    Component: OrgAdminPanel,
+    errorElement: <ErrorPage />,
+  },
+  {
+    path: "/recruiter/admin/member/:memberId",
+    Component: OrgAdminPanel,
+    errorElement: <ErrorPage />,
+  },
+  {
+    path: "/recruiter/join/:token",
+    Component: RecruiterInviteAccept,
     errorElement: <ErrorPage />,
   },
   {

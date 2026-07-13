@@ -1,5 +1,5 @@
 import { describe, expect, it } from "vitest";
-import { buildJobDeadlineTimestamp, formatJobDeadline, getEffectiveJobStatus, isJobExpired } from "../lib/jobs";
+import { buildJobDeadlineTimestamp, buildJobExpiryTimestamp, formatJobDeadline, getEffectiveJobStatus, getJobDaysRemaining, isJobExpired } from "../lib/jobs";
 
 describe("job expiry helpers", () => {
   it("keeps legacy date-only jobs expiring on the deadline date", () => {
@@ -42,5 +42,20 @@ describe("job expiry helpers", () => {
         new Date("2026-03-27T12:59:00.000Z")
       )
     ).toBe("Active");
+  });
+
+  it("builds automatic 15-day expiry timestamps for new and refreshed jobs", () => {
+    expect(buildJobExpiryTimestamp(undefined, new Date("2026-03-01T10:00:00.000Z"))).toBe("2026-03-16T10:00:00.000Z");
+  });
+
+  it("expires active jobs at the automatic expiry timestamp", () => {
+    const job = { status: "Active" as const, deadline: "2026-03-16T10:00:00.000Z", deadline_time: null };
+
+    expect(isJobExpired(job, new Date("2026-03-16T09:59:59.000Z"))).toBe(false);
+    expect(getEffectiveJobStatus(job, new Date("2026-03-16T10:00:00.000Z"))).toBe("Expired");
+  });
+
+  it("reports remaining days from the automatic expiry", () => {
+    expect(getJobDaysRemaining({ deadline: "2026-03-16T10:00:00.000Z" }, new Date("2026-03-01T10:00:00.000Z"))).toBe(15);
   });
 });

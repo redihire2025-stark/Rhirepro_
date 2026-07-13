@@ -39,8 +39,11 @@ export interface Profile {
   linkedin_url: string | null;
   portfolio_url: string | null;
   about: string | null;
+  preferred_interview_mode?: string[] | null;
   otp_code: string | null;
   otp_expires_at: string | null;
+  profile_views?: number | null;
+  recruiter_searches?: number | null;
   created_at: string;
 }
 
@@ -57,12 +60,57 @@ export interface RecruiterProfile {
   website: string | null;
   location: string | null;
   logo_url: string | null;
+  cover_image_url: string | null;
+  cover_image_name: string | null;
   tagline: string | null;
   linkedin_url: string | null;
   cin: string | null;
+  founded: string | null;
   otp_code: string | null;
   otp_expires_at: string | null;
+  is_org_admin: boolean;
+  org_id: string | null;
+  is_disabled: boolean;
+  last_login_at: string | null;
   created_at: string;
+  // Org admin fields
+  org_role: "admin" | "member" | null;
+  org_admin_id: string | null;
+  is_active: boolean | null;
+  max_seats: number | null;
+  resumes_used?: number;
+  keywords_used?: number;
+  profiles_viewed?: number;
+}
+
+export interface RecruiterInvitation {
+  id: string;
+  org_admin_id: string;
+  company_name: string;
+  invited_email: string;
+  token: string;
+  role: "admin" | "member";
+  status: "pending" | "accepted" | "expired" | "revoked";
+  created_at: string;
+  expires_at: string;
+}
+
+export interface RecruiterArticle {
+  id: string;
+  recruiter_id: string;
+  title: string;
+  category: string;
+  summary: string | null;
+  key_takeaway: string | null;
+  content: string;
+  cover_image_url: string | null;
+  cover_image_name: string | null;
+  read_time: number;
+  status: "Published" | "Draft";
+  created_at: string;
+  updated_at: string;
+  published_at: string | null;
+  recruiter?: Pick<RecruiterProfile, "company_name" | "recruiter_name" | "logo_url"> | null;
 }
 
 export interface Job {
@@ -93,6 +141,7 @@ export interface Job {
   deadline: string | null;
   deadline_time: string | null;
   created_at: string;
+  recruiter?: RecruiterProfile | null;
 }
 
 export interface Application {
@@ -102,14 +151,21 @@ export interface Application {
   recruiter_id: string;
   status:
     | "Applied"
-    | "Screening"
+    | "Under Review"
     | "Shortlisted"
     | "Interview Scheduled"
+    | "Interview Completed"
+    | "Interview Selected"
+    | "Interview Rejected"
     | "Offered"
+    | "Joined"
     | "Rejected"
-    | "Hired"
+    | "On Hold"
+    // Legacy values (backward compatibility)
     | "New"
-    | "Reviewed";
+    | "Reviewed"
+    | "Screening"
+    | "Hired";
   cover_letter: string | null;
   resume_url: string | null;
   applied_at: string;
@@ -147,7 +203,9 @@ export interface Notification {
   user_type: "jobseeker" | "recruiter";
   title: string;
   message: string;
-  type: "application" | "message" | "status_change" | "job_alert";
+  type: "application" | "message" | "status_change" | "job_alert" | "expiry_warning" | "expired" | "reposted";
+  job_id: string | null;
+  notification_key: string | null;
   is_read: boolean;
   related_id: string | null;
   created_at: string;

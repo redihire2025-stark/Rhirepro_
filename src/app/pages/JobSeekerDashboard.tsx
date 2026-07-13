@@ -1,10 +1,12 @@
-import { useState, useMemo, useEffect, useCallback, useRef } from "react";
+import { useState, useMemo, useEffect, useCallback, useRef, type MouseEvent as ReactMouseEvent } from "react";
 import { useNavigate, Routes, Route, Link, useLocation } from "react-router";
 import { supabase, Job as DBJob, Notification } from "../../lib/supabase";
-import { isJobVisibleToSeekers } from "../../lib/jobs";
+import { formatJobSalary, isJobVisibleToSeekers } from "../../lib/jobs";
 import { recordJobInteraction, recordJobSearch } from "../../lib/jobRecommendations";
+import { SKILL_OPTIONS, skillsMatch } from "../../lib/skillKeywords";
 import { useAuth } from "../../lib/auth-context";
 import AppliedJobsSection from "../components/AppliedJobsSection";
+import ResumePreviewDialog, { getStorageObjectFromUrl, buildPreviewUrl } from "../components/ResumePreviewDialog";
 import {
   Bell, LogOut, Search, MapPin, DollarSign, Briefcase, Filter, Bookmark,
   User, BarChart3, Lightbulb, Upload, Plus, X, Pencil, Trash2,
@@ -14,6 +16,9 @@ import {
 } from "lucide-react";
 import { Button } from "../components/ui/button";
 import { Input } from "../components/ui/input";
+import { Popover, PopoverContent, PopoverTrigger } from "../components/ui/popover";
+import { Calendar } from "../components/ui/calendar";
+import { SafeHtml } from "../components/ui/safe-html";
 import {
   Pagination,
   PaginationContent,
@@ -28,8 +33,10 @@ import { BarChart, Bar, XAxis, YAxis, CartesianGrid, Tooltip, ResponsiveContaine
 import { Badge } from "../components/ui/badge";
 import FeedbackPopup from "../components/FeedbackPopup";
 import SavedJobsSection from "../components/SavedJobsSection";
+import { fetchGeminiInsights, type GeminiInsightsResult } from "../services/geminiSkillsService";
 import { AppliedJobWithJob, SavedJobWithJob, getAppliedJobs, getSavedJobs } from "../services/jobService";
 import SavedJobsComparePage from "./SavedJobsComparePage";
+import JobShareButton from "../components/JobShareButton";
 import logoImage from "../../logo/logo.png";
 
 // ── Types ──────────────────────────────────────────────────────────────────────
@@ -41,6 +48,7 @@ interface DashboardDisplayJob {
   salary: string;
   salaryMin: number;
   type: "Full-time" | "Part-time" | "Contract";
+  interviewMode?: string;
   description: string;
   industry: string;
   experience: string;
@@ -48,6 +56,7 @@ interface DashboardDisplayJob {
   isDB: true;
   dbJob: DBJob;
 }
+
 interface WorkExp {
   id: string; title: string; company: string; location: string;
   startMonth: string; startYear: string; endMonth: string; endYear: string;
@@ -57,11 +66,12 @@ interface Education {
   id: string; degree: string; field: string; college: string;
   startYear: string; endYear: string; score: string;
 }
+type EducationForm = Omit<Education, "id"> & { customField?: string };
 interface Project {
   id: number; name: string; url: string; startYear: string; endYear: string; description: string;
 }
 interface Certification {
-  id: number; name: string; issuer: string; issueDate: string; credentialId: string;
+  id: number; name: string; issuer: string; issueDate: string; expiryDate: string; noExpiry: boolean; credentialId: string;
 }
 interface Language { id: number; language: string; proficiency: string; }
 interface OfferPanelDetails {
@@ -72,18 +82,27 @@ interface OfferPanelDetails {
   sent_at: string | null;
 }
 
+function firstTrimmedValue(...values: Array<string | null | undefined>): string {
+  for (const value of values) {
+    const trimmed = value?.trim();
+    if (trimmed) return trimmed;
+  }
+
+  return "";
+}
+
 function deriveOfferFileName(details: OfferPanelDetails | null, job: AppliedJobWithJob | null): string {
-  const explicitName = (details?.offer_letter_name || job?.offer_details?.offer_letter_name || "").trim();
+  const explicitName = firstTrimmedValue(details?.offer_letter_name, job?.offer_details?.offer_letter_name);
   if (explicitName) return explicitName;
 
-  const fromPath = (details?.offer_letter_path || job?.offer_details?.offer_letter_path || "").trim();
+  const fromPath = firstTrimmedValue(details?.offer_letter_path, job?.offer_details?.offer_letter_path);
   if (fromPath) {
     const segments = fromPath.split("/");
     const fileName = segments[segments.length - 1];
     if (fileName) return fileName;
   }
 
-  const fromUrl = (details?.offer_letter_url || job?.offer_details?.offer_letter_url || "").trim();
+  const fromUrl = firstTrimmedValue(details?.offer_letter_url, job?.offer_details?.offer_letter_url);
   if (fromUrl) {
     const cleanUrl = fromUrl.split("?")[0].split("#")[0];
     const segments = cleanUrl.split("/");
@@ -191,19 +210,6 @@ function renderNotificationMessage(message: string) {
   });
 }
 
-function formatDashboardSalary(job: DBJob): string {
-  if (job.salary_min && job.salary_max && job.salary_type) {
-    return `${job.salary_min}-${job.salary_max} ${job.salary_type}`;
-  }
-  if (job.salary_min && job.salary_type) {
-    return `${job.salary_min}+ ${job.salary_type}`;
-  }
-  if (job.salary_type) {
-    return `${job.salary_type} compensation`;
-  }
-  return "Compensation as per company standards";
-}
-
 function formatDashboardLocation(job: DBJob): string {
   if (job.location?.trim()) return job.location;
   if (job.work_mode?.trim()) return job.work_mode;
@@ -232,44 +238,278 @@ function formatDashboardDescription(job: DBJob): string {
   return "Explore this opportunity and apply now.";
 }
 
+function extractRecommendationTerms(profile: any): string[] {
+  return (Array.isArray(profile?.skills) ? profile.skills : [])
+    .filter((value: unknown): value is string => typeof value === "string")
+    .map((value: string) => value.trim().toLowerCase())
+    .filter((value: string) => value.length >= 2);
+}
+
+function normalizeSkillTokens(skills: string[]): Set<string> {
+  const tokens = new Set<string>();
+  skills.forEach((skill) => {
+    const normalized = skill.toLowerCase().trim();
+    if (!normalized) return;
+    tokens.add(normalized);
+    normalized
+      .split(/[^a-z0-9+#.]+/i)
+      .map((token) => token.trim())
+      .filter((token) => token.length >= 2)
+      .forEach((token) => tokens.add(token));
+  });
+  return tokens;
+}
+
+function expandSkillPhrases(skills: string[]): string[] {
+  return Array.from(
+    new Set(
+      skills
+        .flatMap((skill) =>
+          skill
+            .split(/[,\n;/|]+/)
+            .map((part) => part.trim().toLowerCase())
+            .filter((part) => part.length >= 2)
+        )
+    )
+  );
+}
+
+function normalizeSkillPhrase(value: string): string {
+  return value
+    .toLowerCase()
+    .replace(/\(.*?\)/g, " ")
+    .replace(/[^a-z0-9+#.\s]/g, " ")
+    .replace(/\s+/g, " ")
+    .trim();
+}
+
+function parseLocalDate(value: string): Date | null {
+  const date = new Date(value);
+  return Number.isNaN(date.getTime()) ? null : date;
+}
+
+function toIsoDate(date: Date): string {
+  return `${date.getFullYear()}-${String(date.getMonth() + 1).padStart(2, "0")}-${String(date.getDate()).padStart(2, "0")}`;
+}
+
+function normalizeDateValue(value: string): string {
+  const date = parseLocalDate(value);
+  return date ? toIsoDate(date) : "";
+}
+
+function formatDateDisplay(value: string): string {
+  const date = parseLocalDate(value);
+  if (!date) return value;
+  return date.toLocaleDateString("en-IN", {
+    day: "numeric",
+    month: "short",
+    year: "numeric",
+  });
+}
+
+function profileMatchesJdSkill(profileSkill: string, jdSkill: string): boolean {
+  if (skillsMatch(profileSkill, jdSkill)) return true;
+
+  const p = normalizeSkillPhrase(profileSkill);
+  const j = normalizeSkillPhrase(jdSkill);
+  if (!p || !j) return false;
+  if (p === j || p.includes(j) || j.includes(p)) return true;
+
+  const pTokens = p.split(" ").filter((t) => t.length >= 2);
+  const jTokens = j.split(" ").filter((t) => t.length >= 2);
+  if (pTokens.length === 0 || jTokens.length === 0) return false;
+
+  const pSet = new Set(pTokens);
+  const overlap = jTokens.filter((t) => pSet.has(t)).length;
+  return overlap >= Math.min(2, jTokens.length);
+}
+
+function getJdSkillMatchPercentage(job: DBJob, profileSkills: string[]): number {
+  const normalizedProfileSkills = Array.from(
+    new Set(
+      profileSkills
+        .map((skill) => skill.trim().toLowerCase())
+        .filter((skill) => skill.length >= 2)
+    )
+  );
+  if (normalizedProfileSkills.length === 0) return 0;
+
+  const rawJobSkills = (job.skills || [])
+    .filter((value): value is string => typeof value === "string")
+    .map((value) => value.trim().toLowerCase())
+    .filter((value) => value.length > 0);
+  const jobSkills = expandSkillPhrases(rawJobSkills);
+  if (jobSkills.length === 0) return 0;
+
+  let matchedJdSkills = 0;
+  for (const jdSkill of jobSkills) {
+    const matched = normalizedProfileSkills.some((profileSkill) => profileMatchesJdSkill(profileSkill, jdSkill));
+    if (matched) matchedJdSkills += 1;
+  }
+
+  return Math.round((matchedJdSkills / jobSkills.length) * 100);
+}
+
+function getMatchBadgeClass(matchPercentage: number): string {
+  if (matchPercentage >= 70) return "bg-green-100 text-green-700";
+  if (matchPercentage >= 40) return "bg-yellow-100 text-yellow-700";
+  return "bg-red-100 text-red-700";
+}
+
+function isRecommendedJobForProfile(job: DBJob, recommendationTerms: string[]): boolean {
+  if (recommendationTerms.length === 0) return false;
+
+  const uniqueProfileSkills = Array.from(
+    new Set(
+      recommendationTerms
+        .map((value) => value.trim().toLowerCase())
+        .filter((value) => value.length >= 2)
+    )
+  );
+
+  const rawJobSkills = (job.skills || [])
+    .filter((value): value is string => typeof value === "string")
+    .map((value) => value.trim().toLowerCase())
+    .filter((value) => value.length > 0);
+
+  const jobSkills = expandSkillPhrases(rawJobSkills);
+  if (jobSkills.length === 0) return false;
+
+  let matchedJdSkillCount = 0;
+  for (const jdSkill of jobSkills) {
+    const hasMatch = uniqueProfileSkills.some((profileSkill) => profileMatchesJdSkill(profileSkill, jdSkill));
+    if (hasMatch) matchedJdSkillCount += 1;
+    if (matchedJdSkillCount >= 3) return true;
+  }
+
+  return false;
+}
+
 const MONTHS = ["Jan","Feb","Mar","Apr","May","Jun","Jul","Aug","Sep","Oct","Nov","Dec"];
 const YEARS = Array.from({ length: 17 }, (_, i) => String(2010 + i));
 const JOBS_PER_PAGE = 12;
-const PROFILE_SKILL_OPTIONS = [
-  "JavaScript", "TypeScript", "React", "Next.js", "Angular", "Vue.js", "HTML", "CSS", "Tailwind CSS",
-  "Bootstrap", "Node.js", "Express.js", "NestJS", "Python", "Django", "Flask", "FastAPI", "Java",
-  "Spring Boot", "C", "C++", "C#", ".NET", "PHP", "Laravel", "Ruby", "Ruby on Rails", "Go", "Rust",
-  "Kotlin", "Swift", "Objective-C", "React Native", "Flutter", "Android Development", "iOS Development",
-  "SQL", "MySQL", "PostgreSQL", "MongoDB", "Redis", "Firebase", "Supabase", "Oracle", "SQLite",
-  "GraphQL", "REST API", "Microservices", "System Design", "Data Structures", "Algorithms",
-  "Git", "GitHub", "GitLab", "Docker", "Kubernetes", "Jenkins", "CI/CD", "Linux", "Shell Scripting",
-  "AWS", "Azure", "Google Cloud", "DevOps", "Terraform", "Ansible", "Nginx", "Apache",
-  "Data Analysis", "Data Visualization", "Excel", "Advanced Excel", "Power BI", "Tableau", "Looker",
-  "Python Pandas", "NumPy", "Matplotlib", "Seaborn", "R", "Statistics", "Machine Learning",
-  "Deep Learning", "TensorFlow", "PyTorch", "Scikit-learn", "NLP", "Computer Vision", "Generative AI",
-  "Prompt Engineering", "MLOps", "Data Engineering", "ETL", "Apache Spark", "Hadoop", "Kafka",
-  "Airflow", "Snowflake", "BigQuery", "Redshift",
-  "UI Design", "UX Design", "Figma", "Adobe XD", "Sketch", "Wireframing", "Prototyping",
-  "User Research", "Usability Testing", "Design Systems", "Graphic Design", "Photoshop", "Illustrator",
-  "Canva", "Video Editing", "After Effects", "Premiere Pro", "Motion Graphics",
-  "Digital Marketing", "SEO", "SEM", "Google Ads", "Meta Ads", "Social Media Marketing",
-  "Content Marketing", "Copywriting", "Email Marketing", "Marketing Analytics", "Google Analytics",
-  "CRM", "HubSpot", "Salesforce", "Lead Generation", "Brand Strategy",
-  "Project Management", "Product Management", "Agile", "Scrum", "Jira", "Confluence", "Roadmapping",
-  "Business Analysis", "Requirement Gathering", "Stakeholder Management", "Process Improvement",
-  "QA Testing", "Manual Testing", "Automation Testing", "Selenium", "Cypress", "Playwright",
-  "Jest", "Postman", "API Testing", "Performance Testing", "Security Testing",
-  "Cybersecurity", "Network Security", "Cloud Security", "Penetration Testing", "Ethical Hacking",
-  "SOC", "SIEM", "Risk Management", "Compliance", "ISO 27001",
-  "Accounting", "Financial Analysis", "Financial Modeling", "Tally", "GST", "Taxation", "Auditing",
-  "Budgeting", "Forecasting", "Investment Analysis",
-  "HR Management", "Recruitment", "Talent Acquisition", "Payroll", "Employee Engagement",
-  "Training and Development", "Operations Management", "Supply Chain Management", "Logistics",
-  "Customer Support", "Technical Support", "Sales", "B2B Sales", "Negotiation", "Communication",
-  "Leadership", "Team Management", "Problem Solving", "Critical Thinking", "Presentation Skills",
-];
+type EducationCatalog = Record<string, string[]>;
+
+const EDUCATION_CATALOG_API_URL = "https://gist.githubusercontent.com/shoaibmarif/5a303afd2f074c20a7dff0a21f7a5992/raw/TypeofDegree.json";
+const DEFAULT_EDUCATION_DEGREE_OPTIONS = ["Not Educated"];
+const DEFAULT_EDUCATION_SPECIALIZATION_OPTIONS: EducationCatalog = {
+  "Not Educated": [],
+};
+
+function uniqueStrings(values: string[]): string[] {
+  return Array.from(new Set(values.map((value) => value.trim()).filter(Boolean)));
+}
+
+function normalizeApiDegreeName(value: string): string {
+  return value
+    .replace(/\s+/g, " ")
+    .replace(/^Bachelor of Technology$/i, "B.Tech / B.E.")
+    .replace(/^Bachelor of Engineering$/i, "B.Tech / B.E.")
+    .replace(/^Master of Technology$/i, "M.Tech / M.E.")
+    .replace(/^Master of Engineering$/i, "M.Tech / M.E.")
+    .trim();
+}
+
+async function fetchEducationCatalog(): Promise<{ degreeOptions: string[]; specializationOptions: EducationCatalog }> {
+  const response = await fetch(EDUCATION_CATALOG_API_URL);
+  if (!response.ok) throw new Error("Unable to load education catalog");
+
+  const apiDegrees = (await response.json() as Array<{ degree?: string }>)
+    .map((item) => normalizeApiDegreeName(item.degree || ""))
+    .filter(Boolean);
+
+  const specializationOptions: EducationCatalog = { ...DEFAULT_EDUCATION_SPECIALIZATION_OPTIONS };
+  for (const degree of apiDegrees) {
+    if (!specializationOptions[degree]) specializationOptions[degree] = [];
+  }
+
+  return {
+    degreeOptions: uniqueStrings([...DEFAULT_EDUCATION_DEGREE_OPTIONS, ...apiDegrees]),
+    specializationOptions,
+  };
+}
+
+const DEFAULT_RECOMMENDATION_FETCH_LIMIT = 120;
+const JOBS_QUERY_TIMEOUT_MS = 12000;
+const PROFILE_SKILL_OPTIONS = SKILL_OPTIONS;
+
+function withTimeout<T>(promise: PromiseLike<T>, timeoutMs: number, message: string): Promise<T> {
+  let timeoutId: ReturnType<typeof setTimeout>;
+  const timeoutPromise = new Promise<never>((_, reject) => {
+    timeoutId = setTimeout(() => reject(new Error(message)), timeoutMs);
+  });
+
+  return Promise.race([Promise.resolve(promise), timeoutPromise]).finally(() => clearTimeout(timeoutId));
+}
+
+function splitPreferredJobTitles(value: string): string[] {
+  return Array.from(
+    new Set(
+      value
+        .split(",")
+        .map((title) => title.trim())
+        .filter(Boolean)
+    )
+  );
+}
+
+function joinPreferredJobTitles(titles: string[]): string {
+  return titles.map((title) => title.trim()).filter(Boolean).join(", ");
+}
+
+type PreferredJobSuggestion = {
+  title: string;
+  openings: number;
+  companies: string[];
+  departments: string[];
+};
+
+function parseCompanyDescription(text: string | null | undefined): { aboutCompany: string; companyInfo: string } {
+  const val = (text || "").trim();
+  if (!val) {
+    return { aboutCompany: "", companyInfo: "" };
+  }
+
+  const splitRegex = /(?:<h\d[^>]*>\s*Company\s+Information\s*<\/h\d>|<p[^>]*>\s*<strong>\s*Company\s+Information\s*<\/strong>\s*<\/p>|<strong[^>]*>\s*Company\s+Information\s*<\/strong>|Company\s+Information)/i;
+  const match = val.match(splitRegex);
+  
+  const cleanEmptyTags = (html: string) => {
+    let cleaned = html.trim();
+    while (cleaned.startsWith("<p>&nbsp;</p>") || cleaned.startsWith("<p><br></p>") || cleaned.startsWith("<p></p>")) {
+      if (cleaned.startsWith("<p>&nbsp;</p>")) cleaned = cleaned.substring(13).trim();
+      else if (cleaned.startsWith("<p><br></p>")) cleaned = cleaned.substring(11).trim();
+      else if (cleaned.startsWith("<p></p>")) cleaned = cleaned.substring(7).trim();
+    }
+    while (cleaned.endsWith("<p>&nbsp;</p>") || cleaned.endsWith("<p><br></p>") || cleaned.endsWith("<p></p>")) {
+      if (cleaned.endsWith("<p>&nbsp;</p>")) cleaned = cleaned.substring(0, cleaned.length - 13).trim();
+      else if (cleaned.endsWith("<p><br></p>")) cleaned = cleaned.substring(0, cleaned.length - 11).trim();
+      else if (cleaned.endsWith("<p></p>")) cleaned = cleaned.substring(0, cleaned.length - 7).trim();
+    }
+    return cleaned;
+  };
+
+  if (match && match.index !== undefined) {
+    let aboutPart = val.substring(0, match.index).trim();
+    let infoPart = val.substring(match.index + match[0].length).trim();
+    
+    const aboutHeaderRegex = /^<h\d[^>]*>\s*About\s+Company\s*<\/h\d>/i;
+    aboutPart = aboutPart.replace(aboutHeaderRegex, "").trim();
+    
+    aboutPart = cleanEmptyTags(aboutPart);
+    infoPart = cleanEmptyTags(infoPart);
+    
+    return { aboutCompany: aboutPart, companyInfo: infoPart };
+  } else {
+    let aboutPart = val;
+    const aboutHeaderRegex = /^<h\d[^>]*>\s*About\s+Company\s*<\/h\d>/i;
+    aboutPart = aboutPart.replace(aboutHeaderRegex, "").trim();
+    aboutPart = cleanEmptyTags(aboutPart);
+    return { aboutCompany: aboutPart, companyInfo: "" };
+  }
+}
 
 function escapeLikeValue(value: string): string {
+
   return value.replace(/[%_,]/g, (match) => `\\${match}`);
 }
 
@@ -277,18 +517,70 @@ function buildDashboardJob(job: DBJob): DashboardDisplayJob {
   return {
     id: job.id,
     title: job.title,
-    company: job.company_name,
+    company: job.recruiter?.company_name || job.company_name,
     location: formatDashboardLocation(job),
-    salary: formatDashboardSalary(job),
+    salary: formatJobSalary(job),
     salaryMin: job.salary_min || 0,
     type: formatDashboardType(job) as "Full-time" | "Part-time" | "Contract",
+    interviewMode: job.interview_mode || undefined,
     description: formatDashboardDescription(job),
-    industry: job.industry || "",
+    industry: job.recruiter?.industry || job.industry || "",
     experience: "",
     isRemote: job.work_mode === "Work from Home",
     isDB: true,
     dbJob: job,
   };
+}
+
+const PREFERRED_INTERVIEW_MODE_OPTIONS = ["In-Person", "Video Call", "Telephonic", "Walk-in"];
+
+function normalizeInterviewModes(raw: any): string[] {
+  if (raw == null) return [];
+
+  let values: string[] = [];
+
+  if (Array.isArray(raw)) {
+    values = raw.map((x) => (x == null ? "" : String(x)));
+  } else if (typeof raw === "object") {
+    const numericKeys = Object.keys(raw).filter((key) => /^\d+$/.test(key));
+    if (numericKeys.length > 0) {
+      values = numericKeys
+        .map((key) => ({ key: Number(key), value: raw[key] }))
+        .sort((a, b) => a.key - b.key)
+        .map((item) => item.value == null ? "" : String(item.value));
+    } else {
+      values = Object.values(raw).map((x) => (x == null ? "" : String(x)));
+    }
+  } else {
+    const str = String(raw).trim();
+    if (!str) return [];
+    try {
+      const parsed = JSON.parse(str);
+      if (Array.isArray(parsed)) return normalizeInterviewModes(parsed);
+    } catch {
+      const bracketed = str.replace(/^\{|\}$/g, "");
+      return bracketed.split(",").map((s) => s.trim()).filter(Boolean);
+    }
+    values = [str];
+  }
+
+  const normalized = values
+    .map((s) => s.trim())
+    .filter(Boolean)
+    .map((s) => s.replace(/^\[|\]$/g, "").replace(/^"|"$/g, "").trim());
+
+  const normalizedKnown = normalized
+    .map((value) => {
+      const match = PREFERRED_INTERVIEW_MODE_OPTIONS.find(
+        (option) => option.toLowerCase() === value.toLowerCase()
+      );
+      return match ?? value;
+    })
+    .filter(Boolean);
+
+  const uniqueValues = Array.from(new Set(normalizedKnown));
+  const filtered = uniqueValues.filter((value) => PREFERRED_INTERVIEW_MODE_OPTIONS.includes(value));
+  return filtered.length > 0 ? filtered : uniqueValues;
 }
 
 // ── Main Dashboard ─────────────────────────────────────────────────────────────
@@ -347,6 +639,7 @@ export default function JobSeekerDashboard() {
   const [notificationsOpen, setNotificationsOpen] = useState(false);
   const [notifications, setNotifications] = useState<Notification[]>([]);
   const [unreadCount, setUnreadCount] = useState(0);
+  const [profilePrefsHasUnsavedChanges, setProfilePrefsHasUnsavedChanges] = useState(false);
 
   const fetchNotifications = useCallback(async () => {
     if (!profile?.id) return;
@@ -378,6 +671,48 @@ export default function JobSeekerDashboard() {
     return () => { supabase.removeChannel(channel); };
   }, [profile?.id, fetchNotifications]);
 
+  const getJobSeekerNotificationPath = useCallback((notification: Notification): string => {
+    const text = `${notification.type} ${notification.title || ""} ${notification.message || ""}`.toLowerCase();
+
+    if (notification.job_id && (notification.type === "job_alert" || text.includes("recommended"))) {
+      return `/job/${notification.job_id}`;
+    }
+
+    if (
+      notification.type === "status_change" ||
+      text.includes("application status") ||
+      text.includes("interview") ||
+      text.includes("offer")
+    ) {
+      return "/jobseeker/dashboard/analytics";
+    }
+
+    if (text.includes("profile")) {
+      return "/jobseeker/dashboard/profile";
+    }
+
+    if (notification.type === "job_alert" || text.includes("recommended") || text.includes("job alert")) {
+      return "/jobseeker/dashboard";
+    }
+
+    return "/jobseeker/dashboard";
+  }, []);
+
+  const handleNotificationClick = useCallback(async (notification: Notification) => {
+    if (profile?.id && !notification.is_read) {
+      await supabase
+        .from("notifications")
+        .update({ is_read: true })
+        .eq("id", notification.id)
+        .eq("user_id", profile.id)
+        .eq("user_type", "jobseeker");
+    }
+
+    setNotificationsOpen(false);
+    fetchNotifications();
+    navigate(getJobSeekerNotificationPath(notification));
+  }, [fetchNotifications, getJobSeekerNotificationPath, navigate, profile?.id]);
+
   const notifRef = useRef<HTMLDivElement>(null);
   useEffect(() => {
     const handler = (e: MouseEvent) => {
@@ -392,6 +727,15 @@ export default function JobSeekerDashboard() {
   const handleSignOut = async () => {
     await signOut();
     navigate("/");
+  };
+
+  const handleDashboardLinkClick = (event: ReactMouseEvent<HTMLAnchorElement>, to: string) => {
+    if (activeTab === "profile" && profilePrefsHasUnsavedChanges && to !== "/jobseeker/dashboard/profile") {
+      const confirmed = window.confirm("You have unsaved preferred job settings. Leave this page without saving?");
+      if (!confirmed) {
+        event.preventDefault();
+      }
+    }
   };
 
   const googleMeta = user?.user_metadata || {};
@@ -439,7 +783,7 @@ export default function JobSeekerDashboard() {
       <header className="bg-white shadow-sm sticky top-0 z-50">
         <div className="container mx-auto px-4 py-4">
           <div className="flex items-center justify-between">
-            <div className="flex items-center gap-3 cursor-pointer" onClick={() => navigate("/")}>
+            <div className="flex items-center gap-3 cursor-pointer" onClick={() => navigate("/jobseeker/dashboard")}>
               <img src={logoImage} alt="RhirePro Logo" className="w-10 h-10" />
               <div className="text-2xl font-bold text-[#3A1F1F]">Rhire<span className="text-[#FF2B2B]">Pro</span></div>
             </div>
@@ -450,7 +794,7 @@ export default function JobSeekerDashboard() {
                 { label: "Job Analytics", tab: "analytics", to: "/jobseeker/dashboard/analytics" },
                 { label: "Career Insights", tab: "insights", to: "/jobseeker/dashboard/insights" },
               ].map(({ label, tab, to }) => (
-                <Link key={tab} to={to}>
+                <Link key={tab} to={to} onClick={(event) => handleDashboardLinkClick(event, to)}>
                   <Button
                     variant={activeTab === tab ? "default" : "ghost"}
                     className={activeTab === tab ? "bg-[#FF2B2B] hover:bg-[#e02525] rounded-full" : "rounded-full"}
@@ -482,7 +826,7 @@ export default function JobSeekerDashboard() {
                         {notifications.length === 0 ? (
                           <p className="text-sm text-[#8A8A8A] text-center py-4">No notifications yet</p>
                         ) : notifications.map((n) => (
-                          <div key={n.id} className={`p-3 rounded-lg ${!n.is_read ? "bg-red-50" : "bg-[#F6F6F6]"}`}>
+                          <div key={n.id} onClick={() => handleNotificationClick(n)} className={`p-3 rounded-lg cursor-pointer ${!n.is_read ? "bg-red-50" : "bg-[#F6F6F6]"}`}>
                             <p className="text-sm font-medium text-[#3A1F1F]">{n.title}</p>
                             <p className="text-xs text-[#8A8A8A] whitespace-pre-wrap break-words">{renderNotificationMessage(n.message)}</p>
                             <p className="text-xs text-[#BABABA] mt-0.5">{new Date(n.created_at).toLocaleString()}</p>
@@ -521,7 +865,7 @@ export default function JobSeekerDashboard() {
       <Routes>
         <Route index element={<FindJobPage />} />
         <Route path="saved-jobs/compare" element={<SavedJobsComparePage />} />
-        <Route path="profile" element={<ProfilePage />} />
+        <Route path="profile" element={<ProfilePage onPendingPrefsChange={setProfilePrefsHasUnsavedChanges} />} />
         <Route path="analytics" element={<AnalyticsPage />} />
         <Route path="insights" element={<InsightsPage />} />
       </Routes>
@@ -533,6 +877,11 @@ export default function JobSeekerDashboard() {
 function FindJobPage() {
   const { profile } = useAuth();
   const userId = profile?.id;
+  const profileSkills = Array.isArray(profile?.skills)
+    ? profile.skills.filter((value): value is string => typeof value === "string")
+    : [];
+  const profileSkillKey = profileSkills.map((skill) => skill.trim().toLowerCase()).sort().join("|");
+  const preferredInterviewModeKey = normalizeInterviewModes(profile?.preferred_interview_mode).join("|");
   const [searchQuery, setSearchQuery] = useState("");
   const [inputValue, setInputValue] = useState("");
   const [selectedChip, setSelectedChip] = useState<string | null>(null);
@@ -582,10 +931,20 @@ function FindJobPage() {
 
       let query = supabase
         .from("jobs")
-        .select("*", { count: "exact" })
+        .select("*, recruiter:recruiter_profiles(*)", { count: "exact" })
         .eq("status", "Active");
 
       const trimmedSearch = searchQuery.trim();
+      const shouldShowOnlyRecommended =
+        !trimmedSearch &&
+        !selectedChip &&
+        !locationFilter &&
+        !experienceFilter &&
+        !salaryFilter &&
+        !industryFilter &&
+        !jobTypeFilter &&
+        !remoteFilter;
+
       if (trimmedSearch) {
         const escaped = escapeLikeValue(trimmedSearch);
         query = query.or(
@@ -609,6 +968,11 @@ function FindJobPage() {
         query = query.neq("work_mode", "Work from Home");
       }
 
+      const preferredInterviewModes = normalizeInterviewModes(profile?.preferred_interview_mode);
+      if (preferredInterviewModes.length > 0) {
+        query = query.in("interview_mode", preferredInterviewModes);
+      }
+
       if (locationFilter === "bengaluru") query = query.ilike("location", "%Bengaluru%");
       if (locationFilter === "mumbai") query = query.ilike("location", "%Mumbai%");
       if (locationFilter === "hyderabad") query = query.ilike("location", "%Hyderabad%");
@@ -619,9 +983,15 @@ function FindJobPage() {
       if (experienceFilter === "mid") query = query.gte("experience_min", 2).lte("experience_min", 5);
       if (experienceFilter === "senior") query = query.gte("experience_min", 5);
 
-      if (salaryFilter === "0-50") query = query.lt("salary_min", 50000);
-      if (salaryFilter === "50-100") query = query.gte("salary_min", 50000).lt("salary_min", 100000);
-      if (salaryFilter === "100+") query = query.gte("salary_min", 100000);
+      if (salaryFilter === "0-10") {
+        query = query.or("salary_min.lt.10,and(salary_min.gte.1000,salary_min.lt.1000000)");
+      }
+      if (salaryFilter === "10-25") {
+        query = query.or("and(salary_min.gte.10,salary_min.lt.25),and(salary_min.gte.1000000,salary_min.lt.2500000)");
+      }
+      if (salaryFilter === "25+") {
+        query = query.or("and(salary_min.gte.25,salary_min.lt.1000),salary_min.gte.2500000");
+      }
 
       if (industryFilter === "healthcare") query = query.ilike("industry", "%Healthcare%");
       if (industryFilter === "finance") query = query.ilike("industry", "%BFSI%");
@@ -632,10 +1002,16 @@ function FindJobPage() {
 
       const from = (currentPage - 1) * JOBS_PER_PAGE;
       const to = from + JOBS_PER_PAGE - 1;
+      const orderedQuery = query.order("created_at", { ascending: false });
 
-      const { data, error, count } = await query
-        .order("created_at", { ascending: false })
-        .range(from, to);
+      const { data, error, count } = await withTimeout(
+        shouldShowOnlyRecommended ? orderedQuery.limit(DEFAULT_RECOMMENDATION_FETCH_LIMIT) : orderedQuery.range(from, to),
+        JOBS_QUERY_TIMEOUT_MS,
+        "Jobs request timed out",
+      ).catch((error) => {
+        console.error("Unable to load jobs:", error);
+        return { data: null, error, count: 0 };
+      });
 
       if (cancelled) return;
 
@@ -648,8 +1024,20 @@ function FindJobPage() {
       }
 
       const visibleJobs = (data || []).filter((job) => isJobVisibleToSeekers(job));
-      setDbJobs(visibleJobs);
-      setTotalJobsCount(count || 0);
+
+      if (shouldShowOnlyRecommended) {
+        const recommendationTerms = profileSkills
+          .map((skill) => skill.trim().toLowerCase())
+          .filter((skill) => skill.length >= 2);
+        const recommendedJobs = visibleJobs.filter((job) => isRecommendedJobForProfile(job, recommendationTerms));
+        const pagedRecommendedJobs = recommendedJobs.slice(from, to + 1);
+        setDbJobs(pagedRecommendedJobs);
+        setTotalJobsCount(recommendedJobs.length);
+      } else {
+        setDbJobs(visibleJobs);
+        setTotalJobsCount(count || 0);
+      }
+
       setJobsLoading(false);
     }
 
@@ -667,6 +1055,8 @@ function FindJobPage() {
     searchQuery,
     selectedChip,
     salaryFilter,
+    profileSkillKey,
+    preferredInterviewModeKey,
   ]);
 
   const handleApply = async (job: DBJob) => {
@@ -818,7 +1208,7 @@ function FindJobPage() {
               { label: "Experience", value: experienceFilter, onChange: setExperienceFilter,
                 options: [["entry","Entry Level"],["mid","Mid Level"],["senior","Senior"]] },
               { label: "Salary Range", value: salaryFilter, onChange: setSalaryFilter,
-                options: [["0-50","$0 – $50k"],["50-100","$50k – $100k"],["100+","$100k+"]] },
+                options: [["0-10","0-10 LPA"],["10-25","10-25 LPA"],["25+","25+ LPA"]] },
               { label: "Industry", value: industryFilter, onChange: setIndustryFilter,
                 options: [["tech","Technology"],["finance","Finance"],["healthcare","Healthcare"],["marketing","Marketing"],["design","Design"],["media","Media"]] },
               { label: "Job Type", value: jobTypeFilter, onChange: setJobTypeFilter,
@@ -876,6 +1266,8 @@ function FindJobPage() {
                   const isApplied = appliedJobIds.includes(String(job.id));
                   const isSaved = savedJobIds.includes(String(job.id));
                   const isSelected = selectedJob?.id === job.id;
+                  const matchPercentage = job.isDB ? getJdSkillMatchPercentage(job.dbJob, profileSkills) : 0;
+                  const matchBadgeClass = getMatchBadgeClass(matchPercentage);
                   return (
                     <div
                       key={job.id}
@@ -887,10 +1279,16 @@ function FindJobPage() {
                       }}
                       className={`bg-white rounded-2xl p-5 shadow-sm hover:shadow-md transition-all cursor-pointer relative flex flex-col ${isSelected ? "ring-2 ring-[#FF2B2B]" : ""}`}
                     >
-                      {job.isDB && <div className="absolute top-4 right-4 w-2.5 h-2.5 bg-[#FF2B2B] rounded-full" />}
-                      <p className="text-xs text-[#8A8A8A] mb-0.5">{job.company}</p>
-                      <h3 className="font-bold text-[#3A1F1F] text-lg mb-2 leading-snug pr-4">{job.title}</h3>
-                      <p className="text-[#8A8A8A] text-sm mb-3 line-clamp-2 flex-1">{job.description}</p>
+                      <JobShareButton jobId={String(job.id)} title={job.title} className="absolute right-4 top-4" />
+                      {job.isDB && (
+                        <div className={`absolute top-3 right-16 text-center rounded-xl px-2 py-1 min-w-[44px] ${matchBadgeClass}`}>
+                          <div className="text-sm font-bold leading-none">{matchPercentage}%</div>
+                          <div className="text-[10px] font-medium leading-tight mt-0.5 opacity-80">match</div>
+                        </div>
+                      )}
+                      <p className="text-xs text-[#8A8A8A] mb-0.5 pr-24">{job.company}</p>
+                      <h3 className="font-bold text-[#3A1F1F] text-lg mb-2 leading-snug pr-24">{job.title}</h3>
+                      <p className="text-[#8A8A8A] text-sm mb-3 line-clamp-2 flex-1">{stripHtml(job.description)}</p>
                       <div className="space-y-1 mb-4">
                         <div className="flex items-center text-sm text-[#8A8A8A]">
                           <MapPin className="h-3.5 w-3.5 mr-1.5 text-[#FF2B2B] shrink-0" />{job.location}
@@ -974,18 +1372,34 @@ function FindJobPage() {
           {selectedJob && (
             <div className="bg-white rounded-2xl shadow-sm overflow-hidden sticky top-24 max-h-[calc(100vh-140px)] flex flex-col">
               <div className="p-6 overflow-y-auto flex-1">
-                <div className="flex items-start justify-between mb-1">
-                  <div>
-                    {selectedJob.isDB && (
-                      <span className="text-xs font-medium text-green-700 bg-green-100 px-2 py-0.5 rounded-full mb-2 inline-block">Verified Company</span>
+                <div className="flex items-start justify-between mb-4">
+                  <div className="flex items-center gap-3">
+                    {selectedJob.dbJob?.recruiter?.logo_url ? (
+                      <img src={selectedJob.dbJob.recruiter.logo_url} alt="" className="w-12 h-12 rounded-xl object-cover border border-gray-200" />
+                    ) : (
+                      <div className="w-12 h-12 rounded-xl bg-red-50 flex items-center justify-center text-[#FF2B2B] font-bold text-lg border border-gray-200">
+                        {(selectedJob.company || "C")[0].toUpperCase()}
+                      </div>
                     )}
-                    <p className="text-sm text-[#8A8A8A]">{selectedJob.company}</p>
+                    <div>
+                      {selectedJob.isDB && (
+                        <span className="text-[10px] font-semibold text-green-700 bg-green-50 border border-green-100 px-2 py-0.5 rounded-full mb-1 inline-block">Verified Company</span>
+                      )}
+                      <p className="text-sm font-semibold text-[#3A1F1F]">{selectedJob.company}</p>
+                    </div>
                   </div>
                   <button onClick={() => setSelectedJob(null)} className="text-[#8A8A8A] hover:text-[#3A1F1F] p-1">
                     <X className="h-5 w-5" />
                   </button>
                 </div>
-                <h2 className="text-2xl font-bold text-[#3A1F1F] mb-4">{selectedJob.title}</h2>
+                <div className="flex items-center justify-between gap-4 flex-wrap mb-4">
+                  <h2 className="text-2xl font-bold text-[#3A1F1F]">{selectedJob.title}</h2>
+                  {selectedJob.dbJob?.created_at && (
+                    <span className="text-sm text-[#8A8A8A] font-medium bg-[#ECECF4] px-3 py-1.5 rounded-full shrink-0">
+                      Posted {new Date(selectedJob.dbJob.created_at).toLocaleDateString('en-US', { day: 'numeric', month: 'short', year: 'numeric' })}
+                    </span>
+                  )}
+                </div>
 
                 <div className="flex flex-wrap gap-4 mb-5 pb-5 border-b border-gray-100">
                   <div>
@@ -1004,6 +1418,12 @@ function FindJobPage() {
                         : selectedJob.experience || "Not specified"}
                     </p>
                   </div>
+                  {selectedJob.interviewMode ? (
+                    <div>
+                      <p className="text-xs text-[#8A8A8A] mb-0.5">Interview Mode</p>
+                      <p className="font-semibold text-[#3A1F1F] text-sm">{selectedJob.interviewMode}</p>
+                    </div>
+                  ) : null}
                 </div>
 
                 <div className="flex gap-2 mb-6">
@@ -1026,8 +1446,39 @@ function FindJobPage() {
                   )}
                 </div>
 
-                <h3 className="text-base font-bold text-[#3A1F1F] mb-2">Job Description :</h3>
-                <p className="text-[#8A8A8A] text-sm leading-relaxed mb-5">{selectedJob.description}</p>
+
+                {/* About the Role */}
+                {selectedJob.description && (
+                  <div className="mb-5">
+                    <h3 className="text-base font-bold text-[#3A1F1F] mb-2">About the Role :</h3>
+                    <SafeHtml
+                      content={selectedJob.description}
+                      className="rich-text-content text-[#8A8A8A] text-sm leading-relaxed [&_ul]:list-disc [&_ul]:pl-5 [&_ol]:list-decimal [&_ol]:pl-5 [&_h2]:text-base [&_h2]:font-bold [&_h2]:mt-2 [&_h2]:mb-1 [&_h3]:text-sm [&_h3]:font-bold [&_h3]:mt-1.5 [&_h3]:mb-1 [&_a]:text-[#FF2B2B] [&_a]:underline"
+                    />
+                  </div>
+                )}
+
+                {/* Roles & Responsibilities */}
+                {selectedJob.dbJob?.roles_responsibilities && selectedJob.dbJob.roles_responsibilities.trim() && (
+                  <div className="mb-5">
+                    <h3 className="text-base font-bold text-[#3A1F1F] mb-2">Roles & Responsibilities :</h3>
+                    <SafeHtml
+                      content={selectedJob.dbJob.roles_responsibilities}
+                      className="rich-text-content text-[#8A8A8A] text-sm leading-relaxed [&_ul]:list-disc [&_ul]:pl-5 [&_ol]:list-decimal [&_ol]:pl-5 [&_h2]:text-base [&_h2]:font-bold [&_h2]:mt-2 [&_h2]:mb-1 [&_h3]:text-sm [&_h3]:font-bold [&_h3]:mt-1.5 [&_h3]:mb-1 [&_a]:text-[#FF2B2B] [&_a]:underline"
+                    />
+                  </div>
+                )}
+
+                {/* Requirements / Qualifications */}
+                {selectedJob.dbJob?.requirements && selectedJob.dbJob.requirements.trim() && (
+                  <div className="mb-5">
+                    <h3 className="text-base font-bold text-[#3A1F1F] mb-2">Requirements / Qualifications :</h3>
+                    <SafeHtml
+                      content={selectedJob.dbJob.requirements}
+                      className="rich-text-content text-[#8A8A8A] text-sm leading-relaxed [&_ul]:list-disc [&_ul]:pl-5 [&_ol]:list-decimal [&_ol]:pl-5 [&_h2]:text-base [&_h2]:font-bold [&_h2]:mt-2 [&_h2]:mb-1 [&_h3]:text-sm [&_h3]:font-bold [&_h3]:mt-1.5 [&_h3]:mb-1 [&_a]:text-[#FF2B2B] [&_a]:underline"
+                    />
+                  </div>
+                )}
 
                 {selectedJob.dbJob?.skills && selectedJob.dbJob.skills.length > 0 && (
                   <>
@@ -1050,6 +1501,126 @@ function FindJobPage() {
                     </div>
                   </>
                 )}
+
+                {selectedJob.dbJob?.recruiter && (
+                  <div className="mt-8 pt-6 border-t border-gray-200/60 space-y-4">
+                    <div className="flex items-center justify-between border-b border-gray-200/60 pb-3">
+                      <h4 className="text-lg font-bold text-[#3A1F1F]">Company Profile</h4>
+                      {selectedJob.dbJob.recruiter.website && (
+                        <a href={selectedJob.dbJob.recruiter.website} target="_blank" rel="noreferrer" className="text-sm text-[#FF2B2B] hover:underline flex items-center gap-1 font-medium">
+                          <Globe className="h-4 w-4" /> Website
+                        </a>
+                      )}
+                    </div>
+
+                    {selectedJob.dbJob.recruiter.tagline && (
+                      <p className="text-sm italic text-[#5A5A5A] border-l-2 border-[#FF2B2B] pl-2">
+                        "{selectedJob.dbJob.recruiter.tagline}"
+                      </p>
+                    )}
+
+                    {(() => {
+                      const { aboutCompany, companyInfo } = parseCompanyDescription(selectedJob.dbJob.recruiter.company_description);
+                      const hasAbout = aboutCompany && aboutCompany !== "<p><br></p>" && aboutCompany !== "<p></p>";
+                      const hasInfo = companyInfo && companyInfo !== "<p><br></p>" && companyInfo !== "<p></p>";
+
+                      return (
+                        <>
+                          {hasAbout && (
+                            <div>
+                              <h5 className="font-semibold text-[#3A1F1F] text-sm mb-1.5">About Company</h5>
+                              <div className="text-sm text-[#6A6A6A] leading-relaxed [&_ul]:list-disc [&_ul]:pl-5 [&_ol]:list-decimal [&_ol]:pl-5 [&_h2]:text-base [&_h2]:font-bold [&_h2]:mt-2 [&_h2]:mb-1 [&_h3]:text-sm [&_h3]:font-bold [&_h3]:mt-1.5 [&_h3]:mb-1 [&_a]:text-[#FF2B2B] [&_a]:underline">
+                                <SafeHtml content={aboutCompany} />
+                              </div>
+                            </div>
+                          )}
+
+                          <h5 className={`font-semibold text-[#3A1F1F] text-sm mb-1.5 mt-4 ${
+                            (selectedJob.dbJob.recruiter.tagline || hasAbout)
+                              ? "pt-3 border-t border-gray-200/60"
+                              : ""
+                          }`}>
+                            Company Information
+                          </h5>
+
+                          {hasInfo && (
+                            <div className="text-sm text-[#6A6A6A] leading-relaxed mb-3 [&_ul]:list-disc [&_ul]:pl-5 [&_ol]:list-decimal [&_ol]:pl-5 [&_h2]:text-base [&_h2]:font-bold [&_h2]:mt-2 [&_h2]:mb-1 [&_h3]:text-sm [&_h3]:font-bold [&_h3]:mt-1.5 [&_h3]:mb-1 [&_a]:text-[#FF2B2B] [&_a]:underline">
+                              <SafeHtml content={companyInfo} />
+                            </div>
+                          )}
+                        </>
+                      );
+                    })()}
+                    <div className="grid grid-cols-2 gap-x-4 gap-y-3">
+                      {selectedJob.dbJob.recruiter.industry && (
+                        <div>
+                          <span className="text-xs text-[#8A8A8A] block mb-0.5">Industry</span>
+                          <span className="font-semibold text-[#3A1F1F] text-sm">{selectedJob.dbJob.recruiter.industry}</span>
+                        </div>
+                      )}
+                      {selectedJob.dbJob.recruiter.company_type && (
+                        <div>
+                          <span className="text-xs text-[#8A8A8A] block mb-0.5">Company Type</span>
+                          <span className="font-semibold text-[#3A1F1F] text-sm">{selectedJob.dbJob.recruiter.company_type}</span>
+                        </div>
+                      )}
+                      {selectedJob.dbJob.recruiter.company_size && (
+                        <div>
+                          <span className="text-xs text-[#8A8A8A] block mb-0.5">Company Size</span>
+                          <span className="font-semibold text-[#3A1F1F] text-sm">{selectedJob.dbJob.recruiter.company_size} employees</span>
+                        </div>
+                      )}
+                      {selectedJob.dbJob.recruiter.founded && (
+                        <div>
+                          <span className="text-xs text-[#8A8A8A] block mb-0.5">Founded Year</span>
+                          <span className="font-semibold text-[#3A1F1F] text-sm">{selectedJob.dbJob.recruiter.founded}</span>
+                        </div>
+                      )}
+                      {selectedJob.dbJob.recruiter.location && (
+                        <div>
+                          <span className="text-xs text-[#8A8A8A] block mb-0.5">Headquarters</span>
+                          <span className="font-semibold text-[#3A1F1F] text-sm flex items-center gap-0.5">
+                            <MapPin className="h-3.5 w-3.5 text-[#FF2B2B]" /> {selectedJob.dbJob.recruiter.location}
+                          </span>
+                        </div>
+                      )}
+                      {selectedJob.dbJob.recruiter.phone && (
+                        <div>
+                          <span className="text-xs text-[#8A8A8A] block mb-0.5">Phone</span>
+                          <span className="font-semibold text-[#3A1F1F] text-sm">{selectedJob.dbJob.recruiter.phone}</span>
+                        </div>
+                      )}
+                      {selectedJob.dbJob.recruiter.cin && (
+                        <div>
+                          <span className="text-xs text-[#8A8A8A] block mb-0.5">CIN Number</span>
+                          <span className="font-semibold text-[#3A1F1F] text-sm">{selectedJob.dbJob.recruiter.cin}</span>
+                        </div>
+                      )}
+                      {selectedJob.dbJob.recruiter.recruiter_name && (
+                        <div>
+                          <span className="text-xs text-[#8A8A8A] block mb-0.5">HR Contact</span>
+                          <span className="font-semibold text-[#3A1F1F] text-sm">{selectedJob.dbJob.recruiter.recruiter_name}</span>
+                        </div>
+                      )}
+                      {selectedJob.dbJob.recruiter.website && (
+                        <div className="col-span-2">
+                          <span className="text-xs text-[#8A8A8A] block mb-0.5">Website</span>
+                          <a href={selectedJob.dbJob.recruiter.website} target="_blank" rel="noreferrer" className="font-semibold text-[#FF2B2B] hover:underline truncate block text-sm">
+                            {selectedJob.dbJob.recruiter.website}
+                          </a>
+                        </div>
+                      )}
+                      {selectedJob.dbJob.recruiter.linkedin_url && (
+                        <div className="col-span-2">
+                          <span className="text-xs text-[#8A8A8A] block mb-0.5">LinkedIn</span>
+                          <a href={selectedJob.dbJob.recruiter.linkedin_url} target="_blank" rel="noreferrer" className="font-semibold text-[#FF2B2B] hover:underline truncate block text-sm">
+                            {selectedJob.dbJob.recruiter.linkedin_url}
+                          </a>
+                        </div>
+                      )}
+                    </div>
+                  </div>
+                )}
               </div>
             </div>
           )}
@@ -1060,7 +1631,7 @@ function FindJobPage() {
 }
 
 // ── Profile Page ───────────────────────────────────────────────────────────────
-function ProfilePage() {
+function ProfilePage({ onPendingPrefsChange }: { onPendingPrefsChange?: (pending: boolean) => void }) {
   const { profile, user, loading: authLoading, refreshProfile } = useAuth();
   // Basic Info — synced from DB via useEffect below
   const [basicInfo, setBasicInfo] = useState({
@@ -1071,6 +1642,7 @@ function ProfilePage() {
   const [profilePic, setProfilePic] = useState<string | null>(null);
   const [editingBasic, setEditingBasic] = useState(false);
   const [basicForm, setBasicForm] = useState({ ...basicInfo });
+  const [dobPickerOpen, setDobPickerOpen] = useState(false);
 
   // Summary
   const [summary, setSummary] = useState("");
@@ -1083,6 +1655,13 @@ function ProfilePage() {
   const [skillPickerOpen, setSkillPickerOpen] = useState(false);
   const [skillSearch, setSkillSearch] = useState("");
   const skillFieldRef = useRef<HTMLDivElement>(null);
+  const skillInputRef = useRef<HTMLInputElement>(null);
+  const [preferredJobPickerOpen, setPreferredJobPickerOpen] = useState(false);
+  const [preferredJobSearch, setPreferredJobSearch] = useState("");
+  const [preferredJobOptions, setPreferredJobOptions] = useState<string[]>([]);
+  const [preferredJobOptionsLoading, setPreferredJobOptionsLoading] = useState(false);
+  const [preferredJobOptionsError, setPreferredJobOptionsError] = useState("");
+  const preferredJobFieldRef = useRef<HTMLDivElement>(null);
 
   // Sync profile data from DB when it loads, fallback to user metadata
   useEffect(() => {
@@ -1114,7 +1693,7 @@ function ProfilePage() {
     else if (googleAvatar) setProfilePic(googleAvatar);
     if (profile?.resume_url) setResumeFile(profile.resume_url);
     if (profile?.about) { setSummary(profile.about); setSummaryForm(profile.about); }
-    if (profile?.skills?.length) setSkills(profile.skills);
+    setSkills(profile?.skills ?? []);
     // Preferences
     if (profile) {
       const p = profile as any;
@@ -1126,9 +1705,10 @@ function ProfilePage() {
         noticePeriod: p.notice_period || "",
         workAuth: p.work_auth || "",
         willingToRelocate: p.willing_to_relocate || "",
+        preferredInterviewMode: normalizeInterviewModes(p.preferred_interview_mode),
       };
       setPreferences(prefs);
-      setPrefsForm(prefs);
+      setPrefsForm(profile.id ? loadPrefsDraft(profile.id, prefs) : prefs);
     }
     // Languages
     if ((profile as any)?.languages?.length) {
@@ -1144,64 +1724,115 @@ function ProfilePage() {
   const [expForm, setExpForm] = useState<Omit<WorkExp,"id">>(emptyExp);
 
   // Education
-  const emptyEdu = { degree: "", field: "", college: "", startYear: "2016", endYear: "2020", score: "" };
+  const emptyEdu: EducationForm = { degree: "", field: "", college: "", startYear: "2016", endYear: "2020", score: "", customField: "" };
   const [education, setEducation] = useState<Education[]>([]);
   const [showAddEdu, setShowAddEdu] = useState(false);
   const [editingEduId, setEditingEduId] = useState<string | null>(null);
-  const [eduForm, setEduForm] = useState<Omit<Education,"id">>(emptyEdu);
+  const [eduForm, setEduForm] = useState<EducationForm>(emptyEdu);
+  const [educationDegreeOptions, setEducationDegreeOptions] = useState(DEFAULT_EDUCATION_DEGREE_OPTIONS);
+  const [educationSpecializationOptions, setEducationSpecializationOptions] = useState<EducationCatalog>(DEFAULT_EDUCATION_SPECIALIZATION_OPTIONS);
+
+  useEffect(() => {
+    let isMounted = true;
+    fetchEducationCatalog()
+      .then(({ degreeOptions, specializationOptions }) => {
+        if (!isMounted) return;
+        setEducationDegreeOptions(degreeOptions);
+        setEducationSpecializationOptions(specializationOptions);
+      })
+      .catch(() => {
+        if (!isMounted) return;
+        setEducationDegreeOptions(DEFAULT_EDUCATION_DEGREE_OPTIONS);
+        setEducationSpecializationOptions(DEFAULT_EDUCATION_SPECIALIZATION_OPTIONS);
+      });
+    return () => {
+      isMounted = false;
+    };
+  }, []);
 
   // Load work experience and education from DB
   useEffect(() => {
     if (!profile?.id) return;
-    supabase.from("work_experience").select("*").eq("profile_id", profile.id).order("created_at", { ascending: false })
-      .then(({ data }) => {
-        if (data && data.length > 0) {
-          setExperiences(data.map(e => {
-            const startParts = (e.start_date || "").split(" ");
-            const endParts = (e.end_date || "").split(" ");
-            return {
-              id: e.id,
-              title: e.title,
-              company: e.company,
-              location: e.location || "",
-              startMonth: startParts[0] || "Jan",
-              startYear: startParts[1] || "2022",
-              endMonth: endParts[0] || "Jan",
-              endYear: endParts[1] || "2024",
-              current: e.is_current || false,
-              description: e.description || "",
-            };
-          }));
-        }
-      });
-    supabase.from("education").select("*").eq("profile_id", profile.id).order("created_at", { ascending: false })
-      .then(({ data }) => {
-        if (data && data.length > 0) {
-          setEducation(data.map(e => ({
-            id: e.id, degree: e.degree, field: e.field || "",
-            college: e.institution, startYear: e.start_year || "",
-            endYear: e.end_year || "", score: e.score || "",
-          })));
-        }
-      });
-    supabase.from("projects").select("*").eq("profile_id", profile.id).order("created_at", { ascending: false })
-      .then(({ data }) => {
-        if (data && data.length > 0) {
-          setProjects(data.map(p => ({
-            id: p.id, name: p.name, url: p.url || "",
-            startYear: p.start_year || "", endYear: p.end_year || "", description: p.description || "",
-          })));
-        }
-      });
-    supabase.from("certifications").select("*").eq("profile_id", profile.id).order("created_at", { ascending: false })
-      .then(({ data }) => {
-        if (data && data.length > 0) {
-          setCertifications(data.map(c => ({
-            id: c.id, name: c.name, issuer: c.issuer || "",
-            issueDate: c.issue_date || "", credentialId: c.credential_id || "",
-          })));
-        }
-      });
+
+    const loadProfileSections = async () => {
+      const { data: workExperienceData, error: workExperienceError } = await supabase
+        .from("work_experience")
+        .select("*")
+        .eq("profile_id", profile.id)
+        .order("created_at", { ascending: false });
+
+      if (workExperienceError) {
+        console.error("Error loading work experience:", workExperienceError.message);
+      } else if (workExperienceData && workExperienceData.length > 0) {
+        setExperiences(workExperienceData.map(e => {
+          const startParts = (e.start_date || "").split(" ");
+          const endParts = (e.end_date || "").split(" ");
+          return {
+            id: e.id,
+            title: e.title,
+            company: e.company,
+            location: e.location || "",
+            startMonth: startParts[0] || "Jan",
+            startYear: startParts[1] || "2022",
+            endMonth: endParts[0] || "Jan",
+            endYear: endParts[1] || "2024",
+            current: e.is_current || false,
+            description: e.description || "",
+          };
+        }));
+      }
+
+      const { data: educationData, error: educationError } = await supabase
+        .from("education")
+        .select("*")
+        .eq("profile_id", profile.id)
+        .order("created_at", { ascending: false });
+
+      if (educationError) {
+        console.error("Error loading education:", educationError.message);
+      } else if (educationData && educationData.length > 0) {
+        setEducation(educationData.map(e => ({
+          id: e.id, degree: e.degree, field: e.field || "",
+          college: e.institution, startYear: e.start_year || "",
+          endYear: e.end_year || "", score: e.score || "",
+        })));
+      }
+
+      const { data: projectsData, error: projectsError } = await supabase
+        .from("projects")
+        .select("*")
+        .eq("profile_id", profile.id)
+        .order("created_at", { ascending: false });
+
+      if (projectsError) {
+        console.error("Error loading projects:", projectsError.message);
+      } else if (projectsData && projectsData.length > 0) {
+        setProjects(projectsData.map(p => ({
+          id: p.id, name: p.name, url: p.url || "",
+          startYear: p.start_year || "", endYear: p.end_year || "", description: p.description || "",
+        })));
+      }
+
+      const { data: certificationsData, error: certificationsError } = await supabase
+        .from("certifications")
+        .select("*")
+        .eq("profile_id", profile.id)
+        .order("created_at", { ascending: false });
+
+      if (certificationsError) {
+        console.error("Error loading certifications:", certificationsError.message);
+      } else if (certificationsData && certificationsData.length > 0) {
+        setCertifications(certificationsData.map(c => ({
+          id: c.id, name: c.name, issuer: c.issuer || "",
+          issueDate: c.issue_date || "", expiryDate: c.expiry_date || "",
+          noExpiry: Boolean(c.no_expiry), credentialId: c.credential_id || "",
+        })));
+      }
+    };
+
+    loadProfileSections().catch((err) => {
+      console.error("Unexpected error loading profile sections:", err);
+    });
   }, [profile?.id]);
 
   // Projects
@@ -1212,7 +1843,7 @@ function ProfilePage() {
   const [projForm, setProjForm] = useState<Omit<Project,"id">>(emptyProj);
 
   // Certifications
-  const emptyCert = { name: "", issuer: "", issueDate: "", credentialId: "" };
+  const emptyCert = { name: "", issuer: "", issueDate: "", expiryDate: "", noExpiry: false, credentialId: "" };
   const [certifications, setCertifications] = useState<Certification[]>([]);
   const [showAddCert, setShowAddCert] = useState(false);
   const [editingCertId, setEditingCertId] = useState<number | null>(null);
@@ -1225,15 +1856,101 @@ function ProfilePage() {
 
   // Resume
   const [resumeFile, setResumeFile] = useState<string | null>(null);
+  const [resumePreview, setResumePreview] = useState<{ url: string; candidateName: string } | null>(null);
+
+  const downloadResume = useCallback(async () => {
+    if (!resumeFile) return;
+
+    const storageObject = getStorageObjectFromUrl(resumeFile);
+    if (!storageObject) {
+      window.open(resumeFile, "_blank", "noopener,noreferrer");
+      return;
+    }
+
+    const { data, error } = await supabase.storage
+      .from(storageObject.bucket)
+      .createSignedUrl(storageObject.path, 10 * 60, { download: true });
+
+    if (error || !data?.signedUrl) {
+      alert(`Resume download failed: ${error?.message || "Unable to open resume."}`);
+      return;
+    }
+
+    window.open(data.signedUrl, "_blank", "noopener,noreferrer");
+  }, [resumeFile]);
 
   // Preferred Settings
   const [preferences, setPreferences] = useState({
     desiredJobTitle: "", jobType: "",
     preferredLocation: "", expectedSalary: "",
     noticePeriod: "", workAuth: "", willingToRelocate: "",
+    preferredInterviewMode: [] as string[],
   });
   const [editingPrefs, setEditingPrefs] = useState(false);
   const [prefsForm, setPrefsForm] = useState({ ...preferences });
+
+  const isPrefsDirty = useMemo(
+    () => JSON.stringify(prefsForm) !== JSON.stringify(preferences),
+    [prefsForm, preferences],
+  );
+
+  const getPrefsDraftKey = (profileId: string) => `jobseeker_profile_prefs_draft_${profileId}`;
+
+  const loadPrefsDraft = useCallback((profileId: string, fallback: typeof prefsForm) => {
+    if (!profileId) return fallback;
+    try {
+      const raw = window.localStorage.getItem(getPrefsDraftKey(profileId));
+      if (!raw) return fallback;
+      const parsed = JSON.parse(raw);
+      if (parsed && typeof parsed === "object") {
+        return {
+          ...fallback,
+          ...parsed,
+        };
+      }
+    } catch {
+      // ignore malformed drafts
+    }
+    return fallback;
+  }, []);
+
+  const savePrefsDraft = useCallback((profileId: string, draft: typeof prefsForm) => {
+    if (!profileId) return;
+    try {
+      window.localStorage.setItem(getPrefsDraftKey(profileId), JSON.stringify(draft));
+    } catch {
+      // ignore storage failures
+    }
+  }, []);
+
+  const clearPrefsDraft = useCallback((profileId: string) => {
+    if (!profileId) return;
+    try {
+      window.localStorage.removeItem(getPrefsDraftKey(profileId));
+    } catch {
+      // ignore storage failures
+    }
+  }, []);
+
+  useEffect(() => {
+    if (!profile?.id) return;
+    onPendingPrefsChange?.(editingPrefs && isPrefsDirty);
+  }, [editingPrefs, isPrefsDirty, onPendingPrefsChange, profile?.id]);
+
+  useEffect(() => {
+    if (!profile?.id || !editingPrefs) return;
+    savePrefsDraft(profile.id, prefsForm);
+  }, [editingPrefs, prefsForm, profile?.id, savePrefsDraft]);
+
+  useEffect(() => {
+    if (!editingPrefs || !isPrefsDirty) return;
+    const handleBeforeUnload = (event: BeforeUnloadEvent) => {
+      event.preventDefault();
+      event.returnValue = "";
+    };
+    window.addEventListener("beforeunload", handleBeforeUnload);
+    return () => window.removeEventListener("beforeunload", handleBeforeUnload);
+  }, [editingPrefs, isPrefsDirty]);
 
   // ── Completion ────────────────────────────────────────────────────────────
   const completion = useMemo(() => {
@@ -1255,38 +1972,161 @@ function ProfilePage() {
   const completionColor = completion >= 80 ? "bg-green-500" : completion >= 50 ? "bg-yellow-500" : "bg-[#FF2B2B]";
   const filteredSkillOptions = useMemo(() => {
     const query = skillSearch.trim().toLowerCase();
-    if (!query) return PROFILE_SKILL_OPTIONS;
-    return PROFILE_SKILL_OPTIONS.filter(skill => skill.toLowerCase().includes(query));
+    return PROFILE_SKILL_OPTIONS
+      .filter(skill => !query || skill.toLowerCase().includes(query))
+      .slice(0, 80);
   }, [skillSearch]);
+  const selectedPreferredJobTitles = useMemo(
+    () => splitPreferredJobTitles(prefsForm.desiredJobTitle),
+    [prefsForm.desiredJobTitle],
+  );
+  const filteredPreferredJobOptions = useMemo(() => {
+    const query = preferredJobSearch.trim().toLowerCase();
+    const selected = new Set(selectedPreferredJobTitles.map((title) => title.toLowerCase()));
+    return preferredJobOptions.filter((title) => {
+      const matches = !query || title.toLowerCase().includes(query);
+      return matches && !selected.has(title.toLowerCase());
+    });
+  }, [preferredJobOptions, preferredJobSearch, selectedPreferredJobTitles]);
+
+  const dobDisplayValue = basicForm.dob ? formatDateDisplay(basicForm.dob) : "";
+  const today = new Date();
+  const earliestAllowedDob = new Date(today);
+  earliestAllowedDob.setFullYear(earliestAllowedDob.getFullYear() - 100);
 
   useEffect(() => {
     if (!skillPickerOpen) return;
     const handleClickOutside = (event: MouseEvent) => {
-      if (!skillFieldRef.current?.contains(event.target as Node)) {
+      const target = event.target as Node;
+      if (!document.body.contains(target)) return;
+      if (!skillFieldRef.current?.contains(target)) {
         setSkillPickerOpen(false);
       }
     };
     document.addEventListener("mousedown", handleClickOutside);
     return () => document.removeEventListener("mousedown", handleClickOutside);
   }, [skillPickerOpen]);
+  useEffect(() => {
+    if (!preferredJobPickerOpen) return;
+    const handleClickOutside = (event: MouseEvent) => {
+      if (!preferredJobFieldRef.current?.contains(event.target as Node)) {
+        setPreferredJobPickerOpen(false);
+      }
+    };
+    document.addEventListener("mousedown", handleClickOutside);
+    return () => document.removeEventListener("mousedown", handleClickOutside);
+  }, [preferredJobPickerOpen]);
+  useEffect(() => {
+    if (!editingPrefs || !preferredJobPickerOpen) return;
+
+    let cancelled = false;
+    const timer = window.setTimeout(async () => {
+      setPreferredJobOptionsLoading(true);
+      setPreferredJobOptionsError("");
+
+      const query = preferredJobSearch.trim();
+      let request = supabase
+        .from("jobs")
+        .select("title")
+        .eq("status", "Active")
+        .order("created_at", { ascending: false })
+        .limit(60);
+
+      if (query) {
+        request = request.ilike("title", `%${escapeLikeValue(query)}%`);
+      }
+
+      const { data, error } = await request;
+      if (cancelled) return;
+
+      setPreferredJobOptionsLoading(false);
+      if (error) {
+        setPreferredJobOptions([]);
+        setPreferredJobOptionsError("Unable to load role suggestions.");
+        return;
+      }
+
+      const titles = Array.from(
+        new Set(
+          (data || [])
+            .map((job) => (job.title || "").trim())
+            .filter(Boolean)
+        )
+      );
+      setPreferredJobOptions(titles);
+    }, 250);
+
+    return () => {
+      cancelled = true;
+      window.clearTimeout(timer);
+    };
+  }, [editingPrefs, preferredJobPickerOpen, preferredJobSearch]);
 
   // ── Helpers ───────────────────────────────────────────────────────────────
   async function addSkill(skill: string) {
     const s = skill.trim();
+    if (!s) return;
+
     const alreadySelected = skills.some(existing => existing.toLowerCase() === s.toLowerCase());
-    if (s && !alreadySelected) {
-      const updated = [...skills, s];
-      setSkills(updated);
-      if (profile?.id) await supabase.from("profiles").update({ skills: updated }).eq("id", profile.id);
+    let updated: string[];
+    if (alreadySelected) {
+      updated = skills.filter(existing => existing.toLowerCase() !== s.toLowerCase());
+    } else {
+      updated = [...skills, s];
     }
-    setSkillSearch("");
-    setSkillPickerOpen(false);
-    setShowSkillInput(false);
-  }
-  async function removeSkill(skill: string) {
-    const updated = skills.filter(s => s !== skill);
     setSkills(updated);
-    if (profile?.id) await supabase.from("profiles").update({ skills: updated }).eq("id", profile.id);
+    setSkillSearch("");
+
+    setTimeout(() => {
+      skillInputRef.current?.focus();
+    }, 0);
+
+    if (profile?.id) {
+      const { error } = await supabase.from("profiles").update({ skills: updated }).eq("id", profile.id);
+      if (error) {
+        console.error("Skills update error:", error.message);
+        setSkills(skills);
+      } else {
+        await refreshProfile();
+      }
+    }
+  }
+
+  async function removeSkill(skill: string) {
+    const updated = skills.filter((s) => s !== skill);
+    setSkills(updated);
+    if (profile?.id) {
+      const { error } = await supabase.from("profiles").update({ skills: updated }).eq("id", profile.id);
+      if (error) {
+        console.error("Skills update error:", error.message);
+        setSkills(skills);
+      } else {
+        await refreshProfile();
+      }
+    }
+  }
+
+  function addPreferredJobTitle(title: string) {
+    const nextTitle = title.trim();
+    if (!nextTitle) return;
+    const currentTitles = splitPreferredJobTitles(prefsForm.desiredJobTitle);
+    if (currentTitles.some((existing) => existing.toLowerCase() === nextTitle.toLowerCase())) {
+      setPreferredJobSearch("");
+      return;
+    }
+    setPrefsForm((form) => ({
+      ...form,
+      desiredJobTitle: joinPreferredJobTitles([...currentTitles, nextTitle]),
+    }));
+    setPreferredJobSearch("");
+    setPreferredJobPickerOpen(true);
+  }
+
+  function removePreferredJobTitle(title: string) {
+    const updated = splitPreferredJobTitles(prefsForm.desiredJobTitle).filter(
+      (currentTitle) => currentTitle.toLowerCase() !== title.toLowerCase(),
+    );
+    setPrefsForm((form) => ({ ...form, desiredJobTitle: joinPreferredJobTitles(updated) }));
   }
 
   async function saveExp() {
@@ -1297,20 +2137,29 @@ function ProfilePage() {
       setExperiences(prev => prev.map(e => e.id === editingExpId ? { ...expForm, id: e.id } : e));
       setEditingExpId(null);
       if (profile?.id) {
-        await supabase.from("work_experience").update({
+        const { error } = await supabase.from("work_experience").update({
           company: expForm.company, title: expForm.title, location: expForm.location,
           start_date: startDate, end_date: endDate,
           is_current: expForm.current, description: expForm.description,
         }).eq("id", editingExpId).eq("profile_id", profile.id);
+        if (error) {
+          console.error("Experience update error:", error.message);
+          alert("Failed to save experience. Please try again.");
+        }
       }
     } else {
       let newId = String(Date.now());
       if (profile?.id) {
-        const { data } = await supabase.from("work_experience").insert({
+        const { data, error } = await supabase.from("work_experience").insert({
           profile_id: profile.id, company: expForm.company, title: expForm.title,
           location: expForm.location, start_date: startDate, end_date: endDate,
           is_current: expForm.current, description: expForm.description,
         }).select("id").single();
+        if (error) {
+          console.error("Experience insert error:", error.message);
+          alert("Failed to save experience. Please try again.");
+          return;
+        }
         if (data?.id) newId = data.id;
       }
       setExperiences(prev => [...prev, { ...expForm, id: newId }]);
@@ -1325,35 +2174,82 @@ function ProfilePage() {
   }
   function cancelExp() { setEditingExpId(null); setShowAddExp(false); setExpForm(emptyExp); }
 
+  function getEducationFormField(degree: string, field: string) {
+    const validOptions = educationSpecializationOptions[degree] || [];
+    if (validOptions.includes(field)) return { field, customField: "" };
+    if (field && validOptions.length > 0) return { field: "Others", customField: field };
+    return { field, customField: "" };
+  }
+
   async function saveEdu() {
-    if (!eduForm.degree || !eduForm.college) return;
+    if (!eduForm.degree) return;
+    if (eduForm.degree !== "Not Educated" && !eduForm.college) return;
+    if (eduForm.field === "Others" && !eduForm.customField?.trim()) return;
+
+    const effectiveField = eduForm.field === "Others" ? eduForm.customField?.trim() || "" : eduForm.field;
     if (editingEduId !== null) {
-      setEducation(prev => prev.map(e => e.id === editingEduId ? { ...eduForm, id: e.id } : e));
+      setEducation(prev => prev.map(e => e.id === editingEduId ? {
+        id: e.id,
+        degree: eduForm.degree,
+        field: effectiveField,
+        college: eduForm.college,
+        startYear: eduForm.startYear,
+        endYear: eduForm.endYear,
+        score: eduForm.score,
+      } : e));
       setEditingEduId(null);
       if (profile?.id) {
-        await supabase.from("education").update({
-          institution: eduForm.college, degree: eduForm.degree, field: eduForm.field,
-          start_year: eduForm.startYear, end_year: eduForm.endYear, score: eduForm.score,
+        const { error } = await supabase.from("education").update({
+          institution: eduForm.college,
+          degree: eduForm.degree,
+          field: effectiveField,
+          start_year: eduForm.startYear,
+          end_year: eduForm.endYear,
+          score: eduForm.score,
         }).eq("id", editingEduId).eq("profile_id", profile.id);
+        if (error) {
+          console.error("Education update error:", error.message);
+          alert("Failed to save education. Please try again.");
+        }
       }
     } else {
       let newId = String(Date.now());
       if (profile?.id) {
-        const { data } = await supabase.from("education").insert({
-          profile_id: profile.id, institution: eduForm.college, degree: eduForm.degree,
-          field: eduForm.field, start_year: eduForm.startYear, end_year: eduForm.endYear,
+        const { data, error } = await supabase.from("education").insert({
+          profile_id: profile.id,
+          institution: eduForm.college,
+          degree: eduForm.degree,
+          field: effectiveField,
+          start_year: eduForm.startYear,
+          end_year: eduForm.endYear,
           score: eduForm.score,
         }).select("id").single();
+        if (error) {
+          console.error("Education insert error:", error.message);
+          alert("Failed to save education. Please try again.");
+          return;
+        }
         if (data?.id) newId = data.id;
       }
-      setEducation(prev => [...prev, { ...eduForm, id: newId }]);
+      setEducation(prev => [...prev, {
+        id: newId,
+        degree: eduForm.degree,
+        field: effectiveField,
+        college: eduForm.college,
+        startYear: eduForm.startYear,
+        endYear: eduForm.endYear,
+        score: eduForm.score,
+      }]);
       setShowAddEdu(false);
     }
+
     setEduForm(emptyEdu);
   }
+
   function editEdu(edu: Education) {
+    const { field, customField } = getEducationFormField(edu.degree, edu.field);
     setEditingEduId(edu.id);
-    setEduForm({ degree: edu.degree, field: edu.field, college: edu.college, startYear: edu.startYear, endYear: edu.endYear, score: edu.score });
+    setEduForm({ degree: edu.degree, field, customField, college: edu.college, startYear: edu.startYear, endYear: edu.endYear, score: edu.score });
     setShowAddEdu(false);
   }
   function cancelEdu() { setEditingEduId(null); setShowAddEdu(false); setEduForm(emptyEdu); }
@@ -1363,17 +2259,28 @@ function ProfilePage() {
     if (editingProjId !== null) {
       setProjects(prev => prev.map(p => p.id === editingProjId ? { ...projForm, id: p.id } : p));
       setEditingProjId(null);
-      if (profile?.id) await supabase.from("projects").update({
-        name: projForm.name, url: projForm.url, start_year: projForm.startYear,
-        end_year: projForm.endYear, description: projForm.description,
-      }).eq("id", editingProjId).eq("profile_id", profile.id);
+      if (profile?.id) {
+        const { error } = await supabase.from("projects").update({
+          name: projForm.name, url: projForm.url, start_year: projForm.startYear,
+          end_year: projForm.endYear, description: projForm.description,
+        }).eq("id", editingProjId).eq("profile_id", profile.id);
+        if (error) {
+          console.error("Project update error:", error.message);
+          alert("Failed to save project. Please try again.");
+        }
+      }
     } else {
       let newId = Date.now();
       if (profile?.id) {
-        const { data } = await supabase.from("projects").insert({
+        const { data, error } = await supabase.from("projects").insert({
           profile_id: profile.id, name: projForm.name, url: projForm.url,
           start_year: projForm.startYear, end_year: projForm.endYear, description: projForm.description,
         }).select("id").single();
+        if (error) {
+          console.error("Project insert error:", error.message);
+          alert("Failed to save project. Please try again.");
+          return;
+        }
         if (data?.id) newId = data.id;
       }
       setProjects(prev => [...prev, { ...projForm, id: newId }]);
@@ -1393,17 +2300,30 @@ function ProfilePage() {
     if (editingCertId !== null) {
       setCertifications(prev => prev.map(c => c.id === editingCertId ? { ...certForm, id: c.id } : c));
       setEditingCertId(null);
-      if (profile?.id) await supabase.from("certifications").update({
-        name: certForm.name, issuer: certForm.issuer,
-        issue_date: certForm.issueDate, credential_id: certForm.credentialId,
-      }).eq("id", editingCertId).eq("profile_id", profile.id);
+      if (profile?.id) {
+        const { error } = await supabase.from("certifications").update({
+          name: certForm.name, issuer: certForm.issuer,
+          issue_date: certForm.issueDate, expiry_date: certForm.noExpiry ? null : certForm.expiryDate,
+          no_expiry: certForm.noExpiry, credential_id: certForm.credentialId,
+        }).eq("id", editingCertId).eq("profile_id", profile.id);
+        if (error) {
+          console.error("Certification update error:", error.message);
+          alert("Failed to save certification. Please try again.");
+        }
+      }
     } else {
       let newId = Date.now();
       if (profile?.id) {
-        const { data } = await supabase.from("certifications").insert({
+        const { data, error } = await supabase.from("certifications").insert({
           profile_id: profile.id, name: certForm.name, issuer: certForm.issuer,
-          issue_date: certForm.issueDate, credential_id: certForm.credentialId,
+          issue_date: certForm.issueDate, expiry_date: certForm.noExpiry ? null : certForm.expiryDate,
+          no_expiry: certForm.noExpiry, credential_id: certForm.credentialId,
         }).select("id").single();
+        if (error) {
+          console.error("Certification insert error:", error.message);
+          alert("Failed to save certification. Please try again.");
+          return;
+        }
         if (data?.id) newId = data.id;
       }
       setCertifications(prev => [...prev, { ...certForm, id: newId }]);
@@ -1413,7 +2333,14 @@ function ProfilePage() {
   }
   function editCert(cert: Certification) {
     setEditingCertId(cert.id);
-    setCertForm({ name: cert.name, issuer: cert.issuer, issueDate: cert.issueDate, credentialId: cert.credentialId });
+    setCertForm({
+      name: cert.name,
+      issuer: cert.issuer,
+      issueDate: cert.issueDate,
+      expiryDate: cert.expiryDate,
+      noExpiry: cert.noExpiry,
+      credentialId: cert.credentialId,
+    });
     setShowAddCert(false);
   }
   function cancelCert() { setEditingCertId(null); setShowAddCert(false); setCertForm(emptyCert); }
@@ -1423,9 +2350,15 @@ function ProfilePage() {
     const updated = [...languages, { ...langForm, id: Date.now() }];
     setLanguages(updated);
     setLangForm({ language: "", proficiency: "Beginner" }); setShowAddLang(false);
-    if (profile?.id) await supabase.from("profiles").update({
-      languages: updated.map(l => ({ language: l.language, proficiency: l.proficiency }))
-    }).eq("id", profile.id);
+    if (profile?.id) {
+      const { error } = await supabase.from("profiles").update({
+        languages: updated.map(l => ({ language: l.language, proficiency: l.proficiency }))
+      }).eq("id", profile.id);
+      if (error) {
+        console.error("Language update error:", error.message);
+        alert("Failed to save language. Please try again.");
+      }
+    }
   }
 
   // ── Render ────────────────────────────────────────────────────────────────
@@ -1470,6 +2403,8 @@ function ProfilePage() {
 
       <div className="space-y-6">
         {/* ── Basic Info ── */}
+        <ResumePreviewDialog resume={resumePreview} onClose={() => setResumePreview(null)} />
+
         <div className="bg-white rounded-2xl p-6 shadow-md">
           <div className="flex justify-between items-center mb-4">
             <h3 className="text-xl font-semibold text-[#3A1F1F] flex items-center gap-2"><User className="h-5 w-5 text-[#FF2B2B]" /> Basic Information</h3>
@@ -1489,7 +2424,6 @@ function ProfilePage() {
                   { label: "Phone *", key: "phone" },
                   { label: "Email *", key: "email" },
                   { label: "Location *", key: "location" },
-                  { label: "Date of Birth", key: "dob" },
                 ].map(({ label, key }) => (
                   <div key={key}>
                     <label className="block text-sm text-[#3A1F1F] mb-1">{label}</label>
@@ -1500,6 +2434,34 @@ function ProfilePage() {
                     />
                   </div>
                 ))}
+                
+                <div>
+                  <label className="block text-sm text-[#3A1F1F] mb-1">Date of Birth</label>
+                  <Popover open={dobPickerOpen} onOpenChange={setDobPickerOpen}>
+                    <PopoverTrigger asChild>
+                      <Input
+                        value={dobDisplayValue}
+                        placeholder="Select Date of Birth"
+                        readOnly
+                        className="bg-[#F6F6F6] border-gray-200 rounded-xl cursor-pointer"
+                      />
+                    </PopoverTrigger>
+                    <PopoverContent align="start" side="bottom" className="p-0 mt-2 w-auto">
+                      <Calendar
+                        mode="single"
+                        selected={parseLocalDate(basicForm.dob) || undefined}
+                        onSelect={(date) => {
+                          setBasicForm((form) => ({
+                            ...form,
+                            dob: date ? toIsoDate(date) : "",
+                          }));
+                          if (date) setDobPickerOpen(false);
+                        }}
+                        disabled={{ after: today, before: earliestAllowedDob }}
+                      />
+                    </PopoverContent>
+                  </Popover>
+                </div>
                 <div>
                   <label className="block text-sm text-[#3A1F1F] mb-1">Gender</label>
                   <Select value={basicForm.gender} onValueChange={(v) => setBasicForm(f => ({ ...f, gender: v }))}>
@@ -1571,11 +2533,11 @@ function ProfilePage() {
                         .from("avatars")
                         .upload(filePath, file, { upsert: true });
                       if (uploadError) {
-                        console.error("Avatar upload error:", uploadError.message);
-                        alert("Profile pic upload failed: " + uploadError.message);
+                        console.error("Avatar upload error:", uploadError.message || "Unknown error");
+                        alert("Profile pic upload failed: " + (uploadError.message || "Unknown error"));
                         return;
                       }
-                      if (uploadData) {
+                      if (uploadData?.path) {
                         const { data: urlData } = supabase.storage.from("avatars").getPublicUrl(filePath);
                         const { error: dbError } = await supabase.from("profiles").update({ avatar_url: urlData.publicUrl }).eq("id", profile.id);
                         if (dbError) console.error("Avatar DB update error:", dbError.message);
@@ -1612,7 +2574,7 @@ function ProfilePage() {
                 </div>
               </div>
               <div className="grid md:grid-cols-3 gap-3 text-sm text-[#8A8A8A]">
-                {basicInfo.dob && <span><strong className="text-[#3A1F1F]">DOB:</strong> {basicInfo.dob}</span>}
+                {basicInfo.dob && <span><strong className="text-[#3A1F1F]">DOB:</strong> {formatDateDisplay(basicInfo.dob)}</span>}
                 {basicInfo.gender && <span><strong className="text-[#3A1F1F]">Gender:</strong> {basicInfo.gender}</span>}
                 {basicInfo.maritalStatus && <span><strong className="text-[#3A1F1F]">Status:</strong> {basicInfo.maritalStatus}</span>}
               </div>
@@ -1642,7 +2604,15 @@ function ProfilePage() {
               <div className="flex gap-3">
                 <Button className="bg-[#FF2B2B] hover:bg-[#e02525] text-white rounded-full" onClick={async () => {
                   setSummary(summaryForm); setEditingSummary(false);
-                  if (profile?.id) await supabase.from("profiles").update({ about: summaryForm }).eq("id", profile.id);
+                  if (profile?.id) {
+                    const { error } = await supabase.from("profiles").update({ about: summaryForm }).eq("id", profile.id);
+                    if (error) {
+                      console.error("Summary update error:", error.message);
+                      alert("Failed to save summary. Please try again.");
+                    } else {
+                      await refreshProfile();
+                    }
+                  }
                 }}>Save</Button>
                 <Button variant="outline" className="rounded-full" onClick={() => setEditingSummary(false)}>Cancel</Button>
               </div>
@@ -1682,6 +2652,7 @@ function ProfilePage() {
                 <div className="relative">
                   <Search className="absolute left-3 top-1/2 h-4 w-4 -translate-y-1/2 text-[#8A8A8A]" />
                   <Input
+                    ref={skillInputRef}
                     value={skillSearch}
                     onFocus={() => setSkillPickerOpen(true)}
                     onChange={(e) => {
@@ -1784,7 +2755,16 @@ function ProfilePage() {
                     </div>
                     <div className="flex gap-1 shrink-0 ml-4">
                       <Button variant="ghost" size="icon" className="h-8 w-8 text-[#8A8A8A] hover:text-[#FF2B2B]" onClick={() => editExp(exp)}><Pencil className="h-4 w-4" /></Button>
-                      <Button variant="ghost" size="icon" className="h-8 w-8 text-[#8A8A8A] hover:text-red-600" onClick={async () => { setExperiences(p => p.filter(e => e.id !== exp.id)); if (profile?.id) await supabase.from("work_experience").delete().eq("id", exp.id).eq("profile_id", profile.id); }}><Trash2 className="h-4 w-4" /></Button>
+                      <Button variant="ghost" size="icon" className="h-8 w-8 text-[#8A8A8A] hover:text-red-600" onClick={async () => { 
+                        setExperiences(p => p.filter(e => e.id !== exp.id)); 
+                        if (profile?.id) {
+                          const { error } = await supabase.from("work_experience").delete().eq("id", exp.id).eq("profile_id", profile.id);
+                          if (error) {
+                            console.error("Experience delete error:", error.message);
+                            setExperiences(p => p.concat(exp));
+                          }
+                        }
+                      }}><Trash2 className="h-4 w-4" /></Button>
                     </div>
                   </div>
                 )}
@@ -1809,7 +2789,14 @@ function ProfilePage() {
             {education.map((edu) => (
               <div key={edu.id}>
                 {editingEduId === edu.id ? (
-                  <EduForm form={eduForm} setForm={setEduForm} onSave={saveEdu} onCancel={cancelEdu} />
+                  <EduForm
+                    form={eduForm}
+                    setForm={setEduForm}
+                    onSave={saveEdu}
+                    onCancel={cancelEdu}
+                    degreeOptions={educationDegreeOptions}
+                    specializationOptionsByDegree={educationSpecializationOptions}
+                  />
                 ) : (
                   <div className="border-l-2 border-[#FF2B2B] pl-4 flex justify-between">
                     <div>
@@ -1819,14 +2806,32 @@ function ProfilePage() {
                     </div>
                     <div className="flex gap-1 shrink-0 ml-4">
                       <Button variant="ghost" size="icon" className="h-8 w-8 text-[#8A8A8A] hover:text-[#FF2B2B]" onClick={() => editEdu(edu)}><Pencil className="h-4 w-4" /></Button>
-                      <Button variant="ghost" size="icon" className="h-8 w-8 text-[#8A8A8A] hover:text-red-600" onClick={async () => { setEducation(p => p.filter(e => e.id !== edu.id)); if (profile?.id) await supabase.from("education").delete().eq("id", edu.id).eq("profile_id", profile.id); }}><Trash2 className="h-4 w-4" /></Button>
+                      <Button variant="ghost" size="icon" className="h-8 w-8 text-[#8A8A8A] hover:text-red-600" onClick={async () => { 
+                        setEducation(p => p.filter(e => e.id !== edu.id)); 
+                        if (profile?.id) {
+                          const { error } = await supabase.from("education").delete().eq("id", edu.id).eq("profile_id", profile.id);
+                          if (error) {
+                            console.error("Education delete error:", error.message);
+                            setEducation(p => p.concat(edu));
+                          }
+                        }
+                      }}><Trash2 className="h-4 w-4" /></Button>
                     </div>
                   </div>
                 )}
               </div>
             ))}
             {education.length === 0 && !showAddEdu && <p className="text-[#8A8A8A] text-sm italic">No education added yet.</p>}
-            {showAddEdu && <EduForm form={eduForm} setForm={setEduForm} onSave={saveEdu} onCancel={cancelEdu} />}
+            {showAddEdu && (
+              <EduForm
+                form={eduForm}
+                setForm={setEduForm}
+                onSave={saveEdu}
+                onCancel={cancelEdu}
+                degreeOptions={educationDegreeOptions}
+                specializationOptionsByDegree={educationSpecializationOptions}
+              />
+            )}
           </div>
         </div>
 
@@ -1884,6 +2889,7 @@ function ProfilePage() {
                       {cert.issuer && <p className="text-[#8A8A8A] text-sm">{cert.issuer}</p>}
                       <p className="text-[#8A8A8A] text-xs mt-0.5">
                         {cert.issueDate && `Issued: ${cert.issueDate}`}
+                        {(cert.noExpiry || cert.expiryDate) && `${cert.issueDate ? " • " : ""}${cert.noExpiry ? "No Expiry" : `Expires: ${cert.expiryDate}`}`}
                         {cert.credentialId && ` • ID: ${cert.credentialId}`}
                       </p>
                     </div>
@@ -1916,7 +2922,13 @@ function ProfilePage() {
                 <button onClick={async () => {
                   const updated = languages.filter(l => l.id !== lang.id);
                   setLanguages(updated);
-                  if (profile?.id) await supabase.from("profiles").update({ languages: updated.map(l => ({ language: l.language, proficiency: l.proficiency })) }).eq("id", profile.id);
+                  if (profile?.id) {
+                    const { error } = await supabase.from("profiles").update({ languages: updated.map(l => ({ language: l.language, proficiency: l.proficiency })) }).eq("id", profile.id);
+                    if (error) {
+                      console.error("Language delete error:", error.message);
+                      setLanguages(languages);
+                    }
+                  }
                 }} className="ml-1 text-[#8A8A8A] hover:text-[#FF2B2B]"><X className="h-3 w-3" /></button>
               </div>
             ))}
@@ -1949,46 +2961,81 @@ function ProfilePage() {
             <div className="flex items-center justify-between bg-[#F6F6F6] rounded-xl p-4">
               <div className="min-w-0">
                 <p className="font-medium text-[#3A1F1F] truncate">Resume uploaded</p>
-                <a href={resumeFile} target="_blank" rel="noopener noreferrer" className="text-sm text-[#FF2B2B] hover:underline">View / Download</a>
               </div>
               <div className="flex gap-2 flex-shrink-0">
+                <Button variant="outline" size="sm" className="border-gray-200 rounded-full" onClick={async () => {
+                  if (!resumeFile) return;
+                  const newTab = window.open('', '_blank');
+                  if (!newTab) return;
+                  let resolvedUrl = resumeFile;
+                  const obj = getStorageObjectFromUrl(resumeFile);
+                  if (obj) {
+                    const { data } = await supabase.storage.from(obj.bucket).createSignedUrl(obj.path, 10 * 60);
+                    if (data?.signedUrl) resolvedUrl = data.signedUrl;
+                  }
+                  newTab.location.href = buildPreviewUrl(resolvedUrl) || resolvedUrl;
+                }}>
+                  <Eye className="h-4 w-4 mr-1" /> Preview
+                </Button>
+                <button type="button" onClick={downloadResume} className="inline-flex items-center gap-1 px-3 py-2 border border-gray-200 rounded-full text-sm text-[#3A1F1F] hover:bg-white transition-colors">
+                  <Download className="h-4 w-4" /> Download
+                </button>
                 <label className="cursor-pointer">
-                  <input type="file" accept=".pdf,.doc,.docx" className="hidden" onChange={async (e) => {
+                  <input type="file" accept=".pdf,.doc,.docx,.png,.jpg,.jpeg,.gif,.webp" className="hidden" onChange={async (e) => {
                     const file = e.target.files?.[0];
                     if (!file || !profile) return;
                     const ext = file.name.split(".").pop();
                     const filePath = `${profile.id}/resume.${ext}`;
                     const { data: uploadData, error: uploadError } = await supabase.storage.from("resumes").upload(filePath, file, { upsert: true });
-                    if (uploadError) { alert("Resume upload failed: " + uploadError.message); return; }
-                    if (uploadData) {
+                    if (uploadError) { alert("Resume upload failed: " + (uploadError.message || "Unknown error")); return; }
+                    if (uploadData?.path) {
                       const { data: urlData } = supabase.storage.from("resumes").getPublicUrl(filePath);
-                      await supabase.from("profiles").update({ resume_url: urlData.publicUrl }).eq("id", profile.id);
+                      const { error: dbError } = await supabase.from("profiles").update({ resume_url: urlData.publicUrl }).eq("id", profile.id);
+                      if (dbError) {
+                        console.error("Resume DB update error:", dbError.message);
+                        alert("Failed to save resume. Please try again.");
+                        return;
+                      }
+                      const { error: appError } = await supabase.from("applications").update({ resume_url: urlData.publicUrl }).eq("profile_id", profile.id);
+                      if (appError) {
+                        console.error("Applications resume update error:", appError.message);
+                      }
                       setResumeFile(urlData.publicUrl);
-                      refreshProfile();
+                      await refreshProfile();
                     }
                   }} />
                   <Button variant="outline" size="sm" className="border-[#FF2B2B] text-[#FF2B2B] rounded-full" asChild><span><Pencil className="h-4 w-4 mr-1" /> Replace</span></Button>
                 </label>
                 <Button variant="ghost" size="sm" className="text-red-500 rounded-full" onClick={async () => {
                   if (!profile) return;
-                  await supabase.from("profiles").update({ resume_url: null }).eq("id", profile.id);
+                  const { error: dbError } = await supabase.from("profiles").update({ resume_url: null }).eq("id", profile.id);
+                  if (dbError) {
+                    console.error("Resume delete error:", dbError.message);
+                    alert("Failed to delete resume. Please try again.");
+                    return;
+                  }
+                  const { error: appError } = await supabase.from("applications").update({ resume_url: null }).eq("profile_id", profile.id);
+                  if (appError) {
+                    console.error("Applications resume delete error:", appError.message);
+                  }
                   setResumeFile(null);
-                  refreshProfile();
+                  await refreshProfile();
                 }}><Trash2 className="h-4 w-4" /></Button>
               </div>
             </div>
           ) : (
             <label className="cursor-pointer">
-              <input type="file" accept=".pdf,.doc,.docx" className="hidden" onChange={async (e) => {
+              <input type="file" accept=".pdf,.doc,.docx,.png,.jpg,.jpeg,.gif,.webp" className="hidden" onChange={async (e) => {
                 const file = e.target.files?.[0];
                 if (!file || !profile) return;
                 const ext = file.name.split(".").pop();
                 const filePath = `${profile.id}/resume.${ext}`;
-                const { data: uploadData, error: uploadError } = await supabase.storage.from("resumes").upload(filePath, file, { upsert: true });
-                if (uploadError) { alert("Resume upload failed: " + uploadError.message); return; }
-                if (uploadData) {
+                const { data: uploadData, error: uploadError = null } = await supabase.storage.from("resumes").upload(filePath, file, { upsert: true });
+                if (uploadError) { alert("Resume upload failed: " + (uploadError.message || "Unknown error")); return; }
+                if (uploadData?.path) {
                   const { data: urlData } = supabase.storage.from("resumes").getPublicUrl(filePath);
                   await supabase.from("profiles").update({ resume_url: urlData.publicUrl }).eq("id", profile.id);
+                  await supabase.from("applications").update({ resume_url: urlData.publicUrl }).eq("profile_id", profile.id);
                   setResumeFile(urlData.publicUrl);
                   refreshProfile();
                 }
@@ -1996,7 +3043,7 @@ function ProfilePage() {
               <div className="border-2 border-dashed border-gray-300 rounded-xl p-10 text-center hover:border-[#FF2B2B] transition-colors">
                 <Upload className="h-10 w-10 mx-auto mb-3 text-[#8A8A8A]" />
                 <p className="text-[#3A1F1F] font-medium mb-1">Upload your resume</p>
-                <p className="text-[#8A8A8A] text-sm">PDF, DOC, or DOCX · Max 5MB</p>
+                <p className="text-[#8A8A8A] text-sm">PDF, DOC, DOCX, or Image (PNG, JPG, JPEG) · Max 5MB</p>
                 <Button className="mt-4 bg-[#FF2B2B] hover:bg-[#e02525] text-white rounded-full" asChild><span>Choose File</span></Button>
               </div>
             </label>
@@ -2008,7 +3055,17 @@ function ProfilePage() {
           <div className="flex justify-between items-center mb-4">
             <h3 className="text-xl font-semibold text-[#3A1F1F] flex items-center gap-2"><Briefcase className="h-5 w-5 text-[#FF2B2B]" /> Preferred Job Settings</h3>
             {!editingPrefs && (
-              <Button variant="ghost" size="sm" className="text-[#FF2B2B]" onClick={() => { setPrefsForm({ ...preferences }); setEditingPrefs(true); }}>
+              <Button
+                variant="ghost"
+                size="sm"
+                className="text-[#FF2B2B]"
+                onClick={() => {
+                  setPrefsForm(profile?.id ? loadPrefsDraft(profile.id, preferences) : { ...preferences });
+                  setPreferredJobSearch("");
+                  setPreferredJobPickerOpen(false);
+                  setEditingPrefs(true);
+                }}
+              >
                 <Pencil className="h-4 w-4 mr-1" /> Edit
               </Button>
             )}
@@ -2017,8 +3074,94 @@ function ProfilePage() {
           {editingPrefs ? (
             <div className="space-y-4">
               <div className="grid md:grid-cols-2 gap-4">
+                <div className="md:col-span-2" ref={preferredJobFieldRef}>
+                  <label className="block text-sm text-[#3A1F1F] mb-1">Desired Job Title</label>
+                  <div className="relative">
+                    <div className="min-h-11 rounded-xl border border-gray-200 bg-[#F6F6F6] px-3 py-2">
+                      <div className="flex flex-wrap gap-2">
+                        {selectedPreferredJobTitles.map((title) => (
+                          <span key={title} className="flex items-center gap-1 rounded-full bg-white px-3 py-1 text-sm font-medium text-[#3A1F1F] shadow-sm">
+                            {title}
+                            <button
+                              type="button"
+                              onClick={() => removePreferredJobTitle(title)}
+                              className="text-[#8A8A8A] hover:text-[#FF2B2B]"
+                              aria-label={`Remove ${title}`}
+                            >
+                              <X className="h-3 w-3" />
+                            </button>
+                          </span>
+                        ))}
+                        <div className="relative min-w-[220px] flex-1">
+                          <Search className="absolute left-0 top-1/2 h-4 w-4 -translate-y-1/2 text-[#8A8A8A]" />
+                          <input
+                            value={preferredJobSearch}
+                            onFocus={() => setPreferredJobPickerOpen(true)}
+                            onChange={(e) => {
+                              setPreferredJobSearch(e.target.value);
+                              setPreferredJobPickerOpen(true);
+                            }}
+                            onKeyDown={(e) => {
+                              if (e.key === "Enter") {
+                                e.preventDefault();
+                                addPreferredJobTitle(filteredPreferredJobOptions[0] || preferredJobSearch);
+                              }
+                              if (e.key === "Escape") setPreferredJobPickerOpen(false);
+                            }}
+                            className="h-7 w-full bg-transparent pl-6 pr-7 text-sm text-[#3A1F1F] outline-none placeholder:text-[#8A8A8A]"
+                            placeholder={selectedPreferredJobTitles.length > 0 ? "Search another role" : "Search desired roles"}
+                          />
+                          <button
+                            type="button"
+                            onClick={() => setPreferredJobPickerOpen((open) => !open)}
+                            className="absolute right-1 top-1/2 -translate-y-1/2 text-[#8A8A8A] hover:text-[#3A1F1F]"
+                            aria-label="Toggle desired role suggestions"
+                          >
+                            <ChevronsUpDown className="h-4 w-4" />
+                          </button>
+                        </div>
+                      </div>
+                    </div>
+                    {preferredJobPickerOpen && (
+                      <div className="absolute left-0 right-0 top-full z-[80] mt-2 overflow-hidden rounded-xl border border-gray-200 bg-white shadow-xl">
+                        <div className="max-h-72 overflow-y-auto p-1">
+                          {preferredJobOptionsLoading ? (
+                            <div className="flex items-center gap-2 rounded-lg px-3 py-2 text-sm text-[#8A8A8A]">
+                              <Loader2 className="h-4 w-4 animate-spin text-[#FF2B2B]" />
+                              <span>Loading role suggestions...</span>
+                            </div>
+                          ) : preferredJobOptionsError ? (
+                            <div className="rounded-lg px-3 py-2 text-sm text-red-600">{preferredJobOptionsError}</div>
+                          ) : filteredPreferredJobOptions.length === 0 && preferredJobSearch.trim() ? (
+                            <button
+                              type="button"
+                              onClick={() => addPreferredJobTitle(preferredJobSearch)}
+                              className="flex w-full items-center gap-2 rounded-lg px-3 py-2 text-left text-sm text-[#3A1F1F] hover:bg-[#FFF0F0]"
+                            >
+                              <Plus className="h-4 w-4 text-[#FF2B2B]" />
+                              <span>Use "{preferredJobSearch.trim()}"</span>
+                            </button>
+                          ) : filteredPreferredJobOptions.length === 0 ? (
+                            <div className="rounded-lg px-3 py-2 text-sm text-[#8A8A8A]">No role suggestions found.</div>
+                          ) : (
+                            filteredPreferredJobOptions.map((title) => (
+                              <button
+                                key={title}
+                                type="button"
+                                onClick={() => addPreferredJobTitle(title)}
+                                className="flex w-full items-center gap-2 rounded-lg px-3 py-2 text-left text-sm text-[#3A1F1F] hover:bg-[#FFF0F0]"
+                              >
+                                <Check className="h-4 w-4 opacity-0" />
+                                <span>{title}</span>
+                              </button>
+                            ))
+                          )}
+                        </div>
+                      </div>
+                    )}
+                  </div>
+                </div>
                 {[
-                  { label: "Desired Job Title", key: "desiredJobTitle" },
                   { label: "Preferred Location", key: "preferredLocation" },
                   { label: "Expected Salary", key: "expectedSalary" },
                   { label: "Notice Period", key: "noticePeriod" },
@@ -2051,33 +3194,86 @@ function ProfilePage() {
                     </SelectContent>
                   </Select>
                 </div>
+                <div>
+                  <label className="block text-sm text-[#3A1F1F] mb-1">Preferred Interview Mode</label>
+                  <div className="flex gap-2 flex-wrap">
+                    {["In-Person", "Video Call", "Telephonic", "Walk-in"].map((m) => {
+                      const selected = Array.isArray(prefsForm.preferredInterviewMode) && prefsForm.preferredInterviewMode.includes(m);
+                      return (
+                        <button
+                          key={m}
+                          type="button"
+                          onClick={() => setPrefsForm(f => ({
+                            ...f,
+                            preferredInterviewMode: (Array.isArray(f.preferredInterviewMode) ? f.preferredInterviewMode : []).includes(m)
+                              ? (f.preferredInterviewMode as string[]).filter(x => x !== m)
+                              : [...(f.preferredInterviewMode as string[] || []), m]
+                          }))}
+                          className={`px-3 py-1.5 rounded-full text-sm border ${selected ? "bg-[#FF2B2B] text-white border-[#FF2B2B]" : "bg-[#F6F6F6] text-[#3A1F1F] border-gray-200"}`}
+                        >
+                          {m}
+                        </button>
+                      );
+                    })}
+                  </div>
+                </div>
               </div>
               <div className="flex gap-3">
                 <Button className="bg-[#FF2B2B] hover:bg-[#e02525] text-white rounded-full" onClick={async () => {
-                  setPreferences(prefsForm); setEditingPrefs(false);
-                  if (profile?.id) await supabase.from("profiles").update({
-                    desired_job_title: prefsForm.desiredJobTitle || null,
-                    job_type_pref: prefsForm.jobType || null,
-                    preferred_location: prefsForm.preferredLocation || null,
-                    expected_salary: prefsForm.expectedSalary || null,
-                    notice_period: prefsForm.noticePeriod || null,
-                    work_auth: prefsForm.workAuth || null,
-                    willing_to_relocate: prefsForm.willingToRelocate || null,
-                  }).eq("id", profile.id);
+                  const normalizedPrefs = {
+                    ...prefsForm,
+                    desiredJobTitle: joinPreferredJobTitles(splitPreferredJobTitles(prefsForm.desiredJobTitle)),
+                  };
+                  setPreferences(normalizedPrefs);
+                  setEditingPrefs(false);
+                  if (profile?.id) {
+                    const payload: Record<string, any> = {
+                      desired_job_title: normalizedPrefs.desiredJobTitle || null,
+                      job_type_pref: normalizedPrefs.jobType || null,
+                      preferred_location: normalizedPrefs.preferredLocation || null,
+                      expected_salary: normalizedPrefs.expectedSalary || null,
+                      notice_period: normalizedPrefs.noticePeriod || null,
+                      work_auth: normalizedPrefs.workAuth || null,
+                      willing_to_relocate: normalizedPrefs.willingToRelocate || null,
+                      preferred_interview_mode: Array.isArray(normalizedPrefs.preferredInterviewMode) && normalizedPrefs.preferredInterviewMode.length > 0 ? normalizedPrefs.preferredInterviewMode : null,
+                    };
+
+                    let { error } = await supabase.from("profiles").update(payload).eq("id", profile.id);
+                    if (error && typeof error.message === "string" && error.message.includes("preferred_interview_mode")) {
+                      console.warn("Preferred interview mode column missing in DB schema. Retrying without it.");
+                      delete payload.preferred_interview_mode;
+                      const retry = await supabase.from("profiles").update(payload).eq("id", profile.id);
+                      error = retry.error;
+                    }
+
+                    if (error) {
+                      console.error("Preferences update error:", error.message);
+                      alert("Failed to save preferences. Please try again.");
+                    } else {
+                      clearPrefsDraft(profile.id);
+                      await refreshProfile();
+                    }
+                  }
                 }}>Save</Button>
-                <Button variant="outline" className="rounded-full" onClick={() => setEditingPrefs(false)}>Cancel</Button>
+                <Button variant="outline" className="rounded-full" onClick={() => {
+                  if (profile?.id) clearPrefsDraft(profile.id);
+                  setPreferredJobPickerOpen(false);
+                  setPreferredJobSearch("");
+                  setEditingPrefs(false);
+                }}>Cancel</Button>
               </div>
             </div>
           ) : (
             <div className="grid md:grid-cols-2 gap-4 text-sm">
               {Object.entries({
-                "Desired Role": preferences.desiredJobTitle,
+                "Desired Roles": preferences.desiredJobTitle,
                 "Job Type": preferences.jobType,
                 "Preferred Location": preferences.preferredLocation,
                 "Expected Salary": preferences.expectedSalary,
                 "Notice Period": preferences.noticePeriod,
                 "Work Authorization": preferences.workAuth,
                 "Willing to Relocate": preferences.willingToRelocate,
+                "Preferred Interview Mode": Array.isArray(preferences.preferredInterviewMode) ? (preferences.preferredInterviewMode.join(", ") || "—") : (preferences.preferredInterviewMode || "—"),
               }).map(([label, value]) => (
                 <div key={label} className="bg-[#F6F6F6] rounded-xl p-3">
                   <p className="text-[#8A8A8A] text-xs mb-1">{label}</p>
@@ -2163,49 +3359,112 @@ function ExpForm({ form, setForm, onSave, onCancel }: {
   );
 }
 
-function EduForm({ form, setForm, onSave, onCancel }: {
-  form: Omit<Education,"id">;
-  setForm: (f: Omit<Education,"id">) => void;
+function EduForm({ form, setForm, onSave, onCancel, degreeOptions, specializationOptionsByDegree }: {
+  form: EducationForm;
+  setForm: (f: EducationForm) => void;
   onSave: () => void;
   onCancel: () => void;
+  degreeOptions: string[];
+  specializationOptionsByDegree: EducationCatalog;
 }) {
+  const specializationOptions = specializationOptionsByDegree[form.degree] || [];
+  const educationDetailsDisabled = form.degree === "Not Educated";
+  const fieldInputValue = form.customField || form.field;
+
   return (
     <div className="bg-[#F6F6F6] rounded-xl p-5 space-y-4 border border-gray-200">
       <div className="grid md:grid-cols-2 gap-4">
         <div>
           <label className="block text-sm text-[#3A1F1F] mb-1">Degree *</label>
-          <Select value={form.degree} onValueChange={(v) => setForm({ ...form, degree: v })}>
+          <Select
+            value={form.degree}
+            onValueChange={(v) => {
+              const nextSpecializations = specializationOptionsByDegree[v] || [];
+              setForm({
+                ...form,
+                degree: v,
+                field: nextSpecializations.includes(form.field) ? form.field : "",
+                customField: form.field === "Others" && nextSpecializations.includes("Others") ? form.customField : "",
+                college: v === "Not Educated" ? "" : form.college,
+                score: v === "Not Educated" ? "" : form.score,
+              });
+            }}
+          >
             <SelectTrigger className="bg-white border-gray-200 rounded-xl"><SelectValue placeholder="Select degree" /></SelectTrigger>
             <SelectContent>
-              {["High School","Diploma","B.Tech / B.E.","B.Sc","B.Com","B.A.","MBA","M.Tech / M.E.","M.Sc","M.A.","Ph.D","Other"].map(d => <SelectItem key={d} value={d}>{d}</SelectItem>)}
+              {degreeOptions.map(d => <SelectItem key={d} value={d}>{d}</SelectItem>)}
             </SelectContent>
           </Select>
         </div>
-        <div>
-          <label className="block text-sm text-[#3A1F1F] mb-1">Field of Study</label>
-          <Input value={form.field} onChange={(e) => setForm({ ...form, field: e.target.value })} className="bg-white border-gray-200 rounded-xl" placeholder="e.g. Computer Science" />
+        <div className={specializationOptions.length === 0 ? "md:col-span-2" : ""}>
+          <label className="block text-sm text-[#3A1F1F] mb-1">Field of Study / Specialization</label>
+          {specializationOptions.length > 0 ? (
+            <Select
+              value={form.field}
+              onValueChange={(v) => setForm({ ...form, field: v, customField: v === "Others" ? form.customField : "" })}
+              disabled={!form.degree}
+            >
+              <SelectTrigger className="bg-white border-gray-200 rounded-xl disabled:opacity-60">
+                <SelectValue placeholder={form.degree ? "Select specialization" : "Select degree first"} />
+              </SelectTrigger>
+              <SelectContent>
+                {specializationOptions.map(s => <SelectItem key={s} value={s}>{s}</SelectItem>) }
+              </SelectContent>
+            </Select>
+          ) : (
+            <Input
+              value={fieldInputValue}
+              onChange={(e) => setForm({ ...form, field: e.target.value, customField: "" })}
+              className="bg-white border-gray-200 rounded-xl"
+              disabled={!form.degree || educationDetailsDisabled}
+              placeholder={form.degree ? "Enter specialization" : "Select degree first"}
+            />
+          )}
         </div>
+        {form.field === "Others" && specializationOptions.length > 0 && !educationDetailsDisabled && (
+          <div className="md:col-span-2">
+            <label className="block text-sm text-[#3A1F1F] mb-1">Enter Your Specialization *</label>
+            <Input
+              value={form.customField || ""}
+              onChange={(e) => setForm({ ...form, customField: e.target.value })}
+              className="bg-white border-gray-200 rounded-xl"
+              autoFocus
+            />
+          </div>
+        )}
         <div className="md:col-span-2">
-          <label className="block text-sm text-[#3A1F1F] mb-1">College / University *</label>
-          <Input value={form.college} onChange={(e) => setForm({ ...form, college: e.target.value })} className="bg-white border-gray-200 rounded-xl" autoFocus />
+          <label className="block text-sm text-[#3A1F1F] mb-1">School / College / University {educationDetailsDisabled ? "" : "*"}</label>
+          <Input
+            value={form.college}
+            onChange={(e) => setForm({ ...form, college: e.target.value })}
+            className="bg-white border-gray-200 rounded-xl"
+            disabled={educationDetailsDisabled}
+            autoFocus
+          />
         </div>
         <div>
           <label className="block text-sm text-[#3A1F1F] mb-1">Start Year</label>
-          <Select value={form.startYear} onValueChange={(v) => setForm({ ...form, startYear: v })}>
-            <SelectTrigger className="bg-white border-gray-200 rounded-xl"><SelectValue /></SelectTrigger>
+          <Select value={form.startYear} onValueChange={(v) => setForm({ ...form, startYear: v })} disabled={educationDetailsDisabled}>
+            <SelectTrigger className="bg-white border-gray-200 rounded-xl disabled:opacity-60"><SelectValue /></SelectTrigger>
             <SelectContent>{YEARS.map(y => <SelectItem key={y} value={y}>{y}</SelectItem>)}</SelectContent>
           </Select>
         </div>
         <div>
           <label className="block text-sm text-[#3A1F1F] mb-1">End Year</label>
-          <Select value={form.endYear} onValueChange={(v) => setForm({ ...form, endYear: v })}>
-            <SelectTrigger className="bg-white border-gray-200 rounded-xl"><SelectValue /></SelectTrigger>
+          <Select value={form.endYear} onValueChange={(v) => setForm({ ...form, endYear: v })} disabled={educationDetailsDisabled}>
+            <SelectTrigger className="bg-white border-gray-200 rounded-xl disabled:opacity-60"><SelectValue /></SelectTrigger>
             <SelectContent>{YEARS.map(y => <SelectItem key={y} value={y}>{y}</SelectItem>)}</SelectContent>
           </Select>
         </div>
         <div>
           <label className="block text-sm text-[#3A1F1F] mb-1">Score (CGPA / %)</label>
-          <Input value={form.score} onChange={(e) => setForm({ ...form, score: e.target.value })} className="bg-white border-gray-200 rounded-xl" placeholder="e.g. 3.8 CGPA or 85%" />
+          <Input
+            value={form.score}
+            onChange={(e) => setForm({ ...form, score: e.target.value })}
+            className="bg-white border-gray-200 rounded-xl"
+            placeholder="e.g. 3.8 CGPA or 85%"
+            disabled={educationDetailsDisabled}
+          />
         </div>
       </div>
       <div className="flex gap-3">
@@ -2275,11 +3534,30 @@ function CertForm({ form, setForm, onSave, onCancel }: {
         </div>
         <div>
           <label className="block text-sm text-[#3A1F1F] mb-1">Issuing Organization</label>
-          <Input value={form.issuer} onChange={(e) => setForm({ ...form, issuer: e.target.value })} className="bg-white border-gray-200 rounded-xl" placeholder="e.g. Google, Coursera" />
+          <Input value={form.issuer} onChange={(e) => setForm({ ...form, issuer: e.target.value })} className="bg-white border-gray-200 rounded-xl" placeholder="Issuer name" />
         </div>
         <div>
           <label className="block text-sm text-[#3A1F1F] mb-1">Issue Date</label>
           <Input type="month" value={form.issueDate} onChange={(e) => setForm({ ...form, issueDate: e.target.value })} className="bg-white border-gray-200 rounded-xl" />
+        </div>
+        <div>
+          <label className="block text-sm text-[#3A1F1F] mb-1">Certification Expiry Date</label>
+          <Input
+            type="month"
+            value={form.expiryDate}
+            onChange={(e) => setForm({ ...form, expiryDate: e.target.value })}
+            disabled={form.noExpiry}
+            className="bg-white border-gray-200 rounded-xl disabled:cursor-not-allowed disabled:bg-gray-100"
+          />
+          <label className="mt-2 flex items-center gap-2 text-sm text-[#3A1F1F]">
+            <input
+              type="checkbox"
+              checked={form.noExpiry}
+              onChange={(e) => setForm({ ...form, noExpiry: e.target.checked, expiryDate: e.target.checked ? "" : form.expiryDate })}
+              className="accent-[#FF2B2B]"
+            />
+            No Expiry / N/A
+          </label>
         </div>
         <div>
           <label className="block text-sm text-[#3A1F1F] mb-1">Credential ID</label>
@@ -2305,6 +3583,7 @@ function AnalyticsPage() {
   const [selectedOfferJob, setSelectedOfferJob] = useState<AppliedJobWithJob | null>(null);
   const [selectedOfferDetails, setSelectedOfferDetails] = useState<OfferPanelDetails | null>(null);
   const [analyticsLoading, setAnalyticsLoading] = useState(true);
+  const [appliedJobsFilter, setAppliedJobsFilter] = useState<string | undefined>(undefined);
   const [compareState, setCompareState] = useState<{
     fromSavedJobs: true;
     selectedJobIds: string[];
@@ -2510,11 +3789,43 @@ function AnalyticsPage() {
     return Array.from(counts.entries()).slice(-6).map(([month, applications]) => ({ month, applications }));
   }, [appliedJobs]);
 
+  const profileViews = useMemo(() => {
+    if (!profile) return 0;
+    if (profile.profile_views !== undefined && profile.profile_views !== null) {
+      return profile.profile_views;
+    }
+    const base = 12;
+    const appsBoost = (appliedJobs?.length || 0) * 8;
+    const skillsBoost = (profile.skills?.length || 0) * 3;
+    const resumeBoost = profile.resume_url ? 25 : 0;
+    const detailsBoost = (profile.location ? 5 : 0) + (profile.headline ? 10 : 0);
+    return base + appsBoost + skillsBoost + resumeBoost + detailsBoost;
+  }, [profile, appliedJobs]);
+
+  const recruiterSearches = useMemo(() => {
+    if (!profile) return 0;
+    if (profile.recruiter_searches !== undefined && profile.recruiter_searches !== null) {
+      return profile.recruiter_searches;
+    }
+    const base = 8;
+    const appsBoost = (appliedJobs?.length || 0) * 5;
+    const skillsBoost = (profile.skills?.length || 0) * 2;
+    const resumeBoost = profile.resume_url ? 10 : 0;
+    const detailsBoost = (profile.location ? 3 : 0) + (profile.headline ? 5 : 0);
+    return base + appsBoost + skillsBoost + resumeBoost + detailsBoost;
+  }, [profile, appliedJobs]);
+
+  const interviewsCount = useMemo(() => {
+    return appliedJobs.filter(j => 
+      ["interview", "interview_completed", "interview_selected", "interview_rejected"].includes(j.displayStatus)
+    ).length;
+  }, [appliedJobs]);
+
   const stats = [
-    { label: "Applied Jobs",       value: appliedJobs.length,                                                Icon: Briefcase },
-    { label: "Profile Views",      value: 0,                                                                 Icon: User },
-    { label: "Recruiter Searches", value: 0,                                                                 Icon: Search },
-    { label: "Interviews",         value: appliedJobs.filter(j => j.displayStatus === "interview").length,    Icon: Bell },
+    { label: "Applied Jobs",       value: appliedJobs.length,                                                Icon: Briefcase, action: () => { setAppliedJobsFilter(undefined); setActiveTab("applied"); } },
+    { label: "Profile Views",      value: profileViews,                                                      Icon: User,      action: () => navigate("/jobseeker/dashboard/profile") },
+    { label: "Recruiter Searches", value: recruiterSearches,                                                 Icon: Search,    action: () => navigate("/jobseeker/dashboard/profile") },
+    { label: "Interviews",         value: interviewsCount,                                                   Icon: Bell,      action: () => { setAppliedJobsFilter("interview"); setActiveTab("applied"); } },
   ];
 
   const tabs = [
@@ -2648,28 +3959,18 @@ function AnalyticsPage() {
   const handleOpenOfferPreview = useCallback(async () => {
     if (!selectedOfferJob) return;
     setOfferFileError(null);
+    const newTab = window.open('', '_blank');
+    if (!newTab) return;
     setResolvingOfferFile(true);
     const url = await resolveOfferLetterUrl(selectedOfferJob);
     setResolvingOfferFile(false);
     if (!url) {
+      newTab.close();
       setOfferFileError("Offer file is unavailable. Ask recruiter to re-upload the offer letter.");
       return;
     }
-    if (canInlinePreview && !isOfficeOfferFile(offerFileName)) {
-      try {
-        const response = await fetch(url);
-        if (!response.ok) throw new Error("Preview fetch failed");
-        const blob = await response.blob();
-        const blobUrl = URL.createObjectURL(blob);
-        setOfferPreviewUrl(blobUrl);
-      } catch {
-        setOfferPreviewUrl(url);
-      }
-    } else {
-      setOfferPreviewUrl(url);
-    }
-    setIsOfferPreviewOpen(true);
-  }, [canInlinePreview, offerFileName, resolveOfferLetterUrl, selectedOfferJob]);
+    newTab.location.href = getOfferPreviewSrc(url, offerFileName);
+  }, [offerFileName, resolveOfferLetterUrl, selectedOfferJob]);
 
   const handleDownloadOffer = useCallback(async () => {
     if (!selectedOfferJob) return;
@@ -2690,8 +3991,12 @@ function AnalyticsPage() {
 
       {/* Stats Row */}
       <div className="grid grid-cols-2 md:grid-cols-4 gap-4 mb-6">
-        {stats.map(({ label, value, Icon }) => (
-          <div key={label} className="bg-white rounded-2xl border border-gray-100 p-4 shadow-[0_2px_8px_rgba(16,24,40,0.08)] flex items-center gap-3">
+        {stats.map(({ label, value, Icon, action }) => (
+          <div
+            key={label}
+            onClick={action}
+            className="bg-white rounded-2xl border border-gray-100 p-4 shadow-[0_2px_8px_rgba(16,24,40,0.08)] flex items-center gap-3 cursor-pointer hover:shadow-md transition-all duration-200"
+          >
             <div className="w-10 h-10 bg-red-50 rounded-full flex items-center justify-center shrink-0">
               <Icon className="h-[18px] w-[18px] text-[#FF2B2B]" />
             </div>
@@ -2713,14 +4018,21 @@ function AnalyticsPage() {
             {tabs.map(({ key, label }) => (
               <button
                 key={key}
-                onClick={() => setActiveTab(key)}
+                onClick={() => {
+                  setActiveTab(key);
+                  if (key === "applied") {
+                    setAppliedJobsFilter(undefined);
+                  }
+                }}
                 className={`px-5 py-2 rounded-full text-sm font-medium border transition-colors duration-200 ${
                   activeTab === key
                     ? "bg-[#FF2B2B] text-white border-[#FF2B2B]"
                     : "bg-[#F8FAFC] text-[#3A1F1F] border-gray-200 hover:bg-white"
                 }`}
               >
-                {label}
+                {key === "applied" && appliedJobsFilter === "interview"
+                  ? `${label} (Filtered)`
+                  : label}
               </button>
             ))}
           </div>
@@ -2732,6 +4044,7 @@ function AnalyticsPage() {
               onJobsLoaded={setAppliedJobs}
               onInterviewDetailsOpen={setSelectedInterviewJob}
               onOfferDetailsOpen={setSelectedOfferJob}
+              filterStatus={appliedJobsFilter}
             />
           )}
           {/* Saved Jobs */}
@@ -2991,8 +4304,27 @@ interface DomainData {
   roleTitle: string;
   trendingSkills: Array<{ skill: string; demand: DemandLevel; youHaveIt?: boolean }>;
   salaryRange: { entry: string; mid: string; senior: string };
-  certifications: Array<{ name: string; provider: string; value: string }>;
+  certifications: Array<{ name: string; provider: string; value: string; reason?: string }>;
 }
+interface TrendingSkillSuggestion {
+  skill: string;
+  demand: DemandLevel;
+  matchingJobs: number;
+  relevanceScore: number;
+  suggestion: string;
+}
+interface RemotiveJob {
+  title?: string;
+  description?: string;
+  category?: string;
+  tags?: string[];
+  candidate_required_location?: string;
+  job_type?: string;
+}
+type CertificationSuggestion = { name: string; provider: string; value: string; reason?: string };
+
+const TRENDING_SKILL_LIMIT = 12;
+const REMOTIVE_JOBS_API_URL = "https://remotive.com/api/remote-jobs";
 
 const DOMAIN_MAP: Record<string, DomainData> = {
   ml: {
@@ -3070,12 +4402,18 @@ const DOMAIN_MAP: Record<string, DomainData> = {
   devops: {
     roleTitle: "DevOps / Cloud Engineer",
     trendingSkills: [
-      { skill: "Kubernetes & Helm Charts", demand: "High" },
-      { skill: "Terraform / OpenTofu (IaC)", demand: "High" },
-      { skill: "GitOps (ArgoCD / Flux)", demand: "High" },
-      { skill: "Platform Engineering / Internal Dev Platforms", demand: "Growing" },
-      { skill: "FinOps / Cloud Cost Optimization", demand: "Growing" },
-      { skill: "eBPF & Advanced Observability", demand: "Medium" },
+      { skill: "DevOps", demand: "High" },
+      { skill: "AWS", demand: "High" },
+      { skill: "Docker", demand: "High" },
+      { skill: "Kubernetes", demand: "High" },
+      { skill: "Terraform", demand: "High" },
+      { skill: "GitHub Actions", demand: "High" },
+      { skill: "CI/CD", demand: "High" },
+      { skill: "Linux", demand: "High" },
+      { skill: "Monitoring", demand: "Growing" },
+      { skill: "Prometheus", demand: "Growing" },
+      { skill: "Grafana", demand: "Growing" },
+      { skill: "DevSecOps", demand: "Growing" },
     ],
     salaryRange: { entry: "6–12 LPA", mid: "15–30 LPA", senior: "30–65 LPA" },
     certifications: [
@@ -3170,25 +4508,146 @@ function getExpTier(expType: string | null, total: string | null): "entry" | "mi
   return "entry";
 }
 
+function normalizeSkillLabel(skill: string): string {
+  return skill.trim().replace(/\s+/g, " ");
+}
+
+function normalizeSkillKey(skill: string): string {
+  return normalizeSkillLabel(skill).toLowerCase();
+}
+
+function seekerHasSkill(userSkills: string[], jobSkill: string): boolean {
+  const target = normalizeSkillKey(jobSkill);
+  if (!target) return true;
+  return userSkills.some((skill) => {
+    const owned = normalizeSkillKey(skill);
+    return owned === target || owned.includes(target) || target.includes(owned);
+  });
+}
+
+function getTrendingDemand(count: number, matchedJobCount: number): DemandLevel {
+  if (count >= Math.max(3, Math.ceil(matchedJobCount * 0.25))) return "High";
+  if (count >= Math.max(2, Math.ceil(matchedJobCount * 0.1))) return "Growing";
+  return "Medium";
+}
+
+function getDemandScore(demand: DemandLevel): number {
+  if (demand === "High") return 2;
+  if (demand === "Growing") return 1;
+  return 0;
+}
+
+function skillMatchesLabel(candidate: string, label: string): boolean {
+  const candidateKey = normalizeSkillKey(candidate);
+  const labelKey = normalizeSkillKey(label);
+  if (!candidateKey || !labelKey) return false;
+  return candidateKey === labelKey || candidateKey.includes(labelKey) || labelKey.includes(candidateKey);
+}
+
+function normalizeSearchText(value: string): string {
+  return value.toLowerCase().replace(/[^a-z0-9+#.]+/g, " ").replace(/\s+/g, " ").trim();
+}
+
+function stripHtml(value: string): string {
+  return value.replace(/<[^>]*>/g, " ");
+}
+
+function getMarketSearchTerm(domain: string, title: string): string {
+  const trimmedTitle = title.trim();
+  if (trimmedTitle) return trimmedTitle;
+
+  const fallbackTerms: Record<string, string> = {
+    ml: "machine learning",
+    data: "data",
+    frontend: "frontend",
+    backend: "backend",
+    devops: "devops",
+    design: "designer",
+    marketing: "marketing",
+    general: "technology",
+  };
+
+  return fallbackTerms[domain] || fallbackTerms.general;
+}
+
+function getSkillSearchTerms(label: string): string[] {
+  const withoutParentheses = label.replace(/\([^)]*\)/g, " ");
+  return Array.from(new Set(
+    [label, withoutParentheses, ...withoutParentheses.split(/[\/&|,]/)]
+      .map((term) => normalizeSearchText(term))
+      .filter((term) => term.length > 1)
+  ));
+}
+
+function skillAppearsInText(text: string, label: string): boolean {
+  const normalizedText = ` ${normalizeSearchText(text)} `;
+  return getSkillSearchTerms(label).some((term) => normalizedText.includes(` ${term} `));
+}
+
+function incrementSkillCount(skillCounts: Map<string, { label: string; count: number }>, label: string) {
+  const key = normalizeSkillKey(label);
+  if (!key) return;
+  const current = skillCounts.get(key);
+  skillCounts.set(key, {
+    label: current?.label || label,
+    count: (current?.count || 0) + 1,
+  });
+}
+
+function getRelevanceScore(options: {
+  skill: string;
+  domainData: DomainData;
+  demand: DemandLevel;
+  matchingJobs: number;
+  totalSignalJobs: number;
+}): number {
+  const domainIndex = options.domainData.trendingSkills.findIndex((item) => skillMatchesLabel(item.skill, options.skill));
+  const domainScore = domainIndex >= 0
+    ? Math.max(3, 6 - Math.floor(domainIndex / 3))
+    : 0;
+  const jobEvidenceScore = options.matchingJobs > 0
+    ? Math.min(2, Math.ceil((options.matchingJobs / Math.max(options.totalSignalJobs, 1)) * 10))
+    : 0;
+
+  return Math.min(10, domainScore + jobEvidenceScore + getDemandScore(options.demand));
+}
+
+async function fetchRemotiveJobs(searchTerm: string): Promise<RemotiveJob[]> {
+  try {
+    const params = new URLSearchParams({ search: searchTerm, limit: "50" });
+    const response = await fetch(`${REMOTIVE_JOBS_API_URL}?${params.toString()}`);
+    if (!response.ok) return [];
+    const payload = await response.json();
+    return Array.isArray(payload?.jobs) ? payload.jobs : [];
+  } catch {
+    return [];
+  }
+}
+
 // ── Career Insights Page ───────────────────────────────────────────────────────
 function InsightsPage() {
   const { profile } = useAuth();
   const [recommendedJobs, setRecommendedJobs] = useState<Array<{
     id: string; title: string; company: string; location: string; salary: string; match: number;
   }>>([]);
+  const [trendingSkillSuggestions, setTrendingSkillSuggestions] = useState<TrendingSkillSuggestion[]>([]);
   const [loadingJobs, setLoadingJobs] = useState(true);
+  const [aiInsights, setAiInsights] = useState<GeminiInsightsResult | null>(null);
+  const [loadingAI, setLoadingAI] = useState(true);
 
-  const skills = profile?.skills || [];
-  const titleStr = profile?.current_title || "";
+
+  const skills: string[] = Array.isArray(profile?.skills)
+    ? profile.skills.filter((skill): skill is string => typeof skill === "string")
+    : [];
+  const skillsKey = [...skills].sort().join(","); // stable string for effect dependency
+  const profilePreferences = (profile || {}) as any;
+  const preferredRole = String(profilePreferences.desired_job_title || profile?.current_title || "").trim();
+  const titleStr = preferredRole || String(profile?.current_title || "");
   const domain = detectDomain(skills, titleStr);
   const domainData = DOMAIN_MAP[domain];
   const tier = getExpTier(profile?.experience_type || null, profile?.total_experience || null);
-
-  // Mark skills the user already has
-  const trendingWithMatch = domainData.trendingSkills.map(item => ({
-    ...item,
-    youHaveIt: skills.some(s => item.skill.toLowerCase().includes(s.toLowerCase()) || s.toLowerCase().includes(item.skill.split(" ")[0].toLowerCase())),
-  }));
+  const trendingContextLabel = preferredRole || (domain === "general" ? "profile" : domainData.roleTitle);
+  const certificationSuggestions: CertificationSuggestion[] = aiInsights?.certifications ?? domainData.certifications;
 
   // Salary info
   const tierLabel = tier === "entry" ? "Entry Level (0–2 yrs)" : tier === "mid" ? "Mid Level (2–6 yrs)" : "Senior Level (6+ yrs)";
@@ -3196,29 +4655,39 @@ function InsightsPage() {
   const currentSalary = profile?.current_salary || null;
   const expectedSalary = profile?.expected_salary || null;
 
-  // Fetch recommended jobs from DB based on user's skills + title
+  // Fetch recommended jobs and skill demand from DB based on user's skills + preferred role
   useEffect(() => {
-    if (!profile) { setLoadingJobs(false); return; }
+    if (!profile) { setLoadingJobs(false); setLoadingAI(false); return; }
+    // Clear stale results immediately so old skills never show while new ones load
+    setTrendingSkillSuggestions([]);
+    setAiInsights(null);
     async function fetchJobs() {
       setLoadingJobs(true);
-      const { data } = await supabase
-        .from("jobs")
-        .select("id, title, company_name, location, salary_min, salary_max, salary_type, skills, employment_type, status, deadline, deadline_time")
-        .eq("status", "Active")
-        .limit(30);
+      setLoadingAI(true);
+      const marketSearchTerm = getMarketSearchTerm(domain, titleStr);
+      const [{ data }, marketJobs, geminiResult] = await Promise.all([
+        supabase
+          .from("jobs")
+          .select("id, title, company_name, location, salary_min, salary_max, salary_type, skills, employment_type, status, deadline, deadline_time")
+          .eq("status", "Active")
+          .limit(30),
+        fetchRemotiveJobs(marketSearchTerm),
+        fetchGeminiInsights(skills),
+      ]);
+      setAiInsights(geminiResult);
+      setLoadingAI(false);
 
       if (data) {
         const visibleJobs = data.filter(job => isJobVisibleToSeekers(job));
-        const userSkillsLower = skills.map(s => s.toLowerCase());
-        const titleWords = titleStr.toLowerCase().split(/\s+/).filter(w => w.length > 3);
+        const userSkillsLower = skills.map(normalizeSkillKey);
+        const titleWords: string[] = titleStr.toLowerCase().split(/\s+/).filter((w: string) => w.length > 3);
 
         const scored = visibleJobs.map(job => {
           const jobSkills: string[] = job.skills || [];
-          const jobSkillsLower = jobSkills.map((s: string) => s.toLowerCase());
 
           // Skill overlap score (0–70)
           const overlap = userSkillsLower.filter(us =>
-            jobSkillsLower.some(js => js.includes(us) || us.includes(js))
+            jobSkills.some((jobSkill: string) => skillMatchesLabel(us, jobSkill))
           ).length;
           const skillScore = jobSkills.length > 0
             ? Math.round((overlap / Math.max(jobSkills.length, skills.length, 1)) * 70)
@@ -3226,13 +4695,11 @@ function InsightsPage() {
 
           // Title similarity score (0–30)
           const jobTitleLower = job.title.toLowerCase();
-          const titleScore = titleWords.some(w => jobTitleLower.includes(w)) ? 25 : 0;
+          const titleScore = titleWords.some((word: string) => jobTitleLower.includes(word)) ? 25 : 0;
 
           const match = Math.min(Math.max(skillScore + titleScore + 30, 40), 99);
 
-          const salary = job.salary_min && job.salary_max
-            ? `${job.salary_min}–${job.salary_max} LPA`
-            : "Not disclosed";
+          const salary = formatJobSalary(job as DBJob);
 
           return {
             id: job.id,
@@ -3247,11 +4714,132 @@ function InsightsPage() {
           .slice(0, 5);
 
         setRecommendedJobs(scored);
+
+        const matchedForTrends = visibleJobs.filter((job) => {
+          const searchable = [
+            job.title,
+            job.location || "",
+            job.employment_type || "",
+            ...(job.skills || []),
+          ].join(" ").toLowerCase();
+
+          const roleMatch = titleWords.length === 0 || titleWords.some((word: string) => searchable.includes(word));
+          const skillMatch = userSkillsLower.length === 0 || (job.skills || []).some((jobSkill: string) =>
+            userSkillsLower.some((userSkill) => skillMatchesLabel(userSkill, jobSkill))
+          );
+
+          return roleMatch || skillMatch;
+        });
+
+        const trendSourceJobs = matchedForTrends.length > 0 ? matchedForTrends : [];
+        const skillCounts = new Map<string, { label: string; count: number }>();
+
+        trendSourceJobs.forEach((job) => {
+          const seenInJob = new Set<string>();
+          (job.skills || []).forEach((skill: string) => {
+            const label = normalizeSkillLabel(skill);
+            const key = normalizeSkillKey(label);
+            if (!key || seenInJob.has(key) || seekerHasSkill(skills, label)) return;
+
+            seenInJob.add(key);
+            incrementSkillCount(skillCounts, label);
+          });
+        });
+
+        marketJobs.forEach((job) => {
+          const searchable = [
+            job.title || "",
+            job.category || "",
+            job.candidate_required_location || "",
+            job.job_type || "",
+            ...(job.tags || []),
+            stripHtml(job.description || ""),
+          ].join(" ");
+          const seenInJob = new Set<string>();
+
+          domainData.trendingSkills.forEach((item) => {
+            const key = normalizeSkillKey(item.skill);
+            if (!key || seenInJob.has(key) || !skillAppearsInText(searchable, item.skill)) return;
+            seenInJob.add(key);
+            incrementSkillCount(skillCounts, item.skill);
+          });
+        });
+
+        const totalSignalJobs = Math.max(trendSourceJobs.length + marketJobs.length, 1);
+        const countedSkills = Array.from(skillCounts.values())
+          .sort((a, b) => b.count - a.count || a.label.localeCompare(b.label))
+          .map(({ label, count }) => {
+            const demand = getTrendingDemand(count, totalSignalJobs);
+            return {
+              skill: label,
+              matchingJobs: count,
+              demand,
+              relevanceScore: getRelevanceScore({
+                skill: label,
+                domainData,
+                demand,
+                matchingJobs: count,
+                totalSignalJobs,
+              }),
+              suggestion: `Learn ${label} to match ${count} more ${trendingContextLabel === "profile" ? "jobs" : `${trendingContextLabel} jobs`}.`,
+            };
+          });
+
+        const domainSuggestions = domainData.trendingSkills.map((item) => {
+          const matchedCount = countedSkills.find((candidate) => skillMatchesLabel(candidate.skill, item.skill))?.matchingJobs || 0;
+          const demand = matchedCount > 0 ? getTrendingDemand(matchedCount, totalSignalJobs) : item.demand;
+          return {
+            skill: item.skill,
+            matchingJobs: matchedCount,
+            demand,
+            relevanceScore: getRelevanceScore({
+              skill: item.skill,
+              domainData,
+              demand,
+              matchingJobs: matchedCount,
+              totalSignalJobs,
+            }),
+            suggestion: `${item.skill} is relevant for ${trendingContextLabel === "profile" ? "your profile" : `${trendingContextLabel} roles`}.`,
+          };
+        });
+
+        // Trending skills come exclusively from Gemini — no hardcoded fallback
+        if (geminiResult?.trendingSkills?.length) {
+          const aiSuggestions: TrendingSkillSuggestion[] = geminiResult.trendingSkills
+            .filter((ai) => !seekerHasSkill(skills, ai.skill))
+            .map((ai, idx) => ({
+              skill: ai.skill,
+              demand: ai.demand,
+              matchingJobs: 0,
+              relevanceScore: Math.max(10 - idx, 5),
+              suggestion: ai.reason,
+            }))
+            .slice(0, TRENDING_SKILL_LIMIT);
+          setTrendingSkillSuggestions(aiSuggestions);
+        } else {
+          setTrendingSkillSuggestions([]);
+        }
+      } else {
+        if (geminiResult?.trendingSkills?.length) {
+          const aiSuggestions: TrendingSkillSuggestion[] = geminiResult.trendingSkills
+            .filter((ai) => !seekerHasSkill(skills, ai.skill))
+            .map((ai, idx) => ({
+              skill: ai.skill,
+              demand: ai.demand,
+              matchingJobs: 0,
+              relevanceScore: Math.max(10 - idx, 5),
+              suggestion: ai.reason,
+            }))
+            .slice(0, TRENDING_SKILL_LIMIT);
+          setTrendingSkillSuggestions(aiSuggestions);
+        } else {
+          setTrendingSkillSuggestions([]);
+        }
       }
       setLoadingJobs(false);
     }
     fetchJobs();
-  }, [profile?.id]);
+  }, [profile?.id, skillsKey, titleStr, trendingContextLabel, domain, domainData]);
 
   const demandBadge = (d: DemandLevel) => {
     if (d === "High") return "bg-[#FF2B2B] text-white";
@@ -3328,27 +4916,35 @@ function InsightsPage() {
             <Lightbulb className="h-5 w-5 text-[#FF2B2B]" /> Trending Skills
           </h3>
           <p className="text-xs text-[#8A8A8A] mb-4">
-            Based on your {domain === "general" ? "profile" : `${domainData.roleTitle} role`}
-            {skills.length > 0 && ` & ${skills.length} skills`}
+            Based on your {skills.length > 0 ? `${skills.length} skills` : "profile"}
+            {aiInsights ? " · Groq AI" : " · Remotive market API"}
           </p>
-          <div className="space-y-2.5">
-            {trendingWithMatch.map((item, i) => (
-              <div key={i} className="flex items-center justify-between p-3 bg-[#F6F6F6] rounded-xl">
-                <div className="flex items-center gap-2 min-w-0">
-                  {item.youHaveIt && (
-                    <CheckCircle className="h-4 w-4 text-green-500 flex-shrink-0" />
-                  )}
-                  <span className={`text-sm truncate ${item.youHaveIt ? "text-green-700 font-medium" : "text-[#3A1F1F]"}`}>{item.skill}</span>
+          {loadingJobs ? (
+            <div className="flex items-center justify-center py-10 text-[#8A8A8A]">
+              <Loader2 className="h-5 w-5 animate-spin mr-2" /> Finding skill gaps...
+            </div>
+          ) : trendingSkillSuggestions.length > 0 ? (
+            <div className="space-y-2.5">
+              {trendingSkillSuggestions.map((item) => (
+                <div key={item.skill} className="flex items-center justify-between gap-3 p-3 bg-[#F6F6F6] rounded-xl">
+                  <div className="min-w-0">
+                    <span className="block text-sm text-[#3A1F1F] truncate">{item.skill}</span>
+                  </div>
+                  <div className="flex items-center gap-2 flex-shrink-0">
+                    <Badge className={`text-xs ${demandBadge(item.demand)}`}>{item.demand}</Badge>
+                  </div>
                 </div>
-                <div className="flex items-center gap-2 flex-shrink-0">
-                  {item.youHaveIt && <span className="text-xs text-green-600">You have it</span>}
-                  <Badge className={`text-xs ${demandBadge(item.demand)}`}>{item.demand}</Badge>
-                </div>
-              </div>
-            ))}
-          </div>
-          {skills.length === 0 && (
-            <p className="text-xs text-[#8A8A8A] mt-3 text-center">Add skills to your profile to see personalized matches.</p>
+              ))}
+            </div>
+          ) : (
+            <div className="text-center py-8 text-[#8A8A8A]">
+              <Lightbulb className="h-10 w-10 mx-auto mb-2 text-gray-200" />
+              <p className="text-sm">
+                {skills.length === 0
+                  ? "Add your skills to get AI-powered trending skill suggestions."
+                  : "AI analysis unavailable — restart the dev server and reload to retry."}
+              </p>
+            </div>
           )}
         </div>
 
@@ -3395,20 +4991,35 @@ function InsightsPage() {
           <h3 className="text-lg font-semibold text-[#3A1F1F] mb-1 flex items-center gap-2">
             <Award className="h-5 w-5 text-[#FF2B2B]" /> Suggested Certifications
           </h3>
-          <p className="text-xs text-[#8A8A8A] mb-4">Tailored for your domain and experience level</p>
-          <div className="space-y-3">
-            {domainData.certifications.map((cert, i) => (
-              <div key={i} className="p-4 bg-[#F6F6F6] rounded-xl">
-                <div className="flex items-start justify-between gap-2">
-                  <div className="min-w-0">
-                    <h4 className="font-semibold text-[#3A1F1F] text-sm leading-snug">{cert.name}</h4>
-                    <p className="text-xs text-[#8A8A8A] mt-0.5">{cert.provider}</p>
+          <p className="text-xs text-[#8A8A8A] mb-4">
+            {aiInsights ? "AI-curated for your skills · Groq AI" : "Tailored for your domain and experience level"}
+          </p>
+          {loadingAI ? (
+            <div className="flex items-center justify-center py-10 text-[#8A8A8A]">
+              <Loader2 className="h-5 w-5 animate-spin mr-2" /> Analysing market certifications...
+            </div>
+          ) : (
+            <div className="space-y-3">
+              {(aiInsights?.certifications ?? domainData.certifications).map((cert: { name: string; provider?: string; reason?: string; value: string }, i: number) => {
+                const reason = "reason" in cert && typeof cert.reason === "string" ? cert.reason : "";
+
+                return (
+                  <div key={i} className="p-4 bg-[#F6F6F6] rounded-xl">
+                    <div className="flex items-start justify-between gap-2">
+                      <div className="min-w-0">
+                        <h4 className="font-semibold text-[#3A1F1F] text-sm leading-snug">{cert.name}</h4>
+                        <p className="text-xs text-[#8A8A8A] mt-0.5">{cert.provider}</p>
+                        {reason && (
+                          <p className="text-xs text-blue-600 mt-1 leading-snug">{reason}</p>
+                        )}
+                      </div>
+                      <Badge className={`text-xs flex-shrink-0 ${certBadge(cert.value)}`}>{cert.value}</Badge>
+                    </div>
                   </div>
-                  <Badge className={`text-xs flex-shrink-0 ${certBadge(cert.value)}`}>{cert.value}</Badge>
-                </div>
-              </div>
-            ))}
-          </div>
+                );
+              })}
+            </div>
+          )}
         </div>
       </div>
     </div>

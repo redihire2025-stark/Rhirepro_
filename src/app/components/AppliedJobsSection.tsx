@@ -21,82 +21,193 @@ interface AppliedJobsSectionProps {
   onJobsLoaded?: (jobs: AppliedJobWithJob[]) => void;
   onInterviewDetailsOpen?: (job: AppliedJobWithJob) => void;
   onOfferDetailsOpen?: (job: AppliedJobWithJob) => void;
+  filterStatus?: string;
 }
 
-const PIPELINE_STAGES = ["Applied", "Profile Viewed", "Shortlisted", "Interview", "Offer"] as const;
-const INTERVIEW_ROUNDS = ["L1", "L2", "L3", "HR"] as const;
+const PIPELINE_STAGES = [
+  "Applied",
+  "Under Review",
+  "Shortlisted",
+  "Interview",
+  "L1",
+  "L2",
+  "L3",
+  "HR",
+  "Interview Complete",
+  "Selected",
+  "Offer",
+  "Hired",
+] as const;
 
 const STATUS_BADGE_CLASS: Record<string, string> = {
-  applied: "bg-slate-100 text-slate-700",
-  "profile viewed": "bg-blue-100 text-blue-700",
-  shortlisted: "bg-pink-100 text-pink-700",
-  interview: "bg-purple-100 text-purple-700",
-  "interview scheduled": "bg-purple-100 text-purple-700",
-  offer: "bg-orange-100 text-orange-700",
-  offered: "bg-orange-100 text-orange-700",
-  hired: "bg-emerald-100 text-emerald-700",
-  rejected: "bg-red-100 text-red-700",
+  applied: "bg-gray-100 text-gray-700 border-gray-200",
+  "under review": "bg-blue-100 text-blue-700 border-blue-200",
+  shortlisted: "bg-pink-100 text-pink-700 border-pink-200",
+  "interview scheduled": "bg-purple-100 text-purple-700 border-purple-200",
+  "interview completed": "bg-indigo-100 text-indigo-700 border-indigo-200",
+  "interview selected": "bg-teal-100 text-teal-700 border-teal-200",
+  "interview rejected": "bg-red-100 text-red-700 border-red-200",
+  offer: "bg-orange-100 text-orange-700 border-orange-200",
+  offered: "bg-orange-100 text-orange-700 border-orange-200",
+  hired: "bg-emerald-100 text-emerald-700 border-emerald-200",
+  rejected: "bg-red-100 text-red-700 border-red-200",
+  "on hold": "bg-amber-100 text-amber-700 border-amber-200",
 };
 
-const PIPELINE_STAGE_CLASS: Record<(typeof PIPELINE_STAGES)[number], { completed: string; pending: string; connector: string }> = {
-  Applied: {
-    completed: "bg-[#FF2B2B] text-white",
-    pending: "bg-[#EEF0F4] text-[#98A2B3]",
-    connector: "bg-[#FF2B2B]",
-  },
-  "Profile Viewed": {
-    completed: "bg-[#FF2B2B] text-white",
-    pending: "bg-[#EEF0F4] text-[#98A2B3]",
-    connector: "bg-[#FF2B2B]",
-  },
-  Shortlisted: {
-    completed: "bg-[#FF2B2B] text-white",
-    pending: "bg-[#EEF0F4] text-[#98A2B3]",
-    connector: "bg-[#FF2B2B]",
-  },
-  Interview: {
-    completed: "bg-[#FF2B2B] text-white",
-    pending: "bg-[#EEF0F4] text-[#98A2B3]",
-    connector: "bg-[#FF2B2B]",
-  },
-  Offer: {
-    completed: "bg-[#FF2B2B] text-white",
-    pending: "bg-[#EEF0F4] text-[#98A2B3]",
-    connector: "bg-[#FF2B2B]",
-  },
-};
-
-function normalizeStatus(status: AppliedJobWithJob["status"]): "new" | "reviewed" | "shortlisted" | "interview" | "offered" | "hired" | "rejected" {
+function normalizeStatus(status: AppliedJobWithJob["status"]): "new" | "reviewed" | "shortlisted" | "interview_scheduled" | "interview_completed" | "interview_selected" | "interview_rejected" | "offered" | "hired" | "rejected" | "on_hold" {
   const normalized = (status || "").toLowerCase().trim().replace(/[\s-]+/g, "_");
   if (normalized === "rejected") return "rejected";
   if (normalized === "hired" || normalized === "hire" || normalized === "joined") return "hired";
   if (normalized === "offered" || normalized === "offer_given") return "offered";
-  if (normalized === "interview_scheduled" || normalized === "interview") return "interview";
+  if (normalized === "interview_rejected") return "interview_rejected";
+  if (normalized === "interview_selected") return "interview_selected";
+  if (normalized === "interview_completed") return "interview_completed";
+  if (normalized === "interview_scheduled" || normalized === "interview") return "interview_scheduled";
   if (normalized === "shortlisted") return "shortlisted";
-  if (normalized === "screening" || normalized === "reviewed") return "reviewed";
+  if (normalized === "screening" || normalized === "reviewed" || normalized === "under_review") return "reviewed";
+  if (normalized === "on_hold") return "on_hold";
   return "new";
 }
 
 function getStatusBadge(status: AppliedJobWithJob["status"]) {
   const normalized = normalizeStatus(status);
-  if (normalized === "reviewed") return { label: "Profile Viewed", className: STATUS_BADGE_CLASS["profile viewed"] };
+  if (normalized === "reviewed") return { label: "Under Review", className: STATUS_BADGE_CLASS["under review"] };
   if (normalized === "shortlisted") return { label: "Shortlisted", className: STATUS_BADGE_CLASS.shortlisted };
-  if (normalized === "interview") return { label: "Interview Scheduled", className: STATUS_BADGE_CLASS["interview scheduled"] };
+  if (normalized === "interview_scheduled") return { label: "Interview Scheduled", className: STATUS_BADGE_CLASS["interview scheduled"] };
+  if (normalized === "interview_completed") return { label: "Interview Completed", className: STATUS_BADGE_CLASS["interview completed"] };
+  if (normalized === "interview_selected") return { label: "Interview Selected", className: STATUS_BADGE_CLASS["interview selected"] };
+  if (normalized === "interview_rejected") return { label: "Interview Rejected", className: STATUS_BADGE_CLASS["interview rejected"] };
   if (normalized === "offered") return { label: "Offer Received", className: STATUS_BADGE_CLASS.offered };
-  if (normalized === "hired") return { label: "Hired", className: STATUS_BADGE_CLASS.hired };
+  if (normalized === "hired") return { label: "Joined", className: STATUS_BADGE_CLASS.hired };
   if (normalized === "rejected") return { label: "Rejected", className: STATUS_BADGE_CLASS.rejected };
+  if (normalized === "on_hold") return { label: "On Hold", className: STATUS_BADGE_CLASS["on hold"] };
   return { label: "Applied", className: STATUS_BADGE_CLASS.applied };
 }
 
-function getCompletedStageCount(status: AppliedJobWithJob["status"]): number {
-  const normalized = normalizeStatus(status);
-  if (normalized === "rejected") return 0;
-  if (normalized === "hired") return 5;
-  if (normalized === "offered") return 5;
-  if (normalized === "interview") return 4;
-  if (normalized === "shortlisted") return 3;
-  if (normalized === "reviewed") return 2;
-  return 1;
+function getStageState(
+  stage: (typeof PIPELINE_STAGES)[number],
+  status: AppliedJobWithJob["status"],
+  interviews: AppliedJobWithJob["interviews"]
+): { state: "completed" | "active" | "pending"; className: string } {
+  const nStatus = normalizeStatus(status);
+
+  const sequentialStages = [
+    "Applied",
+    "Under Review",
+    "Shortlisted",
+    "Interview",
+    "L1",
+    "L2",
+    "L3",
+    "HR",
+    "Interview Complete",
+    "Selected",
+    "Offer",
+    "Hired",
+  ];
+
+  const scheduledRounds = interviews || [];
+  const getHighestScheduledRoundRank = (): number => {
+    let maxRank = 4; // default to Interview
+    scheduledRounds.forEach((item) => {
+      if (!item.round) return;
+      const normalizedRound = item.round.toUpperCase().trim();
+      if (normalizedRound === "L1") maxRank = Math.max(maxRank, 5);
+      else if (normalizedRound === "L2") maxRank = Math.max(maxRank, 6);
+      else if (normalizedRound === "L3") maxRank = Math.max(maxRank, 7);
+      else if (normalizedRound === "HR" || normalizedRound === "HR ROUND") maxRank = Math.max(maxRank, 8);
+    });
+    return maxRank;
+  };
+
+  let currentRank = 1;
+  if (nStatus === "reviewed") {
+    currentRank = 2;
+  } else if (nStatus === "shortlisted") {
+    currentRank = 3;
+  } else if (nStatus === "interview_scheduled") {
+    currentRank = getHighestScheduledRoundRank();
+  } else if (nStatus === "interview_completed") {
+    currentRank = 9;
+  } else if (nStatus === "interview_selected") {
+    currentRank = 10;
+  } else if (nStatus === "offered") {
+    currentRank = 11;
+  } else if (nStatus === "hired") {
+    currentRank = 12;
+  } else if (nStatus === "interview_rejected") {
+    currentRank = getHighestScheduledRoundRank();
+  } else if (nStatus === "rejected") {
+    if (scheduledRounds.length > 0) {
+      currentRank = getHighestScheduledRoundRank();
+    } else {
+      currentRank = 1;
+    }
+  } else if (nStatus === "on_hold") {
+    if (scheduledRounds.length > 0) {
+      currentRank = getHighestScheduledRoundRank();
+    } else {
+      currentRank = 2;
+    }
+  }
+
+  const stageRank = sequentialStages.indexOf(stage) + 1;
+  let state: "completed" | "active" | "pending" = "pending";
+
+  if (nStatus === "rejected" || nStatus === "interview_rejected") {
+    if (stageRank < currentRank) {
+      state = "completed";
+    } else if (stageRank === currentRank) {
+      state = "active";
+    } else {
+      state = "pending";
+    }
+  } else if (nStatus === "on_hold") {
+    if (stageRank < currentRank) {
+      state = "completed";
+    } else if (stageRank === currentRank) {
+      state = "active";
+    } else {
+      state = "pending";
+    }
+  } else {
+    if (stageRank < currentRank) {
+      state = "completed";
+    } else if (stageRank === currentRank) {
+      state = "active";
+    } else {
+      state = "pending";
+    }
+  }
+
+  const stageColors: Record<(typeof PIPELINE_STAGES)[number], string> = {
+    Applied: "bg-[#4F8EF7]",
+    "Under Review": "bg-slate-400",
+    Shortlisted: "bg-pink-500",
+    Interview: "bg-purple-500",
+    L1: "bg-purple-500",
+    L2: "bg-purple-500",
+    L3: "bg-purple-500",
+    HR: "bg-purple-500",
+    "Interview Complete": "bg-indigo-500",
+    Selected: "bg-teal-500",
+    Offer: "bg-orange-500",
+    Hired: "bg-emerald-500",
+  };
+
+  let className = "bg-[#EEF0F4]"; // Default pending style
+
+  if (state !== "pending") {
+    if (state === "active" && (nStatus === "rejected" || nStatus === "interview_rejected")) {
+      className = "bg-red-500";
+    } else if (state === "active" && nStatus === "on_hold") {
+      className = "bg-amber-500";
+    } else {
+      className = stageColors[stage] || "bg-[#4F8EF7]";
+    }
+  }
+
+  return { state, className };
 }
 
 function formatLocation(job: AppliedJobWithJob["job"]): string {
@@ -111,13 +222,24 @@ function formatDate(value: string): string {
   });
 }
 
-export default function AppliedJobsSection({ userId, compact = false, onJobsLoaded, onInterviewDetailsOpen, onOfferDetailsOpen }: AppliedJobsSectionProps) {
+export default function AppliedJobsSection({ userId, compact = false, onJobsLoaded, onInterviewDetailsOpen, onOfferDetailsOpen, filterStatus }: AppliedJobsSectionProps) {
   const [appliedJobs, setAppliedJobs] = useState<AppliedJobWithJob[]>([]);
   const [loading, setLoading] = useState(true);
   const [error, setError] = useState("");
   const [currentPage, setCurrentPage] = useState(1);
   const [interviewDetailsFor, setInterviewDetailsFor] = useState<AppliedJobWithJob | null>(null);
   const [selectedInterviewRound, setSelectedInterviewRound] = useState<AppliedJobWithJob["interviews"][number] | null>(null);
+
+  const filteredJobs = useMemo(() => {
+    if (!filterStatus) return appliedJobs;
+    if (filterStatus === "interview") {
+      return appliedJobs.filter(j => {
+        const nStatus = normalizeStatus(j.status);
+        return ["interview_scheduled", "interview_completed", "interview_selected", "interview_rejected"].includes(nStatus);
+      });
+    }
+    return appliedJobs;
+  }, [appliedJobs, filterStatus]);
 
   useEffect(() => {
     const currentUserId = userId;
@@ -128,8 +250,8 @@ export default function AppliedJobsSection({ userId, compact = false, onJobsLoad
     }
 
     let cancelled = false;
-    async function loadAppliedJobs(resolvedUserId: string) {
-      setLoading(true);
+    async function loadAppliedJobs(resolvedUserId: string, isSilent = false) {
+      if (!isSilent) setLoading(true);
       setError("");
       try {
         const jobs = await getAppliedJobs(resolvedUserId);
@@ -150,7 +272,7 @@ export default function AppliedJobsSection({ userId, compact = false, onJobsLoad
     void loadAppliedJobs(currentUserId);
     const handleForegroundRefresh = () => {
       if (document.visibilityState === "visible") {
-        void loadAppliedJobs(currentUserId);
+        void loadAppliedJobs(currentUserId, true);
       }
     };
 
@@ -165,7 +287,7 @@ export default function AppliedJobsSection({ userId, compact = false, onJobsLoad
           filter: `profile_id=eq.${currentUserId}`,
         },
         () => {
-          void loadAppliedJobs(currentUserId);
+          void loadAppliedJobs(currentUserId, true);
         },
       )
       .on(
@@ -177,7 +299,7 @@ export default function AppliedJobsSection({ userId, compact = false, onJobsLoad
           filter: `candidate_id=eq.${currentUserId}`,
         },
         () => {
-          void loadAppliedJobs(currentUserId);
+          void loadAppliedJobs(currentUserId, true);
         },
       )
       .on(
@@ -189,7 +311,7 @@ export default function AppliedJobsSection({ userId, compact = false, onJobsLoad
           filter: `user_id=eq.${currentUserId}`,
         },
         () => {
-          void loadAppliedJobs(currentUserId);
+          void loadAppliedJobs(currentUserId, true);
         },
       )
       .subscribe();
@@ -205,10 +327,10 @@ export default function AppliedJobsSection({ userId, compact = false, onJobsLoad
     };
   }, [onJobsLoaded, userId]);
 
-  const totalPages = Math.max(1, Math.ceil(appliedJobs.length / JOBS_PER_PAGE));
+  const totalPages = Math.max(1, Math.ceil(filteredJobs.length / JOBS_PER_PAGE));
   const paginatedJobs = useMemo(
-    () => appliedJobs.slice((currentPage - 1) * JOBS_PER_PAGE, currentPage * JOBS_PER_PAGE),
-    [appliedJobs, currentPage],
+    () => filteredJobs.slice((currentPage - 1) * JOBS_PER_PAGE, currentPage * JOBS_PER_PAGE),
+    [filteredJobs, currentPage],
   );
 
   useEffect(() => {
@@ -241,15 +363,119 @@ export default function AppliedJobsSection({ userId, compact = false, onJobsLoad
     );
   }
 
+  if (filteredJobs.length === 0) {
+    return (
+      <div className={`${compact ? "py-8" : "bg-white rounded-2xl p-12 shadow-md"} text-center`}>
+        <Briefcase className="h-12 w-12 text-gray-300 mx-auto mb-3" />
+        <p className="text-[#8A8A8A]">No interview-related applications found</p>
+      </div>
+    );
+  }
+
   return (
     <>
     <div id="applied-jobs-pagination" className="space-y-4">
       {paginatedJobs.map((application) => {
         if (!application.job) return null;
         const badge = getStatusBadge(application.status);
-        const completedCount = getCompletedStageCount(application.status);
-        const isRejected = normalizeStatus(application.status) === "rejected";
+        const isRejected = ["rejected", "interview_rejected"].includes(normalizeStatus(application.status));
         const isHired = normalizeStatus(application.status) === "hired";
+        const isOnHold = normalizeStatus(application.status) === "on_hold";
+
+        const nStatus = normalizeStatus(application.status);
+        const scheduledRounds = application.interviews || [];
+        const getHighestScheduledRoundRank = (): number => {
+          let maxRank = 4; // default to Interview
+          scheduledRounds.forEach((item) => {
+            if (!item.round) return;
+            const normalizedRound = item.round.toUpperCase().trim();
+            if (normalizedRound === "L1") maxRank = Math.max(maxRank, 5);
+            else if (normalizedRound === "L2") maxRank = Math.max(maxRank, 6);
+            else if (normalizedRound === "L3") maxRank = Math.max(maxRank, 7);
+            else if (normalizedRound === "HR" || normalizedRound === "HR ROUND") maxRank = Math.max(maxRank, 8);
+          });
+          return maxRank;
+        };
+
+        let currentRank = 1;
+        if (nStatus === "reviewed") {
+          currentRank = 2;
+        } else if (nStatus === "shortlisted") {
+          currentRank = 3;
+        } else if (nStatus === "interview_scheduled") {
+          currentRank = getHighestScheduledRoundRank();
+        } else if (nStatus === "interview_completed") {
+          currentRank = 9;
+        } else if (nStatus === "interview_selected") {
+          currentRank = 10;
+        } else if (nStatus === "offered") {
+          currentRank = 11;
+        } else if (nStatus === "hired") {
+          currentRank = 12;
+        } else if (nStatus === "interview_rejected") {
+          currentRank = getHighestScheduledRoundRank();
+        } else if (nStatus === "rejected") {
+          if (scheduledRounds.length > 0) {
+            currentRank = getHighestScheduledRoundRank();
+          } else {
+            currentRank = 1;
+          }
+        } else if (nStatus === "on_hold") {
+          if (scheduledRounds.length > 0) {
+            currentRank = getHighestScheduledRoundRank();
+          } else {
+            currentRank = 2;
+          }
+        }
+
+        const getClickableDetails = (stage: (typeof PIPELINE_STAGES)[number]) => {
+          if (stage === "Interview" && currentRank >= 4) {
+            const hasDetails = !!application.interview_details || (application.interviews && application.interviews.length > 0);
+            if (hasDetails) {
+              return {
+                clickable: true,
+                onClick: () => {
+                  setSelectedInterviewRound(null);
+                  setInterviewDetailsFor(application);
+                  onInterviewDetailsOpen?.(application);
+                }
+              };
+            }
+          }
+          if (["L1", "L2", "L3", "HR"].includes(stage)) {
+            const stageRank = PIPELINE_STAGES.indexOf(stage) + 1;
+            if (currentRank >= stageRank) {
+              const mappedInterview = [...(application.interviews || [])]
+                .reverse()
+                .find((item) => {
+                  const normalized = (item.round || "").toUpperCase().trim();
+                  const normalizedRound = normalized === "HR ROUND" ? "HR" : normalized;
+                  return normalizedRound === stage;
+                }) || null;
+              if (mappedInterview) {
+                return {
+                  clickable: true,
+                  onClick: () => {
+                    setSelectedInterviewRound(mappedInterview);
+                    setInterviewDetailsFor(application);
+                    onInterviewDetailsOpen?.(application);
+                  }
+                };
+              }
+            }
+          }
+          if (stage === "Offer" && currentRank >= 11) {
+            if (application.offer_details) {
+              return {
+                clickable: true,
+                onClick: () => {
+                  onOfferDetailsOpen?.(application);
+                }
+              };
+            }
+          }
+          return { clickable: false, onClick: undefined };
+        };
 
         return (
           <div
@@ -263,7 +489,6 @@ export default function AppliedJobsSection({ userId, compact = false, onJobsLoad
                 <p className="text-sm text-[#7C8593] mt-0.5">Applied on {formatDate(application.applied_at)}</p>
               </div>
               <div className="flex items-center gap-2">
-                <Badge className={`${badge.className} rounded-full px-3 py-1 text-xs font-medium`}>{badge.label}</Badge>
                 <button
                   type="button"
                   aria-label="Close status card"
@@ -274,144 +499,92 @@ export default function AppliedJobsSection({ userId, compact = false, onJobsLoad
               </div>
             </div>
 
-            {!isRejected && !isHired ? (
-              <div className="mt-4 overflow-x-auto [scrollbar-width:none] [&::-webkit-scrollbar]:hidden">
-                <div className="inline-flex min-w-full items-center">
-                  {PIPELINE_STAGES.map((stage, index) => {
-                    const completed = index < completedCount;
-                    const connectorCompleted = index < completedCount - 1;
-                    const isInterviewStage = stage === "Interview";
-                    const isOfferStage = stage === "Offer";
-                    const isInterviewScheduled = normalizeStatus(application.status) === "interview";
-                    const isOffered = normalizeStatus(application.status) === "offered";
-                    const isInterviewActive = isInterviewStage && isInterviewScheduled;
-                    const isOfferActive = isOfferStage && isOffered;
-                    const handleInterviewClick = () => {
-                      setSelectedInterviewRound(null);
-                      setInterviewDetailsFor(application);
-                      onInterviewDetailsOpen?.(application);
-                    };
-                    const handleOfferClick = () => {
-                      onOfferDetailsOpen?.(application);
-                    };
+            <div className="mt-4">
+              {!isOnHold && !isHired && !isRejected && (
+                <>
+                  <div className="flex justify-between items-center text-xs text-gray-500 mb-2">
+                    <span className="font-medium text-[#7C8593]">Application Progression</span>
+                    <span className={`font-semibold px-2 py-0.5 rounded-full ${badge.className}`}>
+                      {nStatus === "interview_scheduled" ? "Interviewing" : badge.label}
+                    </span>
+                  </div>
 
-                    return (
-                      <div key={stage} className="flex items-center">
-                        {isInterviewActive || isOfferActive ? (
-                          <div className="inline-flex items-center gap-1.5">
-                            <button
-                              type="button"
-                              onClick={isInterviewActive ? handleInterviewClick : handleOfferClick}
-                              onKeyDown={(event) => {
-                                if (event.key === "Enter" || event.key === " ") {
-                                  event.preventDefault();
-                                  if (isInterviewActive) handleInterviewClick();
-                                  if (isOfferActive) handleOfferClick();
-                                }
-                              }}
-                              className={`inline-flex items-center whitespace-nowrap rounded-full px-3 py-1 text-xs font-semibold ${
-                                completed ? PIPELINE_STAGE_CLASS[stage].completed : PIPELINE_STAGE_CLASS[stage].pending
-                              } cursor-pointer ${isOfferActive ? "animate-offer-cta" : "animate-interview-cta"} focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-[#FF2B2B] focus-visible:ring-offset-1`}
-                              aria-label={isInterviewActive ? "View interview details" : "View offer details"}
-                              title={isInterviewActive ? "View interview details" : "View offer details"}
-                            >
-                              {stage}
-                            </button>
-                            {isInterviewActive ? (
-                              <div className="inline-flex items-center gap-1">
-                                {INTERVIEW_ROUNDS.map((roundLabel, roundIndex) => {
-                                  const scheduledRounds = application.interviews || [];
+                  {/* Segmented Pipeline Bar (Single combined bar with no gaps) */}
+                  <div className="flex items-center w-full h-[7px] bg-[#EEF0F4] rounded-full relative">
+                    {PIPELINE_STAGES.map((stage) => {
+                      const clickableInfo = getClickableDetails(stage);
+                      const { state, className: statusClass } = getStageState(stage, application.status, application.interviews);
+                      const tooltipText = `${stage} (${state.charAt(0).toUpperCase() + state.slice(1)})${clickableInfo.clickable ? " - Click to view details" : ""}`;
+                      const isFirst = stage === "Applied";
+                      const isLast = stage === "Hired";
+                      const roundedClass = isFirst ? "rounded-l-full" : isLast ? "rounded-r-full" : "";
 
-                                  const latestScheduledRound = (() => {
-                                    const latest = [...scheduledRounds]
-                                      .filter((item) => item.round)
-                                      .sort((a, b) => new Date(b.updated_at).getTime() - new Date(a.updated_at).getTime())[0];
-                                    if (!latest?.round) return null;
-                                    const normalized = latest.round.toUpperCase().trim();
-                                    return normalized === "HR ROUND" ? "HR" : normalized;
-                                  })();
+                      if (clickableInfo.clickable) {
+                        const animationClass = ["Interview", "L1", "L2", "L3", "HR"].includes(stage)
+                          ? "animate-interview-cta"
+                          : stage === "Offer"
+                          ? "animate-offer-cta"
+                          : "";
 
-                                  const latestRoundIndex = latestScheduledRound
-                                    ? INTERVIEW_ROUNDS.indexOf(latestScheduledRound as (typeof INTERVIEW_ROUNDS)[number])
-                                    : -1;
-                                  const hasRound = latestRoundIndex >= 0 && roundIndex <= latestRoundIndex;
-                                  const mappedInterview = [...scheduledRounds]
-                                    .reverse()
-                                    .find((item) => {
-                                      const normalized = (item.round || "").toUpperCase().trim();
-                                      const normalizedRound = normalized === "HR ROUND" ? "HR" : normalized;
-                                      return normalizedRound === roundLabel;
-                                    }) || null;
+                        return (
+                          <button
+                            key={stage}
+                            type="button"
+                            onClick={clickableInfo.onClick}
+                            onKeyDown={(event) => {
+                              if (event.key === "Enter" || event.key === " ") {
+                                event.preventDefault();
+                                clickableInfo.onClick?.();
+                              }
+                            }}
+                            className={`${statusClass} ${roundedClass} ${animationClass} h-full flex-1 cursor-pointer border-0 p-0 m-0 outline-none transition-all duration-300 hover:brightness-95 focus-visible:outline-none focus-visible:ring-1 focus-visible:ring-[#FF2B2B] relative z-10 hover:z-20`}
+                            title={tooltipText}
+                            aria-label={tooltipText}
+                          />
+                        );
+                      } else {
+                        return (
+                          <div
+                            key={stage}
+                            className={`${statusClass} ${roundedClass} h-full flex-1 transition-all duration-300`}
+                            title={tooltipText}
+                          />
+                        );
+                      }
+                    })}
+                  </div>
 
-                                  const isLatestRound = hasRound && latestScheduledRound === roundLabel;
+                  {/* Boundaries */}
+                  <div className="flex justify-between items-center text-[10px] text-gray-400 mt-1">
+                    <span>Applied</span>
+                    <span>Hired</span>
+                  </div>
+                </>
+              )}
 
-                                  if (!hasRound) {
-                                    return (
-                                      <span
-                                        key={`${application.id}-round-${roundLabel}`}
-                                        className="inline-flex h-5 min-w-5 items-center justify-center rounded-full bg-[#EEF0F4] px-1 text-[10px] font-semibold leading-none text-[#98A2B3]"
-                                        aria-label={`${roundLabel} not scheduled`}
-                                        title={`${roundLabel} not scheduled`}
-                                      >
-                                        {roundLabel}
-                                      </span>
-                                    );
-                                  }
-
-                                  return (
-                                    <button
-                                      key={`${application.id}-${mappedInterview?.updated_at || roundLabel}-${roundIndex}`}
-                                      type="button"
-                                      onClick={() => {
-                                        const detailInterview = mappedInterview || scheduledRounds[scheduledRounds.length - 1] || null;
-                                        if (!detailInterview) return;
-                                        setSelectedInterviewRound(detailInterview);
-                                        setInterviewDetailsFor(application);
-                                        onInterviewDetailsOpen?.(application);
-                                      }}
-                                      className={`inline-flex h-5 min-w-5 items-center justify-center rounded-full bg-[#FF2B2B] px-1 text-[10px] font-semibold leading-none text-white hover:bg-[#e02525] ${
-                                        hasRound ? "animate-interview-cta" : ""
-                                      }`}
-                                      title={`View ${roundLabel} details`}
-                                      aria-label={`View ${roundLabel} details`}
-                                    >
-                                      {roundLabel}
-                                    </button>
-                                  );
-                                })}
-                              </div>
-                            ) : null}
-                          </div>
-                        ) : (
-                          <span
-                            className={`inline-flex items-center whitespace-nowrap rounded-full px-3 py-1 text-xs font-semibold ${
-                              completed ? PIPELINE_STAGE_CLASS[stage].completed : PIPELINE_STAGE_CLASS[stage].pending
-                            }`}
-                          >
-                            {stage}
-                          </span>
-                        )}
-                        {index < PIPELINE_STAGES.length - 1 && (
-                          <span className={`mx-1 h-[2px] w-4 sm:w-5 ${connectorCompleted ? PIPELINE_STAGE_CLASS[stage].connector : "bg-[#D8DDE6]"}`} />
-                        )}
-                      </div>
-                    );
-                  })}
+              {/* Status Banners */}
+              {isRejected && (
+                <div className="flex items-center gap-2">
+                  <span className="h-[5px] flex-1 rounded-full bg-red-200/80" />
+                  <span className="text-sm text-[#FF2B2B] font-medium">Application not moved forward</span>
+                  <span className="h-[5px] flex-1 rounded-full bg-red-200/80" />
                 </div>
-              </div>
-            ) : isRejected ? (
-              <div className="mt-5 flex items-center gap-2">
-                <span className="h-[5px] flex-1 rounded-full bg-red-200/80" />
-                <span className="text-sm text-[#FF2B2B]">Application not moved forward</span>
-                <span className="h-[5px] flex-1 rounded-full bg-red-200/80" />
-              </div>
-            ) : (
-              <div className="mt-5 flex items-center gap-2">
-                <span className="h-[5px] flex-1 rounded-full bg-emerald-200/80" />
-                <span className="text-sm text-emerald-600">You are hired</span>
-                <span className="h-[5px] flex-1 rounded-full bg-emerald-200/80" />
-              </div>
-            )}
+              )}
+              {isOnHold && (
+                <div className="flex items-center gap-2">
+                  <span className="h-[5px] flex-1 rounded-full bg-amber-200/80" />
+                  <span className="text-sm text-[#B45309] font-medium">Application is on hold</span>
+                  <span className="h-[5px] flex-1 rounded-full bg-amber-200/80" />
+                </div>
+              )}
+              {isHired && (
+                <div className="flex items-center gap-2">
+                  <span className="h-[5px] flex-1 rounded-full bg-emerald-200/80" />
+                  <span className="text-sm text-emerald-600 font-medium">You are hired</span>
+                  <span className="h-[5px] flex-1 rounded-full bg-emerald-200/80" />
+                </div>
+              )}
+            </div>
           </div>
         );
       })}
