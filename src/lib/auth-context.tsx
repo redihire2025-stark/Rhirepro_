@@ -94,11 +94,9 @@ export function AuthProvider({ children }: { children: ReactNode }) {
     }
   };
 
-  // org_role defaults to 'admin' for EVERY recruiter_profiles row (including solo recruiters
-  // who never opted into an org), so org_role alone cannot distinguish a real org admin.
-  // max_seats is the actual signal: seeded org admins have max_seats = 10, solo recruiters
+  // is_org_admin is set to true when a recruiter purchases a plan or is a pre-seeded org admin.
   const orgRole = recruiterProfile?.org_role ?? null;
-  const isOrgAdmin = orgRole === "admin";
+  const isOrgAdmin = !!recruiterProfile?.is_org_admin;
 
   return (
     <AuthContext.Provider value={{ user, session, profile, recruiterProfile, role, orgRole, isOrgAdmin, loading, signOut, refreshProfile }}>
