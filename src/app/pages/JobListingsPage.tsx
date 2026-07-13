@@ -14,10 +14,11 @@ import { Sheet, SheetContent, SheetTrigger, SheetTitle, SheetDescription } from 
 import { useNavigate } from "react-router";
 import logoImage from "../../logo/logo.png";
 import { supabase, type Job as DBJob } from "../../lib/supabase";
-import { isJobVisibleToSeekers } from "../../lib/jobs";
+import { formatJobSalary, isJobVisibleToSeekers } from "../../lib/jobs";
 import { useAuth } from "../../lib/auth-context";
 import { getRecommendedJobs, recordJobInteraction, recordJobSearch } from "../../lib/jobRecommendations";
 import { isIndianLocation } from "../../lib/locationData";
+import JobShareButton from "../components/JobShareButton";
 import {
   assignBalancedCategories,
   getAvailableJobCategories,
@@ -32,6 +33,7 @@ type DisplayJob = {
   location: string;
   salary: string;
   type: string;
+  interviewMode?: string;
   description: string;
   featured: boolean;
   category: JobCategory | null;
@@ -39,19 +41,6 @@ type DisplayJob = {
 };
 
 const JOBS_PER_PAGE = 12;
-
-function formatSalary(job: DBJob): string {
-  if (job.salary_min && job.salary_max && job.salary_type) {
-    return `${job.salary_min}-${job.salary_max} ${job.salary_type}`;
-  }
-  if (job.salary_min && job.salary_type) {
-    return `${job.salary_min}+ ${job.salary_type}`;
-  }
-  if (job.salary_type) {
-    return `${job.salary_type} compensation`;
-  }
-  return "Compensation as per company standards";
-}
 
 function formatLocation(job: DBJob): string {
   if (job.location?.trim()) return job.location;
@@ -66,10 +55,14 @@ function formatType(job: DBJob): string {
   return "Full-time";
 }
 
+function stripHtml(value: string): string {
+  return value.replace(/<[^>]*>/g, " ").replace(/\s+/g, " ").trim();
+}
+
 function formatDescription(job: DBJob): string {
-  if (job.description?.trim()) return job.description;
-  if (job.roles_responsibilities?.trim()) return job.roles_responsibilities;
-  if (job.requirements?.trim()) return job.requirements;
+  if (job.description?.trim()) return stripHtml(job.description);
+  if (job.roles_responsibilities?.trim()) return stripHtml(job.roles_responsibilities);
+  if (job.requirements?.trim()) return stripHtml(job.requirements);
 
   const parts = [
     job.department?.trim(),
@@ -84,6 +77,19 @@ function formatDescription(job: DBJob): string {
   return "Explore this opportunity and apply now.";
 }
 
+function normalizeInterviewMode(raw: unknown): string | null {
+  if (raw == null) return null;
+  const normalized = String(raw).trim().toLowerCase().replace(/[^a-z0-9]/g, "");
+  return normalized || null;
+}
+
+function jobMatchesInterviewModes(job: DBJob, preferredModes: string[]): boolean {
+  if (preferredModes.length === 0) return true;
+  const jobMode = normalizeInterviewMode(job.interview_mode) || normalizeInterviewMode(job.work_mode);
+  if (!jobMode) return false;
+  return preferredModes.some((mode) => normalizeInterviewMode(mode) === jobMode);
+}
+
 export default function JobListingsPage() {
   const [isMenuOpen, setIsMenuOpen] = useState(false);
   const [searchTerm, setSearchTerm] = useState("");
@@ -96,6 +102,10 @@ export default function JobListingsPage() {
   const [loadError, setLoadError] = useState("");
   const navigate = useNavigate();
   const { profile, role } = useAuth();
+
+  const [esSearchResults, setEsSearchResults] = useState<DisplayJob[] | null>(null);
+  const [isSearching, setIsSearching] = useState(false);
+  const [preferredModes, setPreferredModes] = useState<string[]>([]);
 
   useEffect(() => {
     let mounted = true;
@@ -129,16 +139,39 @@ export default function JobListingsPage() {
 
       const appliedJobIds = (applicationsRes.data || []).map((item) => item.job_id);
       const savedJobIds = (savedRes.data || []).map((item) => item.job_id);
+      let rawModes: string[] = [];
+      if (role === "jobseeker" && profile?.preferred_interview_mode) {
+        const modeData = profile.preferred_interview_mode as unknown;
+        if (Array.isArray(modeData)) {
+          rawModes = modeData as string[];
+        } else if (typeof modeData === "string") {
+          try {
+            const parsed = JSON.parse(modeData);
+            if (Array.isArray(parsed)) rawModes = parsed as string[];
+          } catch (e) {
+            rawModes = modeData.split(",").map((s: string) => s.trim()).filter(Boolean);
+          }
+        }
+      }
+      const preferredInterviewModes = Array.isArray(rawModes)
+        ? rawModes
+            .map((value: string) => normalizeInterviewMode(value))
+            .filter((value: string | null): value is string => Boolean(value))
+        : [];
+
+      setPreferredModes(preferredInterviewModes);
 
       const visibleIndianJobs = assignBalancedCategories((data || [])
         .filter((job) => isJobVisibleToSeekers(job) && isIndianLocation(job.location))
+        .filter((job) => jobMatchesInterviewModes(job, preferredInterviewModes))
         .map((job) => ({
           id: job.id,
           title: job.title,
           company: job.company_name,
           location: formatLocation(job),
-          salary: formatSalary(job),
+          salary: formatJobSalary(job),
           type: formatType(job),
+          interviewMode: job.interview_mode || undefined,
           description: formatDescription(job),
           category: null,
           featured: false,
@@ -166,9 +199,54 @@ export default function JobListingsPage() {
     };
   }, [profile, role]);
 
-  function handleSearchSubmit() {
+  async function handleSearchSubmit() {
     recordJobSearch(searchTerm, role === "jobseeker" ? profile?.id : null);
+    
+    if (!searchTerm.trim()) {
+      setEsSearchResults(null);
+      return;
+    }
+    
+    setIsSearching(true);
+    try {
+      const response = await fetch(`http://localhost:8000/jobs/search?q=${encodeURIComponent(searchTerm)}`);
+      if (response.ok) {
+        const data = await response.json();
+        const filteredJobsList = (data.jobs || [])
+          .filter((dbJob: any) => isJobVisibleToSeekers(dbJob) && isIndianLocation(dbJob.location))
+          .filter((dbJob: any) => jobMatchesInterviewModes(dbJob, preferredModes));
+
+        const mappedResults: DisplayJob[] = filteredJobsList.map((dbJob: any) => ({
+          id: dbJob.id,
+          title: dbJob.title,
+          company: dbJob.company_name || "",
+          location: formatLocation(dbJob),
+          salary: formatJobSalary(dbJob),
+          type: formatType(dbJob),
+          interviewMode: dbJob.interview_mode || undefined,
+          description: formatDescription(dbJob),
+          category: null,
+          featured: false,
+          dbJob: dbJob,
+        }));
+        const resultsWithCategories = assignBalancedCategories(mappedResults);
+        setEsSearchResults(resultsWithCategories);
+      } else {
+        setEsSearchResults(null);
+      }
+    } catch (err) {
+      console.error("Elasticsearch search query failed, using fallback client search:", err);
+      setEsSearchResults(null);
+    } finally {
+      setIsSearching(false);
+    }
   }
+
+  useEffect(() => {
+    if (!searchTerm.trim()) {
+      setEsSearchResults(null);
+    }
+  }, [searchTerm]);
 
   useEffect(() => {
     if (selectedCategory !== "ALL" && !visibleCategories.includes(selectedCategory as JobCategory)) {
@@ -179,8 +257,19 @@ export default function JobListingsPage() {
   const categories = useMemo(() => ["ALL", ...visibleCategories], [visibleCategories]);
 
   const filteredJobs = useMemo(() => {
+    const term = searchTerm.trim().toLowerCase();
+    
+    if (esSearchResults !== null) {
+      return esSearchResults.filter((job) => {
+        const matchesCategory =
+          selectedCategory === "ALL"
+            ? true
+            : job.category === selectedCategory;
+        return matchesCategory;
+      });
+    }
+    
     return jobs.filter((job) => {
-      const term = searchTerm.trim().toLowerCase();
       const matchesSearch =
         !term ||
         job.title.toLowerCase().includes(term) ||
@@ -192,7 +281,7 @@ export default function JobListingsPage() {
           : job.category === selectedCategory;
       return matchesSearch && matchesCategory;
     });
-  }, [jobs, searchTerm, selectedCategory, visibleCategories]);
+  }, [jobs, esSearchResults, searchTerm, selectedCategory, visibleCategories]);
 
   const displayJobs = useMemo(() => {
     if (selectedCategory !== "ALL") return filteredJobs;
@@ -409,10 +498,11 @@ export default function JobListingsPage() {
                   navigate(`/job/${job.id}`);
                 }}
               >
+                <JobShareButton jobId={job.id} title={job.title} className="absolute right-4 top-4" />
                 {job.featured && (
-                  <div className="absolute top-4 right-4 w-3 h-3 bg-[#FF2B2B] rounded-full"></div>
+                  <div className="absolute top-5 right-16 w-3 h-3 bg-[#FF2B2B] rounded-full"></div>
                 )}
-                <div className="mb-4">
+                <div className="mb-4 pr-12">
                   <span className="text-sm text-[#8A8A8A]">{job.company}</span>
                   <h3 className="text-xl font-bold text-[#3A1F1F] mt-1">{job.title}</h3>
                 </div>
@@ -432,6 +522,11 @@ export default function JobListingsPage() {
                     <Clock className="h-4 w-4 mr-2 text-[#FF2B2B]" />
                     {job.type}
                   </div>
+                  {job.interviewMode ? (
+                    <div className="text-sm text-[#8A8A8A]">
+                      Interview mode: <span className="font-medium text-[#3A1F1F]">{job.interviewMode}</span>
+                    </div>
+                  ) : null}
                 </div>
                 <Button className="w-full bg-white border-2 border-[#FF2B2B] text-[#FF2B2B] hover:bg-[#FF2B2B] hover:text-white rounded-full">
                   Apply Now

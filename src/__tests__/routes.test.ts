@@ -81,16 +81,16 @@ describe('Router — route definitions', () => {
     expect(getChildPaths()).toContain('*');
   });
 
-  it('has 15 child routes total', () => {
+  it('has 28 child routes total', () => {
     // /, /signin, /signup, /jobs, /job/:id, /services, /blog, /blog/:id,
     // /jobseeker/signin, /jobseeker/signup, /recruiter/signin, /recruiter/signup,
     // /jobseeker/dashboard/*, /recruiter/dashboard/*, *
-    expect(getChildPaths().length).toBe(15);
+    expect(getChildPaths().length).toBe(28);
   });
 
   it('each child route has a Component', () => {
     for (const child of routes[0].children || []) {
-      expect(child.Component ?? child.element, `Route ${child.path} has no Component`).toBeDefined();
+      expect((child as any).Component ?? (child as any).element, `Route ${child.path} has no Component`).toBeDefined();
     }
   });
 });

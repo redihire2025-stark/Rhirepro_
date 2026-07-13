@@ -4,7 +4,19 @@ export type SavedJobWithJob = Omit<SavedJob, "job"> & {
   job: Job | null;
 };
 
-export type AppliedJobStatus = "applied" | "shortlisted" | "rejected" | "interview" | "offered" | "hired";
+export type AppliedJobStatus =
+  | "applied"
+  | "under_review"
+  | "shortlisted"
+  | "interview"
+  | "interview_completed"
+  | "interview_selected"
+  | "interview_rejected"
+  | "offered"
+  | "joined"
+  | "rejected"
+  | "on_hold"
+  | "hired";
 
 export type AppliedJobWithJob = Omit<Application, "job"> & {
   job: Job | null;
@@ -26,9 +38,14 @@ function normalizeApplicationStatus(status: Application["status"]): AppliedJobSt
   const normalized = (status || "").toLowerCase().trim().replace(/[\s-]+/g, "_");
   if (normalized === "shortlisted") return "shortlisted";
   if (normalized === "rejected") return "rejected";
-  if (normalized === "hired" || normalized === "hire" || normalized === "joined") return "hired";
+  if (normalized === "hired" || normalized === "hire" || normalized === "joined") return "joined";
   if (normalized === "offered" || normalized === "offer_given") return "offered";
+  if (normalized === "interview_rejected") return "interview_rejected";
+  if (normalized === "interview_selected") return "interview_selected";
+  if (normalized === "interview_completed") return "interview_completed";
   if (normalized === "interview_scheduled" || normalized === "interview") return "interview";
+  if (normalized === "under_review" || normalized === "screening" || normalized === "reviewed") return "under_review";
+  if (normalized === "on_hold") return "on_hold";
   return "applied";
 }
 

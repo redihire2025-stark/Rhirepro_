@@ -25,6 +25,7 @@ create table if not exists profiles (
   linkedin_url text,
   portfolio_url text,
   about        text,
+  preferred_interview_mode text[],
   otp_code     text,
   otp_expires_at timestamptz,
   created_at   timestamptz default now()
@@ -57,6 +58,19 @@ create table if not exists education (
   created_at   timestamptz default now()
 );
 
+-- ── 3.5. CERTIFICATIONS ──────────────────────────────────────
+create table if not exists certifications (
+  id           uuid primary key default gen_random_uuid(),
+  profile_id   uuid references profiles(id) on delete cascade,
+  name         text not null,
+  issuer       text,
+  issue_date   text,
+  expiry_date  text,
+  no_expiry    boolean not null default false,
+  credential_id text,
+  created_at   timestamptz default now()
+);
+
 -- ── 4. RECRUITER PROFILES ────────────────────────────────────
 create table if not exists recruiter_profiles (
   id                  uuid references auth.users on delete cascade primary key,
@@ -71,9 +85,12 @@ create table if not exists recruiter_profiles (
   website             text,
   location            text,
   logo_url            text,
+  cover_image_url     text,
+  cover_image_name    text,
   tagline             text,
   linkedin_url        text,
   cin                 text,
+  founded             text,
   otp_code            text,
   otp_expires_at      timestamptz,
   created_at          timestamptz default now()
@@ -104,16 +121,41 @@ create table if not exists jobs (
   requirements    text,
   openings        integer default 1,
   status          text default 'Active' check (status in ('Active','Paused','Closed','Expired')),
-  deadline        timestamptz,
+  deadline        timestamptz default (now() + interval '15 days'),
   deadline_time   text constraint jobs_deadline_time_check check (deadline_time is null or deadline_time ~ '^([01][0-9]|2[0-3]):[0-5][0-9]$'),
   views           integer default 0,
   created_at      timestamptz default now()
 );
 
+create table if not exists recruiter_articles (
+  id               uuid primary key default gen_random_uuid(),
+  recruiter_id     uuid not null references recruiter_profiles(id) on delete cascade,
+  title            text not null,
+  category         text not null,
+  summary          text,
+  key_takeaway     text,
+  content          text not null,
+  cover_image_url  text,
+  cover_image_name text,
+  read_time        integer not null default 1,
+  status           text not null default 'Published' check (status in ('Published', 'Draft')),
+  created_at       timestamptz not null default now(),
+  updated_at       timestamptz not null default now(),
+  published_at     timestamptz
+);
+
+create index if not exists recruiter_articles_recruiter_id_idx
+  on recruiter_articles(recruiter_id);
+
+create index if not exists recruiter_articles_public_feed_idx
+  on recruiter_articles(status, published_at desc, created_at desc);
+
 -- Run if the jobs table already exists (migration):
 -- alter table jobs add column if not exists roles_responsibilities text;
 -- alter table jobs add column if not exists requirements text;
 -- alter table jobs add column if not exists deadline_time text;
+-- alter table jobs alter column deadline set default (now() + interval '15 days');
+-- update jobs set deadline = created_at + interval '15 days' where deadline is null;
 -- alter table jobs drop constraint if exists jobs_deadline_time_check;
 -- alter table jobs add constraint jobs_deadline_time_check check (deadline_time is null or deadline_time ~ '^([01][0-9]|2[0-3]):[0-5][0-9]$');
 -- alter table jobs drop constraint if exists jobs_status_check;
@@ -149,11 +191,18 @@ create table if not exists notifications (
   user_type   text check (user_type in ('jobseeker','recruiter')),
   title       text not null,
   message     text,
-  type        text check (type in ('application','message','status_change','job_alert')),
+  type        text check (type in ('application','message','status_change','job_alert','expiry_warning','expired','reposted')),
+  job_id      uuid references jobs(id) on delete set null,
+  notification_key text unique,
   is_read     boolean default false,
   related_id  uuid,
   created_at  timestamptz default now()
 );
+
+create index if not exists notifications_user_unread_idx
+  on notifications(user_id, user_type, is_read, created_at desc);
+create index if not exists notifications_job_id_idx
+  on notifications(job_id, created_at desc);
 
 -- ── 9. MESSAGES ──────────────────────────────────────────────
 create table if not exists messages (
@@ -185,8 +234,10 @@ create table if not exists feedback (
 alter table profiles enable row level security;
 alter table work_experience enable row level security;
 alter table education enable row level security;
+alter table certifications enable row level security;
 alter table recruiter_profiles enable row level security;
 alter table jobs enable row level security;
+alter table recruiter_articles enable row level security;
 alter table applications enable row level security;
 alter table saved_jobs enable row level security;
 alter table notifications enable row level security;
@@ -223,6 +274,16 @@ create policy "Recruiters read education"
     exists (select 1 from recruiter_profiles where id = auth.uid())
   );
 
+-- certifications
+drop policy if exists "Own certifications" on certifications;
+drop policy if exists "Recruiters read certifications" on certifications;
+create policy "Own certifications"
+  on certifications for all using (profile_id = auth.uid());
+create policy "Recruiters read certifications"
+  on certifications for select using (
+    exists (select 1 from recruiter_profiles where id = auth.uid())
+  );
+
 -- recruiter_profiles
 drop policy if exists "Own recruiter profile" on recruiter_profiles;
 drop policy if exists "Job seekers can read recruiter profiles" on recruiter_profiles;
@@ -245,16 +306,35 @@ create policy "Recruiters manage own jobs"
 create policy "Anyone can read active jobs"
   on jobs for select using (
     status = 'Active'
-    and (
-      deadline is null
-      or (deadline at time zone 'Asia/Kolkata')::date > (now() at time zone 'Asia/Kolkata')::date
-      or (
-        (deadline at time zone 'Asia/Kolkata')::date = (now() at time zone 'Asia/Kolkata')::date
-        and deadline_time is not null
-        and deadline_time > to_char(now() at time zone 'Asia/Kolkata', 'HH24:MI')
-      )
-    )
+    and deadline is not null
+    and deadline > now()
   );
+
+drop policy if exists "Recruiters manage own articles" on recruiter_articles;
+drop policy if exists "Public can read published recruiter articles" on recruiter_articles;
+create policy "Recruiters manage own articles"
+  on recruiter_articles for all
+  using (recruiter_id = auth.uid())
+  with check (recruiter_id = auth.uid());
+create policy "Public can read published recruiter articles"
+  on recruiter_articles for select
+  using (status = 'Published');
+
+create or replace function set_recruiter_article_updated_at()
+returns trigger as $$
+begin
+  new.updated_at = now();
+  if new.status = 'Published' and new.published_at is null then
+    new.published_at = now();
+  end if;
+  return new;
+end;
+$$ language plpgsql;
+
+drop trigger if exists recruiter_articles_updated_at on recruiter_articles;
+create trigger recruiter_articles_updated_at
+  before insert or update on recruiter_articles
+  for each row execute function set_recruiter_article_updated_at();
 
 -- applications
 drop policy if exists "Job seekers see own applications" on applications;
@@ -424,12 +504,12 @@ begin
   select coalesce(first_name || ' ' || last_name, email)
     into v_candidate_name from profiles where id = new.profile_id;
 
-  insert into notifications(user_id, user_type, title, message, type, related_id)
+  insert into notifications(user_id, user_type, title, message, type, job_id, related_id)
   values (
     new.recruiter_id, 'recruiter',
     'New Application Received',
     v_candidate_name || ' applied for ' || v_job_title,
-    'application', new.id
+    'application', new.job_id, new.id
   );
   return new;
 end;
@@ -449,12 +529,12 @@ begin
   if old.status is distinct from new.status then
     select title into v_job_title from jobs where id = new.job_id;
 
-    insert into notifications(user_id, user_type, title, message, type, related_id)
+    insert into notifications(user_id, user_type, title, message, type, job_id, related_id)
     values (
       new.profile_id, 'jobseeker',
       'Application Status Updated',
       'Your application for ' || v_job_title || ' is now: ' || new.status,
-      'status_change', new.id
+      'status_change', new.job_id, new.id
     );
   end if;
   return new;

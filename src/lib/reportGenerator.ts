@@ -53,22 +53,34 @@ export function generateReportHTML(
 
   const funnel = [
     { label: "Applied",             count: totalApps,                     color: "#9CA3AF" },
-    { label: "Reviewed",            count: sc["Reviewed"] || 0,           color: "#60A5FA" },
-    { label: "Shortlisted",         count: sc["Shortlisted"] || 0,        color: "#34D399" },
+    { label: "Under Review",        count: (sc["Under Review"] || 0) + (sc["Reviewed"] || 0) + (sc["Screening"] || 0), color: "#60A5FA" },
+    { label: "Shortlisted",         count: sc["Shortlisted"] || 0,        color: "#EC4899" },
     { label: "Interview Scheduled", count: sc["Interview Scheduled"] || 0, color: "#A78BFA" },
+    { label: "Interview Completed", count: sc["Interview Completed"] || 0, color: "#6366F1" },
+    { label: "Interview Selected",  count: sc["Interview Selected"] || 0,  color: "#14B8A6" },
+    { label: "Interview Rejected",  count: sc["Interview Rejected"] || 0,  color: "#EF4444" },
     { label: "Offered",             count: sc["Offered"] || 0,            color: "#FBBF24" },
+    { label: "Joined",              count: (sc["Joined"] || 0) + (sc["Hired"] || 0), color: "#10B981" },
   ].map(s => ({
     ...s,
     pct: totalApps > 0 ? Math.max(4, Math.round((s.count / totalApps) * 100)) : 4,
   }));
 
   const statusBadge: Record<string, string> = {
+    "Applied":             "background:#F3F4F6;color:#374151",
     "New":                 "background:#F3F4F6;color:#374151",
+    "Under Review":        "background:#DBEAFE;color:#1D4ED8",
     "Reviewed":            "background:#DBEAFE;color:#1D4ED8",
-    "Shortlisted":         "background:#D1FAE5;color:#065F46",
-    "Interview Scheduled": "background:#EDE9FE;color:#5B21B6",
-    "Offered":             "background:#FEF3C7;color:#92400E",
-    "Rejected":            "background:#FEE2E2;color:#991B1B",
+    "Shortlisted":         "background:#FDF2F8;color:#DB2777",
+    "Interview Scheduled": "background:#F5F3FF;color:#7C3AED",
+    "Interview Completed": "background:#EEF2FF;color:#4F46E5",
+    "Interview Selected":  "background:#F0FDFA;color:#0D9488",
+    "Interview Rejected":  "background:#FEF2F2;color:#DC2626",
+    "Offered":             "background:#FFFBEB;color:#D97706",
+    "Joined":              "background:#ECFDF5;color:#059669",
+    "Hired":               "background:#ECFDF5;color:#059669",
+    "Rejected":            "background:#FEF2F2;color:#DC2626",
+    "On Hold":             "background:#FFFBEB;color:#D97706",
   };
 
   const jobsWithStats = jobs
