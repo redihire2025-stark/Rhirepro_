@@ -125,12 +125,9 @@ export default function RecruiterSignIn() {
       // org_role defaults to 'admin' for every recruiter_profiles row, so the DB flags
       // (org_role / is_org_admin) are the source of truth; the email pattern below is a
       // fallback in case those flags haven't been explicitly set for a given account yet.
-      // org_role defaults to 'admin' for EVERY recruiter_profiles row (including solo recruiters),
-      // so it cannot distinguish a real org admin on its own. max_seats is the real signal:
-      // seeded org admins have max_seats = 10, solo recruiters default to 5.
+      // is_org_admin is set to true when a recruiter purchases a plan or is a pre-seeded org admin.
       const isOrgAdminEmail = /^admin_org\d+@redhire\.dev$/i.test(email.trim());
-      const hasOrgSeats = (rp.max_seats ?? 0) > 5;
-      setIsOrgAdmin((rp.org_role === "admin" && hasOrgSeats) || !!rp.is_org_admin || isOrgAdminEmail);
+      setIsOrgAdmin(!!rp.is_org_admin || isOrgAdminEmail);
 
       await sendOTPEmail(email, generatedOTP, rp.recruiter_name || "");
 
