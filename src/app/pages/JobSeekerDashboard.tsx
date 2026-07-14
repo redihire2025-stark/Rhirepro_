@@ -29,6 +29,7 @@ import {
 } from "../components/ui/pagination";
 import { Textarea } from "../components/ui/textarea";
 import { Select, SelectContent, SelectItem, SelectTrigger, SelectValue } from "../components/ui/select";
+import { SafeHtml } from "../components/ui/safe-html";
 import { BarChart, Bar, XAxis, YAxis, CartesianGrid, Tooltip, ResponsiveContainer } from "recharts";
 import { Badge } from "../components/ui/badge";
 import FeedbackPopup from "../components/FeedbackPopup";
@@ -463,6 +464,18 @@ type PreferredJobSuggestion = {
   companies: string[];
   departments: string[];
 };
+const DEFAULT_RECOMMENDATION_FETCH_LIMIT = 120;
+const JOBS_QUERY_TIMEOUT_MS = 12000;
+const PROFILE_SKILL_OPTIONS = SKILL_OPTIONS;
+
+function withTimeout<T>(promise: PromiseLike<T>, timeoutMs: number, message: string): Promise<T> {
+  let timeoutId: ReturnType<typeof setTimeout>;
+  const timeoutPromise = new Promise<never>((_, reject) => {
+    timeoutId = setTimeout(() => reject(new Error(message)), timeoutMs);
+  });
+
+  return Promise.race([Promise.resolve(promise), timeoutPromise]).finally(() => clearTimeout(timeoutId));
+}
 
 function parseCompanyDescription(text: string | null | undefined): { aboutCompany: string; companyInfo: string } {
   const val = (text || "").trim();
@@ -2435,6 +2448,33 @@ function ProfilePage({ onPendingPrefsChange }: { onPendingPrefsChange?: (pending
                   </div>
                 ))}
                 
+                <div>
+                  <label className="block text-sm text-[#3A1F1F] mb-1">Date of Birth</label>
+                  <Popover open={dobPickerOpen} onOpenChange={setDobPickerOpen}>
+                    <PopoverTrigger asChild>
+                      <Input
+                        value={dobDisplayValue}
+                        placeholder="Select Date of Birth"
+                        readOnly
+                        className="bg-[#F6F6F6] border-gray-200 rounded-xl cursor-pointer"
+                      />
+                    </PopoverTrigger>
+                    <PopoverContent align="start" side="bottom" className="p-0 mt-2 w-auto">
+                      <Calendar
+                        mode="single"
+                        selected={parseLocalDate(basicForm.dob) || undefined}
+                        onSelect={(date) => {
+                          setBasicForm((form) => ({
+                            ...form,
+                            dob: date ? toIsoDate(date) : "",
+                          }));
+                          if (date) setDobPickerOpen(false);
+                        }}
+                        disabled={{ after: today, before: earliestAllowedDob }}
+                      />
+                    </PopoverContent>
+                  </Popover>
+                </div>
                 <div>
                   <label className="block text-sm text-[#3A1F1F] mb-1">Date of Birth</label>
                   <Popover open={dobPickerOpen} onOpenChange={setDobPickerOpen}>
@@ -4634,7 +4674,6 @@ function InsightsPage() {
   const [loadingJobs, setLoadingJobs] = useState(true);
   const [aiInsights, setAiInsights] = useState<GeminiInsightsResult | null>(null);
   const [loadingAI, setLoadingAI] = useState(true);
-
 
   const skills: string[] = Array.isArray(profile?.skills)
     ? profile.skills.filter((skill): skill is string => typeof skill === "string")

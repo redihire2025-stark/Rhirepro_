@@ -145,9 +145,7 @@ export default function PaymentStatusPage() {
                 <CheckCircle className="h-10 w-10 text-green-500" />
               </div>
               <h2 className="text-2xl font-bold text-[#3A1F1F] mb-2">Payment Successful!</h2>
-              <p className="text-[#8A8A8A] mb-4">
-                Your plan has been activated. You have been upgraded to Organization Admin!
-              </p>
+              <p className="text-[#8A8A8A] mb-2">Your plan has been activated.</p>
               {receipt && (
                 <div className="mb-5 rounded-xl border border-gray-100 bg-gray-50 p-4 text-left text-sm">
                   <div className="mb-2 flex justify-between">
