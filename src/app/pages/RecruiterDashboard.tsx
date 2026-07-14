@@ -7752,12 +7752,13 @@ function PlansPage() {
           return (
             <div
               key={plan.id}
-              className={`bg-white rounded-2xl p-6 shadow-md border-2 transition-all ${isCurrentPlan
-                ? "border-[#FF2B2B]"
-                : plan.popular
-                  ? "border-[#FF2B2B]/40"
-                  : "border-gray-100"
-                }`}
+              className={`bg-white rounded-2xl p-6 shadow-md border-2 transition-all duration-300 ${
+                isCurrentPlan
+                  ? "border-[#FF2B2B]"
+                  : `hover:border-[#FF2B2B] hover:shadow-xl hover:-translate-y-1 ${
+                      plan.popular ? "border-[#FF2B2B]/40" : "border-gray-100"
+                    }`
+              }`}
             >
               {/* Header */}
               <div className="flex items-start justify-between mb-2">
