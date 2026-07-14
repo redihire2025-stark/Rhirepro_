@@ -114,7 +114,7 @@ const profileCache: Record<string, {
 export default function ApplicantProfilePage() {
   const { applicantId, candidateId } = useParams();
   const id = applicantId || candidateId;
-  const { recruiterProfile, loading: authLoading } = useAuth();
+  const { recruiterProfile, refreshProfile, loading: authLoading } = useAuth();
   const navigate = useNavigate();
 
   const cachedData = id ? profileCache[id] : null;
@@ -144,6 +144,22 @@ export default function ApplicantProfilePage() {
     if (!resolvedResumeUrl) return "unsupported";
     return getResumePreviewKind(resolvedResumeUrl);
   }, [resolvedResumeUrl]);
+
+  const triggerResumeView = useCallback(() => {
+    if (!recruiterProfile?.id || !id) return;
+    const resumeViewKey = `viewed_resume_${recruiterProfile.id}_${id}`;
+    if (!localStorage.getItem(resumeViewKey)) {
+      localStorage.setItem(resumeViewKey, "true");
+      void supabase.rpc("increment_recruiter_resumes", { p_recruiter_id: recruiterProfile.id }).then(({ error: rErr }) => {
+        if (!rErr) {
+          void refreshProfile();
+        } else {
+          console.warn("Failed to increment resumes used count:", rErr.message);
+          localStorage.removeItem(resumeViewKey);
+        }
+      });
+    }
+  }, [recruiterProfile, id, refreshProfile]);
 
   const fetchApplicantDetails = useCallback(async () => {
     if (!id || !recruiterProfile?.id) return;
@@ -319,6 +335,7 @@ export default function ApplicantProfilePage() {
           }
           setResumeLoading(false);
         }
+        triggerResumeView();
       }
 
       // Cache the loaded data
@@ -462,20 +479,6 @@ export default function ApplicantProfilePage() {
     document.addEventListener("fullscreenchange", handleFullscreenChange);
     return () => document.removeEventListener("fullscreenchange", handleFullscreenChange);
   }, []);
-
-  const triggerResumeView = useCallback(() => {
-    if (!recruiterProfile?.id || !id) return;
-    const resumeViewKey = `viewed_resume_${recruiterProfile.id}_${id}`;
-    if (!localStorage.getItem(resumeViewKey)) {
-      localStorage.setItem(resumeViewKey, "true");
-      void supabase.rpc("increment_recruiter_resumes", { p_recruiter_id: recruiterProfile.id }).then(({ error: rErr }) => {
-        if (rErr) {
-          console.warn("Failed to increment resumes used count:", rErr.message);
-          localStorage.removeItem(resumeViewKey);
-        }
-      });
-    }
-  }, [recruiterProfile, id]);
 
   const toggleResumeFullscreen = async () => {
     if (!fullscreenResumeRef.current) return;

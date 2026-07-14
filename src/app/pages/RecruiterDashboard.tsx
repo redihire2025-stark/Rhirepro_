@@ -3600,7 +3600,7 @@ type RecruiterAppliedJdSearchApplication = {
 };
 
 function SearchCandidatesPage() {
-  const { recruiterProfile } = useAuth();
+  const { recruiterProfile, refreshProfile } = useAuth();
   // ── Search state ──────────────────────────────────────────
   const [keywords, setKeywords] = useState("");
   const [location, setLocation] = useState("");
@@ -3737,7 +3737,9 @@ function SearchCandidatesPage() {
       if (tokens.length > 0) {
         void supabase.rpc("log_recruiter_keywords", { p_recruiter_id: recruiterProfile.id, p_keywords: tokens })
           .then(({ error: kErr }) => {
-            if (kErr) {
+            if (!kErr) {
+              void refreshProfile();
+            } else {
               console.warn("Failed to log search keywords to DB:", kErr.message);
               // Fallback to localStorage for testing/development
               try {

@@ -1,6 +1,7 @@
 import { useEffect, useMemo, useState, useRef } from "react";
 import { Download, ExternalLink, FileText, Loader2, Maximize2 } from "lucide-react";
 import { supabase } from "../../lib/supabase";
+import { useAuth } from "../../lib/auth-context";
 import { Button } from "./ui/button";
 import { Dialog, DialogContent, DialogHeader, DialogTitle } from "./ui/dialog";
 
@@ -103,11 +104,27 @@ export default function ResumePreviewDialog({
   resume: { url: string; candidateName: string } | null;
   onClose: () => void;
 }) {
+  const { role, recruiterProfile } = useAuth();
   const [resolvedUrl, setResolvedUrl] = useState<string | null>(null);
   const [error, setError] = useState("");
   const [loading, setLoading] = useState(false);
   const [isFullscreen, setIsFullscreen] = useState(false);
   const kind = useMemo(() => resume ? getResumePreviewKind(resume.url) : "unsupported", [resume]);
+
+  useEffect(() => {
+    if (resume?.url && role === "recruiter" && recruiterProfile?.id) {
+      const viewKey = `viewed_resume_${recruiterProfile.id}_${resume.url}`;
+      if (!localStorage.getItem(viewKey)) {
+        localStorage.setItem(viewKey, "true");
+        void supabase.rpc("increment_recruiter_resumes", { p_recruiter_id: recruiterProfile.id }).then(({ error: rErr }) => {
+          if (rErr) {
+            console.warn("Failed to increment resumes count:", rErr.message);
+            localStorage.removeItem(viewKey);
+          }
+        });
+      }
+    }
+  }, [resume?.url, role, recruiterProfile?.id]);
 
   useEffect(() => {
     let cancelled = false;

@@ -378,7 +378,7 @@ export default function OrgAdminPanel() {
       return;
     }
     if (user && recruiterProfile && isOrgAdmin) {
-      loadData(true);
+      loadData(activeTab === "subscription_usage" ? false : true);
     }
   }, [activeTab, user, recruiterProfile, isOrgAdmin, loadData]);
 
