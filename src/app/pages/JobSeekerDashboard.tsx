@@ -1487,10 +1487,6 @@ function FindJobPage() {
                   return {
                     ...job,
                     applicant_count: updatedJob.applicant_count || 0,
-                    dbJob: {
-                      ...job.dbJob,
-                      applicant_count: updatedJob.applicant_count || 0,
-                    },
                   };
                 }
                 return job;
@@ -1539,10 +1535,6 @@ function FindJobPage() {
           return {
             ...j,
             applicant_count: (j.applicant_count || 0) + 1,
-            dbJob: {
-              ...j.dbJob,
-              applicant_count: (j.dbJob.applicant_count || 0) + 1,
-            }
           };
         }
         return j;
