@@ -111,7 +111,6 @@ const profileCache: Record<string, {
   resolvedResumeUrl: string | null;
   resumePreviewUrl: string | null;
 }> = {};
-
 export default function ApplicantProfilePage() {
   const { applicantId, candidateId } = useParams();
   const id = applicantId || candidateId;
@@ -134,7 +133,6 @@ export default function ApplicantProfilePage() {
   const [resumeUrl, setResumeUrl] = useState<string | null>(cachedData?.resumeUrl || null);
   const [resolvedResumeUrl, setResolvedResumeUrl] = useState<string | null>(cachedData?.resolvedResumeUrl || null);
   const [resumePreviewUrl, setResumePreviewUrl] = useState<string | null>(cachedData?.resumePreviewUrl || null);
-  
   const pdfPreviewRef = useRef<HTMLDivElement | null>(null);
   const fullscreenResumeRef = useRef<HTMLDivElement | null>(null);
   const [pdfRendering, setPdfRendering] = useState(false);
@@ -338,7 +336,6 @@ export default function ApplicantProfilePage() {
           resumePreviewUrl: previewUrl,
         };
       }
-
     } catch (err) {
       console.error("Error fetching applicant details:", err);
       setError("An unexpected error occurred while fetching candidate information.");

@@ -154,6 +154,20 @@ export default function PaymentStatusPage() {
                     <span className="text-[#8A8A8A]">Plan</span>
                     <span className="font-medium text-[#3A1F1F]">{receipt.planName}</span>
                   </div>
+                  <div className="flex justify-between">
+                    <span className="text-[#8A8A8A]">Base Price</span>
+                    <span className="text-[#3A1F1F]">₹{receipt.basePrice}</span>
+                  </div>
+                  <div className="flex justify-between">
+                    <span className="text-[#8A8A8A]">GST (18%)</span>
+                    <span className="text-[#3A1F1F]">₹{receipt.gstAmount}</span>
+                  </div>
+                  {receipt.discountAmount > 0 && (
+                    <div className="flex justify-between text-green-600">
+                      <span>Promo Discount</span>
+                      <span>−₹{receipt.discountAmount}</span>
+                    </div>
+                  )}
                   <div className="mt-2 flex justify-between border-t border-gray-200 pt-2 font-semibold">
                     <span className="text-[#3A1F1F]">Total Paid</span>
                     <span className="text-[#FF2B2B]">₹{receipt.totalPaid}</span>

@@ -267,7 +267,6 @@ export default function OrgAdminPanel() {
     link.click();
     document.body.removeChild(link);
   };
-
   // Auth guard
   useEffect(() => {
     if (authLoading) return;

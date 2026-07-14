@@ -18,7 +18,7 @@ import { Button } from "../components/ui/button";
 import { Input } from "../components/ui/input";
 import { Popover, PopoverContent, PopoverTrigger } from "../components/ui/popover";
 import { Calendar } from "../components/ui/calendar";
-import { SafeHtml } from "../components/ui/safe-html";
+
 import {
   Pagination,
   PaginationContent,
@@ -29,6 +29,7 @@ import {
 } from "../components/ui/pagination";
 import { Textarea } from "../components/ui/textarea";
 import { Select, SelectContent, SelectItem, SelectTrigger, SelectValue } from "../components/ui/select";
+import { SafeHtml } from "../components/ui/safe-html";
 import { BarChart, Bar, XAxis, YAxis, CartesianGrid, Tooltip, ResponsiveContainer } from "recharts";
 import { Badge } from "../components/ui/badge";
 import FeedbackPopup from "../components/FeedbackPopup";
@@ -428,7 +429,6 @@ async function fetchEducationCatalog(): Promise<{ degreeOptions: string[]; speci
     specializationOptions,
   };
 }
-
 const DEFAULT_RECOMMENDATION_FETCH_LIMIT = 120;
 const JOBS_QUERY_TIMEOUT_MS = 12000;
 const PROFILE_SKILL_OPTIONS = SKILL_OPTIONS;
@@ -441,7 +441,6 @@ function withTimeout<T>(promise: PromiseLike<T>, timeoutMs: number, message: str
 
   return Promise.race([Promise.resolve(promise), timeoutPromise]).finally(() => clearTimeout(timeoutId));
 }
-
 function splitPreferredJobTitles(value: string): string[] {
   return Array.from(
     new Set(
@@ -463,6 +462,7 @@ type PreferredJobSuggestion = {
   companies: string[];
   departments: string[];
 };
+
 
 function parseCompanyDescription(text: string | null | undefined): { aboutCompany: string; companyInfo: string } {
   const val = (text || "").trim();
@@ -3245,7 +3245,6 @@ function ProfilePage({ onPendingPrefsChange }: { onPendingPrefsChange?: (pending
                       const retry = await supabase.from("profiles").update(payload).eq("id", profile.id);
                       error = retry.error;
                     }
-
                     if (error) {
                       console.error("Preferences update error:", error.message);
                       alert("Failed to save preferences. Please try again.");
