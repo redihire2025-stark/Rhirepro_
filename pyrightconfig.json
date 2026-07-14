@@ -1,0 +1,17 @@
+{
+  "include": [
+    "backend"
+  ],
+  "exclude": [
+    "**/node_modules",
+    "**/__pycache__",
+    "Lib",
+    "src",
+    "**/__pyrefly_virtual__/**"
+  ],
+  "extraPaths": [
+    "Lib/site-packages",
+    "backend"
+  ],
+  "typeCheckingMode": "off"
+}

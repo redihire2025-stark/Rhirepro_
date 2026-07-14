@@ -1,0 +1,10 @@
+preset = "basic"
+project-includes = ["backend"]
+project-excludes = [
+  "**/__pyrefly_virtual__/**",
+  "inmemory"
+]
+search-path = [
+  "Lib/site-packages",
+  "backend"
+]

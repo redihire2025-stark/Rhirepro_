@@ -463,3 +463,45 @@ export const JSON_SEED_DATA = {
   searchSuggestions: SEARCH_SUGGESTION_DATASET,
   recommendationKeywordMapping: RECOMMENDATION_KEYWORD_MAPPING,
 };
+
+export function fuzzyMatch(query: string, target: string): boolean {
+  const q = query.toLowerCase().trim();
+  const t = target.toLowerCase().trim();
+  
+  if (!q) return true;
+  if (t.includes(q)) return true;
+  
+  const qTokens = q.split(/\s+/).filter(Boolean);
+  const tTokens = t.split(/\s+/).filter(Boolean);
+  
+  return qTokens.every(qToken => {
+    return tTokens.some(tToken => {
+      if (tToken.includes(qToken)) return true;
+      const dist = computeLevenshtein(qToken, tToken);
+      return dist <= 2;
+    });
+  });
+}
+
+function computeLevenshtein(a: string, b: string): number {
+  const tmp: number[][] = [];
+  for (let i = 0; i <= a.length; i++) {
+    tmp[i] = [i];
+  }
+  for (let j = 0; j <= b.length; j++) {
+    tmp[0][j] = j;
+  }
+  for (let i = 1; i <= a.length; i++) {
+    for (let j = 1; j <= b.length; j++) {
+      if (a[i - 1] === b[j - 1]) {
+        tmp[i][j] = tmp[i - 1][j - 1];
+      } else {
+        tmp[i][j] = Math.min(
+          tmp[i - 1][j - 1] + 1,
+          Math.min(tmp[i][j - 1] + 1, tmp[i - 1][j] + 1)
+        );
+      }
+    }
+  }
+  return tmp[a.length][b.length];
+}
