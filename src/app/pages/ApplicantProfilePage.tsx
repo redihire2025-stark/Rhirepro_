@@ -347,8 +347,8 @@ export default function ApplicantProfilePage() {
           certifications: mappedCert,
           languages: mappedLang,
           resumeUrl: rawResumeUrl,
-          resolvedResumeUrl: resolvedUrl,
-          resumePreviewUrl: previewUrl,
+          resolvedResumeUrl: resolvedResumeUrl,
+          resumePreviewUrl: resumePreviewUrl,
         };
       }
     } catch (err) {
