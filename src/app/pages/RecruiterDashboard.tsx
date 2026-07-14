@@ -3730,6 +3730,33 @@ function SearchCandidatesPage() {
     setSearched(true);
     setSkillSuggestionsOpen(false);
     const activeKeywords = typeof overrideKeywords === "string" ? overrideKeywords : keywords;
+
+    // Track and store keywords used
+    if (activeKeywords.trim() && recruiterProfile?.id) {
+      const tokens = activeKeywords.trim().toLowerCase().split(/\s+/).filter(Boolean);
+      if (tokens.length > 0) {
+        void supabase.rpc("log_recruiter_keywords", { p_recruiter_id: recruiterProfile.id, p_keywords: tokens })
+          .then(({ error: kErr }) => {
+            if (kErr) {
+              console.warn("Failed to log search keywords to DB:", kErr.message);
+              // Fallback to localStorage for testing/development
+              try {
+                const localKey = `search_keywords_${recruiterProfile.id}`;
+                const existing = JSON.parse(localStorage.getItem(localKey) || "[]");
+                tokens.forEach(token => {
+                  existing.unshift({
+                    keyword: token,
+                    created_at: new Date().toISOString()
+                  });
+                });
+                localStorage.setItem(localKey, JSON.stringify(existing.slice(0, 200)));
+              } catch (e) {
+                console.error("Failed to save keywords to localStorage:", e);
+              }
+            }
+          });
+      }
+    }
     try {
       let q = supabase
         .from("profiles")

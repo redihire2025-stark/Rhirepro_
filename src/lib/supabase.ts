@@ -78,6 +78,9 @@ export interface RecruiterProfile {
   org_admin_id: string | null;
   is_active: boolean | null;
   max_seats: number | null;
+  resumes_used?: number;
+  keywords_used?: number;
+  profiles_viewed?: number;
 }
 
 export interface RecruiterInvitation {

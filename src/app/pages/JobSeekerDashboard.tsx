@@ -18,6 +18,7 @@ import { Button } from "../components/ui/button";
 import { Input } from "../components/ui/input";
 import { Popover, PopoverContent, PopoverTrigger } from "../components/ui/popover";
 import { Calendar } from "../components/ui/calendar";
+
 import {
   Pagination,
   PaginationContent,
@@ -428,6 +429,18 @@ async function fetchEducationCatalog(): Promise<{ degreeOptions: string[]; speci
     specializationOptions,
   };
 }
+const DEFAULT_RECOMMENDATION_FETCH_LIMIT = 120;
+const JOBS_QUERY_TIMEOUT_MS = 12000;
+const PROFILE_SKILL_OPTIONS = SKILL_OPTIONS;
+
+function withTimeout<T>(promise: PromiseLike<T>, timeoutMs: number, message: string): Promise<T> {
+  let timeoutId: ReturnType<typeof setTimeout>;
+  const timeoutPromise = new Promise<never>((_, reject) => {
+    timeoutId = setTimeout(() => reject(new Error(message)), timeoutMs);
+  });
+
+  return Promise.race([Promise.resolve(promise), timeoutPromise]).finally(() => clearTimeout(timeoutId));
+}
 function splitPreferredJobTitles(value: string): string[] {
   return Array.from(
     new Set(
@@ -449,18 +462,7 @@ type PreferredJobSuggestion = {
   companies: string[];
   departments: string[];
 };
-const DEFAULT_RECOMMENDATION_FETCH_LIMIT = 120;
-const JOBS_QUERY_TIMEOUT_MS = 12000;
-const PROFILE_SKILL_OPTIONS = SKILL_OPTIONS;
 
-function withTimeout<T>(promise: PromiseLike<T>, timeoutMs: number, message: string): Promise<T> {
-  let timeoutId: ReturnType<typeof setTimeout>;
-  const timeoutPromise = new Promise<never>((_, reject) => {
-    timeoutId = setTimeout(() => reject(new Error(message)), timeoutMs);
-  });
-
-  return Promise.race([Promise.resolve(promise), timeoutPromise]).finally(() => clearTimeout(timeoutId));
-}
 
 function parseCompanyDescription(text: string | null | undefined): { aboutCompany: string; companyInfo: string } {
   const val = (text || "").trim();
@@ -2432,6 +2434,7 @@ function ProfilePage({ onPendingPrefsChange }: { onPendingPrefsChange?: (pending
                     />
                   </div>
                 ))}
+                
                 <div>
                   <label className="block text-sm text-[#3A1F1F] mb-1">Date of Birth</label>
                   <Popover open={dobPickerOpen} onOpenChange={setDobPickerOpen}>
@@ -2987,13 +2990,15 @@ function ProfilePage({ onPendingPrefsChange }: { onPendingPrefsChange?: (pending
                     if (uploadError) { alert("Resume upload failed: " + (uploadError.message || "Unknown error")); return; }
                     if (uploadData?.path) {
                       const { data: urlData } = supabase.storage.from("resumes").getPublicUrl(filePath);
-                      await supabase.from("profiles").update({ resume_url: urlData.publicUrl }).eq("id", profile.id);
-                      await supabase.from("applications").update({ resume_url: urlData.publicUrl }).eq("profile_id", profile.id);
                       const { error: dbError } = await supabase.from("profiles").update({ resume_url: urlData.publicUrl }).eq("id", profile.id);
                       if (dbError) {
                         console.error("Resume DB update error:", dbError.message);
                         alert("Failed to save resume. Please try again.");
                         return;
+                      }
+                      const { error: appError } = await supabase.from("applications").update({ resume_url: urlData.publicUrl }).eq("profile_id", profile.id);
+                      if (appError) {
+                        console.error("Applications resume update error:", appError.message);
                       }
                       setResumeFile(urlData.publicUrl);
                       await refreshProfile();
@@ -3003,13 +3008,15 @@ function ProfilePage({ onPendingPrefsChange }: { onPendingPrefsChange?: (pending
                 </label>
                 <Button variant="ghost" size="sm" className="text-red-500 rounded-full" onClick={async () => {
                   if (!profile) return;
-                  await supabase.from("profiles").update({ resume_url: null }).eq("id", profile.id);
-                  await supabase.from("applications").update({ resume_url: null }).eq("profile_id", profile.id);
-                  const { error } = await supabase.from("profiles").update({ resume_url: null }).eq("id", profile.id);
-                  if (error) {
-                    console.error("Resume delete error:", error.message);
+                  const { error: dbError } = await supabase.from("profiles").update({ resume_url: null }).eq("id", profile.id);
+                  if (dbError) {
+                    console.error("Resume delete error:", dbError.message);
                     alert("Failed to delete resume. Please try again.");
                     return;
+                  }
+                  const { error: appError } = await supabase.from("applications").update({ resume_url: null }).eq("profile_id", profile.id);
+                  if (appError) {
+                    console.error("Applications resume delete error:", appError.message);
                   }
                   setResumeFile(null);
                   await refreshProfile();
@@ -3220,7 +3227,7 @@ function ProfilePage({ onPendingPrefsChange }: { onPendingPrefsChange?: (pending
                   setPreferences(normalizedPrefs);
                   setEditingPrefs(false);
                   if (profile?.id) {
-                    const { error } = await supabase.from("profiles").update({
+                    const payload: Record<string, any> = {
                       desired_job_title: normalizedPrefs.desiredJobTitle || null,
                       job_type_pref: normalizedPrefs.jobType || null,
                       preferred_location: normalizedPrefs.preferredLocation || null,
@@ -3228,7 +3235,16 @@ function ProfilePage({ onPendingPrefsChange }: { onPendingPrefsChange?: (pending
                       notice_period: normalizedPrefs.noticePeriod || null,
                       work_auth: normalizedPrefs.workAuth || null,
                       willing_to_relocate: normalizedPrefs.willingToRelocate || null,
-                    }).eq("id", profile.id);
+                      preferred_interview_mode: Array.isArray(normalizedPrefs.preferredInterviewMode) && normalizedPrefs.preferredInterviewMode.length > 0 ? normalizedPrefs.preferredInterviewMode : null,
+                    };
+
+                    let { error } = await supabase.from("profiles").update(payload).eq("id", profile.id);
+                    if (error && typeof error.message === "string" && error.message.includes("preferred_interview_mode")) {
+                      console.warn("Preferred interview mode column missing in DB schema. Retrying without it.");
+                      delete payload.preferred_interview_mode;
+                      const retry = await supabase.from("profiles").update(payload).eq("id", profile.id);
+                      error = retry.error;
+                    }
                     if (error) {
                       console.error("Preferences update error:", error.message);
                       alert("Failed to save preferences. Please try again.");
@@ -3445,7 +3461,7 @@ function EduForm({ form, setForm, onSave, onCancel, degreeOptions, specializatio
             value={form.score}
             onChange={(e) => setForm({ ...form, score: e.target.value })}
             className="bg-white border-gray-200 rounded-xl"
-            placeholder="Score"
+            placeholder="e.g. 3.8 CGPA or 85%"
             disabled={educationDetailsDisabled}
           />
         </div>
@@ -4678,7 +4694,7 @@ function InsightsPage() {
 
           // Title similarity score (0–30)
           const jobTitleLower = job.title.toLowerCase();
-          const titleScore = titleWords.some(w => jobTitleLower.includes(w)) ? 25 : 0;
+          const titleScore = titleWords.some((word: string) => jobTitleLower.includes(word)) ? 25 : 0;
 
           const match = Math.min(Math.max(skillScore + titleScore + 30, 40), 99);
 
@@ -4983,7 +4999,7 @@ function InsightsPage() {
             </div>
           ) : (
             <div className="space-y-3">
-              {(aiInsights?.certifications ?? domainData.certifications).map((cert, i) => {
+              {(aiInsights?.certifications ?? domainData.certifications).map((cert: { name: string; provider?: string; reason?: string; value: string }, i: number) => {
                 const reason = "reason" in cert && typeof cert.reason === "string" ? cert.reason : "";
 
                 return (
