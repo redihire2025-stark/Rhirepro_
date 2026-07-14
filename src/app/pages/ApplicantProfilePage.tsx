@@ -139,6 +139,7 @@ export default function ApplicantProfilePage() {
   const [resumeLoading, setResumeLoading] = useState(false);
   const [resumeError, setResumeError] = useState("");
   const [isFullscreen, setIsFullscreen] = useState(false);
+  const [showResume, setShowResume] = useState(false);
 
   const resumeKind = useMemo(() => {
     if (!resolvedResumeUrl) return "unsupported";
@@ -160,6 +161,30 @@ export default function ApplicantProfilePage() {
       });
     }
   }, [recruiterProfile, id, refreshProfile]);
+
+  const resolveResume = useCallback(async (rawUrl: string) => {
+    if (!rawUrl) return;
+    const storageObject = getStorageObjectFromUrl(rawUrl);
+    if (!storageObject) {
+      setResolvedResumeUrl(rawUrl);
+      setResumePreviewUrl(buildPreviewUrl(rawUrl));
+    } else {
+      setResumeLoading(true);
+      setResumeError("");
+      const { data: signData, error: signError } = await supabase.storage
+        .from(storageObject.bucket)
+        .createSignedUrl(storageObject.path, 10 * 60);
+
+      if (signError) {
+        setResumeError(signError.message || "Resume file could not be previewed.");
+      } else if (signData?.signedUrl) {
+        setResolvedResumeUrl(signData.signedUrl);
+        setResumePreviewUrl(buildPreviewUrl(signData.signedUrl));
+      }
+      setResumeLoading(false);
+    }
+    triggerResumeView();
+  }, [triggerResumeView]);
 
   const fetchApplicantDetails = useCallback(async () => {
     if (!id || !recruiterProfile?.id) return;
@@ -307,35 +332,8 @@ export default function ApplicantProfilePage() {
 
       // 6. Resolve resume url
       const rawResumeUrl = profData.resume_url || appData?.resume_url || null;
-      let resolvedUrl = null;
-      let previewUrl = null;
-
       if (rawResumeUrl) {
         setResumeUrl(rawResumeUrl);
-
-        const storageObject = getStorageObjectFromUrl(rawResumeUrl);
-        if (!storageObject) {
-          resolvedUrl = rawResumeUrl;
-          previewUrl = buildPreviewUrl(rawResumeUrl);
-          setResolvedResumeUrl(resolvedUrl);
-          setResumePreviewUrl(previewUrl);
-        } else {
-          setResumeLoading(true);
-          const { data: signData, error: signError } = await supabase.storage
-            .from(storageObject.bucket)
-            .createSignedUrl(storageObject.path, 10 * 60);
-
-          if (signError) {
-            setResumeError(signError.message || "Resume file could not be previewed.");
-          } else if (signData?.signedUrl) {
-            resolvedUrl = signData.signedUrl;
-            previewUrl = buildPreviewUrl(signData.signedUrl);
-            setResolvedResumeUrl(resolvedUrl);
-            setResumePreviewUrl(previewUrl);
-          }
-          setResumeLoading(false);
-        }
-        triggerResumeView();
       }
 
       // Cache the loaded data
@@ -483,6 +481,10 @@ export default function ApplicantProfilePage() {
   const toggleResumeFullscreen = async () => {
     if (!fullscreenResumeRef.current) return;
     triggerResumeView();
+    if (!showResume && resumeUrl) {
+      setShowResume(true);
+      void resolveResume(resumeUrl);
+    }
     try {
       if (document.fullscreenElement) {
         await document.exitFullscreen();
@@ -497,6 +499,10 @@ export default function ApplicantProfilePage() {
   const handleDownloadResume = useCallback(async () => {
     if (!resumeUrl) return;
     triggerResumeView();
+    if (!showResume) {
+      setShowResume(true);
+      void resolveResume(resumeUrl);
+    }
 
     const storageObject = getStorageObjectFromUrl(resumeUrl);
     if (!storageObject) {
@@ -866,7 +872,22 @@ export default function ApplicantProfilePage() {
               </h3>
 
               <div className={`bg-[#F6F6F6] rounded-xl overflow-auto flex-1 flex flex-col items-center justify-center relative border border-gray-200 min-h-0 ${isFullscreen ? 'max-h-none h-[88vh] w-full' : 'max-h-[65vh]'}`}>
-                {resumeLoading ? (
+                {resumeUrl && !showResume ? (
+                  <div className="text-center p-8 flex flex-col items-center justify-center h-full w-full py-20 bg-gray-50/50 border border-gray-100 rounded-xl">
+                    <FileText className="h-16 w-16 text-[#FF2B2B] mb-4 opacity-80" />
+                    <p className="text-sm font-semibold text-[#3A1F1F] mb-1">Resume Available</p>
+                    <p className="text-xs text-[#8A8A8A] mb-5">Click below to load preview and watch candidate resume</p>
+                    <Button 
+                      className="bg-[#FF2B2B] hover:bg-[#e02525] text-white rounded-full text-xs font-semibold px-6 py-2 shadow-md"
+                      onClick={() => {
+                        setShowResume(true);
+                        void resolveResume(resumeUrl);
+                      }}
+                    >
+                      Watch Resume
+                    </Button>
+                  </div>
+                ) : resumeLoading ? (
                   <div className="text-center p-6 flex flex-col items-center justify-center h-full w-full">
                     <Loader2 className="h-10 w-10 text-[#FF2B2B] animate-spin mx-auto mb-3" />
                     <p className="text-sm text-[#5A5A5A]">Loading resume preview...</p>

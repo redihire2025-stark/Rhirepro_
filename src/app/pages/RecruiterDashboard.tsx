@@ -3740,7 +3740,16 @@ function SearchCandidatesPage() {
             if (!kErr) {
               void refreshProfile();
             } else {
-              console.warn("Failed to log search keywords to DB:", kErr.message);
+              console.warn("log_recruiter_keywords failed, falling back to increment_recruiter_keywords:", kErr.message);
+              // Fallback to simple aggregate increment
+              void supabase.rpc("increment_recruiter_keywords", { p_recruiter_id: recruiterProfile.id, p_count: tokens.length })
+                .then(({ error: incErr }) => {
+                  if (!incErr) {
+                    void refreshProfile();
+                  } else {
+                    console.error("increment_recruiter_keywords fallback failed:", incErr.message);
+                  }
+                });
               // Fallback to localStorage for testing/development
               try {
                 const localKey = `search_keywords_${recruiterProfile.id}`;
