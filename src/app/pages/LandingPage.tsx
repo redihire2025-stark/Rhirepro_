@@ -1107,9 +1107,9 @@ export default function LandingPage() {
                 <div
                   key={index}
                   onClick={() => setSelectedPlan(plan.name)}
-                  className={`bg-white rounded-2xl p-8 shadow-md hover:shadow-xl transition-all cursor-pointer border-2 ${isSelected
+                  className={`bg-white rounded-2xl p-8 shadow-md hover:shadow-2xl transition-all duration-300 cursor-pointer border-2 ${isSelected
                     ? "border-[#FF2B2B] scale-105"
-                    : "border-gray-200 hover:border-[#FF2B2B]/40"
+                    : "border-gray-200 hover:border-[#FF2B2B]/60 hover:-translate-y-1"
                     }`}
                 >
                   <div className="flex items-center justify-between mb-2">

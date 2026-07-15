@@ -157,8 +157,8 @@ export default function ServicesPage() {
             {pricingPlans.map((plan, index) => (
               <div 
                 key={index} 
-                className={`bg-white rounded-2xl p-8 shadow-md hover:shadow-xl transition-shadow border ${
-                  plan.popular ? 'border-[#FF2B2B] border-2' : 'border-gray-200'
+                className={`bg-white rounded-2xl p-8 shadow-md hover:shadow-2xl hover:-translate-y-1.5 transition-all duration-300 border-2 ${
+                  plan.popular ? 'border-[#FF2B2B]' : 'border-gray-200 hover:border-[#FF2B2B]/60'
                 }`}
               >
                 <h3 className="text-2xl font-bold text-[#3A1F1F] mb-2">{plan.name}</h3>
