@@ -140,6 +140,7 @@ export default function OrgAdminPanel() {
   // Filters
   const [jobSearch, setJobSearch] = useState("");
   const [appStatusFilter, setAppStatusFilter] = useState("all");
+  const [appSearch, setAppSearch] = useState("");
 
   // Recruiter Details & Keywords dialog
   const [selectedMember, setSelectedMember] = useState<OrgMember | null>(null);
@@ -492,9 +493,14 @@ export default function OrgAdminPanel() {
     j.title.toLowerCase().includes(jobSearch.toLowerCase()) ||
     j.recruiter_name.toLowerCase().includes(jobSearch.toLowerCase())
   );
-  const filteredApps = teamApps.filter(a =>
-    appStatusFilter === "all" || a.status === appStatusFilter
-  );
+  const filteredApps = teamApps.filter(a => {
+    const matchesStatus = appStatusFilter === "all" || a.status === appStatusFilter;
+    const matchesSearch = !appSearch ||
+      a.candidate_name.toLowerCase().includes(appSearch.toLowerCase()) ||
+      a.job_title.toLowerCase().includes(appSearch.toLowerCase()) ||
+      a.recruiter_name.toLowerCase().includes(appSearch.toLowerCase());
+    return matchesStatus && matchesSearch;
+  });
 
   // Overview tab KPIs — derived from data already fetched for the other tabs, no extra queries.
   const todayStr = new Date().toDateString();
@@ -1094,17 +1100,25 @@ export default function OrgAdminPanel() {
                 <h3 className="font-semibold text-[#3A1F1F] whitespace-nowrap">
                   All Applications <span className="text-[#8A8A8A] font-normal">({filteredApps.length})</span>
                 </h3>
-                <select
-                  value={appStatusFilter}
-                  onChange={e => setAppStatusFilter(e.target.value)}
-                  className="text-sm border border-gray-200 rounded-xl px-3 py-2 bg-[#F6F6F6] text-[#3A1F1F] outline-none"
-                >
-                  <option value="all">All statuses</option>
-                  {["Applied", "Under Review", "Shortlisted", "Interview Scheduled",
-                    "Offered", "Joined", "Hired", "Rejected", "On Hold"].map(s => (
-                      <option key={s} value={s}>{s}</option>
-                    ))}
-                </select>
+                <div className="flex items-center gap-3">
+                  <Input
+                    value={appSearch}
+                    onChange={e => setAppSearch(e.target.value)}
+                    placeholder="Search by candidate, job, or member…"
+                    className="max-w-xs rounded-xl bg-[#F6F6F6] border-gray-200 text-sm h-10 px-3"
+                  />
+                  <select
+                    value={appStatusFilter}
+                    onChange={e => setAppStatusFilter(e.target.value)}
+                    className="text-sm border border-gray-200 rounded-xl px-3 py-2 bg-[#F6F6F6] text-[#3A1F1F] outline-none h-10"
+                  >
+                    <option value="all">All statuses</option>
+                    {["Applied", "Under Review", "Shortlisted", "Interview Scheduled",
+                      "Offered", "Joined", "Hired", "Rejected", "On Hold"].map(s => (
+                        <option key={s} value={s}>{s}</option>
+                      ))}
+                  </select>
+                </div>
               </div>
               {dataLoading ? <LoadingCard /> : (
                 <div className="overflow-x-auto">
