@@ -836,12 +836,52 @@ export default function RecruiterDashboard() {
   const location = useLocation();
   const { recruiterProfile, user, loading: authLoading, signOut, isOrgAdmin } = useAuth();
 
+  const [activeSub, setActiveSub] = useState<RecruiterSubscription | null>(null);
+  const [loadingSub, setLoadingSub] = useState(true);
+
   // Auth guard — redirect to sign-in if not authenticated
   useEffect(() => {
     if (!authLoading && !user) {
       navigate("/signin", { replace: true });
     }
   }, [authLoading, user, navigate]);
+
+  useEffect(() => {
+    if (!recruiterProfile?.id) {
+      setLoadingSub(false);
+      return;
+    }
+    const load = async () => {
+      const now = new Date().toISOString();
+      const { data } = await supabase
+        .from("recruiter_subscriptions")
+        .select("*")
+        .eq("recruiter_id", recruiterProfile.id)
+        .eq("status", "active")
+        .gte("expires_at", now)
+        .order("created_at", { ascending: false })
+        .limit(1)
+        .maybeSingle();
+      setActiveSub(data ?? null);
+      setLoadingSub(false);
+    };
+    load();
+  }, [recruiterProfile?.id]);
+
+  // Subscription guard — redirect to plans if expired
+  useEffect(() => {
+    if (authLoading || loadingSub || !user || !recruiterProfile) return;
+    
+    // Allow users to access the Plans page regardless of subscription status
+    if (location.pathname === "/recruiter/dashboard/plans" || location.pathname === "/recruiter/dashboard/plans/") {
+      return;
+    }
+
+    const isExpired = activeSub === null;
+    if (isExpired) {
+      navigate("/recruiter/dashboard/plans", { replace: true });
+    }
+  }, [authLoading, loadingSub, user, recruiterProfile, activeSub, location.pathname, navigate]);
 
   const [notificationsOpen, setNotificationsOpen] = useState(false);
   const [mobileNavOpen, setMobileNavOpen] = useState(false);
@@ -1016,7 +1056,7 @@ export default function RecruiterDashboard() {
     { id: "company", label: "Company", items: navItems.filter(i => ["company-profile", "plans"].includes(i.id)) },
   ];
 
-  if (authLoading) {
+  if (authLoading || loadingSub) {
     return (
       <div className="min-h-screen bg-[#F6F6F6] flex items-center justify-center">
         <div className="text-center">
@@ -1257,7 +1297,7 @@ export default function RecruiterDashboard() {
         <Route path="articles/new" element={<ArticleEditorPage />} />
         <Route path="articles/:articleId/edit" element={<ArticleEditorPage />} />
         <Route path="company-profile" element={<CompanyProfilePage />} />
-        <Route path="plans" element={<PlansPage />} />
+        <Route path="plans" element={<PlansPage activeSub={activeSub} loading={loadingSub} />} />
       </Routes>
     </div>
   );
@@ -4091,7 +4131,8 @@ function SearchCandidatesPage() {
       let esSuccess = false;
       
       try {
-        const esUrl = `http://localhost:8000/candidates/search?q=${encodeURIComponent(activeKeywords)}` +
+        const apiUrl = import.meta.env.VITE_API_URL || "http://localhost:8000";
+        const esUrl = `${apiUrl}/candidates/search?q=${encodeURIComponent(activeKeywords)}` +
           `&location=${encodeURIComponent(location)}` +
           `&current_company=${encodeURIComponent(currentCompany)}` +
           `&skills=${encodeURIComponent(skillTags.join(","))}` +
@@ -7596,34 +7637,13 @@ function CompanyProfilePage() {
 
 // ─── Plans Page ───────────────────────────────────────────────────────────────
 
-function PlansPage() {
+function PlansPage({ activeSub, loading }: { activeSub: RecruiterSubscription | null; loading: boolean }) {
   const navigate = useNavigate();
   const { recruiterProfile } = useAuth();
-  const [activeSub, setActiveSub] = useState<RecruiterSubscription | null>(null);
-  const [loading, setLoading] = useState(true);
   const [promoInput, setPromoInput] = useState("");
   const [promoError, setPromoError] = useState("");
   const [appliedPromo, setAppliedPromo] = useState<ReturnType<typeof validatePromo>>(null);
   const [promoSuccess, setPromoSuccess] = useState("");
-
-  useEffect(() => {
-    if (!recruiterProfile?.id) return;
-    const load = async () => {
-      const now = new Date().toISOString();
-      const { data } = await supabase
-        .from("recruiter_subscriptions")
-        .select("*")
-        .eq("recruiter_id", recruiterProfile.id)
-        .eq("status", "active")
-        .gte("expires_at", now)
-        .order("created_at", { ascending: false })
-        .limit(1)
-        .maybeSingle();
-      setActiveSub(data ?? null);
-      setLoading(false);
-    };
-    load();
-  }, [recruiterProfile?.id]);
 
   const handleApplyPromo = () => {
     const found = validatePromo(promoInput);
@@ -7807,6 +7827,10 @@ function PlansPage() {
               {isCurrentPlan ? (
                 <Button disabled className="w-full rounded-full bg-green-100 text-green-700 cursor-default">
                   <CheckCircle className="mr-2 h-4 w-4" /> Current Plan
+                </Button>
+              ) : (activeSub && PLANS.findIndex(p => p.id === activeSub.plan_id) > PLANS.findIndex(p => p.id === plan.id)) ? (
+                <Button disabled className="w-full rounded-full bg-gray-100 text-gray-500 cursor-default">
+                  Lower Tier Plan
                 </Button>
               ) : (
                 <Button
