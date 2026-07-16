@@ -4091,7 +4091,8 @@ function SearchCandidatesPage() {
       let esSuccess = false;
       
       try {
-        const esUrl = `http://localhost:8000/candidates/search?q=${encodeURIComponent(activeKeywords)}` +
+        const apiUrl = import.meta.env.VITE_API_URL || "http://localhost:8000";
+        const esUrl = `${apiUrl}/candidates/search?q=${encodeURIComponent(activeKeywords)}` +
           `&location=${encodeURIComponent(location)}` +
           `&current_company=${encodeURIComponent(currentCompany)}` +
           `&skills=${encodeURIComponent(skillTags.join(","))}` +

@@ -1269,7 +1269,8 @@ function FindJobPage() {
 
       if (trimmedSearch || hasAnyFilter) {
         try {
-          const esUrl = `http://localhost:8000/jobs/search?q=${encodeURIComponent(trimmedSearch)}` +
+          const apiUrl = import.meta.env.VITE_API_URL || "http://localhost:8000";
+          const esUrl = `${apiUrl}/jobs/search?q=${encodeURIComponent(trimmedSearch)}` +
             `&work_mode=${remoteFilter === "yes" || selectedChip === "Remote" || locationFilter === "remote" ? "Work from Home" : ""}` +
             `&employment_type=${selectedChip === "Full-time" ? "Full-time" : selectedChip === "Part-time" ? "Part-time" : selectedChip === "Contract" ? "Contract" : jobTypeFilter === "fulltime" ? "Full-time" : jobTypeFilter === "parttime" ? "Part-time" : jobTypeFilter === "contract" ? "Contract" : ""}` +
             `&location=${locationFilter && locationFilter !== "remote" ? locationFilter.charAt(0).toUpperCase() + locationFilter.slice(1) : ""}` +

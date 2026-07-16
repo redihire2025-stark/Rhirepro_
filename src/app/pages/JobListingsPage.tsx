@@ -255,7 +255,8 @@ export default function JobListingsPage() {
     
     setIsSearching(true);
     try {
-      const response = await fetch(`http://localhost:8000/jobs/search?q=${encodeURIComponent(searchTerm)}`);
+      const apiUrl = import.meta.env.VITE_API_URL || "http://localhost:8000";
+      const response = await fetch(`${apiUrl}/jobs/search?q=${encodeURIComponent(searchTerm)}`);
       if (response.ok) {
         const data = await response.json();
         const filteredJobsList = (data.jobs || [])
