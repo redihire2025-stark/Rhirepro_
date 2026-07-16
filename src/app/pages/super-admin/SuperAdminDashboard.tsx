@@ -14,7 +14,7 @@ import {
   TrendingUp,
   AlertCircle
 } from "lucide-react";
-import logoImage from "../../../../logo/logo.png";
+import logoImage from "../../../logo/logo.png";
 import UsersManagement from "./UsersManagement";
 import JobsManagement from "./JobsManagement";
 import BillingManagement from "./BillingManagement";
