@@ -44,6 +44,7 @@ export interface Profile {
   otp_expires_at: string | null;
   profile_views?: number | null;
   recruiter_searches?: number | null;
+  is_super_admin?: boolean;
   created_at: string;
 }
 
@@ -81,6 +82,7 @@ export interface RecruiterProfile {
   resumes_used?: number;
   keywords_used?: number;
   profiles_viewed?: number;
+  is_super_admin?: boolean;
 }
 
 export interface RecruiterInvitation {

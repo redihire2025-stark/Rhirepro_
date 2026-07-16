@@ -29,6 +29,7 @@ import PrivacyPolicyPage from "./pages/PrivacyPolicyPage";
 import TermsOfServicePage from "./pages/TermsOfServicePage";
 import OrgAdminPanel from "./pages/OrgAdminPanel";
 import RecruiterInviteAccept from "./pages/RecruiterInviteAccept";
+import SuperAdminDashboard from "./pages/super-admin/SuperAdminDashboard";
 
 function RootLayout() {
   return (
@@ -196,6 +197,11 @@ export const router = createBrowserRouter([
   {
     path: "/recruiter/join/:token",
     Component: RecruiterInviteAccept,
+    errorElement: <ErrorPage />,
+  },
+  {
+    path: "/super-admin/*",
+    Component: SuperAdminDashboard,
     errorElement: <ErrorPage />,
   },
   {

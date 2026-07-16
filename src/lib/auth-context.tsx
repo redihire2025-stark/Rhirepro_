@@ -10,6 +10,7 @@ interface AuthContextType {
   role: "jobseeker" | "recruiter" | null;
   orgRole: "admin" | "member" | null;
   isOrgAdmin: boolean;
+  isSuperAdmin: boolean;
   loading: boolean;
   signOut: () => Promise<void>;
   refreshProfile: () => Promise<void>;
@@ -17,7 +18,7 @@ interface AuthContextType {
 
 const AuthContext = createContext<AuthContextType>({
   user: null, session: null, profile: null, recruiterProfile: null,
-  role: null, orgRole: null, isOrgAdmin: false,
+  role: null, orgRole: null, isOrgAdmin: false, isSuperAdmin: false,
   loading: true, signOut: async () => {}, refreshProfile: async () => {},
 });
 
@@ -102,8 +103,11 @@ export function AuthProvider({ children }: { children: ReactNode }) {
   const orgRole = recruiterProfile?.org_role ?? null;
   const isOrgAdmin = !!recruiterProfile?.is_org_admin || (orgRole === "admin" && (recruiterProfile?.max_seats ?? 0) > 5);
 
+  const SUPER_ADMIN_EMAILS = ["admin@rhirepro.com", "superadmin@rhirepro.com"];
+  const isSuperAdmin = !!profile?.is_super_admin || !!recruiterProfile?.is_super_admin || (user?.email ? SUPER_ADMIN_EMAILS.includes(user.email) : false);
+
   return (
-    <AuthContext.Provider value={{ user, session, profile, recruiterProfile, role, orgRole, isOrgAdmin, loading, signOut, refreshProfile }}>
+    <AuthContext.Provider value={{ user, session, profile, recruiterProfile, role, orgRole, isOrgAdmin, isSuperAdmin, loading, signOut, refreshProfile }}>
       {children}
     </AuthContext.Provider>
   );
