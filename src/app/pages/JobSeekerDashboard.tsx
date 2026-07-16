@@ -29,7 +29,6 @@ import {
 } from "../components/ui/pagination";
 import { Textarea } from "../components/ui/textarea";
 import { Select, SelectContent, SelectItem, SelectTrigger, SelectValue } from "../components/ui/select";
-import { SafeHtml } from "../components/ui/safe-html";
 import { BarChart, Bar, XAxis, YAxis, CartesianGrid, Tooltip, ResponsiveContainer } from "recharts";
 import { Badge } from "../components/ui/badge";
 import FeedbackPopup from "../components/FeedbackPopup";
@@ -464,18 +463,6 @@ type PreferredJobSuggestion = {
   companies: string[];
   departments: string[];
 };
-const DEFAULT_RECOMMENDATION_FETCH_LIMIT = 120;
-const JOBS_QUERY_TIMEOUT_MS = 12000;
-const PROFILE_SKILL_OPTIONS = SKILL_OPTIONS;
-
-function withTimeout<T>(promise: PromiseLike<T>, timeoutMs: number, message: string): Promise<T> {
-  let timeoutId: ReturnType<typeof setTimeout>;
-  const timeoutPromise = new Promise<never>((_, reject) => {
-    timeoutId = setTimeout(() => reject(new Error(message)), timeoutMs);
-  });
-
-  return Promise.race([Promise.resolve(promise), timeoutPromise]).finally(() => clearTimeout(timeoutId));
-}
 
 function parseCompanyDescription(text: string | null | undefined): { aboutCompany: string; companyInfo: string } {
   const val = (text || "").trim();
