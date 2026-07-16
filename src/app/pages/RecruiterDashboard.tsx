@@ -27,6 +27,7 @@ import {
   MessageSquare, Video, Award, BookOpen, Globe, Linkedin, Share2,
   ArrowRight, Target, Zap, RefreshCw, MoreVertical, ThumbsUp, ThumbsDown, ExternalLink, Loader2,
   CreditCard, Tag, ShieldCheck, Crown, Check, Minimize2, ShieldAlert,
+  Menu, X,
 } from "lucide-react";
 import { Button } from "../components/ui/button";
 import {
@@ -833,7 +834,7 @@ function CandidateProfileModal({ candidate, open, onClose }: { candidate: Candid
 export default function RecruiterDashboard() {
   const navigate = useNavigate();
   const location = useLocation();
-  const { recruiterProfile, user, loading: authLoading, signOut } = useAuth();
+  const { recruiterProfile, user, loading: authLoading, signOut, isOrgAdmin } = useAuth();
 
   // Auth guard — redirect to sign-in if not authenticated
   useEffect(() => {
@@ -843,6 +844,7 @@ export default function RecruiterDashboard() {
   }, [authLoading, user, navigate]);
 
   const [notificationsOpen, setNotificationsOpen] = useState(false);
+  const [mobileNavOpen, setMobileNavOpen] = useState(false);
   const [notifications, setNotifications] = useState<Notification[]>([]);
   const [unreadCount, setUnreadCount] = useState(0);
 
@@ -984,6 +986,7 @@ export default function RecruiterDashboard() {
 
   const currentTab = () => {
     const path = location.pathname;
+    if (path.includes("/recruiter/admin")) return "admin";
     if (path.includes("manage-jobs")) return "manage-jobs";
     if (path.includes("applicants")) return "applicants";
     if (path.includes("company-profile")) return "company-profile";
@@ -1003,6 +1006,14 @@ export default function RecruiterDashboard() {
     { id: "analytics", label: "Analytics", path: "/recruiter/dashboard/analytics" },
     { id: "company-profile", label: "Company Profile", path: "/recruiter/dashboard/company-profile" },
     { id: "plans", label: "Plans", path: "/recruiter/dashboard/plans" },
+    ...(isOrgAdmin ? [{ id: "admin", label: "Team Admin", path: "/recruiter/admin" }] : []),
+  ];
+
+  // Same items, grouped into dropdown categories so the header nav doesn't overflow.
+  const navGroups: { id: string; label: string; items: typeof navItems }[] = [
+    { id: "hiring", label: "Hiring", items: navItems.filter(i => ["post-job", "manage-jobs", "search-candidates", "applicants"].includes(i.id)) },
+    { id: "insights", label: "Insights", items: navItems.filter(i => i.id === "analytics") },
+    { id: "company", label: "Company", items: navItems.filter(i => ["company-profile", "plans"].includes(i.id)) },
   ];
 
   if (authLoading) {
@@ -1050,18 +1061,60 @@ export default function RecruiterDashboard() {
             </Link>
 
             <nav className="hidden lg:flex items-center gap-1">
-              {navItems.map(item => (
-                <Link key={item.id} to={item.path}>
+              <Link to="/recruiter/dashboard">
+                <Button
+                  variant={currentTab() === "dashboard" ? "default" : "ghost"}
+                  className={`text-sm rounded-full px-4 ${currentTab() === "dashboard" ? "bg-[#FF2B2B] hover:bg-[#e02525]" : ""}`}
+                  size="sm"
+                >
+                  Dashboard
+                </Button>
+              </Link>
+
+              {navGroups.map(group => {
+                const groupActive = group.items.some(i => i.id === currentTab());
+                return (
+                  <DropdownMenu key={group.id}>
+                    <DropdownMenuTrigger asChild>
+                      <Button
+                        variant={groupActive ? "default" : "ghost"}
+                        className={`text-sm rounded-full px-4 ${groupActive ? "bg-[#FF2B2B] hover:bg-[#e02525]" : ""}`}
+                        size="sm"
+                      >
+                        {group.label} <ChevronDown className="ml-1 h-3.5 w-3.5" />
+                      </Button>
+                    </DropdownMenuTrigger>
+                    <DropdownMenuContent align="start">
+                      {group.items.map(item => (
+                        <DropdownMenuItem key={item.id} onClick={() => navigate(item.path)}>
+                          {item.label}
+                        </DropdownMenuItem>
+                      ))}
+                    </DropdownMenuContent>
+                  </DropdownMenu>
+                );
+              })}
+
+              {isOrgAdmin && (
+                <Link to="/recruiter/admin">
                   <Button
-                    variant={currentTab() === item.id ? "default" : "ghost"}
-                    className={`text-sm rounded-full px-4 ${currentTab() === item.id ? "bg-[#FF2B2B] hover:bg-[#e02525]" : ""}`}
+                    variant={currentTab() === "admin" ? "default" : "ghost"}
+                    className={`text-sm rounded-full px-4 ${currentTab() === "admin" ? "bg-[#FF2B2B] hover:bg-[#e02525]" : ""}`}
                     size="sm"
                   >
-                    {item.label}
+                    Team Admin
                   </Button>
                 </Link>
-              ))}
+              )}
             </nav>
+
+            <button
+              className="lg:hidden p-2 -mr-2 text-[#3A1F1F]"
+              onClick={() => setMobileNavOpen(true)}
+              aria-label="Open menu"
+            >
+              <Menu className="h-6 w-6" />
+            </button>
 
             <div className="flex items-center gap-2">
               <div className="relative" ref={notifRef}>
@@ -1120,7 +1173,7 @@ export default function RecruiterDashboard() {
 
               <Button
                 variant="outline"
-                className="border-[#FF2B2B] text-[#FF2B2B] hover:bg-[#FF2B2B] hover:text-white rounded-full"
+                className="hidden sm:inline-flex border-[#FF2B2B] text-[#FF2B2B] hover:bg-[#FF2B2B] hover:text-white rounded-full"
                 onClick={handleSignOut}
               >
                 <LogOut className="mr-2 h-4 w-4" /> Sign Out
@@ -1129,6 +1182,68 @@ export default function RecruiterDashboard() {
           </div>
         </div>
       </header>
+
+      {/* Mobile side nav drawer */}
+      {mobileNavOpen && (
+        <div className="fixed inset-0 z-[300] lg:hidden">
+          <div className="absolute inset-0 bg-black/40" onClick={() => setMobileNavOpen(false)} />
+          <div className="absolute left-0 top-0 bottom-0 w-72 bg-white shadow-2xl overflow-y-auto">
+            <div className="flex items-center justify-between px-4 py-4 border-b border-gray-100">
+              <div className="flex items-center gap-2">
+                <img src={logoImage} alt="RhirePro Logo" className="w-8 h-8" />
+                <div className="text-lg font-bold text-[#3A1F1F]">Rhire<span className="text-[#FF2B2B]">Pro</span></div>
+              </div>
+              <button onClick={() => setMobileNavOpen(false)} aria-label="Close menu" className="p-1 text-[#8A8A8A]">
+                <X className="h-5 w-5" />
+              </button>
+            </div>
+
+            <nav className="p-3 space-y-1">
+              <button
+                onClick={() => { navigate("/recruiter/dashboard"); setMobileNavOpen(false); }}
+                className={`w-full text-left px-3 py-2.5 rounded-xl text-sm font-medium ${currentTab() === "dashboard" ? "bg-[#FF2B2B] text-white" : "text-[#3A1F1F] hover:bg-[#F6F6F6]"}`}
+              >
+                Dashboard
+              </button>
+
+              {navGroups.map(group => (
+                <div key={group.id} className="pt-2">
+                  <p className="px-3 text-[10px] font-bold uppercase tracking-wide text-[#8A8A8A] mb-1">{group.label}</p>
+                  {group.items.map(item => (
+                    <button
+                      key={item.id}
+                      onClick={() => { navigate(item.path); setMobileNavOpen(false); }}
+                      className={`w-full text-left px-3 py-2.5 rounded-xl text-sm font-medium ${currentTab() === item.id ? "bg-[#FF2B2B] text-white" : "text-[#3A1F1F] hover:bg-[#F6F6F6]"}`}
+                    >
+                      {item.label}
+                    </button>
+                  ))}
+                </div>
+              ))}
+
+              {isOrgAdmin && (
+                <div className="pt-2">
+                  <button
+                    onClick={() => { navigate("/recruiter/admin"); setMobileNavOpen(false); }}
+                    className={`w-full text-left px-3 py-2.5 rounded-xl text-sm font-medium ${currentTab() === "admin" ? "bg-[#FF2B2B] text-white" : "text-[#3A1F1F] hover:bg-[#F6F6F6]"}`}
+                  >
+                    Team Admin
+                  </button>
+                </div>
+              )}
+
+              <div className="pt-3 mt-2 border-t border-gray-100">
+                <button
+                  onClick={() => { setMobileNavOpen(false); handleSignOut(); }}
+                  className="w-full text-left px-3 py-2.5 rounded-xl text-sm font-medium text-red-500 hover:bg-red-50 flex items-center gap-2"
+                >
+                  <LogOut className="h-4 w-4" /> Sign Out
+                </button>
+              </div>
+            </nav>
+          </div>
+        </div>
+      )}
 
       <Routes>
         <Route index element={<DashboardOverview />} />
@@ -3944,6 +4059,33 @@ function SearchCandidatesPage() {
     setSearched(true);
     setSkillSuggestionsOpen(false);
     const activeKeywords = typeof overrideKeywords === "string" ? overrideKeywords : keywords;
+
+    // Track and store keywords used
+    if (activeKeywords.trim() && recruiterProfile?.id) {
+      const tokens = activeKeywords.trim().toLowerCase().split(/\s+/).filter(Boolean);
+      if (tokens.length > 0) {
+        void supabase.rpc("log_recruiter_keywords", { p_recruiter_id: recruiterProfile.id, p_keywords: tokens })
+          .then(({ error: kErr }) => {
+            if (kErr) {
+              console.warn("Failed to log search keywords to DB:", kErr.message);
+              // Fallback to localStorage for testing/development
+              try {
+                const localKey = `search_keywords_${recruiterProfile.id}`;
+                const existing = JSON.parse(localStorage.getItem(localKey) || "[]");
+                tokens.forEach(token => {
+                  existing.unshift({
+                    keyword: token,
+                    created_at: new Date().toISOString()
+                  });
+                });
+                localStorage.setItem(localKey, JSON.stringify(existing.slice(0, 200)));
+              } catch (e) {
+                console.error("Failed to save keywords to localStorage:", e);
+              }
+            }
+          });
+      }
+    }
     try {
       let raw: DBCandidate[] = [];
       let esSuccess = false;
@@ -5553,27 +5695,33 @@ function ApplicantsPage() {
 
       <div className="flex gap-5 items-start">
         {/* ── LEFT: Filter Sidebar (Naukri ResdEx style) ── */}
-        <div className="w-64 flex-shrink-0 space-y-0 bg-white border border-gray-200 rounded-2xl shadow-sm overflow-hidden">
-          {/* Status Tabs Section */}
-          <div className="px-4 py-3 border-b border-gray-100">
-            <p className="text-xs font-semibold text-[#3A1F1F] mb-2 uppercase tracking-wide">Status</p>
-            <div className="flex flex-col gap-1">
-              {statuses.map(s => (
-                <button key={s} onClick={() => setStatusFilter(s)}
-                  className={`flex items-center justify-between px-3 py-1.5 rounded-lg text-xs transition-colors w-full border ${statusFilter === s ? "bg-[#FF2B2B] text-white border-[#FF2B2B] font-semibold" : "bg-white border-gray-100 text-[#5A5A5A] hover:border-[#FF2B2B] hover:bg-gray-50"}`}>
-                  <span>{s}</span>
-                  {s === "All" ? (
-                    applicants.length > 0 && (
-                      <span className={`text-[10px] rounded-full px-1.5 py-0.5 font-bold ${statusFilter === s ? "bg-white/30 text-white" : "bg-gray-100 text-gray-600"}`}>{applicants.length}</span>
-                    )
-                  ) : (
-                    statusCounts[s] > 0 && (
-                      <span className={`text-[10px] rounded-full px-1.5 py-0.5 font-bold ${statusFilter === s ? "bg-white/30 text-white" : "bg-gray-100 text-gray-600"}`}>{statusCounts[s]}</span>
-                    )
-                  )}
-                </button>
-              ))}
-            </div>
+        <div className="w-72 flex-shrink-0 space-y-0 bg-white border border-gray-200 rounded-2xl shadow-sm overflow-hidden">
+          {/* Status Filter — Dropdown */}
+          <div className="px-4 py-4 border-b border-gray-100 bg-gradient-to-b from-[#FFF8F8] to-white">
+            <p className="text-xs font-bold text-[#3A1F1F] mb-2 uppercase tracking-wide flex items-center gap-1.5">
+              <span className="w-1.5 h-1.5 rounded-full bg-[#FF2B2B]" /> Status
+            </p>
+            <Select value={statusFilter} onValueChange={setStatusFilter}>
+              <SelectTrigger className="w-full bg-white border-gray-200 rounded-xl text-xs h-9">
+                <SelectValue />
+              </SelectTrigger>
+              <SelectContent>
+                {statuses.map(s => {
+                  const isAll = s === "All";
+                  const stageStyle = !isAll ? PIPELINE_STAGE_STYLES[s as PipelineStage] : null;
+                  const count = isAll ? applicants.length : statusCounts[s];
+                  return (
+                    <SelectItem key={s} value={s}>
+                      <span className="flex items-center gap-2">
+                        <span className={`w-1.5 h-1.5 rounded-full ${isAll ? "bg-[#FF2B2B]" : stageStyle?.bar}`} />
+                        {s}
+                        {count > 0 && <span className="text-[10px] text-gray-400 font-semibold">({count})</span>}
+                      </span>
+                    </SelectItem>
+                  );
+                })}
+              </SelectContent>
+            </Select>
           </div>
 
           <div className="flex items-center justify-between px-4 py-3 border-b border-gray-100">

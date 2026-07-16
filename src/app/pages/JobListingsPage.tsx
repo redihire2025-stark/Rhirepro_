@@ -108,6 +108,7 @@ export default function JobListingsPage() {
   const [isSearching, setIsSearching] = useState(false);
   const [preferredModes, setPreferredModes] = useState<string[]>([]);
 
+
   useEffect(() => {
     let mounted = true;
 
