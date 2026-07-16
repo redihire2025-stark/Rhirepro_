@@ -470,7 +470,6 @@ type PreferredJobSuggestion = {
   departments: string[];
 };
 
-
 function parseCompanyDescription(text: string | null | undefined): { aboutCompany: string; companyInfo: string } {
   const val = (text || "").trim();
   if (!val) {
