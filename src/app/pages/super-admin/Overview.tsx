@@ -14,14 +14,21 @@ export default function Overview() {
   useEffect(() => {
     async function fetchStats() {
       try {
-        const [{ count: usersCount }, { count: recruitersCount }, { count: jobsCount }] = await Promise.all([
+        const [
+          { count: usersCount }, 
+          { count: recruitersCount }, 
+          { count: jobsCount },
+          { data: transactionsData }
+        ] = await Promise.all([
           supabase.from("profiles").select("*", { count: "exact", head: true }),
           supabase.from("recruiter_profiles").select("*", { count: "exact", head: true }),
-          supabase.from("jobs").select("*", { count: "exact", head: true }).eq("status", "Active")
+          supabase.from("jobs").select("*", { count: "exact", head: true }).eq("status", "Active"),
+          supabase.from("payment_transactions").select("final_amount").eq("status", "success")
         ]);
 
-        // Mock revenue for now as it would require complex aggregations
-        const totalRevenue = 125000;
+        const totalRevenue = transactionsData 
+          ? transactionsData.reduce((sum, tx) => sum + (Number(tx.final_amount) || 0), 0) 
+          : 0;
 
         setStats({
           totalUsers: usersCount || 0,

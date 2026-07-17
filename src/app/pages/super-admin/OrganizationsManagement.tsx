@@ -1,8 +1,11 @@
 import { useEffect, useState } from "react";
 import { supabase } from "../../../lib/supabase";
-import { Search, MoreVertical, Building2, ExternalLink } from "lucide-react";
+import { Search, Building2, ExternalLink, ShieldAlert, CheckCircle } from "lucide-react";
 import { Input } from "../../components/ui/input";
 import { Button } from "../../components/ui/button";
+import { DataTablePagination } from "../../components/ui/data-table-pagination";
+import { toast } from "sonner";
+import { useNavigate } from "react-router";
 
 interface Organization {
   id: string;
@@ -16,35 +19,82 @@ interface Organization {
 }
 
 export default function OrganizationsManagement() {
+  const navigate = useNavigate();
   const [organizations, setOrganizations] = useState<Organization[]>([]);
   const [loading, setLoading] = useState(true);
   const [searchTerm, setSearchTerm] = useState("");
+  const [debouncedSearch, setDebouncedSearch] = useState("");
+
+  // Pagination states
+  const [pageIndex, setPageIndex] = useState(0);
+  const [pageSize, setPageSize] = useState(10);
+  const [totalCount, setTotalCount] = useState(0);
+
+  // Debounce search
+  useEffect(() => {
+    const timer = setTimeout(() => {
+      setDebouncedSearch(searchTerm);
+      setPageIndex(0); // Reset to first page on new search
+    }, 500);
+    return () => clearTimeout(timer);
+  }, [searchTerm]);
 
   useEffect(() => {
     fetchOrganizations();
-  }, []);
+  }, [pageIndex, pageSize, debouncedSearch]);
 
   async function fetchOrganizations() {
+    setLoading(true);
     try {
-      const { data, error } = await supabase
+      let query = supabase
         .from("recruiter_profiles")
-        .select("id, company_name, recruiter_name, email, phone, is_disabled, created_at, last_login_at")
-        .or('is_org_admin.eq.true,org_role.eq.admin')
-        .order("created_at", { ascending: false });
+        .select("id, company_name, recruiter_name, email, phone, is_disabled, created_at, last_login_at", { count: 'exact' })
+        .or('is_org_admin.eq.true,org_role.eq.admin');
+
+      if (debouncedSearch) {
+        query = query.or(`company_name.ilike.%${debouncedSearch}%,email.ilike.%${debouncedSearch}%`);
+      }
+
+      // Calculate range
+      const from = pageIndex * pageSize;
+      const to = from + pageSize - 1;
+
+      query = query
+        .order("created_at", { ascending: false })
+        .range(from, to);
+      
+      const { data, count, error } = await query;
       
       if (error) throw error;
       setOrganizations(data || []);
+      setTotalCount(count || 0);
     } catch (err) {
       console.error("Failed to fetch organizations", err);
+      toast.error("Failed to load organizations");
     } finally {
       setLoading(false);
     }
   }
 
-  const filteredOrgs = organizations.filter(org => 
-    org.company_name?.toLowerCase().includes(searchTerm.toLowerCase()) ||
-    org.email?.toLowerCase().includes(searchTerm.toLowerCase())
-  );
+  const handleToggleStatus = async (id: string, currentDisabled: boolean) => {
+    const action = currentDisabled ? "activate" : "suspend";
+    if (!window.confirm(`Are you sure you want to ${action} this organization?`)) return;
+    
+    try {
+      const { error } = await supabase
+        .from("recruiter_profiles")
+        .update({ is_disabled: !currentDisabled })
+        .eq("id", id);
+        
+      if (error) throw error;
+      
+      toast.success(`Organization ${currentDisabled ? "activated" : "suspended"} successfully`);
+      fetchOrganizations();
+    } catch (err) {
+      console.error(err);
+      toast.error(`Failed to ${action} organization`);
+    }
+  };
 
   return (
     <div className="space-y-6">
@@ -62,7 +112,7 @@ export default function OrganizationsManagement() {
         </div>
       </div>
 
-      <div className="bg-white rounded-xl border border-gray-100 shadow-sm overflow-hidden">
+      <div className="bg-white rounded-xl border border-gray-100 shadow-sm overflow-hidden flex flex-col">
         <div className="overflow-x-auto">
           <table className="w-full text-left text-sm">
             <thead className="bg-gray-50 text-gray-500 font-medium border-b border-gray-100">
@@ -77,10 +127,10 @@ export default function OrganizationsManagement() {
             <tbody className="divide-y divide-gray-100">
               {loading ? (
                 <tr><td colSpan={5} className="text-center py-8 text-gray-500">Loading organizations...</td></tr>
-              ) : filteredOrgs.length === 0 ? (
+              ) : organizations.length === 0 ? (
                 <tr><td colSpan={5} className="text-center py-8 text-gray-500">No organizations found.</td></tr>
               ) : (
-                filteredOrgs.map((org) => (
+                organizations.map((org) => (
                   <tr key={org.id} className="hover:bg-gray-50/50 transition-colors">
                     <td className="px-6 py-4">
                       <div className="flex items-center gap-3">
@@ -107,15 +157,41 @@ export default function OrganizationsManagement() {
                       {new Date(org.created_at).toLocaleDateString()}
                     </td>
                     <td className="px-6 py-4">
-                      <Button variant="ghost" size="sm" className="text-gray-500 hover:text-indigo-600">
-                        <ExternalLink className="w-4 h-4 mr-1" /> View
-                      </Button>
+                      <div className="flex gap-2">
+                        <Button 
+                          variant="ghost" 
+                          size="sm" 
+                          className="text-gray-500 hover:text-indigo-600"
+                          onClick={() => navigate(`/super-admin/organizations/${org.id}`)}
+                        >
+                          <ExternalLink className="w-4 h-4 mr-1" /> View
+                        </Button>
+                        <Button 
+                          variant="ghost" 
+                          size="sm" 
+                          className={org.is_disabled ? "text-green-600 hover:text-green-700 hover:bg-green-50" : "text-amber-600 hover:text-amber-700 hover:bg-amber-50"}
+                          onClick={() => handleToggleStatus(org.id, org.is_disabled)}
+                          title={org.is_disabled ? "Activate Organization" : "Suspend Organization"}
+                        >
+                          {org.is_disabled ? <CheckCircle className="w-4 h-4" /> : <ShieldAlert className="w-4 h-4" />}
+                        </Button>
+                      </div>
                     </td>
                   </tr>
                 ))
               )}
             </tbody>
           </table>
+        </div>
+        
+        <div className="border-t border-gray-100 bg-gray-50">
+          <DataTablePagination 
+            pageIndex={pageIndex}
+            pageSize={pageSize}
+            setPageIndex={setPageIndex}
+            setPageSize={setPageSize}
+            totalCount={totalCount}
+          />
         </div>
       </div>
     </div>

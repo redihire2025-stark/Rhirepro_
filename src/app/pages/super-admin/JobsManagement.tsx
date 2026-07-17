@@ -2,38 +2,64 @@ import { useEffect, useState } from "react";
 import { supabase } from "../../../lib/supabase";
 import { Search, Edit, Trash2, Eye, ExternalLink } from "lucide-react";
 import { Button } from "../../components/ui/button";
+import { DataTablePagination } from "../../components/ui/data-table-pagination";
+import { toast } from "sonner";
 
 export default function JobsManagement() {
   const [jobs, setJobs] = useState<any[]>([]);
   const [searchQuery, setSearchQuery] = useState("");
+  const [debouncedSearch, setDebouncedSearch] = useState("");
   const [loading, setLoading] = useState(false);
   const [statusFilter, setStatusFilter] = useState("All");
 
+  // Pagination states
+  const [pageIndex, setPageIndex] = useState(0);
+  const [pageSize, setPageSize] = useState(10);
+  const [totalCount, setTotalCount] = useState(0);
+
+  // Debounce search
+  useEffect(() => {
+    const timer = setTimeout(() => {
+      setDebouncedSearch(searchQuery);
+      setPageIndex(0);
+    }, 500);
+    return () => clearTimeout(timer);
+  }, [searchQuery]);
+
   useEffect(() => {
     fetchJobs();
-  }, [searchQuery, statusFilter]);
+  }, [pageIndex, pageSize, debouncedSearch, statusFilter]);
 
   async function fetchJobs() {
     setLoading(true);
     try {
       let query = supabase
         .from("jobs")
-        .select("id, title, company_name, location, status, created_at, recruiter_id")
-        .order("created_at", { ascending: false })
-        .limit(50);
+        .select("id, title, company_name, location, status, created_at, recruiter_id", { count: 'exact' });
         
-      if (searchQuery) {
-        query = query.or(`title.ilike.%${searchQuery}%,company_name.ilike.%${searchQuery}%`);
+      if (debouncedSearch) {
+        query = query.or(`title.ilike.%${debouncedSearch}%,company_name.ilike.%${debouncedSearch}%`);
       }
       
       if (statusFilter !== "All") {
         query = query.eq("status", statusFilter);
       }
       
-      const { data } = await query;
+      const from = pageIndex * pageSize;
+      const to = from + pageSize - 1;
+
+      query = query
+        .order("created_at", { ascending: false })
+        .range(from, to);
+      
+      const { data, count, error } = await query;
+      
+      if (error) throw error;
       setJobs(data || []);
+      setTotalCount(count || 0);
     } catch (err) {
       console.error("Error fetching jobs", err);
+      toast.error("Failed to load jobs");
     } finally {
       setLoading(false);
     }
@@ -42,16 +68,30 @@ export default function JobsManagement() {
   const handleDeleteJob = async (id: string) => {
     if (!window.confirm("Are you sure you want to delete this job listing? This action cannot be undone.")) return;
     
-    await supabase.from("jobs").delete().eq("id", id);
-    fetchJobs();
+    try {
+      const { error } = await supabase.from("jobs").delete().eq("id", id);
+      if (error) throw error;
+      toast.success("Job deleted successfully");
+      fetchJobs();
+    } catch (err) {
+      console.error(err);
+      toast.error("Failed to delete job");
+    }
   };
 
   const handleUpdateStatus = async (id: string, currentStatus: string) => {
     const newStatus = currentStatus === "Active" ? "Paused" : "Active";
     if (!window.confirm(`Are you sure you want to change status to ${newStatus}?`)) return;
     
-    await supabase.from("jobs").update({ status: newStatus }).eq("id", id);
-    fetchJobs();
+    try {
+      const { error } = await supabase.from("jobs").update({ status: newStatus }).eq("id", id);
+      if (error) throw error;
+      toast.success(`Job status updated to ${newStatus}`);
+      fetchJobs();
+    } catch (err) {
+      console.error(err);
+      toast.error("Failed to update job status");
+    }
   };
 
   return (
@@ -60,42 +100,47 @@ export default function JobsManagement() {
         <h1 className="text-2xl font-bold text-gray-900">Jobs Management</h1>
       </div>
 
-      <div className="bg-white rounded-xl shadow-sm border border-gray-100 p-6">
-        <div className="flex flex-col sm:flex-row gap-4 mb-6">
-          <div className="relative flex-1">
-            <Search className="absolute left-3 top-1/2 -translate-y-1/2 w-5 h-5 text-gray-400" />
-            <input 
-              type="text" 
-              placeholder="Search jobs by title or company..."
-              className="w-full pl-10 pr-4 py-2 border border-gray-200 rounded-lg focus:ring-2 focus:ring-indigo-500 focus:border-indigo-500 outline-none transition-all"
-              value={searchQuery}
-              onChange={(e) => setSearchQuery(e.target.value)}
-            />
+      <div className="bg-white rounded-xl shadow-sm border border-gray-100 flex flex-col">
+        <div className="p-6">
+          <div className="flex flex-col sm:flex-row gap-4 mb-2">
+            <div className="relative flex-1">
+              <Search className="absolute left-3 top-1/2 -translate-y-1/2 w-5 h-5 text-gray-400" />
+              <input 
+                type="text" 
+                placeholder="Search jobs by title or company..."
+                className="w-full pl-10 pr-4 py-2 border border-gray-200 rounded-lg focus:ring-2 focus:ring-indigo-500 focus:border-indigo-500 outline-none transition-all"
+                value={searchQuery}
+                onChange={(e) => setSearchQuery(e.target.value)}
+              />
+            </div>
+            
+            <select 
+              className="px-4 py-2 border border-gray-200 rounded-lg outline-none bg-white min-w-[150px]"
+              value={statusFilter}
+              onChange={(e) => {
+                setStatusFilter(e.target.value);
+                setPageIndex(0);
+              }}
+            >
+              <option value="All">All Statuses</option>
+              <option value="Active">Active</option>
+              <option value="Paused">Paused</option>
+              <option value="Closed">Closed</option>
+              <option value="Expired">Expired</option>
+            </select>
           </div>
-          
-          <select 
-            className="px-4 py-2 border border-gray-200 rounded-lg outline-none bg-white min-w-[150px]"
-            value={statusFilter}
-            onChange={(e) => setStatusFilter(e.target.value)}
-          >
-            <option value="All">All Statuses</option>
-            <option value="Active">Active</option>
-            <option value="Paused">Paused</option>
-            <option value="Closed">Closed</option>
-            <option value="Expired">Expired</option>
-          </select>
         </div>
 
         <div className="overflow-x-auto">
           <table className="w-full text-left border-collapse">
-            <thead>
-              <tr className="border-b border-gray-200 text-sm font-semibold text-gray-600">
-                <th className="pb-3 px-4">Job Title</th>
-                <th className="pb-3 px-4">Company</th>
-                <th className="pb-3 px-4">Location</th>
-                <th className="pb-3 px-4">Status</th>
-                <th className="pb-3 px-4">Posted Date</th>
-                <th className="pb-3 px-4 text-right">Actions</th>
+            <thead className="bg-gray-50 border-y border-gray-200">
+              <tr className="text-sm font-semibold text-gray-600">
+                <th className="py-3 px-4">Job Title</th>
+                <th className="py-3 px-4">Company</th>
+                <th className="py-3 px-4">Location</th>
+                <th className="py-3 px-4">Status</th>
+                <th className="py-3 px-4">Posted Date</th>
+                <th className="py-3 px-4 text-right">Actions</th>
               </tr>
             </thead>
             <tbody>
@@ -151,6 +196,16 @@ export default function JobsManagement() {
               )}
             </tbody>
           </table>
+        </div>
+        
+        <div className="border-t border-gray-100 bg-gray-50">
+          <DataTablePagination 
+            pageIndex={pageIndex}
+            pageSize={pageSize}
+            setPageIndex={setPageIndex}
+            setPageSize={setPageSize}
+            totalCount={totalCount}
+          />
         </div>
       </div>
     </div>

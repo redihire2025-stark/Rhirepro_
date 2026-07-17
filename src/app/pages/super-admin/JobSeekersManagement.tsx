@@ -1,38 +1,88 @@
 import { useEffect, useState } from "react";
 import { supabase, Profile } from "../../../lib/supabase";
-import { Search, UserCircle, ExternalLink, ShieldAlert } from "lucide-react";
+import { Search, UserCircle, ExternalLink, ShieldAlert, CheckCircle } from "lucide-react";
 import { Input } from "../../components/ui/input";
 import { Button } from "../../components/ui/button";
+import { DataTablePagination } from "../../components/ui/data-table-pagination";
+import { toast } from "sonner";
+import { useNavigate } from "react-router";
 
 export default function JobSeekersManagement() {
+  const navigate = useNavigate();
   const [jobSeekers, setJobSeekers] = useState<Profile[]>([]);
   const [loading, setLoading] = useState(true);
   const [searchTerm, setSearchTerm] = useState("");
+  const [debouncedSearch, setDebouncedSearch] = useState("");
+
+  // Pagination states
+  const [pageIndex, setPageIndex] = useState(0);
+  const [pageSize, setPageSize] = useState(10);
+  const [totalCount, setTotalCount] = useState(0);
+
+  // Debounce search
+  useEffect(() => {
+    const timer = setTimeout(() => {
+      setDebouncedSearch(searchTerm);
+      setPageIndex(0);
+    }, 500);
+    return () => clearTimeout(timer);
+  }, [searchTerm]);
 
   useEffect(() => {
     fetchJobSeekers();
-  }, []);
+  }, [pageIndex, pageSize, debouncedSearch]);
 
   async function fetchJobSeekers() {
+    setLoading(true);
     try {
-      const { data, error } = await supabase
+      let query = supabase
         .from("profiles")
-        .select("*")
-        .order("created_at", { ascending: false });
+        .select("*", { count: 'exact' });
+
+      if (debouncedSearch) {
+        query = query.or(`first_name.ilike.%${debouncedSearch}%,last_name.ilike.%${debouncedSearch}%,email.ilike.%${debouncedSearch}%`);
+      }
+
+      const from = pageIndex * pageSize;
+      const to = from + pageSize - 1;
+
+      query = query
+        .order("created_at", { ascending: false })
+        .range(from, to);
+      
+      const { data, count, error } = await query;
       
       if (error) throw error;
       setJobSeekers(data || []);
+      setTotalCount(count || 0);
     } catch (err) {
       console.error("Failed to fetch job seekers", err);
+      toast.error("Failed to load job seekers");
     } finally {
       setLoading(false);
     }
   }
 
-  const filteredSeekers = jobSeekers.filter(user => 
-    (user.first_name + " " + user.last_name).toLowerCase().includes(searchTerm.toLowerCase()) ||
-    user.email?.toLowerCase().includes(searchTerm.toLowerCase())
-  );
+  const handleToggleStatus = async (id: string, currentDisabled: boolean) => {
+    const action = currentDisabled ? "enable" : "disable";
+    if (!window.confirm(`Are you sure you want to ${action} this job seeker?`)) return;
+    
+    try {
+      // Assumes is_disabled exists or will be added to profiles table
+      const { error } = await supabase
+        .from("profiles")
+        .update({ is_disabled: !currentDisabled } as any)
+        .eq("id", id);
+        
+      if (error) throw error;
+      
+      toast.success(`Job seeker ${currentDisabled ? "enabled" : "disabled"} successfully`);
+      fetchJobSeekers();
+    } catch (err) {
+      console.error(err);
+      toast.error(`Failed to ${action} job seeker. Make sure is_disabled column exists in profiles table.`);
+    }
+  };
 
   return (
     <div className="space-y-6">
@@ -50,7 +100,7 @@ export default function JobSeekersManagement() {
         </div>
       </div>
 
-      <div className="bg-white rounded-xl border border-gray-100 shadow-sm overflow-hidden">
+      <div className="bg-white rounded-xl border border-gray-100 shadow-sm overflow-hidden flex flex-col">
         <div className="overflow-x-auto">
           <table className="w-full text-left text-sm">
             <thead className="bg-gray-50 text-gray-500 font-medium border-b border-gray-100">
@@ -58,17 +108,18 @@ export default function JobSeekersManagement() {
                 <th className="px-6 py-4">Candidate</th>
                 <th className="px-6 py-4">Experience</th>
                 <th className="px-6 py-4">Location</th>
+                <th className="px-6 py-4">Status</th>
                 <th className="px-6 py-4">Joined Date</th>
                 <th className="px-6 py-4">Actions</th>
               </tr>
             </thead>
             <tbody className="divide-y divide-gray-100">
               {loading ? (
-                <tr><td colSpan={5} className="text-center py-8 text-gray-500">Loading candidates...</td></tr>
-              ) : filteredSeekers.length === 0 ? (
-                <tr><td colSpan={5} className="text-center py-8 text-gray-500">No candidates found.</td></tr>
+                <tr><td colSpan={6} className="text-center py-8 text-gray-500">Loading candidates...</td></tr>
+              ) : jobSeekers.length === 0 ? (
+                <tr><td colSpan={6} className="text-center py-8 text-gray-500">No candidates found.</td></tr>
               ) : (
-                filteredSeekers.map((user) => (
+                jobSeekers.map((user: any) => (
                   <tr key={user.id} className="hover:bg-gray-50/50 transition-colors">
                     <td className="px-6 py-4">
                       <div className="flex items-center gap-3">
@@ -91,16 +142,35 @@ export default function JobSeekersManagement() {
                     <td className="px-6 py-4 text-gray-600">
                       {user.location || "Not specified"}
                     </td>
+                    <td className="px-6 py-4">
+                      <span className={`inline-flex items-center px-2 py-1 rounded-full text-xs font-medium ${
+                        user.is_disabled ? "bg-red-50 text-red-700" : "bg-green-50 text-green-700"
+                      }`}>
+                        {user.is_disabled ? "Disabled" : "Active"}
+                      </span>
+                    </td>
                     <td className="px-6 py-4 text-gray-500">
                       {new Date(user.created_at).toLocaleDateString()}
                     </td>
                     <td className="px-6 py-4">
                       <div className="flex gap-2">
-                        <Button variant="ghost" size="sm" className="text-gray-500 hover:text-indigo-600">
+                        <Button 
+                          variant="ghost" 
+                          size="sm" 
+                          className="text-gray-500 hover:text-indigo-600"
+                          onClick={() => navigate(`/super-admin/job-seekers/${user.id}`)}
+                          title="View Details"
+                        >
                           <ExternalLink className="w-4 h-4" />
                         </Button>
-                        <Button variant="ghost" size="sm" className="text-red-500 hover:text-red-700 hover:bg-red-50">
-                          <ShieldAlert className="w-4 h-4" />
+                        <Button 
+                          variant="ghost" 
+                          size="sm" 
+                          className={user.is_disabled ? "text-green-600 hover:text-green-700 hover:bg-green-50" : "text-amber-600 hover:text-amber-700 hover:bg-amber-50"}
+                          onClick={() => handleToggleStatus(user.id, user.is_disabled)}
+                          title={user.is_disabled ? "Enable Candidate" : "Disable Candidate"}
+                        >
+                          {user.is_disabled ? <CheckCircle className="w-4 h-4" /> : <ShieldAlert className="w-4 h-4" />}
                         </Button>
                       </div>
                     </td>
@@ -109,6 +179,16 @@ export default function JobSeekersManagement() {
               )}
             </tbody>
           </table>
+        </div>
+        
+        <div className="border-t border-gray-100 bg-gray-50">
+          <DataTablePagination 
+            pageIndex={pageIndex}
+            pageSize={pageSize}
+            setPageIndex={setPageIndex}
+            setPageSize={setPageSize}
+            totalCount={totalCount}
+          />
         </div>
       </div>
     </div>

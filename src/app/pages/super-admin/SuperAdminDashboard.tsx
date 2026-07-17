@@ -18,8 +18,11 @@ import logoImage from "../../../logo/logo.png";
 
 import Overview from "./Overview";
 import OrganizationsManagement from "./OrganizationsManagement";
+import OrganizationDetails from "./OrganizationDetails";
 import JobSeekersManagement from "./JobSeekersManagement";
+import JobSeekerDetails from "./JobSeekerDetails";
 import RecruitersManagement from "./RecruitersManagement";
+import RecruiterDetails from "./RecruiterDetails";
 import SalesTeamManagement from "./SalesTeamManagement";
 import BillingManagement from "./BillingManagement";
 import PlatformMonitoring from "./PlatformMonitoring";
@@ -127,9 +130,16 @@ export default function SuperAdminDashboard() {
         <div className="max-w-6xl mx-auto">
           <Routes>
             <Route path="/" element={<Overview />} />
-            <Route path="organizations/*" element={<OrganizationsManagement />} />
-            <Route path="job-seekers/*" element={<JobSeekersManagement />} />
-            <Route path="recruiters/*" element={<RecruitersManagement />} />
+            
+            <Route path="organizations" element={<OrganizationsManagement />} />
+            <Route path="organizations/:id" element={<OrganizationDetails />} />
+            
+            <Route path="job-seekers" element={<JobSeekersManagement />} />
+            <Route path="job-seekers/:id" element={<JobSeekerDetails />} />
+            
+            <Route path="recruiters" element={<RecruitersManagement />} />
+            <Route path="recruiters/:id" element={<RecruiterDetails />} />
+            
             <Route path="sales-team/*" element={<SalesTeamManagement />} />
             <Route path="billing/*" element={<BillingManagement />} />
             <Route path="monitoring/*" element={<PlatformMonitoring />} />

@@ -1,8 +1,10 @@
 import { useEffect, useState } from "react";
 import { supabase } from "../../../lib/supabase";
-import { Search, TrendingUp, Users, ExternalLink, ShieldAlert, Target } from "lucide-react";
+import { Search, TrendingUp, Users, ExternalLink, ShieldAlert, Target, CheckCircle } from "lucide-react";
 import { Input } from "../../components/ui/input";
 import { Button } from "../../components/ui/button";
+import { DataTablePagination } from "../../components/ui/data-table-pagination";
+import { toast } from "sonner";
 
 interface SalesMember {
   id: string;
@@ -20,18 +22,48 @@ export default function SalesTeamManagement() {
   const [salesTeam, setSalesTeam] = useState<SalesMember[]>([]);
   const [loading, setLoading] = useState(true);
   const [searchTerm, setSearchTerm] = useState("");
+  const [debouncedSearch, setDebouncedSearch] = useState("");
   const [dbError, setDbError] = useState(false);
+
+  // Pagination states
+  const [pageIndex, setPageIndex] = useState(0);
+  const [pageSize, setPageSize] = useState(10);
+  const [totalCount, setTotalCount] = useState(0);
+
+  // Stats
+  const [totalMembers, setTotalMembers] = useState(0);
+
+  useEffect(() => {
+    const timer = setTimeout(() => {
+      setDebouncedSearch(searchTerm);
+      setPageIndex(0);
+    }, 500);
+    return () => clearTimeout(timer);
+  }, [searchTerm]);
 
   useEffect(() => {
     fetchSalesTeam();
-  }, []);
+  }, [pageIndex, pageSize, debouncedSearch]);
 
   async function fetchSalesTeam() {
+    setLoading(true);
     try {
-      const { data, error } = await supabase
+      let query = supabase
         .from("sales_team")
-        .select("*")
-        .order("created_at", { ascending: false });
+        .select("*", { count: 'exact' });
+        
+      if (debouncedSearch) {
+        query = query.or(`name.ilike.%${debouncedSearch}%,email.ilike.%${debouncedSearch}%,employee_id.ilike.%${debouncedSearch}%`);
+      }
+
+      const from = pageIndex * pageSize;
+      const to = from + pageSize - 1;
+
+      query = query
+        .order("created_at", { ascending: false })
+        .range(from, to);
+      
+      const { data, count, error } = await query;
       
       if (error) {
         if (error.code === '42P01') {
@@ -41,22 +73,38 @@ export default function SalesTeamManagement() {
         throw error;
       }
 
-      // In a real scenario, we'd also aggregate conversions from recruiter_profiles 
-      // where referral_email = sales_member.email
-      // For now, mapping data
       setSalesTeam(data || []);
+      setTotalCount(count || 0);
+      if (!debouncedSearch) {
+        setTotalMembers(count || 0);
+      }
     } catch (err) {
       console.error("Failed to fetch sales team", err);
+      toast.error("Failed to load sales team");
     } finally {
       setLoading(false);
     }
   }
 
-  const filteredTeam = salesTeam.filter(s => 
-    s.name?.toLowerCase().includes(searchTerm.toLowerCase()) ||
-    s.email?.toLowerCase().includes(searchTerm.toLowerCase()) ||
-    s.employee_id?.toLowerCase().includes(searchTerm.toLowerCase())
-  );
+  const handleToggleStatus = async (id: string, currentActive: boolean) => {
+    const action = currentActive ? "deactivate" : "activate";
+    if (!window.confirm(`Are you sure you want to ${action} this sales member?`)) return;
+    
+    try {
+      const { error } = await supabase
+        .from("sales_team")
+        .update({ is_active: !currentActive })
+        .eq("id", id);
+        
+      if (error) throw error;
+      
+      toast.success(`Sales member ${!currentActive ? "activated" : "deactivated"} successfully`);
+      fetchSalesTeam();
+    } catch (err) {
+      console.error(err);
+      toast.error(`Failed to ${action} sales member`);
+    }
+  };
 
   if (dbError) {
     return (
@@ -94,7 +142,7 @@ export default function SalesTeamManagement() {
             </div>
             <div>
                <p className="text-sm text-gray-500 font-medium">Total Members</p>
-               <p className="text-2xl font-bold text-gray-900">{salesTeam.length}</p>
+               <p className="text-2xl font-bold text-gray-900">{totalMembers}</p>
             </div>
          </div>
          <div className="bg-white p-6 rounded-xl border border-gray-100 shadow-sm flex items-center gap-4">
@@ -117,7 +165,7 @@ export default function SalesTeamManagement() {
          </div>
       </div>
 
-      <div className="bg-white rounded-xl border border-gray-100 shadow-sm overflow-hidden">
+      <div className="bg-white rounded-xl border border-gray-100 shadow-sm overflow-hidden flex flex-col">
         <div className="overflow-x-auto">
           <table className="w-full text-left text-sm">
             <thead className="bg-gray-50 text-gray-500 font-medium border-b border-gray-100">
@@ -132,10 +180,10 @@ export default function SalesTeamManagement() {
             <tbody className="divide-y divide-gray-100">
               {loading ? (
                 <tr><td colSpan={5} className="text-center py-8 text-gray-500">Loading sales team...</td></tr>
-              ) : filteredTeam.length === 0 ? (
+              ) : salesTeam.length === 0 ? (
                 <tr><td colSpan={5} className="text-center py-8 text-gray-500">No sales members found.</td></tr>
               ) : (
-                filteredTeam.map((member) => (
+                salesTeam.map((member) => (
                   <tr key={member.id} className="hover:bg-gray-50/50 transition-colors">
                     <td className="px-6 py-4">
                       <div className="flex items-center gap-3">
@@ -162,15 +210,33 @@ export default function SalesTeamManagement() {
                       </span>
                     </td>
                     <td className="px-6 py-4">
-                      <Button variant="ghost" size="sm" className="text-gray-500 hover:text-indigo-600">
-                        <ExternalLink className="w-4 h-4 mr-1" /> View
-                      </Button>
+                      <div className="flex gap-2">
+                        <Button 
+                          variant="ghost" 
+                          size="sm" 
+                          className={!member.is_active ? "text-green-600 hover:text-green-700 hover:bg-green-50" : "text-amber-600 hover:text-amber-700 hover:bg-amber-50"}
+                          onClick={() => handleToggleStatus(member.id, member.is_active)}
+                          title={!member.is_active ? "Activate Member" : "Deactivate Member"}
+                        >
+                          {!member.is_active ? <CheckCircle className="w-4 h-4" /> : <ShieldAlert className="w-4 h-4" />}
+                        </Button>
+                      </div>
                     </td>
                   </tr>
                 ))
               )}
             </tbody>
           </table>
+        </div>
+        
+        <div className="border-t border-gray-100 bg-gray-50">
+          <DataTablePagination 
+            pageIndex={pageIndex}
+            pageSize={pageSize}
+            setPageIndex={setPageIndex}
+            setPageSize={setPageSize}
+            totalCount={totalCount}
+          />
         </div>
       </div>
     </div>
