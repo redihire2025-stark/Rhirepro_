@@ -73,6 +73,29 @@ export default function BillingManagement() {
         </div>
       </div>
 
+      <div className="grid grid-cols-1 md:grid-cols-2 lg:grid-cols-4 gap-6">
+        <div className="bg-white p-6 rounded-xl border border-gray-100 shadow-sm">
+          <p className="text-sm text-gray-500 font-medium">Total Revenue</p>
+          <p className="text-2xl font-bold text-gray-900">₹1,25,000</p>
+          <p className="text-xs text-green-600 mt-1">+12% from last month</p>
+        </div>
+        <div className="bg-white p-6 rounded-xl border border-gray-100 shadow-sm">
+          <p className="text-sm text-gray-500 font-medium">Active Plans</p>
+          <p className="text-2xl font-bold text-gray-900">45</p>
+          <p className="text-xs text-gray-500 mt-1">12 Upcoming Renewals</p>
+        </div>
+        <div className="bg-white p-6 rounded-xl border border-gray-100 shadow-sm">
+          <p className="text-sm text-gray-500 font-medium">Expired Plans</p>
+          <p className="text-2xl font-bold text-gray-900">8</p>
+          <p className="text-xs text-red-500 mt-1">Requires follow-up</p>
+        </div>
+        <div className="bg-white p-6 rounded-xl border border-gray-100 shadow-sm">
+          <p className="text-sm text-gray-500 font-medium">Failed Payments</p>
+          <p className="text-2xl font-bold text-gray-900">2</p>
+          <p className="text-xs text-gray-500 mt-1">In last 30 days</p>
+        </div>
+      </div>
+
       <div className="bg-white rounded-xl shadow-sm border border-gray-100 p-6">
         {activeTab === "transactions" ? (
           <>

@@ -24,6 +24,7 @@ export default function RecruiterSignUp() {
     companySize: "",
     email: "",
     phone: "",
+    referralEmail: "",
     password: "",
     confirmPassword: "",
   });
@@ -96,6 +97,7 @@ export default function RecruiterSignUp() {
         industry: formData.industry,
         company_size: formData.companySize,
         phone: formData.phone,
+        referral_email: formData.referralEmail || null,
       }, { onConflict: "id", ignoreDuplicates: true });
 
       if (profileError && profileError.code !== "23505") {
@@ -318,6 +320,10 @@ export default function RecruiterSignUp() {
             <div>
               <label className="block mb-1.5 text-sm font-medium text-[#3A1F1F]">Phone</label>
               <Input type="tel" value={formData.phone} onChange={e => setFormData({ ...formData, phone: e.target.value })} className="bg-[#F6F6F6] border-gray-200 rounded-xl" placeholder="Enter phone number" />
+            </div>
+            <div>
+              <label className="block mb-1.5 text-sm font-medium text-[#3A1F1F]">Referral Email / ID (Optional)</label>
+              <Input type="text" value={formData.referralEmail} onChange={e => setFormData({ ...formData, referralEmail: e.target.value })} className="bg-[#F6F6F6] border-gray-200 rounded-xl" placeholder="Enter referral email or ID" />
             </div>
             <div>
               <label className="block mb-1.5 text-sm font-medium text-[#3A1F1F]">Password *</label>
