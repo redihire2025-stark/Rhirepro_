@@ -126,8 +126,8 @@ export default function SuperAdminDashboard() {
       </aside>
 
       {/* Main Content Area */}
-      <main className="flex-1 w-full md:w-auto h-screen overflow-y-auto p-4 md:p-8">
-        <div className="max-w-6xl mx-auto">
+      <main className="flex-1 w-full md:w-auto h-screen overflow-y-auto p-4 md:p-6 lg:p-8">
+        <div className="w-full mx-auto max-w-7xl">
           <Routes>
             <Route path="/" element={<Overview />} />
             

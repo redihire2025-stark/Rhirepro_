@@ -2,7 +2,7 @@ import { useEffect, useState } from "react";
 import { useParams, useNavigate } from "react-router";
 import { supabase } from "../../../lib/supabase";
 import { Button } from "../../components/ui/button";
-import { ArrowLeft, Building2, Users, Briefcase, CreditCard, Activity, Calendar, ExternalLink } from "lucide-react";
+import { ArrowLeft, Building2, Users, Briefcase, CreditCard, Activity, Calendar, ExternalLink, Shield, BarChart2 } from "lucide-react";
 import { toast } from "sonner";
 
 export default function OrganizationDetails() {
@@ -63,9 +63,9 @@ export default function OrganizationDetails() {
         <h1 className="text-2xl font-bold text-gray-900">Organization Details</h1>
       </div>
 
-      <div className="grid grid-cols-1 md:grid-cols-3 gap-6">
+      <div className="grid grid-cols-1 lg:grid-cols-4 gap-6">
         {/* Main Info Card */}
-        <div className="md:col-span-2 bg-white rounded-xl border border-gray-100 shadow-sm p-6">
+        <div className="lg:col-span-3 bg-white rounded-xl border border-gray-100 shadow-sm p-6">
           <div className="flex items-start gap-4 mb-8">
             <div className="w-16 h-16 rounded-xl bg-indigo-50 flex items-center justify-center flex-shrink-0">
               <Building2 className="w-8 h-8 text-indigo-600" />
@@ -108,33 +108,88 @@ export default function OrganizationDetails() {
 
           <div className="mt-8">
             <h3 className="text-lg font-semibold text-gray-900 mb-4">Activity Overview</h3>
-            <div className="grid grid-cols-1 sm:grid-cols-3 gap-4">
-              <div className="bg-gray-50 rounded-lg p-4 flex items-center gap-4">
-                <div className="w-10 h-10 rounded-full bg-blue-100 flex items-center justify-center text-blue-600">
-                  <Users className="w-5 h-5" />
+            
+            {/* Top Row Cards */}
+            <div className="grid grid-cols-1 md:grid-cols-4 gap-4 mb-4">
+              <div className="bg-white rounded-xl border border-gray-100 shadow-sm p-4 flex flex-col items-center text-center">
+                <div className="flex items-center justify-center gap-2 mb-3 text-gray-500">
+                  <Users className="w-5 h-5 text-red-500" /> 
+                  <span className="text-sm font-medium whitespace-nowrap">Team Members</span>
                 </div>
-                <div>
-                  <p className="text-sm text-gray-500">Team Size</p>
-                  <p className="text-xl font-bold text-gray-900">{mockData.teamSize}</p>
-                </div>
+                <div className="text-3xl font-bold text-gray-900 mb-1">1 active</div>
+                <div className="text-sm text-gray-400">1 total</div>
               </div>
-              <div className="bg-gray-50 rounded-lg p-4 flex items-center gap-4">
-                <div className="w-10 h-10 rounded-full bg-green-100 flex items-center justify-center text-green-600">
-                  <Briefcase className="w-5 h-5" />
+              
+              <div className="bg-white rounded-xl border border-gray-100 shadow-sm p-4 flex flex-col items-center text-center">
+                <div className="flex items-center justify-center gap-2 mb-3 text-gray-500">
+                  <Shield className="w-5 h-5 text-blue-500" /> 
+                  <span className="text-sm font-medium whitespace-nowrap">Sub-Users</span>
                 </div>
-                <div>
-                  <p className="text-sm text-gray-500">Active Jobs</p>
-                  <p className="text-xl font-bold text-gray-900">{mockData.activeJobs}</p>
-                </div>
+                <div className="text-3xl font-bold text-gray-900 mb-1">1 / 10</div>
+                <div className="text-sm text-gray-400">9 remaining</div>
               </div>
-              <div className="bg-gray-50 rounded-lg p-4 flex items-center gap-4">
-                <div className="w-10 h-10 rounded-full bg-purple-100 flex items-center justify-center text-purple-600">
-                  <Activity className="w-5 h-5" />
+
+              <div className="bg-white rounded-xl border border-gray-100 shadow-sm p-4 flex flex-col items-center text-center">
+                <div className="flex items-center justify-center gap-2 mb-3 text-gray-500">
+                  <Briefcase className="w-5 h-5 text-green-500" /> 
+                  <span className="text-sm font-medium whitespace-nowrap">Total Jobs</span>
                 </div>
-                <div>
-                  <p className="text-sm text-gray-500">Total Postings</p>
-                  <p className="text-xl font-bold text-gray-900">{mockData.totalJobs}</p>
+                <div className="text-3xl font-bold text-gray-900 mb-1">27</div>
+                <div className="text-sm text-gray-400">5 active</div>
+              </div>
+
+              <div className="bg-white rounded-xl border border-gray-100 shadow-sm p-4 flex flex-col items-center text-center">
+                <div className="flex items-center justify-center gap-2 mb-3 text-gray-500">
+                  <BarChart2 className="w-5 h-5 text-purple-500" /> 
+                  <span className="text-sm font-medium whitespace-nowrap">Total Apps</span>
                 </div>
+                <div className="text-3xl font-bold text-gray-900 mb-1">500</div>
+                <div className="text-sm text-gray-400">0 hired</div>
+              </div>
+            </div>
+
+            {/* Bottom Grid Stats */}
+            <div className="grid grid-cols-2 md:grid-cols-5 gap-3">
+              <div className="bg-white rounded-xl border border-gray-100 shadow-sm p-4 flex flex-col items-center text-center">
+                <div className="text-xs text-gray-500 mb-2">Total Recruiters</div>
+                <div className="text-2xl font-bold text-gray-900">1</div>
+              </div>
+              <div className="bg-white rounded-xl border border-gray-100 shadow-sm p-4 flex flex-col items-center text-center">
+                <div className="text-xs text-gray-500 mb-2">Active Recruiters</div>
+                <div className="text-2xl font-bold text-green-600">1</div>
+              </div>
+              <div className="bg-white rounded-xl border border-gray-100 shadow-sm p-4 flex flex-col items-center text-center">
+                <div className="text-xs text-gray-500 mb-2">Total Jobs</div>
+                <div className="text-2xl font-bold text-gray-900">27</div>
+              </div>
+              <div className="bg-white rounded-xl border border-gray-100 shadow-sm p-4 flex flex-col items-center text-center">
+                <div className="text-xs text-gray-500 mb-2">Active Jobs</div>
+                <div className="text-2xl font-bold text-green-600">5</div>
+              </div>
+              <div className="bg-white rounded-xl border border-gray-100 shadow-sm p-4 flex flex-col items-center text-center">
+                <div className="text-xs text-gray-500 mb-2">Closed Jobs</div>
+                <div className="text-2xl font-bold text-gray-700">2</div>
+              </div>
+              
+              <div className="bg-white rounded-xl border border-gray-100 shadow-sm p-4 flex flex-col items-center text-center">
+                <div className="text-xs text-gray-500 mb-2">Total Candidates</div>
+                <div className="text-2xl font-bold text-gray-900">500</div>
+              </div>
+              <div className="bg-white rounded-xl border border-gray-100 shadow-sm p-4 flex flex-col items-center text-center">
+                <div className="text-xs text-gray-500 mb-2">Applications Today</div>
+                <div className="text-2xl font-bold text-blue-600">0</div>
+              </div>
+              <div className="bg-white rounded-xl border border-gray-100 shadow-sm p-4 flex flex-col items-center text-center">
+                <div className="text-xs text-gray-500 mb-2">Interviews Scheduled</div>
+                <div className="text-2xl font-bold text-orange-500">2</div>
+              </div>
+              <div className="bg-white rounded-xl border border-gray-100 shadow-sm p-4 flex flex-col items-center text-center">
+                <div className="text-xs text-gray-500 mb-2">Offers Released</div>
+                <div className="text-2xl font-bold text-red-500">0</div>
+              </div>
+              <div className="bg-white rounded-xl border border-gray-100 shadow-sm p-4 flex flex-col items-center text-center">
+                <div className="text-xs text-gray-500 mb-2">Successful Hires</div>
+                <div className="text-2xl font-bold text-green-600">0</div>
               </div>
             </div>
           </div>
