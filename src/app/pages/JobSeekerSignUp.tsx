@@ -1,4 +1,4 @@
-import { useState } from "react";
+import { useState, useEffect } from "react";
 import { useNavigate, Link, useLocation } from "react-router";
 
 const logoImage = new URL("../../logo/logo.png", import.meta.url).href;
@@ -48,6 +48,14 @@ export default function JobSeekerSignUp() {
   const location = useLocation();
   const redirectTo = new URLSearchParams(location.search).get("redirect");
   const safeRedirectTo = redirectTo?.startsWith("/") ? redirectTo : "/jobseeker/dashboard";
+
+  useEffect(() => {
+    const originalBg = document.body.style.backgroundColor;
+    document.body.style.backgroundColor = "#F6F6F6";
+    return () => {
+      document.body.style.backgroundColor = originalBg;
+    };
+  }, []);
 
   const handleSubmit = async (e: React.FormEvent) => {
     e.preventDefault();

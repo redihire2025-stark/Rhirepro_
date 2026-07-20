@@ -1,4 +1,4 @@
-import { useState } from "react";
+import { useState, useEffect } from "react";
 import { useNavigate, useSearchParams } from "react-router";
 import { Button } from "../components/ui/button";
 import { Input } from "../components/ui/input";
@@ -53,7 +53,12 @@ const GoogleIcon = () => (
 // ── Main component ────────────────────────────────────────────────────────────
 
 export default function SignInPage() {
-  const [userType, setUserType] = useState<"jobseeker" | "recruiter">("jobseeker");
+  const navigate = useNavigate();
+  const [searchParams] = useSearchParams();
+  const roleParam = searchParams.get("role");
+  const initialUserType = (roleParam === "recruiter" || roleParam === "jobseeker") ? roleParam : "jobseeker";
+
+  const [userType, setUserType] = useState<"jobseeker" | "recruiter">(initialUserType);
   const [step, setStep] = useState<"credentials" | "otp" | "forgot" | "forgot-otp">("credentials");
   const [email, setEmail] = useState("");
   const [password, setPassword] = useState("");
@@ -71,9 +76,15 @@ export default function SignInPage() {
   const [confirmPassword, setConfirmPassword] = useState("");
   const [showNewPassword, setShowNewPassword] = useState(false);
   const [resetSuccess, setResetSuccess] = useState(false);
-  const navigate = useNavigate();
-  const [searchParams] = useSearchParams();
   const planRedirect = searchParams.get("redirect") === "plan" ? searchParams.get("plan") : null;
+
+  useEffect(() => {
+    const originalBg = document.body.style.backgroundColor;
+    document.body.style.backgroundColor = "#F6F6F6";
+    return () => {
+      document.body.style.backgroundColor = originalBg;
+    };
+  }, []);
 
   const handleForgotPassword = async (e: React.FormEvent) => {
     e.preventDefault();

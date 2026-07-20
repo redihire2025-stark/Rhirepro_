@@ -1,4 +1,4 @@
-import { useState, useEffect, useMemo, useCallback } from "react";
+import { useState, useEffect, useMemo, useCallback, useRef } from "react";
 import {
   Menu,
   X,
@@ -45,10 +45,11 @@ import {
   CarouselPrevious,
   type CarouselApi,
 } from "../components/ui/carousel";
-import { useNavigate } from "react-router";
+import { useNavigate, useLocation } from "react-router";
 import { ImageWithFallback } from "../components/figma/ImageWithFallback";
 import { useAuth } from "../../lib/auth-context";
 import JobShareButton from "../components/JobShareButton";
+import PublicFooter from "../components/PublicFooter";
 
 import { PLANS, calculateGst } from "../../lib/plans";
 import { supabase, type Job as DBJob, type RecruiterArticle } from "../../lib/supabase";
@@ -250,7 +251,56 @@ export default function LandingPage() {
   const [activeTestimonial, setActiveTestimonial] = useState(0);
   const [testimonialSlideCount, setTestimonialSlideCount] = useState(0);
   const navigate = useNavigate();
+  const location = useLocation();
   const { user, role, profile } = useAuth();
+
+  const isProgrammaticScrollRef = useRef(location.hash ? true : false);
+  const targetSectionRef = useRef<string | null>(location.hash ? location.hash.replace("#", "") : null);
+  const scrollTimeoutRef = useRef<NodeJS.Timeout | null>(null);
+
+  useEffect(() => {
+    return () => {
+      if (scrollTimeoutRef.current) {
+        clearTimeout(scrollTimeoutRef.current);
+      }
+    };
+  }, []);
+
+  useEffect(() => {
+    if (location.hash) {
+      const id = location.hash.replace("#", "");
+      isProgrammaticScrollRef.current = true;
+      targetSectionRef.current = id;
+      setActiveSection(id);
+
+      const timer = setTimeout(() => {
+        const element = document.getElementById(id);
+        if (element) {
+          const headerHeight = 80;
+          const elementPosition = element.getBoundingClientRect().top + window.scrollY;
+          const offsetPosition = elementPosition - headerHeight;
+
+          if (scrollTimeoutRef.current) {
+            clearTimeout(scrollTimeoutRef.current);
+          }
+
+          window.scrollTo({
+            top: offsetPosition,
+            behavior: "smooth"
+          });
+
+          scrollTimeoutRef.current = setTimeout(() => {
+            isProgrammaticScrollRef.current = false;
+            targetSectionRef.current = null;
+          }, 1000);
+        } else {
+          isProgrammaticScrollRef.current = false;
+          targetSectionRef.current = null;
+        }
+      }, 50);
+      return () => clearTimeout(timer);
+    }
+  }, [location.hash]);
 
   const updateTestimonialCarousel = useCallback((api: CarouselApi) => {
     if (!api) return;
@@ -357,38 +407,68 @@ export default function LandingPage() {
 
   useEffect(() => {
     const handleScroll = () => {
-      // Update scroll state for header
       setIsScrolled(window.scrollY > 20);
 
-      // Update active section
-      const sections = ["home", "about", "services", "jobs", "contact"];
-      const scrollPosition = window.scrollY + 150;
+      // Skip scroll-spy calculation if programmatic scrolling is active
+      if (isProgrammaticScrollRef.current) return;
 
+      const sections = ["home", "about", "services", "jobs", "contact"];
+      const headerHeight = 80;
+      const scrollPosition = window.scrollY + headerHeight + 10; // Tight 10px buffer
+
+      let currentSection = "home";
       for (const section of sections) {
         const element = document.getElementById(section);
         if (element) {
-          const { offsetTop, offsetHeight } = element;
-          if (
-            scrollPosition >= offsetTop &&
-            scrollPosition < offsetTop + offsetHeight
-          ) {
-            setActiveSection(section);
-            break;
+          const offsetTop = element.getBoundingClientRect().top + window.scrollY;
+          if (scrollPosition >= offsetTop) {
+            currentSection = section;
           }
         }
       }
+
+      // Safeguard override if programmatic scroll is settling
+      if (targetSectionRef.current) {
+        currentSection = targetSectionRef.current;
+      }
+
+      // Fallback for bottom of the page
+      if (window.innerHeight + window.scrollY >= document.documentElement.scrollHeight - 50) {
+        currentSection = "contact";
+      }
+
+      setActiveSection(currentSection);
     };
 
     window.addEventListener("scroll", handleScroll);
-    handleScroll(); // Call once on mount
-    return () =>
-      window.removeEventListener("scroll", handleScroll);
+    handleScroll();
+    return () => window.removeEventListener("scroll", handleScroll);
   }, []);
 
   const scrollToSection = (sectionId: string) => {
     const element = document.getElementById(sectionId);
     if (element) {
-      element.scrollIntoView({ behavior: "smooth" });
+      const headerHeight = 80;
+      const elementPosition = element.getBoundingClientRect().top + window.scrollY;
+      const offsetPosition = elementPosition - headerHeight;
+
+      // Set selection immediately and skip scroll updates
+      setActiveSection(sectionId);
+      targetSectionRef.current = sectionId;
+      isProgrammaticScrollRef.current = true;
+      if (scrollTimeoutRef.current) {
+        clearTimeout(scrollTimeoutRef.current);
+      }
+
+      window.scrollTo({
+        top: offsetPosition,
+        behavior: "smooth"
+      });
+
+      scrollTimeoutRef.current = setTimeout(() => {
+        isProgrammaticScrollRef.current = false;
+        targetSectionRef.current = null;
+      }, 1000);
     }
   };
 
@@ -1655,136 +1735,7 @@ export default function LandingPage() {
         </div>
       </section>
 
-      {/* Footer */}
-      <footer className="bg-[#FF2B2B] text-white py-10">
-        <div className="container mx-auto px-4">
-          <div className="grid md:grid-cols-3 gap-8 mb-6">
-            <div>
-              <h2 className="text-2xl md:text-3xl font-bold mb-4">
-                Work With Purpose.
-                <br />
-                Grow With Us.
-              </h2>
-              {/* Newsletter */}
-              <div className="bg-white rounded-full p-1.5 flex items-center gap-2">
-                <Input
-                  type="email"
-                  value={email}
-                  onChange={(e) => setEmail(e.target.value)}
-                  className="bg-transparent border-0 text-[#3A1F1F] placeholder:text-gray-400 flex-1 focus-visible:ring-0 text-sm"
-                  placeholder="Email"
-                />
-                <Button className="bg-[#FF2B2B] hover:bg-[#e02525] text-white rounded-full px-6 py-2 text-sm">
-                  Subscribe Now{" "}
-                  <ArrowRight className="ml-2 h-4 w-4" />
-                </Button>
-              </div>
-            </div>
-            <div>
-              <h4 className="font-bold mb-3 text-sm">
-                Company
-              </h4>
-              <ul className="space-y-1.5 text-white/80 text-sm">
-                <li>
-                  <a
-                    href="#home"
-                    className="hover:text-white transition-colors"
-                  >
-                    Home
-                  </a>
-                </li>
-                <li>
-                  <a
-                    href="#about"
-                    className="hover:text-white transition-colors"
-                  >
-                    About Us
-                  </a>
-                </li>
-                <li>
-                  <a
-                    href="/services"
-                    className="hover:text-white transition-colors"
-                  >
-                    Services
-                  </a>
-                </li>
-                <li>
-                  <a
-                    href="#contact"
-                    className="hover:text-white transition-colors"
-                  >
-                    Contact Us
-                  </a>
-                </li>
-              </ul>
-            </div>
-            <div>
-              <h4 className="font-bold mb-3 text-sm">
-                Services
-              </h4>
-              <ul className="space-y-1.5 text-white/80 text-sm">
-                <li>
-                  <a
-                    href="/services#talent-sourcing"
-                    className="hover:text-white transition-colors"
-                  >
-                    Talent Sourcing
-                  </a>
-                </li>
-                <li>
-                  <a
-                    href="/services#executive-search"
-                    className="hover:text-white transition-colors"
-                  >
-                    Executive Search
-                  </a>
-                </li>
-                <li>
-                  <a
-                    href="/services#contract-hiring"
-                    className="hover:text-white transition-colors"
-                  >
-                    Project-Based Hiring
-                  </a>
-                </li>
-                <li>
-                  <a
-                    href="/services#career-coaching"
-                    className="hover:text-white transition-colors"
-                  >
-                    Career Coaching
-                  </a>
-                </li>
-                <li>
-                  <a
-                    href="/services#job-matching"
-                    className="hover:text-white transition-colors"
-                  >
-                    Job Matching
-                  </a>
-                </li>
-                <li>
-                  <a
-                    href="/services#employer-branding"
-                    className="hover:text-white transition-colors"
-                  >
-                    Branding Support
-                  </a>
-                </li>
-              </ul>
-            </div>
-          </div>
-
-          <div className="border-t border-white/20 pt-6 flex flex-col md:flex-row justify-between items-center gap-3 text-white/80 text-xs">
-            <p>Copyright © 2025 RhirePro. All Rights Reserved.</p>
-            <div className="flex gap-4">
-              <a href="/privacy-policy" className="hover:text-white transition-colors">Privacy Policy</a>
-              <a href="/terms-of-service" className="hover:text-white transition-colors">Terms of Service</a>
-            </div>
-          </div>
-        </div>
-      </footer>
+      <PublicFooter />
     </div>
   );
 }
