@@ -541,8 +541,12 @@ export default function OrgAdminPanel() {
             </Link>
             <DropdownMenu>
               <DropdownMenuTrigger className="inline-flex h-10 w-10 items-center justify-center rounded-md hover:bg-accent">
-                <div className="w-8 h-8 bg-[#FF2B2B] rounded-full flex items-center justify-center text-white text-xs font-bold">
-                  {companyInitials}
+                <div className="w-8 h-8 rounded-full overflow-hidden flex items-center justify-center border border-gray-200 bg-[#FF2B2B] text-white text-xs font-bold flex-shrink-0">
+                  {recruiterProfile?.logo_url ? (
+                    <img src={recruiterProfile.logo_url} alt="" className="w-full h-full object-cover" />
+                  ) : (
+                    companyInitials
+                  )}
                 </div>
               </DropdownMenuTrigger>
               <DropdownMenuContent align="end">

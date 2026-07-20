@@ -1193,7 +1193,13 @@ export default function RecruiterDashboard() {
 
               <DropdownMenu>
                 <DropdownMenuTrigger className="inline-flex h-10 w-10 items-center justify-center rounded-md hover:bg-accent focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-ring focus-visible:ring-offset-2">
-                  <div className="w-8 h-8 bg-[#FF2B2B] rounded-full flex items-center justify-center text-white text-xs font-bold">{companyInitials}</div>
+                  <div className="w-8 h-8 rounded-full overflow-hidden flex items-center justify-center border border-gray-200 bg-[#FF2B2B] text-white text-xs font-bold flex-shrink-0">
+                    {recruiterProfile?.logo_url ? (
+                      <img src={recruiterProfile.logo_url} alt="" className="w-full h-full object-cover" />
+                    ) : (
+                      companyInitials
+                    )}
+                  </div>
                 </DropdownMenuTrigger>
                 <DropdownMenuContent align="end">
                   <div className="px-3 py-2">
@@ -1956,6 +1962,9 @@ function PostJobPage() {
   const isSalaryRangeInvalid =
     Boolean(formData.salaryMin && formData.salaryMax) &&
     Number(formData.salaryMax) < Number(formData.salaryMin);
+  const isExperienceRangeInvalid =
+    Boolean(formData.experienceMin && formData.experienceMax) &&
+    Number(formData.experienceMax) < Number(formData.experienceMin);
   const filteredSkillOptions = useMemo(() => {
     const query = skillSearch.trim();
     const options = query ? SEARCH_SUGGESTION_DATASET : SKILL_OPTIONS;
@@ -2121,6 +2130,10 @@ function PostJobPage() {
       setPostError("Maximum salary must be greater than or equal to minimum salary.");
       return;
     }
+    if (isExperienceRangeInvalid) {
+      setPostError("Maximum experience must be greater than or equal to minimum experience.");
+      return;
+    }
     setPosting(true);
     try {
       const deadline = buildJobExpiryTimestamp();
@@ -2188,9 +2201,17 @@ function PostJobPage() {
           {/* Header */}
           <div className="p-6 border-b border-gray-100">
             <div className="flex items-start gap-4">
-              <div className="w-14 h-14 bg-[#FF2B2B] rounded-xl flex items-center justify-center text-white font-bold text-xl flex-shrink-0">
-                {(recruiterProfile?.company_name || "C")[0]}
-              </div>
+              {recruiterProfile?.logo_url ? (
+                <img
+                  src={recruiterProfile.logo_url}
+                  alt={recruiterProfile?.company_name || "Company Logo"}
+                  className="w-14 h-14 rounded-xl object-cover border border-gray-200 flex-shrink-0"
+                />
+              ) : (
+                <div className="w-14 h-14 bg-[#FF2B2B] rounded-xl flex items-center justify-center text-white font-bold text-xl flex-shrink-0">
+                  {(recruiterProfile?.company_name || "C")[0].toUpperCase()}
+                </div>
+              )}
               <div className="flex-1">
                 <h1 className="text-2xl font-bold text-[#3A1F1F]">{formData.jobTitle || "Job Title"}</h1>
                 <p className="text-[#FF2B2B] font-medium mt-0.5">{recruiterProfile?.company_name || "Your Company"}</p>
@@ -2343,6 +2364,10 @@ function PostJobPage() {
           }
           if (isSalaryRangeInvalid) {
             setPostError("Maximum salary must be greater than or equal to minimum salary.");
+            return;
+          }
+          if (isExperienceRangeInvalid) {
+            setPostError("Maximum experience must be greater than or equal to minimum experience.");
             return;
           }
           setPostError("");
@@ -2508,8 +2533,11 @@ function PostJobPage() {
                 <div className="flex gap-2 items-center">
                   <Input type="number" min="0" value={formData.experienceMin} onChange={e => setFormData({ ...formData, experienceMin: e.target.value })} className="bg-[#F6F6F6] border-gray-200 rounded-xl" placeholder="Min yrs" />
                   <span className="text-[#8A8A8A]">–</span>
-                  <Input type="number" min="0" value={formData.experienceMax} onChange={e => setFormData({ ...formData, experienceMax: e.target.value })} className="bg-[#F6F6F6] border-gray-200 rounded-xl" placeholder="Max yrs" />
+                  <Input type="number" min="0" value={formData.experienceMax} onChange={e => setFormData({ ...formData, experienceMax: e.target.value })} className={`bg-[#F6F6F6] rounded-xl ${isExperienceRangeInvalid ? "border-red-500 text-red-900 focus-visible:ring-red-500" : "border-gray-200"}`} placeholder="Max yrs" />
                 </div>
+                {isExperienceRangeInvalid && (
+                  <p className="text-xs text-red-500 mt-1.5">Maximum experience must be greater than or equal to minimum experience.</p>
+                )}
               </div>
               <div>
                 <label className="block mb-1.5 text-sm font-medium text-[#3A1F1F]">Minimum Education</label>
