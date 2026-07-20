@@ -845,3 +845,144 @@ def jobs_autocomplete(q: str = Query(...)):
     return {"suggestions": suggestions}
   except Exception as e:
     raise HTTPException(status_code=500, detail=f"Autocomplete suggestions query failed: {str(e)}")
+
+
+@app.get("/services")
+def get_services():
+  return [
+    {
+      "id": "talent-sourcing",
+      "page": "/services/talent-sourcing",
+      "title": "Talent Sourcing",
+      "description": "Connect with top talent across industries to find the perfect candidates for your organization and build high-performing teams.",
+      "icon": "Users",
+      "image": "https://images.unsplash.com/photo-1521737711867-e3b97375f902?w=500&q=80"
+    },
+    {
+      "id": "executive-search",
+      "page": "/services/executive-search",
+      "title": "Executive Search",
+      "description": "Specialized recruitment for senior leadership positions that drive your company forward with strategic vision and expertise.",
+      "icon": "Award",
+      "image": "https://images.unsplash.com/photo-1580894732444-8ecded7900cd?w=500&q=80"
+    },
+    {
+      "id": "job-matching",
+      "page": "/services/job-matching",
+      "title": "Job Matching",
+      "description": "AI-powered algorithms match candidates with opportunities based on skills, experience, culture fit, and career goals.",
+      "icon": "Briefcase",
+      "image": "https://images.unsplash.com/photo-1551434678-e076c223a692?w=500&q=80"
+    },
+    {
+      "id": "employer-branding",
+      "page": "/services/branding-support",
+      "title": "Employer Branding",
+      "description": "Build and promote your employer brand to attract the best talent in your industry and stand out from competitors.",
+      "icon": "TrendingUp",
+      "image": "https://images.unsplash.com/photo-1600880292203-757bb62b4baf?w=500&q=80"
+    },
+    {
+      "id": "career-coaching",
+      "page": "/services/career-coaching",
+      "title": "Career Coaching & Resume Review",
+      "description": "Expert guidance to help candidates present themselves effectively and maximize their career potential.",
+      "icon": "CheckCircle2",
+      "image": "https://images.unsplash.com/photo-1516321318423-f06f85e504b3?w=500&q=80"
+    },
+    {
+      "id": "contract-hiring",
+      "page": "/services/project-based-hiring",
+      "title": "Contract & Project-Based Hiring",
+      "description": "Flexible hiring solutions for temporary and project-based needs with vetted professionals ready to contribute.",
+      "icon": "Clock",
+      "image": "https://images.unsplash.com/photo-1450101499163-c8848c66ca85?w=500&q=80"
+    }
+  ]
+
+
+@app.get("/plans")
+def get_plans():
+  return [
+    {
+      "id": "basic",
+      "name": "Basic Plan",
+      "price": 350,
+      "period": "month",
+      "dailyJobPosts": 10,
+      "features": [
+        "10 daily job posts",
+        "Basic Analytics",
+        "Email Support",
+        "1 Team Member"
+      ],
+      "popular": False
+    },
+    {
+      "id": "standard",
+      "name": "Standard Plan",
+      "price": 1000,
+      "period": "month",
+      "dailyJobPosts": 50,
+      "features": [
+        "50 daily job posts",
+        "100+ job templates",
+        "Advanced Analytics",
+        "Priority Support",
+        "5 Team Members"
+      ],
+      "popular": True
+    },
+    {
+      "id": "premium",
+      "name": "Premium Plan",
+      "price": 3000,
+      "period": "month",
+      "dailyJobPosts": None,
+      "features": [
+        "Unlimited job posts",
+        "Advanced hiring tools",
+        "Dedicated Account Manager",
+        "24/7 Premium Support",
+        "Unlimited Team Members"
+      ],
+      "popular": False
+    }
+  ]
+
+
+@app.get("/testimonials")
+def get_testimonials():
+  try:
+    result = supabase.table("feedback").select("id,user_id,user_type,user_email,rating,comment").order("created_at", desc=True).limit(5).execute()
+    feedbacks = result.data or []
+    if not feedbacks:
+      return [
+        {
+          "name": "Sarah Johnson",
+          "role": "Software Engineer",
+          "rating": 5,
+          "comment": "RhirePro helped me land my dream job in just 2 weeks. The process was seamless and the support team was incredible!"
+        }
+      ]
+    parsed = []
+    for f in feedbacks:
+      email = f.get("user_email") or ""
+      name = email.split("@")[0].title() if email else "RhirePro User"
+      parsed.append({
+        "name": name,
+        "role": "Recruiter" if f.get("user_type") == "recruiter" else "Job Seeker",
+        "rating": f.get("rating") or 5,
+        "comment": f.get("comment") or "Great experience with RhirePro!"
+      })
+    return parsed
+  except Exception:
+    return [
+      {
+        "name": "Sarah Johnson",
+        "role": "Software Engineer",
+        "rating": 5,
+        "comment": "RhirePro helped me land my dream job in just 2 weeks. The process was seamless and the support team was incredible!"
+      }
+    ]
+

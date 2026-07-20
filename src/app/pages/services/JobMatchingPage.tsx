@@ -63,16 +63,18 @@ export default function JobMatchingPage() {
                 AI-powered matching that connects job seekers with the right opportunities based on skills, experience, culture fit, and career aspirations.
               </p>
               <Button
-                onClick={() => navigate("/jobseeker/signin")}
+                onClick={() => navigate("/signin?role=jobseeker")}
                 className="mt-6 bg-[#FF2B2B] hover:bg-[#e02525] text-white rounded-full px-8 py-5"
               >
                 Find My Match <ArrowRight className="ml-2 h-4 w-4" />
               </Button>
             </div>
             <div className="flex items-center justify-center w-full md:w-auto">
-              <div className="w-64 h-48 bg-gradient-to-br from-[#FF2B2B]/10 to-[#FF2B2B]/30 rounded-2xl flex items-center justify-center">
-                <Briefcase className="h-24 w-24 text-[#FF2B2B]" />
-              </div>
+              <img
+                src="https://images.unsplash.com/photo-1551434678-e076c223a692?w=500&q=80"
+                alt="Job Matching"
+                className="w-64 h-48 rounded-2xl object-cover shadow-md"
+              />
             </div>
           </div>
         </div>
@@ -188,8 +190,8 @@ export default function JobMatchingPage() {
             Create your free profile and let our AI surface the opportunities that are truly right for you.
           </p>
           <div className="flex flex-wrap gap-4 justify-center">
-            <Button
-              onClick={() => navigate("/jobseeker/signup")}
+             <Button
+              onClick={() => navigate("/signup?role=jobseeker")}
               className="bg-[#FF2B2B] hover:bg-[#e02525] text-white rounded-full px-8 py-5"
             >
               Create Profile <ArrowRight className="ml-2 h-4 w-4" />

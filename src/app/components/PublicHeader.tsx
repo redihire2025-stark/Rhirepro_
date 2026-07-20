@@ -2,12 +2,14 @@ import { useState } from "react";
 import { Menu } from "lucide-react";
 import { Button } from "./ui/button";
 import { Sheet, SheetContent, SheetTrigger, SheetTitle, SheetDescription } from "./ui/sheet";
-import { useNavigate } from "react-router";
+import { useNavigate, useLocation, Link } from "react-router";
 import logoImage from "../../logo/logo.png";
 
 export default function PublicHeader() {
   const [isMenuOpen, setIsMenuOpen] = useState(false);
   const navigate = useNavigate();
+  const location = useLocation();
+  const isServicesActive = location.pathname.startsWith("/services");
 
   return (
     <header className="sticky top-0 z-50 bg-white shadow-sm">
@@ -21,21 +23,28 @@ export default function PublicHeader() {
 
         {/* Desktop Navigation */}
         <nav className="hidden md:flex items-center gap-8">
-          <a href="/#home" className="text-[#3A1F1F] hover:text-[#FF2B2B] transition-colors">
+          <Link to="/#home" className="text-[#3A1F1F] hover:text-[#FF2B2B] transition-colors">
             Home
-          </a>
-          <a href="/#about" className="text-[#3A1F1F] hover:text-[#FF2B2B] transition-colors">
+          </Link>
+          <Link to="/#about" className="text-[#3A1F1F] hover:text-[#FF2B2B] transition-colors">
             About Us
-          </a>
-          <a href="/services" className="text-[#3A1F1F] hover:text-[#FF2B2B] transition-colors">
+          </Link>
+          <Link
+            to="/services"
+            className={
+              isServicesActive
+                ? "px-4 py-2 rounded-full transition-all bg-[#FF2B2B] text-white font-medium"
+                : "text-[#3A1F1F] hover:text-[#FF2B2B] transition-colors"
+            }
+          >
             Services
-          </a>
-          <a href="/jobs" className="text-[#3A1F1F] hover:text-[#FF2B2B] transition-colors">
+          </Link>
+          <Link to="/jobs" className="text-[#3A1F1F] hover:text-[#FF2B2B] transition-colors">
             Jobs
-          </a>
-          <a href="/#contact" className="text-[#3A1F1F] hover:text-[#FF2B2B] transition-colors">
+          </Link>
+          <Link to="/#contact" className="text-[#3A1F1F] hover:text-[#FF2B2B] transition-colors">
             Contact Us
-          </a>
+          </Link>
           <Button
             onClick={() => navigate("/signin")}
             className="bg-[#FF2B2B] hover:bg-[#e02525] text-white rounded-full px-6"
@@ -84,16 +93,23 @@ export default function PublicHeader() {
                     { label: "Services", href: "/services" },
                     { label: "Jobs", href: "/jobs" },
                     { label: "Contact Us", href: "/#contact" },
-                  ].map(({ label, href }) => (
-                    <a
-                      key={label}
-                      href={href}
-                      className="block px-4 py-2 rounded-lg hover:bg-[#ECECF4] text-[#3A1F1F]"
-                      onClick={() => setIsMenuOpen(false)}
-                    >
-                      {label}
-                    </a>
-                  ))}
+                  ].map(({ label, href }) => {
+                    const isActive = label === "Services" && isServicesActive;
+                    return (
+                      <Link
+                        key={label}
+                        to={href}
+                        className={`block px-4 py-2 rounded-lg transition-colors ${
+                          isActive
+                            ? "bg-[#FF2B2B] text-white font-medium"
+                            : "hover:bg-[#ECECF4] text-[#3A1F1F]"
+                        }`}
+                        onClick={() => setIsMenuOpen(false)}
+                      >
+                        {label}
+                      </Link>
+                    );
+                  })}
                 </div>
               </div>
             </div>
