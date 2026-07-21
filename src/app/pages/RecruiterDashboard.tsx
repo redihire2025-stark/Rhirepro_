@@ -23,7 +23,7 @@ import {
   Bell, LogOut, Plus, Edit, Pause, Trash2, User, Upload, Building2,
   Search, Filter, Download, Mail, Phone, MapPin, Calendar, Clock,
   Briefcase, GraduationCap, Star, ChevronDown, ChevronRight, Eye,
-  BarChart2, TrendingUp, Users, FileText, CheckCircle, XCircle,
+  BarChart2, TrendingUp, Users, FileText, CheckCircle, XCircle, AlertCircle,
   MessageSquare, Video, Award, BookOpen, Globe, Linkedin, Share2,
   ArrowRight, Target, Zap, RefreshCw, MoreVertical, ThumbsUp, ThumbsDown, ExternalLink, Loader2,
   CreditCard, Tag, ShieldCheck, Crown, Check, Minimize2, ShieldAlert,
@@ -3853,6 +3853,8 @@ function SearchCandidatesPage() {
   // ── Search state ──────────────────────────────────────────
   const [keywords, setKeywords] = useState("");
   const [location, setLocation] = useState("");
+  const [keywordSearchEnabled, setKeywordSearchEnabled] = useState(true);
+  const [booleanSearchEnabled, setBooleanSearchEnabled] = useState(false);
   const [highlightedIndex, setHighlightedIndex] = useState(-1);
   const keywordInputRef = useRef<HTMLInputElement>(null);
   const dropdownContainerRef = useRef<HTMLDivElement>(null);
@@ -3930,23 +3932,45 @@ function SearchCandidatesPage() {
     return dayMatch ? parseInt(dayMatch[1]) : 999;
   };
 
-  // ── Boolean keyword parser ─────────────────────────────────
-  // Splits a search string like "React AND Python", "Bangalore OR Hyderabad",
-  // "Hyderabad, Bangalore", or "React Python" into clean search tokens,
-  // stripping out Boolean operators and detecting OR vs AND intent.
-  const parseSearchTokens = (input: string): { tokens: string[]; isOr: boolean } => {
+  const parseSearchTokens = (input: string): { tokens: string[]; isOr: boolean; notTokens: string[] } => {
     const trimmed = input.trim();
-    if (!trimmed) return { tokens: [], isOr: false };
-    const isOr = /\bor\b/i.test(trimmed) || trimmed.includes(",");
-    if (isOr) {
-      // Split on OR operators and commas, then clean each segment
-      const segments = trimmed.split(/\bor\b|,/i).map(s => s.trim()).filter(Boolean);
-      const tokens = segments.map(seg => seg.replace(/\b(?:and|not)\b/gi, "").trim()).filter(Boolean);
-      return { tokens, isOr: true };
+    if (!trimmed) return { tokens: [], isOr: false, notTokens: [] };
+
+    if (booleanSearchEnabled) {
+      // BOOLEAN SEARCH MODE (toggle is ON):
+      // Commas (,) are ignored/stripped. Only AND, OR, NOT operators are respected.
+      const cleanInput = trimmed.replace(/,/g, " ");
+
+      const notTokens: string[] = [];
+      const notParts = cleanInput.split(/\bnot\b/i);
+      const mainPart = notParts[0];
+      for (let i = 1; i < notParts.length; i++) {
+        const notWord = notParts[i].trim().split(/\s+/)[0];
+        if (notWord) notTokens.push(notWord.toLowerCase());
+      }
+
+      const isOr = /\bor\b/i.test(mainPart);
+      let tokens: string[] = [];
+
+      if (isOr) {
+        tokens = mainPart
+          .split(/\bor\b/i)
+          .map(s => s.replace(/\b(?:and|not)\b/gi, "").trim())
+          .filter(Boolean);
+      } else {
+        tokens = mainPart
+          .split(/\s+/)
+          .map(t => t.replace(/\b(?:and|not)\b/gi, "").trim())
+          .filter(t => Boolean(t) && !/^(and|or|not)$/i.test(t));
+      }
+
+      return { tokens, isOr, notTokens };
     } else {
-      // AND mode: split on whitespace, remove Boolean operators
-      const tokens = trimmed.split(/\s+/).filter(t => !/^(and|or|not)$/i.test(t));
-      return { tokens, isOr: false };
+      // STANDARD SEARCH MODE (toggle is OFF):
+      // AND, OR, NOT are treated as regular text. Split by commas and spaces.
+      const segments = trimmed.split(/,/);
+      const tokens = segments.flatMap(s => s.trim().split(/\s+/)).map(t => t.trim()).filter(Boolean);
+      return { tokens, isOr: true, notTokens: [] };
     }
   };
 
@@ -4008,7 +4032,7 @@ function SearchCandidatesPage() {
   const filteredSuggestions = useMemo(() => {
     const { token } = getCurrentSearchToken(keywords);
     const query = token.trim();
-    if (!query) return { skills: [], locations: [], designations: [] };
+    if (!query) return { skills: [], designations: [] };
 
     const normalizedInputKeywords = keywords
       .toLowerCase()
@@ -4020,13 +4044,22 @@ function SearchCandidatesPage() {
       return normalizedInputKeywords.includes(item.toLowerCase());
     };
 
-    const matchedSkills = ALL_SKILL_OPTIONS
-      .filter(skill => fuzzyMatch(query, skill) && !isAlreadyPresent(skill))
-      .slice(0, 8);
+    const searchExpansionTerms = getSkillSearchTerms(query);
 
-    const matchedLocations = ALL_LOCATION_OPTIONS
-      .filter(city => fuzzyMatch(query, city) && !isAlreadyPresent(city))
-      .slice(0, 5);
+    const directSkillMatches: string[] = [];
+    const expandedSkillMatches: string[] = [];
+
+    ALL_SKILL_OPTIONS.forEach(skill => {
+      if (isAlreadyPresent(skill)) return;
+      const sLower = skill.toLowerCase();
+      if (fuzzyMatch(query, skill)) {
+        directSkillMatches.push(skill);
+      } else if (searchExpansionTerms.some(term => sLower.includes(term) || skillsMatch(skill, term))) {
+        expandedSkillMatches.push(skill);
+      }
+    });
+
+    const matchedSkills = Array.from(new Set([...directSkillMatches, ...expandedSkillMatches])).slice(0, 10);
 
     const matchedDesignations = ALL_ROLE_AND_DEPT_OPTIONS
       .filter(role => fuzzyMatch(query, role) && !isAlreadyPresent(role))
@@ -4034,15 +4067,13 @@ function SearchCandidatesPage() {
 
     return {
       skills: matchedSkills,
-      locations: matchedLocations,
       designations: matchedDesignations,
     };
   }, [keywords]);
 
   const flatSuggestionsList = useMemo(() => {
-    const list: Array<{ value: string; type: "skill" | "location" | "designation" }> = [];
+    const list: Array<{ value: string; type: "skill" | "designation" }> = [];
     filteredSuggestions.skills.forEach(skill => list.push({ value: skill, type: "skill" }));
-    filteredSuggestions.locations.forEach(loc => list.push({ value: loc, type: "location" }));
     filteredSuggestions.designations.forEach(role => list.push({ value: role, type: "designation" }));
     return list;
   }, [filteredSuggestions]);
@@ -4069,9 +4100,9 @@ function SearchCandidatesPage() {
     const { prefix, separatorType } = getCurrentSearchToken(keywords);
     let nextKeywords = "";
     if (separatorType === "none") {
-      nextKeywords = suggestionValue + " ";
+      nextKeywords = suggestionValue + (booleanSearchEnabled ? " " : ", ");
     } else if (separatorType === "comma") {
-      nextKeywords = prefix.trim() + " " + suggestionValue + ", ";
+      nextKeywords = prefix.trim() + " " + suggestionValue + (booleanSearchEnabled ? " " : ", ");
     } else {
       nextKeywords = prefix.trim() + " " + suggestionValue + " ";
     }
@@ -4093,8 +4124,67 @@ function SearchCandidatesPage() {
     return () => document.removeEventListener("mousedown", handleClickOutside);
   }, [skillSuggestionsOpen]);
 
+  const booleanSearchError = useMemo(() => {
+    const trimmed = keywords.trim();
+    if (!trimmed) return null;
+
+    if (booleanSearchEnabled) {
+      if (trimmed.includes(",")) {
+        return "In Boolean Search mode, commas are not allowed. Please use AND, OR, or NOT operators between skills (e.g., Python AND React).";
+      }
+      const words = trimmed.split(/\s+/).filter(Boolean);
+      if (words.length > 1) {
+        const hasBooleanOperator = words.some(w => /^(and|or|not)$/i.test(w));
+        if (!hasBooleanOperator) {
+          return "In Boolean Search mode, please use AND, OR, or NOT operators between skills (e.g., Python AND React).";
+        }
+      }
+    } else {
+      if (/\b(?:and|or|not)\b/i.test(trimmed)) {
+        return "Boolean operators (AND, OR, NOT) are not allowed in Standard mode. Please turn ON Boolean Search to use boolean operators.";
+      }
+    }
+    return null;
+  }, [keywords, booleanSearchEnabled]);
+
+  // BM25-inspired candidate relevance scoring for Elasticsearch and fallback search
+  const computeCandidateRelevanceScore = (candidate: DBCandidate, queryStr: string): number => {
+    if (!queryStr.trim()) return 0;
+    const { tokens } = parseSearchTokens(queryStr.toLowerCase());
+    if (tokens.length === 0) return 0;
+
+    let score = 0;
+    tokens.forEach(token => {
+      const t = token.toLowerCase().trim();
+      if (!t) return;
+      const cSkills = (candidate.skills || []).map(s => s.toLowerCase().trim());
+      
+      if (cSkills.includes(t)) {
+        score += 50;
+      } else if (cSkills.some(s => skillsMatch(s, t) || fuzzyMatch(t, s))) {
+        score += 30;
+      }
+
+      if (candidate.current_title && candidate.current_title.toLowerCase().includes(t)) {
+        score += 40;
+      }
+      if (candidate.headline && candidate.headline.toLowerCase().includes(t)) {
+        score += 25;
+      }
+      if ((candidate.work_experience || []).some(we => we.title && we.title.toLowerCase().includes(t))) {
+        score += 15;
+      }
+    });
+
+    return score;
+  };
+
   // ── Main search ───────────────────────────────────────────
   const handleSearch = async (overrideKeywords?: any) => {
+    if (booleanSearchError) {
+      setSkillSuggestionsOpen(false);
+      return;
+    }
     setSearching(true);
     setSearched(true);
     setSkillSuggestionsOpen(false);
@@ -4108,7 +4198,6 @@ function SearchCandidatesPage() {
           .then(({ error: kErr }) => {
             if (kErr) {
               console.warn("Failed to log search keywords to DB:", kErr.message);
-              // Fallback to localStorage for testing/development
               try {
                 const localKey = `search_keywords_${recruiterProfile.id}`;
                 const existing = JSON.parse(localStorage.getItem(localKey) || "[]");
@@ -4133,6 +4222,8 @@ function SearchCandidatesPage() {
       try {
         const apiUrl = import.meta.env.VITE_API_URL || "http://localhost:8000";
         const esUrl = `${apiUrl}/candidates/search?q=${encodeURIComponent(activeKeywords)}` +
+          `&boolean_mode=${booleanSearchEnabled}` +
+          `&fuzzy=true` +
           `&location=${encodeURIComponent(location)}` +
           `&current_company=${encodeURIComponent(currentCompany)}` +
           `&skills=${encodeURIComponent(skillTags.join(","))}` +
@@ -4177,34 +4268,50 @@ function SearchCandidatesPage() {
           `);
 
         if (activeKeywords.trim()) {
-          const { tokens: searchTokens, isOr: isOrQuery } = parseSearchTokens(activeKeywords);
+          const { tokens: rawTokens, isOr: rawIsOr } = parseSearchTokens(activeKeywords);
+          const searchTokens = rawTokens.length > 0 ? rawTokens : [activeKeywords.trim()];
+          const isOrQuery = booleanSearchEnabled ? rawIsOr : true;
           
           if (isOrQuery) {
-            // OR: combine all token clauses into one .or() call
+            // OR mode: combine all token clauses
             const clauses = searchTokens.flatMap(term => [
               `first_name.ilike.%${term}%`,
               `last_name.ilike.%${term}%`,
               `headline.ilike.%${term}%`,
               `current_title.ilike.%${term}%`,
               `current_company.ilike.%${term}%`,
-              `about.ilike.%${term}%`,
-              `location.ilike.%${term}%`
+              `about.ilike.%${term}%`
             ]);
             if (clauses.length > 0) {
               q = q.or(clauses.join(","));
             }
           } else {
-            // AND: each token must match at least one field (chained .or())
+            // AND mode: each token must match at least one field
             searchTokens.forEach(token => {
               q = q.or(
                 `first_name.ilike.%${token}%,last_name.ilike.%${token}%,` +
                 `headline.ilike.%${token}%,current_title.ilike.%${token}%,` +
-                `current_company.ilike.%${token}%,about.ilike.%${token}%,location.ilike.%${token}%`
+                `current_company.ilike.%${token}%,about.ilike.%${token}%`
               );
             });
           }
         }
-        if (location.trim()) q = q.ilike("location", `%${location.trim()}%`);
+
+        // Dedicated Location Filter with city variations (e.g., Bangalore <-> Bengaluru, Gurgaon <-> Gurugram)
+        if (location.trim()) {
+          const locLower = location.trim().toLowerCase();
+          const locVars = [locLower];
+          if (locLower === "bangalore") locVars.push("bengaluru");
+          if (locLower === "bengaluru") locVars.push("bangalore");
+          if (locLower === "gurgaon") locVars.push("gurugram");
+          if (locLower === "gurugram") locVars.push("gurgaon");
+          if (locLower === "mumbai") locVars.push("bombay");
+          if (locLower === "delhi") locVars.push("ncr");
+
+          const locClauses = locVars.map(v => `location.ilike.%${v}%`);
+          q = q.or(locClauses.join(","));
+        }
+
         if (currentCompany.trim()) q = q.ilike("current_company", `%${currentCompany.trim()}%`);
         const { data } = await q.limit(200);
         raw = (data as unknown as DBCandidate[]) || [];
@@ -4246,7 +4353,7 @@ function SearchCandidatesPage() {
             (broadSkillCandidates as unknown as DBCandidate[]).forEach(candidate => {
               if (!ids.has(candidate.id)) {
                 const hasSkillMatch = (candidate.skills || []).some(skill =>
-                  tokens.some(token => skillsMatch(skill, token))
+                  tokens.some(token => skillsMatch(skill, token) || fuzzyMatch(token, skill))
                 );
                 if (hasSkillMatch) {
                   raw.push(candidate);
@@ -4256,7 +4363,9 @@ function SearchCandidatesPage() {
             });
           }
 
-          const { tokens: filterTokens, isOr: isOrFilter } = parseSearchTokens(activeKeywords);
+          const { tokens: filterTokens, isOr: rawIsOrFilter, notTokens } = parseSearchTokens(activeKeywords);
+          const isOrFilter = booleanSearchEnabled ? rawIsOrFilter : false;
+
           raw = raw.filter(candidate => {
             const searchableText = [
               candidate.first_name,
@@ -4265,22 +4374,43 @@ function SearchCandidatesPage() {
               candidate.current_title,
               candidate.current_company,
               candidate.about,
-              candidate.location,
             ].filter(Boolean).join(" ").toLowerCase();
 
             const matchToken = (token: string) => {
-              const t = token.toLowerCase();
+              const t = token.toLowerCase().trim();
               if (!t) return false;
-              return (
-                searchableText.includes(t) ||
-                (candidate.skills || []).some(skill => skillsMatch(skill, t))
-              );
+              
+              // 1. Direct text inclusion
+              if (searchableText.includes(t)) return true;
+              
+              // 2. Skill matches (exact, keyword expanded if enabled, or fuzzy)
+              if ((candidate.skills || []).some(skill => 
+                (keywordSearchEnabled && skillsMatch(skill, t)) || 
+                skill.toLowerCase().includes(t) || 
+                fuzzyMatch(t, skill)
+              )) return true;
+
+              // 3. Work experience title/description match
+              if ((candidate.work_experience || []).some(we => 
+                (we.title && (we.title.toLowerCase().includes(t) || fuzzyMatch(t, we.title))) ||
+                (we.description && we.description.toLowerCase().includes(t))
+              )) return true;
+
+              // 4. Fuzzy text match for current title / headline / company
+              if (candidate.current_title && fuzzyMatch(t, candidate.current_title)) return true;
+              if (candidate.headline && fuzzyMatch(t, candidate.headline)) return true;
+
+              return false;
             };
 
+            // If Boolean Search is ON and NOT tokens exist, exclude candidates matching any NOT token
+            if (booleanSearchEnabled && notTokens.length > 0) {
+              if (notTokens.some(nt => matchToken(nt))) return false;
+            }
+
             if (filterTokens.length === 0) return true;
-            return isOrFilter
-              ? filterTokens.some(t => matchToken(t))
-              : filterTokens.every(t => matchToken(t));
+            // Strict ALL-skills matching: candidate MUST possess ALL requested skills (e.g. both Python AND React)
+            return filterTokens.every(t => matchToken(t));
           });
         }
       }
@@ -4342,6 +4472,7 @@ function SearchCandidatesPage() {
       else if (sortBy === "exp_asc") raw.sort((a, b) => parseExp(a) - parseExp(b));
       else if (sortBy === "salary_asc") raw.sort((a, b) => parseSal(a.expected_salary) - parseSal(b.expected_salary));
       else if (sortBy === "recent") raw.sort((a, b) => new Date(b.created_at).getTime() - new Date(a.created_at).getTime());
+      else raw.sort((a, b) => computeCandidateRelevanceScore(b, activeKeywords) - computeCandidateRelevanceScore(a, activeKeywords));
 
       if (raw.length > 0) {
         const candidateIds = raw.map(c => c.id).filter(Boolean);
@@ -4439,9 +4570,34 @@ function SearchCandidatesPage() {
                   }
                 }
               }}
-              className="pl-9 bg-[#F6F6F6] border-gray-200 rounded-xl"
-              placeholder="Skills, designation, company name..."
+              className={`pl-9 bg-[#F6F6F6] rounded-xl transition-all ${
+                booleanSearchError
+                  ? "border-red-500 ring-2 ring-red-200 text-red-700 bg-red-50/20"
+                  : "border-gray-200"
+              }`}
+              placeholder={booleanSearchEnabled ? "e.g. React AND Python NOT Angular" : "Skills, designation, company name..."}
             />
+
+            {booleanSearchError && (
+              <div className="flex items-center justify-between gap-2 mt-2 px-3 py-2 bg-red-50 border border-red-200 rounded-lg text-xs font-semibold text-red-600 flex-wrap">
+                <div className="flex items-center gap-2">
+                  <AlertCircle className="h-4 w-4 shrink-0 text-red-500" />
+                  <span>{booleanSearchError}</span>
+                </div>
+                {!booleanSearchEnabled && /\b(?:and|or|not)\b/i.test(keywords) && (
+                  <button
+                    type="button"
+                    onClick={() => {
+                      setBooleanSearchEnabled(true);
+                      setKeywords(prev => prev.replace(/,/g, " ").replace(/\s+/g, " "));
+                    }}
+                    className="ml-auto bg-[#FF2B2B] hover:bg-[#e02525] text-white text-xs px-3 py-1 rounded-md shadow-sm font-semibold transition-colors flex items-center gap-1 cursor-pointer"
+                  >
+                    <Zap className="h-3 w-3" /> Turn ON Boolean Search
+                  </button>
+                )}
+              </div>
+            )}
             {skillSuggestionsOpen && hasSuggestions && (
               <div 
                 ref={dropdownContainerRef}
@@ -4466,30 +4622,6 @@ function SearchCandidatesPage() {
                           >
                             <Tag className="h-3.5 w-3.5 mr-2 opacity-60 text-[#FF2B2B]" />
                             <span>{skill}</span>
-                          </button>
-                        );
-                      })}
-                    </div>
-                  )}
-
-                  {filteredSuggestions.locations.length > 0 && (
-                    <div>
-                      <div className="px-3 py-1.5 text-[10px] font-bold text-gray-400 bg-gray-50 uppercase tracking-wider">Locations</div>
-                      {filteredSuggestions.locations.map(loc => {
-                        const globalIndex = flatSuggestionsList.findIndex(item => item.value === loc && item.type === "location");
-                        const isHighlighted = globalIndex === highlightedIndex;
-                        return (
-                          <button
-                            key={`loc-${loc}`}
-                            type="button"
-                            onClick={() => selectSuggestion(loc)}
-                            onMouseEnter={() => setHighlightedIndex(globalIndex)}
-                            className={`flex w-full items-center px-3 py-2 text-left text-sm transition-colors ${
-                              isHighlighted ? "bg-[#FFF0F0] text-[#FF2B2B] font-medium" : "text-[#3A1F1F] hover:bg-gray-50"
-                            }`}
-                          >
-                            <MapPin className="h-3.5 w-3.5 mr-2 opacity-60 text-blue-500" />
-                            <span>{loc}</span>
                           </button>
                         );
                       })}
@@ -4530,7 +4662,7 @@ function SearchCandidatesPage() {
             placeholder="Location"
             className="min-w-[160px]"
           />
-          <Button onClick={handleSearch} disabled={searching} className="bg-[#FF2B2B] hover:bg-[#e02525] text-white rounded-xl px-6">
+          <Button onClick={handleSearch} disabled={searching || !!booleanSearchError} className="bg-[#FF2B2B] hover:bg-[#e02525] text-white rounded-xl px-6 disabled:opacity-50">
             <Search className="h-4 w-4 mr-2" /> {searching ? "Searching..." : "Search"}
           </Button>
         </div>
@@ -4545,6 +4677,29 @@ function SearchCandidatesPage() {
               {label}
             </button>
           ))}
+        </div>
+
+        {/* Toggle Switch: Boolean Search */}
+        <div className="flex items-center gap-6 mt-3 pt-2 border-t border-gray-100">
+          <label className="flex items-center gap-2 text-xs font-medium text-[#5A5A5A] cursor-pointer select-none">
+            <span>Boolean Search</span>
+            <div 
+              onClick={() => {
+                const nextState = !booleanSearchEnabled;
+                setBooleanSearchEnabled(nextState);
+                if (nextState) {
+                  // Switching to Boolean Search ON: strip all commas from input
+                  setKeywords(prev => prev.replace(/,/g, " ").replace(/\s+/g, " "));
+                } else {
+                  // Switching to Boolean Search OFF: strip AND, OR, NOT operator words from input
+                  setKeywords(prev => prev.replace(/\b(?:and|or|not)\b/gi, " ").replace(/\s+/g, " "));
+                }
+              }}
+              className={`w-9 h-5 flex items-center rounded-full p-0.5 transition-colors cursor-pointer ${booleanSearchEnabled ? "bg-[#FF2B2B]" : "bg-gray-300"}`}
+            >
+              <div className={`bg-white w-4 h-4 rounded-full shadow-md transform transition-transform ${booleanSearchEnabled ? "translate-x-4" : "translate-x-0"}`} />
+            </div>
+          </label>
         </div>
       </div>
 
@@ -4776,12 +4931,41 @@ function SearchCandidatesPage() {
                             )}
 
                             {/* Skills */}
-                            <div className="flex flex-wrap gap-1.5 mt-2">
-                              {skills.slice(0, 6).map((s: string, i: number) => (
-                                <Badge key={i} className={`text-xs ${skillTags.some(t => s.toLowerCase().includes(t.toLowerCase())) ? "bg-[#FF2B2B] text-white" : "bg-[#ECECF4] text-[#3A1F1F]"}`}>{s}</Badge>
-                              ))}
-                              {skills.length > 6 && <Badge className="bg-gray-100 text-[#8A8A8A] text-xs">+{skills.length - 6}</Badge>}
-                            </div>
+                            {(() => {
+                              const searchTokensList = parseSearchTokens(keywords).tokens.map(t => t.toLowerCase().trim()).concat(skillTags.map(t => t.toLowerCase().trim())).filter(Boolean);
+                              const isSkillMatched = (s: string) => searchTokensList.some(t => skillsMatch(s, t) || s.toLowerCase().includes(t) || fuzzyMatch(t, s));
+                              
+                              const sortedSkills = [...skills].sort((a, b) => {
+                                const aMatch = isSkillMatched(a) ? 1 : 0;
+                                const bMatch = isSkillMatched(b) ? 1 : 0;
+                                return bMatch - aMatch;
+                              });
+
+                              return (
+                                <div className="flex flex-wrap gap-1.5 mt-2">
+                                  {sortedSkills.slice(0, 7).map((s: string, i: number) => {
+                                    const matched = isSkillMatched(s);
+                                    return (
+                                      <Badge
+                                        key={i}
+                                        className={`text-xs transition-colors ${
+                                          matched
+                                            ? "bg-[#FF2B2B] text-white font-semibold shadow-sm border border-[#FF2B2B]"
+                                            : "bg-[#ECECF4] text-[#3A1F1F]"
+                                        }`}
+                                      >
+                                        {s}
+                                      </Badge>
+                                    );
+                                  })}
+                                  {sortedSkills.length > 7 && (
+                                    <Badge className="bg-gray-100 text-[#8A8A8A] text-xs">
+                                      +{sortedSkills.length - 7}
+                                    </Badge>
+                                  )}
+                                </div>
+                              );
+                            })()}
 
                             {/* About — clamped to 2 lines */}
                             {c.about && <p className="mt-1.5 text-xs text-[#5A5A5A] line-clamp-2 leading-relaxed overflow-hidden">{c.about}</p>}
