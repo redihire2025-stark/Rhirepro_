@@ -544,6 +544,166 @@ function buildDashboardJob(job: DBJobWithApplications): DashboardDisplayJob {
 
 const PREFERRED_INTERVIEW_MODE_OPTIONS = ["In-Person", "Video Call", "Telephonic", "Walk-in"];
 
+const POPULAR_PREFERRED_LOCATIONS = [
+  "Remote",
+  "Hybrid",
+  "Work from Home",
+  "Anywhere in India",
+  "Bengaluru",
+  "Hyderabad",
+  "Mumbai",
+  "Delhi NCR",
+  "Gurugram",
+  "Noida",
+  "Pune",
+  "Chennai",
+  "Kolkata",
+  "Ahmedabad",
+  "Jaipur",
+  "Chandigarh",
+  "Indore",
+  "Kochi",
+  "Coimbatore",
+  "Thiruvananthapuram",
+  "International",
+];
+
+const EXPECTED_SALARY_LPA_OPTIONS = [
+  "Less than 3 LPA",
+  "3 LPA",
+  "4 LPA",
+  "5 LPA",
+  "6 LPA",
+  "7 LPA",
+  "8 LPA",
+  "9 LPA",
+  "10 LPA",
+  "12 LPA",
+  "14 LPA",
+  "15 LPA",
+  "18 LPA",
+  "20 LPA",
+  "22 LPA",
+  "25 LPA",
+  "28 LPA",
+  "30 LPA",
+  "35 LPA",
+  "40 LPA",
+  "45 LPA",
+  "50 LPA",
+  "50+ LPA",
+  "3 - 5 LPA",
+  "5 - 8 LPA",
+  "8 - 12 LPA",
+  "12 - 15 LPA",
+  "15 - 20 LPA",
+  "20 - 25 LPA",
+  "25 - 30 LPA",
+  "30 - 40 LPA",
+  "40 - 50 LPA",
+];
+
+const PREFERRED_LOCATION_ALL_OPTIONS = Array.from(
+  new Set([
+    ...POPULAR_PREFERRED_LOCATIONS,
+    ...INDIA_CITY_OPTIONS,
+  ])
+);
+
+function SearchableComboboxInput({
+  value,
+  onChange,
+  placeholder,
+  options,
+}: {
+  value: string;
+  onChange: (val: string) => void;
+  placeholder: string;
+  options: string[];
+}) {
+  const [open, setOpen] = useState(false);
+  const [search, setSearch] = useState(value || "");
+  const containerRef = useRef<HTMLDivElement>(null);
+
+  useEffect(() => {
+    setSearch(value || "");
+  }, [value]);
+
+  useEffect(() => {
+    if (!open) return;
+    const handleClickOutside = (e: MouseEvent) => {
+      if (!containerRef.current?.contains(e.target as Node)) {
+        setOpen(false);
+      }
+    };
+    document.addEventListener("mousedown", handleClickOutside);
+    return () => document.removeEventListener("mousedown", handleClickOutside);
+  }, [open]);
+
+  const filteredOptions = useMemo(() => {
+    const q = search.trim().toLowerCase();
+    let matches = options;
+    if (q) {
+      matches = options.filter((opt) => opt.toLowerCase().includes(q));
+    }
+    return matches.slice(0, 35);
+  }, [options, search]);
+
+  return (
+    <div ref={containerRef} className="relative">
+      <div className="relative">
+        <Input
+          value={search}
+          onChange={(e) => {
+            const val = e.target.value;
+            setSearch(val);
+            onChange(val);
+            setOpen(true);
+          }}
+          onFocus={() => setOpen(true)}
+          placeholder={placeholder}
+          className="bg-[#F6F6F6] border-gray-200 rounded-xl pr-8 text-sm"
+        />
+        <button
+          type="button"
+          onClick={() => setOpen((prev) => !prev)}
+          className="absolute right-2 top-1/2 -translate-y-1/2 text-gray-400 hover:text-gray-600 p-1"
+        >
+          <ChevronsUpDown className="h-4 w-4" />
+        </button>
+      </div>
+
+      {open && (
+        <div className="absolute z-50 mt-1 max-h-56 w-full overflow-y-auto rounded-xl border border-gray-200 bg-white p-1 shadow-lg">
+          {filteredOptions.length > 0 ? (
+            filteredOptions.map((opt) => (
+              <button
+                key={opt}
+                type="button"
+                onClick={() => {
+                  setSearch(opt);
+                  onChange(opt);
+                  setOpen(false);
+                }}
+                className={`flex w-full items-center justify-between rounded-lg px-3 py-2 text-left text-sm transition-colors ${
+                  value === opt ? "bg-[#FFF0F0] text-[#FF2B2B] font-medium" : "text-[#3A1F1F] hover:bg-gray-100"
+                }`}
+              >
+                <span>{opt}</span>
+                {value === opt && <Check className="h-4 w-4 text-[#FF2B2B]" />}
+              </button>
+            ))
+          ) : (
+            <div className="px-3 py-2 text-xs text-gray-500 italic">
+              No matching suggestions. Your custom value will be saved.
+            </div>
+          )}
+        </div>
+      )}
+    </div>
+  );
+}
+
 function normalizeInterviewModes(raw: any): string[] {
   if (raw == null) return [];
 
@@ -612,18 +772,45 @@ export default function JobSeekerDashboard() {
     : location.pathname.includes("/insights") ? "insights"
     : "find-job";
 
-  // On root dashboard path: check profile completion and redirect to profile page if incomplete.
-  // Uses a loading gate so the user never sees a flash of the Find a Job page.
+  // On root dashboard path: check profile completion on initial login/session start only.
+  // Uses session storage so subsequent page reloads stay on the current page.
   const completionCheckRef = useRef(false);
   const isRootPath = location.pathname === "/jobseeker/dashboard" || location.pathname === "/jobseeker/dashboard/";
-  const [checkingCompletion, setCheckingCompletion] = useState(isRootPath);
+  const [checkingCompletion, setCheckingCompletion] = useState(() => {
+    if (!isRootPath) return false;
+    try {
+      return !window.sessionStorage.getItem(`jobseeker_initial_check_done_${user?.id || ""}`);
+    } catch {
+      return false;
+    }
+  });
 
   useEffect(() => {
     if (authLoading || !profile || !user || completionCheckRef.current) return;
     completionCheckRef.current = true;
-    if (!isRootPath) { setCheckingCompletion(false); return; }
+
+    const sessionKey = `jobseeker_initial_check_done_${user.id}`;
+    const alreadyChecked = (() => {
+      try {
+        return window.sessionStorage.getItem(sessionKey) === "true";
+      } catch {
+        return false;
+      }
+    })();
+
+    if (!isRootPath || alreadyChecked) {
+      setCheckingCompletion(false);
+      return;
+    }
+
     const pid = profile.id;
     (async () => {
+      try {
+        window.sessionStorage.setItem(sessionKey, "true");
+      } catch {
+        // ignore storage errors
+      }
+
       const [expRes, eduRes, projRes, certRes] = await Promise.all([
         supabase.from("work_experience").select("id", { count: "exact", head: true }).eq("profile_id", pid),
         supabase.from("education").select("id", { count: "exact", head: true }).eq("profile_id", pid),
@@ -722,6 +909,38 @@ export default function JobSeekerDashboard() {
     fetchNotifications();
     navigate(getJobSeekerNotificationPath(notification));
   }, [fetchNotifications, getJobSeekerNotificationPath, navigate, profile?.id]);
+
+  const handleClearAllNotifications = useCallback(async (e: React.MouseEvent) => {
+    e.stopPropagation();
+    if (!profile?.id) return;
+    const { error } = await supabase
+      .from("notifications")
+      .delete()
+      .eq("user_id", profile.id)
+      .eq("user_type", "jobseeker");
+    if (!error) {
+      setNotifications([]);
+      setUnreadCount(0);
+    }
+  }, [profile?.id]);
+
+  const handleDeleteNotification = useCallback(async (e: React.MouseEvent, notificationId: string) => {
+    e.stopPropagation();
+    if (!profile?.id) return;
+    const target = notifications.find((n) => n.id === notificationId);
+    const { error } = await supabase
+      .from("notifications")
+      .delete()
+      .eq("id", notificationId)
+      .eq("user_id", profile.id)
+      .eq("user_type", "jobseeker");
+    if (!error) {
+      setNotifications((prev) => prev.filter((n) => n.id !== notificationId));
+      if (target && !target.is_read) {
+        setUnreadCount((prev) => Math.max(0, prev - 1));
+      }
+    }
+  }, [notifications, profile?.id]);
 
   const notifRef = useRef<HTMLDivElement>(null);
   useEffect(() => {
@@ -840,15 +1059,42 @@ export default function JobSeekerDashboard() {
                 {notificationsOpen && (
                   <div className="absolute right-0 top-full mt-2 w-80 bg-white rounded-xl shadow-lg border border-gray-100 z-[200]">
                     <div className="p-4">
-                      <h3 className="font-semibold text-[#3A1F1F] mb-3">Notifications</h3>
-                      <div className="space-y-2 max-h-64 overflow-y-auto">
+                      <div className="flex items-center justify-between mb-3">
+                        <h3 className="font-semibold text-[#3A1F1F]">Notifications</h3>
+                        {notifications.length > 0 && (
+                          <button
+                            type="button"
+                            onClick={handleClearAllNotifications}
+                            className="text-xs text-[#FF2B2B] hover:text-[#d92222] font-medium transition-colors hover:underline"
+                          >
+                            Clear all
+                          </button>
+                        )}
+                      </div>
+                      <div className="space-y-2 max-h-72 overflow-y-auto pr-1">
                         {notifications.length === 0 ? (
                           <p className="text-sm text-[#8A8A8A] text-center py-4">No notifications yet</p>
                         ) : notifications.map((n) => (
-                          <div key={n.id} onClick={() => handleNotificationClick(n)} className={`p-3 rounded-lg cursor-pointer ${!n.is_read ? "bg-red-50" : "bg-[#F6F6F6]"}`}>
-                            <p className="text-sm font-medium text-[#3A1F1F]">{n.title}</p>
-                            <p className="text-xs text-[#8A8A8A] whitespace-pre-wrap break-words">{renderNotificationMessage(n.message)}</p>
-                            <p className="text-xs text-[#BABABA] mt-0.5">{new Date(n.created_at).toLocaleString()}</p>
+                          <div
+                            key={n.id}
+                            onClick={() => handleNotificationClick(n)}
+                            className={`group relative flex items-start justify-between p-3 rounded-lg cursor-pointer transition-colors ${
+                              !n.is_read ? "bg-red-50 hover:bg-red-100/70" : "bg-[#F6F6F6] hover:bg-gray-200/60"
+                            }`}
+                          >
+                            <div className="flex-1 pr-5">
+                              <p className="text-sm font-medium text-[#3A1F1F]">{n.title}</p>
+                              <p className="text-xs text-[#8A8A8A] whitespace-pre-wrap break-words mt-0.5">{renderNotificationMessage(n.message)}</p>
+                              <p className="text-xs text-[#BABABA] mt-1">{new Date(n.created_at).toLocaleString()}</p>
+                            </div>
+                            <button
+                              type="button"
+                              onClick={(e) => handleDeleteNotification(e, n.id)}
+                              title="Delete notification"
+                              className="absolute right-2 top-2 p-1 text-gray-400 hover:text-[#FF2B2B] opacity-0 group-hover:opacity-100 transition-opacity rounded-full hover:bg-white"
+                            >
+                              <Trash2 className="h-3.5 w-3.5" />
+                            </button>
                           </div>
                         ))}
                       </div>
@@ -2541,6 +2787,8 @@ function ProfilePage({ onPendingPrefsChange }: { onPendingPrefsChange?: (pending
     });
   }, [preferredJobOptions, preferredJobSearch, selectedPreferredJobTitles]);
 
+
+
   const dobDisplayValue = basicForm.dob ? formatDateDisplay(basicForm.dob) : "";
   const today = new Date();
   const earliestAllowedDob = new Date(today);
@@ -3726,9 +3974,25 @@ function ProfilePage({ onPendingPrefsChange }: { onPendingPrefsChange?: (pending
                     )}
                   </div>
                 </div>
+                <div>
+                  <label className="block text-sm text-[#3A1F1F] mb-1">Preferred Location</label>
+                  <SearchableComboboxInput
+                    value={prefsForm.preferredLocation}
+                    onChange={(v) => setPrefsForm((f) => ({ ...f, preferredLocation: v }))}
+                    placeholder="Search location or type custom location..."
+                    options={PREFERRED_LOCATION_ALL_OPTIONS}
+                  />
+                </div>
+                <div>
+                  <label className="block text-sm text-[#3A1F1F] mb-1">Expected Salary (LPA)</label>
+                  <SearchableComboboxInput
+                    value={prefsForm.expectedSalary}
+                    onChange={(v) => setPrefsForm((f) => ({ ...f, expectedSalary: v }))}
+                    placeholder="Select or type expected salary (e.g. 12 LPA)..."
+                    options={EXPECTED_SALARY_LPA_OPTIONS}
+                  />
+                </div>
                 {[
-                  { label: "Preferred Location", key: "preferredLocation" },
-                  { label: "Expected Salary", key: "expectedSalary" },
                   { label: "Notice Period", key: "noticePeriod" },
                   { label: "Work Authorization", key: "workAuth" },
                 ].map(({ label, key }) => (
