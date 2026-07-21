@@ -3,8 +3,9 @@ import { useNavigate, Routes, Route, Link, useLocation } from "react-router";
 import { supabase, Job as DBJob, Notification } from "../../lib/supabase";
 import { formatJobSalary, isJobVisibleToSeekers } from "../../lib/jobs";
 import { recordJobInteraction, recordJobSearch } from "../../lib/jobRecommendations";
-import { SKILL_OPTIONS, skillsMatch } from "../../lib/skillKeywords";
+import { SKILL_OPTIONS, skillsMatch, fuzzyMatch, SEARCH_SUGGESTION_DATASET } from "../../lib/skillKeywords";
 import { useAuth } from "../../lib/auth-context";
+import { INDIA_CITY_OPTIONS } from "../../lib/locationData";
 import AppliedJobsSection from "../components/AppliedJobsSection";
 import ResumePreviewDialog, { getStorageObjectFromUrl, buildPreviewUrl } from "../components/ResumePreviewDialog";
 import {
@@ -12,12 +13,13 @@ import {
   User, BarChart3, Lightbulb, Upload, Plus, X, Pencil, Trash2,
   GraduationCap, Award, Globe, Phone, Mail, Camera, Clock, CheckCircle,
   TrendingUp, ArrowRight, Loader2, Check, ChevronsUpDown, FileText,
-  Eye, Download,
+  Eye, Download, Users, Tag,
 } from "lucide-react";
 import { Button } from "../components/ui/button";
 import { Input } from "../components/ui/input";
 import { Popover, PopoverContent, PopoverTrigger } from "../components/ui/popover";
 import { Calendar } from "../components/ui/calendar";
+
 import {
   Pagination,
   PaginationContent,
@@ -25,6 +27,7 @@ import {
   PaginationLink,
   PaginationNext,
   PaginationPrevious,
+  PaginationEllipsis,
 } from "../components/ui/pagination";
 import { Textarea } from "../components/ui/textarea";
 import { Select, SelectContent, SelectItem, SelectTrigger, SelectValue } from "../components/ui/select";
@@ -55,7 +58,12 @@ interface DashboardDisplayJob {
   experience: string;
   isRemote: boolean;
   isDB: true;
-  dbJob: DBJob;
+  dbJob: DBJobWithApplications;
+  applicantCount?: number;
+}
+
+interface DBJobWithApplications extends DBJob {
+  applications?: { id: string }[];
 }
 
 interface WorkExp {
@@ -429,6 +437,18 @@ async function fetchEducationCatalog(): Promise<{ degreeOptions: string[]; speci
     specializationOptions,
   };
 }
+const DEFAULT_RECOMMENDATION_FETCH_LIMIT = 120;
+const JOBS_QUERY_TIMEOUT_MS = 12000;
+const PROFILE_SKILL_OPTIONS = SKILL_OPTIONS;
+
+function withTimeout<T>(promise: PromiseLike<T>, timeoutMs: number, message: string): Promise<T> {
+  let timeoutId: ReturnType<typeof setTimeout>;
+  const timeoutPromise = new Promise<never>((_, reject) => {
+    timeoutId = setTimeout(() => reject(new Error(message)), timeoutMs);
+  });
+
+  return Promise.race([Promise.resolve(promise), timeoutPromise]).finally(() => clearTimeout(timeoutId));
+}
 function splitPreferredJobTitles(value: string): string[] {
   return Array.from(
     new Set(
@@ -450,18 +470,7 @@ type PreferredJobSuggestion = {
   companies: string[];
   departments: string[];
 };
-const DEFAULT_RECOMMENDATION_FETCH_LIMIT = 120;
-const JOBS_QUERY_TIMEOUT_MS = 12000;
-const PROFILE_SKILL_OPTIONS = SKILL_OPTIONS;
 
-function withTimeout<T>(promise: PromiseLike<T>, timeoutMs: number, message: string): Promise<T> {
-  let timeoutId: ReturnType<typeof setTimeout>;
-  const timeoutPromise = new Promise<never>((_, reject) => {
-    timeoutId = setTimeout(() => reject(new Error(message)), timeoutMs);
-  });
-
-  return Promise.race([Promise.resolve(promise), timeoutPromise]).finally(() => clearTimeout(timeoutId));
-}
 
 function parseCompanyDescription(text: string | null | undefined): { aboutCompany: string; companyInfo: string } {
   const val = (text || "").trim();
@@ -512,7 +521,8 @@ function escapeLikeValue(value: string): string {
   return value.replace(/[%_,]/g, (match) => `\\${match}`);
 }
 
-function buildDashboardJob(job: DBJob): DashboardDisplayJob {
+function buildDashboardJob(job: DBJobWithApplications): DashboardDisplayJob {
+  const applicantCount = job.applicant_count || 0;
   return {
     id: job.id,
     title: job.title,
@@ -525,13 +535,174 @@ function buildDashboardJob(job: DBJob): DashboardDisplayJob {
     description: formatDashboardDescription(job),
     industry: job.recruiter?.industry || job.industry || "",
     experience: "",
-    isRemote: job.work_mode === "Work from Home",
+    isRemote: job.work_mode === "Work from Home" || job.work_mode === "Remote",
     isDB: true,
     dbJob: job,
+    applicantCount,
   };
 }
 
 const PREFERRED_INTERVIEW_MODE_OPTIONS = ["In-Person", "Video Call", "Telephonic", "Walk-in"];
+
+const POPULAR_PREFERRED_LOCATIONS = [
+  "Remote",
+  "Hybrid",
+  "Work from Home",
+  "Anywhere in India",
+  "Bengaluru",
+  "Hyderabad",
+  "Mumbai",
+  "Delhi NCR",
+  "Gurugram",
+  "Noida",
+  "Pune",
+  "Chennai",
+  "Kolkata",
+  "Ahmedabad",
+  "Jaipur",
+  "Chandigarh",
+  "Indore",
+  "Kochi",
+  "Coimbatore",
+  "Thiruvananthapuram",
+  "International",
+];
+
+const EXPECTED_SALARY_LPA_OPTIONS = [
+  "Less than 3 LPA",
+  "3 LPA",
+  "4 LPA",
+  "5 LPA",
+  "6 LPA",
+  "7 LPA",
+  "8 LPA",
+  "9 LPA",
+  "10 LPA",
+  "12 LPA",
+  "14 LPA",
+  "15 LPA",
+  "18 LPA",
+  "20 LPA",
+  "22 LPA",
+  "25 LPA",
+  "28 LPA",
+  "30 LPA",
+  "35 LPA",
+  "40 LPA",
+  "45 LPA",
+  "50 LPA",
+  "50+ LPA",
+  "3 - 5 LPA",
+  "5 - 8 LPA",
+  "8 - 12 LPA",
+  "12 - 15 LPA",
+  "15 - 20 LPA",
+  "20 - 25 LPA",
+  "25 - 30 LPA",
+  "30 - 40 LPA",
+  "40 - 50 LPA",
+];
+
+const PREFERRED_LOCATION_ALL_OPTIONS = Array.from(
+  new Set([
+    ...POPULAR_PREFERRED_LOCATIONS,
+    ...INDIA_CITY_OPTIONS,
+  ])
+);
+
+function SearchableComboboxInput({
+  value,
+  onChange,
+  placeholder,
+  options,
+}: {
+  value: string;
+  onChange: (val: string) => void;
+  placeholder: string;
+  options: string[];
+}) {
+  const [open, setOpen] = useState(false);
+  const [search, setSearch] = useState(value || "");
+  const containerRef = useRef<HTMLDivElement>(null);
+
+  useEffect(() => {
+    setSearch(value || "");
+  }, [value]);
+
+  useEffect(() => {
+    if (!open) return;
+    const handleClickOutside = (e: MouseEvent) => {
+      if (!containerRef.current?.contains(e.target as Node)) {
+        setOpen(false);
+      }
+    };
+    document.addEventListener("mousedown", handleClickOutside);
+    return () => document.removeEventListener("mousedown", handleClickOutside);
+  }, [open]);
+
+  const filteredOptions = useMemo(() => {
+    const q = search.trim().toLowerCase();
+    let matches = options;
+    if (q) {
+      matches = options.filter((opt) => opt.toLowerCase().includes(q));
+    }
+    return matches.slice(0, 35);
+  }, [options, search]);
+
+  return (
+    <div ref={containerRef} className="relative">
+      <div className="relative">
+        <Input
+          value={search}
+          onChange={(e) => {
+            const val = e.target.value;
+            setSearch(val);
+            onChange(val);
+            setOpen(true);
+          }}
+          onFocus={() => setOpen(true)}
+          placeholder={placeholder}
+          className="bg-[#F6F6F6] border-gray-200 rounded-xl pr-8 text-sm"
+        />
+        <button
+          type="button"
+          onClick={() => setOpen((prev) => !prev)}
+          className="absolute right-2 top-1/2 -translate-y-1/2 text-gray-400 hover:text-gray-600 p-1"
+        >
+          <ChevronsUpDown className="h-4 w-4" />
+        </button>
+      </div>
+
+      {open && (
+        <div className="absolute z-50 mt-1 max-h-56 w-full overflow-y-auto rounded-xl border border-gray-200 bg-white p-1 shadow-lg">
+          {filteredOptions.length > 0 ? (
+            filteredOptions.map((opt) => (
+              <button
+                key={opt}
+                type="button"
+                onClick={() => {
+                  setSearch(opt);
+                  onChange(opt);
+                  setOpen(false);
+                }}
+                className={`flex w-full items-center justify-between rounded-lg px-3 py-2 text-left text-sm transition-colors ${
+                  value === opt ? "bg-[#FFF0F0] text-[#FF2B2B] font-medium" : "text-[#3A1F1F] hover:bg-gray-100"
+                }`}
+              >
+                <span>{opt}</span>
+                {value === opt && <Check className="h-4 w-4 text-[#FF2B2B]" />}
+              </button>
+            ))
+          ) : (
+            <div className="px-3 py-2 text-xs text-gray-500 italic">
+              No matching suggestions. Your custom value will be saved.
+            </div>
+          )}
+        </div>
+      )}
+    </div>
+  );
+}
 
 function normalizeInterviewModes(raw: any): string[] {
   if (raw == null) return [];
@@ -601,18 +772,45 @@ export default function JobSeekerDashboard() {
     : location.pathname.includes("/insights") ? "insights"
     : "find-job";
 
-  // On root dashboard path: check profile completion and redirect to profile page if incomplete.
-  // Uses a loading gate so the user never sees a flash of the Find a Job page.
+  // On root dashboard path: check profile completion on initial login/session start only.
+  // Uses session storage so subsequent page reloads stay on the current page.
   const completionCheckRef = useRef(false);
   const isRootPath = location.pathname === "/jobseeker/dashboard" || location.pathname === "/jobseeker/dashboard/";
-  const [checkingCompletion, setCheckingCompletion] = useState(isRootPath);
+  const [checkingCompletion, setCheckingCompletion] = useState(() => {
+    if (!isRootPath) return false;
+    try {
+      return !window.sessionStorage.getItem(`jobseeker_initial_check_done_${user?.id || ""}`);
+    } catch {
+      return false;
+    }
+  });
 
   useEffect(() => {
     if (authLoading || !profile || !user || completionCheckRef.current) return;
     completionCheckRef.current = true;
-    if (!isRootPath) { setCheckingCompletion(false); return; }
+
+    const sessionKey = `jobseeker_initial_check_done_${user.id}`;
+    const alreadyChecked = (() => {
+      try {
+        return window.sessionStorage.getItem(sessionKey) === "true";
+      } catch {
+        return false;
+      }
+    })();
+
+    if (!isRootPath || alreadyChecked) {
+      setCheckingCompletion(false);
+      return;
+    }
+
     const pid = profile.id;
     (async () => {
+      try {
+        window.sessionStorage.setItem(sessionKey, "true");
+      } catch {
+        // ignore storage errors
+      }
+
       const [expRes, eduRes, projRes, certRes] = await Promise.all([
         supabase.from("work_experience").select("id", { count: "exact", head: true }).eq("profile_id", pid),
         supabase.from("education").select("id", { count: "exact", head: true }).eq("profile_id", pid),
@@ -711,6 +909,38 @@ export default function JobSeekerDashboard() {
     fetchNotifications();
     navigate(getJobSeekerNotificationPath(notification));
   }, [fetchNotifications, getJobSeekerNotificationPath, navigate, profile?.id]);
+
+  const handleClearAllNotifications = useCallback(async (e: React.MouseEvent) => {
+    e.stopPropagation();
+    if (!profile?.id) return;
+    const { error } = await supabase
+      .from("notifications")
+      .delete()
+      .eq("user_id", profile.id)
+      .eq("user_type", "jobseeker");
+    if (!error) {
+      setNotifications([]);
+      setUnreadCount(0);
+    }
+  }, [profile?.id]);
+
+  const handleDeleteNotification = useCallback(async (e: React.MouseEvent, notificationId: string) => {
+    e.stopPropagation();
+    if (!profile?.id) return;
+    const target = notifications.find((n) => n.id === notificationId);
+    const { error } = await supabase
+      .from("notifications")
+      .delete()
+      .eq("id", notificationId)
+      .eq("user_id", profile.id)
+      .eq("user_type", "jobseeker");
+    if (!error) {
+      setNotifications((prev) => prev.filter((n) => n.id !== notificationId));
+      if (target && !target.is_read) {
+        setUnreadCount((prev) => Math.max(0, prev - 1));
+      }
+    }
+  }, [notifications, profile?.id]);
 
   const notifRef = useRef<HTMLDivElement>(null);
   useEffect(() => {
@@ -829,15 +1059,42 @@ export default function JobSeekerDashboard() {
                 {notificationsOpen && (
                   <div className="absolute right-0 top-full mt-2 w-80 bg-white rounded-xl shadow-lg border border-gray-100 z-[200]">
                     <div className="p-4">
-                      <h3 className="font-semibold text-[#3A1F1F] mb-3">Notifications</h3>
-                      <div className="space-y-2 max-h-64 overflow-y-auto">
+                      <div className="flex items-center justify-between mb-3">
+                        <h3 className="font-semibold text-[#3A1F1F]">Notifications</h3>
+                        {notifications.length > 0 && (
+                          <button
+                            type="button"
+                            onClick={handleClearAllNotifications}
+                            className="text-xs text-[#FF2B2B] hover:text-[#d92222] font-medium transition-colors hover:underline"
+                          >
+                            Clear all
+                          </button>
+                        )}
+                      </div>
+                      <div className="space-y-2 max-h-72 overflow-y-auto pr-1">
                         {notifications.length === 0 ? (
                           <p className="text-sm text-[#8A8A8A] text-center py-4">No notifications yet</p>
                         ) : notifications.map((n) => (
-                          <div key={n.id} onClick={() => handleNotificationClick(n)} className={`p-3 rounded-lg cursor-pointer ${!n.is_read ? "bg-red-50" : "bg-[#F6F6F6]"}`}>
-                            <p className="text-sm font-medium text-[#3A1F1F]">{n.title}</p>
-                            <p className="text-xs text-[#8A8A8A] whitespace-pre-wrap break-words">{renderNotificationMessage(n.message)}</p>
-                            <p className="text-xs text-[#BABABA] mt-0.5">{new Date(n.created_at).toLocaleString()}</p>
+                          <div
+                            key={n.id}
+                            onClick={() => handleNotificationClick(n)}
+                            className={`group relative flex items-start justify-between p-3 rounded-lg cursor-pointer transition-colors ${
+                              !n.is_read ? "bg-red-50 hover:bg-red-100/70" : "bg-[#F6F6F6] hover:bg-gray-200/60"
+                            }`}
+                          >
+                            <div className="flex-1 pr-5">
+                              <p className="text-sm font-medium text-[#3A1F1F]">{n.title}</p>
+                              <p className="text-xs text-[#8A8A8A] whitespace-pre-wrap break-words mt-0.5">{renderNotificationMessage(n.message)}</p>
+                              <p className="text-xs text-[#BABABA] mt-1">{new Date(n.created_at).toLocaleString()}</p>
+                            </div>
+                            <button
+                              type="button"
+                              onClick={(e) => handleDeleteNotification(e, n.id)}
+                              title="Delete notification"
+                              className="absolute right-2 top-2 p-1 text-gray-400 hover:text-[#FF2B2B] opacity-0 group-hover:opacity-100 transition-opacity rounded-full hover:bg-white"
+                            >
+                              <Trash2 className="h-3.5 w-3.5" />
+                            </button>
                           </div>
                         ))}
                       </div>
@@ -882,6 +1139,162 @@ export default function JobSeekerDashboard() {
   );
 }
 
+const DEPARTMENT_OPTIONS = [
+  "Engineering",
+  "Software Development",
+  "Information Technology",
+  "Data Science",
+  "Artificial Intelligence / Machine Learning",
+  "Product Management",
+  "Project Management",
+  "Quality Assurance",
+  "DevOps / Cloud Infrastructure",
+  "Cybersecurity",
+  "UI/UX Design",
+  "Design / Creative",
+  "Research and Development",
+  "Operations",
+  "Business Operations",
+  "Sales",
+  "Business Development",
+  "Marketing",
+  "Digital Marketing",
+  "Content / Editorial",
+  "Customer Support",
+  "Customer Success",
+  "Human Resources",
+  "Talent Acquisition",
+  "Finance",
+  "Accounting",
+  "Legal",
+  "Compliance",
+  "Administration",
+  "Procurement",
+  "Supply Chain",
+  "Logistics",
+  "Manufacturing",
+  "Production",
+  "Maintenance",
+  "Healthcare / Clinical",
+  "Education / Training",
+  "Consulting",
+  "Analytics",
+  "Strategy",
+  "Public Relations",
+  "Facilities",
+  "Security",
+  "Other",
+];
+
+const DESIGNATION_OPTIONS = [
+  "Software Engineer",
+  "Frontend Developer",
+  "Backend Developer",
+  "Full Stack Developer",
+  "React Developer",
+  "Node.js Developer",
+  "Java Developer",
+  "Python Developer",
+  "Go Developer",
+  "Mobile Developer",
+  "Android Developer",
+  "iOS Developer",
+  "DevOps Engineer",
+  "Cloud Architect",
+  "System Administrator",
+  "Database Administrator",
+  "QA Engineer",
+  "Automation Engineer",
+  "Data Scientist",
+  "Data Analyst",
+  "Data Engineer",
+  "Machine Learning Engineer",
+  "AI Engineer",
+  "Product Manager",
+  "Project Manager",
+  "Scrum Master",
+  "Business Analyst",
+  "System Analyst",
+  "UI/UX Designer",
+  "Product Designer",
+  "Graphic Designer",
+  "Web Designer",
+  "Motion Designer",
+  "Marketing Manager",
+  "Digital Marketing Specialist",
+  "SEO Analyst",
+  "Content Writer",
+  "Copywriter",
+  "Sales Manager",
+  "Sales Executive",
+  "Business Development Executive",
+  "BDM",
+  "Account Manager",
+  "HR Manager",
+  "HR Generalist",
+  "Recruiter",
+  "Talent Acquisition Specialist",
+  "Finance Manager",
+  "Accountant",
+  "Financial Analyst",
+  "Operations Manager",
+  "Operations Executive",
+  "Customer Support Executive",
+  "Customer Success Manager",
+  "Technical Support Engineer",
+];
+
+const ALL_SKILL_OPTIONS = Array.from(
+  new Set([...SEARCH_SUGGESTION_DATASET, ...SKILL_OPTIONS])
+).sort((a, b) => a.localeCompare(b));
+
+const ALL_LOCATION_OPTIONS = Array.from(
+  new Set([
+    "India",
+    "NCR",
+    "New Delhi",
+    "Bangalore",
+    "Gurugram",
+    "Trivandrum",
+    "Jammu",
+    "Kashmir",
+    "Andaman and Nicobar",
+    "Andhra Pradesh",
+    "Arunachal Pradesh",
+    "Assam",
+    "Bihar",
+    "Chhattisgarh",
+    "Goa",
+    "Gujarat",
+    "Haryana",
+    "Himachal Pradesh",
+    "Jharkhand",
+    "Karnataka",
+    "Kerala",
+    "Madhya Pradesh",
+    "Maharashtra",
+    "Manipur",
+    "Meghalaya",
+    "Mizoram",
+    "Nagaland",
+    "Odisha",
+    "Punjab",
+    "Rajasthan",
+    "Sikkim",
+    "Tamil Nadu",
+    "Telangana",
+    "Tripura",
+    "Uttar Pradesh",
+    "Uttarakhand",
+    "West Bengal",
+    ...INDIA_CITY_OPTIONS,
+  ])
+).sort((a, b) => a.localeCompare(b));
+
+const ALL_ROLE_AND_DEPT_OPTIONS = Array.from(
+  new Set([...DESIGNATION_OPTIONS, ...DEPARTMENT_OPTIONS])
+).sort((a, b) => a.localeCompare(b));
+
 // ── Find a Job ─────────────────────────────────────────────────────────────────
 function FindJobPage() {
   const { profile } = useAuth();
@@ -901,7 +1314,7 @@ function FindJobPage() {
   const [industryFilter, setIndustryFilter] = useState("");
   const [jobTypeFilter, setJobTypeFilter] = useState("");
   const [remoteFilter, setRemoteFilter] = useState("");
-  const [dbJobs, setDbJobs] = useState<DBJob[]>([]);
+  const [dbJobs, setDbJobs] = useState<DBJobWithApplications[]>([]);
   const [totalJobsCount, setTotalJobsCount] = useState(0);
   const [jobsLoading, setJobsLoading] = useState(true);
   const [jobsError, setJobsError] = useState("");
@@ -909,6 +1322,147 @@ function FindJobPage() {
   const [savedJobIds, setSavedJobIds] = useState<string[]>([]);
   const [applyingId, setApplyingId] = useState<string | null>(null);
   const [selectedJob, setSelectedJob] = useState<DashboardDisplayJob | null>(null);
+
+  // Scroll to top of window when page changes
+  useEffect(() => {
+    window.scrollTo({ top: 0, behavior: "smooth" });
+  }, [currentPage]);
+
+  const [skillSuggestionsOpen, setSkillSuggestionsOpen] = useState(false);
+  const [highlightedIndex, setHighlightedIndex] = useState(-1);
+  const keywordInputRef = useRef<HTMLInputElement>(null);
+  const dropdownContainerRef = useRef<HTMLDivElement>(null);
+  const searchKeywordRef = useRef<HTMLDivElement>(null);
+
+  // ── Boolean keyword parser ─────────────────────────────────
+  const parseSearchTokens = (input: string): { tokens: string[]; isOr: boolean } => {
+    const trimmed = input.trim();
+    if (!trimmed) return { tokens: [], isOr: false };
+    const isOr = /\bor\b/i.test(trimmed) || trimmed.includes(",");
+    if (isOr) {
+      const segments = trimmed.split(/\bor\b|,/i).map(s => s.trim()).filter(Boolean);
+      const tokens = segments.map(seg => seg.replace(/\b(?:and|not)\b/gi, "").trim()).filter(Boolean);
+      return { tokens, isOr: true };
+    } else {
+      const tokens = trimmed.split(/\s+/).filter(t => !/^(and|or|not)$/i.test(t));
+      return { tokens, isOr: false };
+    }
+  };
+
+  const getCurrentSearchToken = (text: string) => {
+    const lastCommaIndex = text.lastIndexOf(",");
+    const operatorRegex = /\b(AND|OR|NOT)\b/gi;
+    let match;
+    let lastOperatorIndex = -1;
+    let lastOperatorLength = 0;
+    
+    while ((match = operatorRegex.exec(text)) !== null) {
+      lastOperatorIndex = match.index;
+      lastOperatorLength = match[0].length;
+    }
+    
+    if (lastCommaIndex === -1 && lastOperatorIndex === -1) {
+      return { token: text, prefix: "", separatorType: "none" as const };
+    }
+    
+    if (lastCommaIndex > lastOperatorIndex) {
+      const prefix = text.slice(0, lastCommaIndex + 1);
+      const token = text.slice(lastCommaIndex + 1);
+      return { token, prefix, separatorType: "comma" as const };
+    } else {
+      const prefix = text.slice(0, lastOperatorIndex + lastOperatorLength);
+      const token = text.slice(lastOperatorIndex + lastOperatorLength);
+      return { token, prefix, separatorType: "operator" as const };
+    }
+  };
+
+  const filteredSuggestions = useMemo(() => {
+    const { token } = getCurrentSearchToken(inputValue);
+    const query = token.trim();
+    if (!query) return { skills: [], locations: [], designations: [] };
+
+    const normalizedInputKeywords = inputValue
+      .toLowerCase()
+      .split(/,|\b(?:and|or|not)\b/i)
+      .map(k => k.trim())
+      .filter(Boolean);
+
+    const isAlreadyPresent = (item: string) => {
+      return normalizedInputKeywords.includes(item.toLowerCase());
+    };
+
+    const matchedSkills = ALL_SKILL_OPTIONS
+      .filter(skill => fuzzyMatch(query, skill) && !isAlreadyPresent(skill))
+      .slice(0, 8);
+
+    const matchedLocations = ALL_LOCATION_OPTIONS
+      .filter(city => fuzzyMatch(query, city) && !isAlreadyPresent(city))
+      .slice(0, 5);
+
+    const matchedDesignations = ALL_ROLE_AND_DEPT_OPTIONS
+      .filter(role => fuzzyMatch(query, role) && !isAlreadyPresent(role))
+      .slice(0, 5);
+
+    return {
+      skills: matchedSkills,
+      locations: matchedLocations,
+      designations: matchedDesignations,
+    };
+  }, [inputValue]);
+
+  const flatSuggestionsList = useMemo(() => {
+    const list: Array<{ value: string; type: "skill" | "location" | "designation" }> = [];
+    filteredSuggestions.skills.forEach(skill => list.push({ value: skill, type: "skill" }));
+    filteredSuggestions.locations.forEach(loc => list.push({ value: loc, type: "location" }));
+    filteredSuggestions.designations.forEach(role => list.push({ value: role, type: "designation" }));
+    return list;
+  }, [filteredSuggestions]);
+
+  const hasSuggestions = useMemo(() => {
+    return flatSuggestionsList.length > 0;
+  }, [flatSuggestionsList]);
+
+  useEffect(() => {
+    setHighlightedIndex(-1);
+  }, [inputValue]);
+
+  useEffect(() => {
+    if (highlightedIndex < 0 || !dropdownContainerRef.current) return;
+    const container = dropdownContainerRef.current;
+    const buttons = container.querySelectorAll("button");
+    const activeBtn = buttons[highlightedIndex];
+    if (activeBtn) {
+      activeBtn.scrollIntoView({ block: "nearest" });
+    }
+  }, [highlightedIndex]);
+
+  const selectSuggestion = (suggestionValue: string) => {
+    const { prefix, separatorType } = getCurrentSearchToken(inputValue);
+    let nextInputValue = "";
+    if (separatorType === "none") {
+      nextInputValue = suggestionValue + " ";
+    } else if (separatorType === "comma") {
+      nextInputValue = prefix.trim() + " " + suggestionValue + ", ";
+    } else {
+      nextInputValue = prefix.trim() + " " + suggestionValue + " ";
+    }
+    setInputValue(nextInputValue);
+    setSkillSuggestionsOpen(false);
+    if (keywordInputRef.current) {
+      keywordInputRef.current.focus();
+    }
+  };
+
+  useEffect(() => {
+    if (!skillSuggestionsOpen) return;
+    const handleClickOutside = (event: MouseEvent) => {
+      if (!searchKeywordRef.current?.contains(event.target as Node)) {
+        setSkillSuggestionsOpen(false);
+      }
+    };
+    document.addEventListener("mousedown", handleClickOutside);
+    return () => document.removeEventListener("mousedown", handleClickOutside);
+  }, [skillSuggestionsOpen]);
 
   useEffect(() => {
     if (userId) {
@@ -938,16 +1492,13 @@ function FindJobPage() {
       setJobsLoading(true);
       setJobsError("");
 
-     let query = supabase
-  .from("jobs")
-  .select(
-    `id, title, description, roles_responsibilities, requirements, skills, perks, location, 
-     salary_min, salary_max, salary_type, experience_min, experience_max, employment_type, 
-     work_mode, created_at, status, deadline, deadline_time,
-     recruiter:recruiter_profiles(logo_url, company_name, website, tagline, company_description, industry, company_type, company_size, founded, location)`,
-    { count: "exact" }
-  )
-  .eq("status", "Active");  
+      let data: DBJob[] | null = null;
+      let error: any = null;
+      let count = 0;
+      let esSuccess = false;
+
+      const from = (currentPage - 1) * JOBS_PER_PAGE;
+      const to = from + JOBS_PER_PAGE - 1;
 
       const trimmedSearch = searchQuery.trim();
       const shouldShowOnlyRecommended =
@@ -960,73 +1511,162 @@ function FindJobPage() {
         !jobTypeFilter &&
         !remoteFilter;
 
-      if (trimmedSearch) {
-        const escaped = escapeLikeValue(trimmedSearch);
-        query = query.or(
-          `title.ilike.%${escaped}%,company_name.ilike.%${escaped}%,description.ilike.%${escaped}%,location.ilike.%${escaped}%`
-        );
+      const hasAnyFilter = !!(selectedChip || locationFilter || experienceFilter || salaryFilter || industryFilter || jobTypeFilter || remoteFilter);
+
+      if (trimmedSearch || hasAnyFilter) {
+        try {
+          const apiUrl = import.meta.env.VITE_API_URL || "http://localhost:8000";
+          const esUrl = `${apiUrl}/jobs/search?q=${encodeURIComponent(trimmedSearch)}` +
+            `&work_mode=${remoteFilter === "yes" || selectedChip === "Remote" || locationFilter === "remote" ? "Work from Home" : ""}` +
+            `&employment_type=${selectedChip === "Full-time" ? "Full-time" : selectedChip === "Part-time" ? "Part-time" : selectedChip === "Contract" ? "Contract" : jobTypeFilter === "fulltime" ? "Full-time" : jobTypeFilter === "parttime" ? "Part-time" : jobTypeFilter === "contract" ? "Contract" : ""}` +
+            `&location=${locationFilter && locationFilter !== "remote" ? locationFilter.charAt(0).toUpperCase() + locationFilter.slice(1) : ""}` +
+            `&salary_min=${salaryFilter === "10-25" ? "10" : salaryFilter === "25+" ? "25" : ""}` +
+            `&salary_max=${salaryFilter === "0-10" ? "10" : salaryFilter === "10-25" ? "25" : ""}` +
+            `&experience_min=${experienceFilter === "mid" ? "2" : experienceFilter === "senior" ? "5" : ""}` +
+            `&experience_max=${experienceFilter === "entry" ? "1" : experienceFilter === "mid" ? "5" : ""}` +
+            `&sort=${trimmedSearch ? "relevant" : "recent"}&page=${currentPage}&size=${JOBS_PER_PAGE}`;
+            
+          const esRes = await fetch(esUrl);
+          if (esRes.ok) {
+            const esData = await esRes.json();
+            const matchedIds = (esData.jobs || []).map((j: any) => j.id);
+            count = esData.total || 0;
+            
+            if (matchedIds.length > 0) {
+              const { data: hydratedData, error: hydError } = await supabase
+                .from("jobs")
+                .select(
+                  `id, title, description, roles_responsibilities, requirements, skills, perks, location, 
+                   salary_min, salary_max, salary_type, experience_min, experience_max, employment_type, 
+                   work_mode, created_at, status, deadline, deadline_time, recruiter_id,
+                   recruiter:recruiter_profiles(logo_url, company_name, website, tagline, company_description, industry, company_type, company_size, founded, location),
+                   applicant_count`
+                )
+                .in("id", matchedIds);
+                
+              if (hydratedData) {
+                const idToJobMap = new Map(hydratedData.map((j: any) => [j.id, j]));
+                data = matchedIds.map((id: string) => idToJobMap.get(id)).filter(Boolean) as DBJob[];
+              } else if (hydError) {
+                error = hydError;
+              }
+            } else {
+              data = [];
+            }
+            esSuccess = true;
+          }
+        } catch (err) {
+          console.error("Elasticsearch jobseeker dashboard search query failed, using fallback:", err);
+        }
       }
 
-      if (selectedChip === "Full-time" || selectedChip === "Part-time" || selectedChip === "Contract") {
-        query = query.eq("employment_type", selectedChip);
-      } else if (jobTypeFilter === "fulltime") {
-        query = query.eq("employment_type", "Full-time");
-      } else if (jobTypeFilter === "parttime") {
-        query = query.eq("employment_type", "Part-time");
-      } else if (jobTypeFilter === "contract") {
-        query = query.eq("employment_type", "Contract");
+      if (!esSuccess) {
+        let query = supabase
+          .from("jobs")
+          .select(
+            `id, title, description, roles_responsibilities, requirements, skills, perks, location, 
+             salary_min, salary_max, salary_type, experience_min, experience_max, employment_type, 
+             work_mode, created_at, status, deadline, deadline_time, recruiter_id,
+             recruiter:recruiter_profiles(logo_url, company_name, website, tagline, company_description, industry, company_type, company_size, founded, location),
+             applicant_count`,
+            { count: "exact" }
+          )
+          .eq("status", "Active");
+
+        if (trimmedSearch) {
+          const { tokens: searchTokens, isOr: isOrQuery } = parseSearchTokens(trimmedSearch);
+          if (isOrQuery) {
+            // OR: combine all token clauses into one .or() call
+            const clauses = searchTokens.flatMap(term => {
+              const escapedTerm = escapeLikeValue(term);
+              return [
+                `title.ilike.%${escapedTerm}%`,
+                `company_name.ilike.%${escapedTerm}%`,
+                `description.ilike.%${escapedTerm}%`,
+                `location.ilike.%${escapedTerm}%`,
+                `requirements.ilike.%${escapedTerm}%`,
+                `roles_responsibilities.ilike.%${escapedTerm}%`
+              ];
+            });
+            if (clauses.length > 0) {
+              query = query.or(clauses.join(","));
+            }
+          } else {
+            // AND: each token must match at least one field (chained .or())
+            searchTokens.forEach(token => {
+              const escapedToken = escapeLikeValue(token);
+              query = query.or(
+                `title.ilike.%${escapedToken}%,company_name.ilike.%${escapedToken}%,` +
+                `description.ilike.%${escapedToken}%,location.ilike.%${escapedToken}%,` +
+                `requirements.ilike.%${escapedToken}%,roles_responsibilities.ilike.%${escapedToken}%`
+              );
+            });
+          }
+        }
+
+        if (selectedChip === "Full-time" || selectedChip === "Part-time" || selectedChip === "Contract") {
+          query = query.eq("employment_type", selectedChip);
+        } else if (jobTypeFilter === "fulltime") {
+          query = query.eq("employment_type", "Full-time");
+        } else if (jobTypeFilter === "parttime") {
+          query = query.eq("employment_type", "Part-time");
+        } else if (jobTypeFilter === "contract") {
+          query = query.eq("employment_type", "Contract");
+        }
+
+        if (selectedChip === "Remote" || locationFilter === "remote" || remoteFilter === "yes") {
+          query = query.in("work_mode", ["Work from Home", "Remote"]);
+        } else if (remoteFilter === "no") {
+          query = query.neq("work_mode", "Work from Home").neq("work_mode", "Remote");
+        }
+
+        const preferredInterviewModes = normalizeInterviewModes(profile?.preferred_interview_mode);
+        if (preferredInterviewModes.length > 0) {
+          query = query.in("interview_mode", preferredInterviewModes);
+        }
+
+        if (locationFilter === "bengaluru") query = query.ilike("location", "%Bengaluru%");
+        if (locationFilter === "mumbai") query = query.ilike("location", "%Mumbai%");
+        if (locationFilter === "hyderabad") query = query.ilike("location", "%Hyderabad%");
+        if (locationFilter === "delhi") query = query.ilike("location", "%Delhi%");
+        if (locationFilter === "pune") query = query.ilike("location", "%Pune%");
+
+        if (experienceFilter === "entry") query = query.lte("experience_min", 1);
+        if (experienceFilter === "mid") query = query.gte("experience_min", 2).lte("experience_min", 5);
+        if (experienceFilter === "senior") query = query.gte("experience_min", 5);
+
+        if (salaryFilter === "0-10") {
+          query = query.or("salary_min.lt.10,and(salary_min.gte.1000,salary_min.lt.1000000)");
+        }
+        if (salaryFilter === "10-25") {
+          query = query.or("and(salary_min.gte.10,salary_min.lt.25),and(salary_min.gte.1000000,salary_min.lt.2500000)");
+        }
+        if (salaryFilter === "25+") {
+          query = query.or("and(salary_min.gte.25,salary_min.lt.1000),salary_min.gte.2500000");
+        }
+
+        if (industryFilter === "healthcare") query = query.ilike("industry", "%Healthcare%");
+        if (industryFilter === "finance") query = query.ilike("industry", "%BFSI%");
+        if (industryFilter === "media") query = query.ilike("industry", "%Media%");
+        if (industryFilter === "tech") query = query.or("industry.ilike.%IT / Software%,industry.ilike.%E-commerce%,industry.ilike.%Consulting%");
+        if (industryFilter === "marketing") query = query.or("industry.ilike.%Consulting%,industry.ilike.%Media%");
+        if (industryFilter === "design") query = query.ilike("department", "%Design%");
+
+        const orderedQuery = query.order("created_at", { ascending: false });
+
+        const res = await withTimeout(
+          shouldShowOnlyRecommended ? orderedQuery.limit(DEFAULT_RECOMMENDATION_FETCH_LIMIT) : orderedQuery.range(from, to),
+          JOBS_QUERY_TIMEOUT_MS,
+          "Jobs request timed out",
+        ).catch((err) => {
+          console.error("Unable to load jobs:", err);
+          return { data: null, error: err, count: 0 };
+        });
+
+        data = res.data as unknown as DBJob[];
+        error = res.error;
+        count = res.count || 0;
       }
-
-      if (selectedChip === "Remote" || locationFilter === "remote" || remoteFilter === "yes") {
-        query = query.eq("work_mode", "Work from Home");
-      } else if (remoteFilter === "no") {
-        query = query.neq("work_mode", "Work from Home");
-      }
-
-      const preferredInterviewModes = normalizeInterviewModes(profile?.preferred_interview_mode);
-      if (preferredInterviewModes.length > 0) {
-        query = query.in("interview_mode", preferredInterviewModes);
-      }
-
-      if (locationFilter === "bengaluru") query = query.ilike("location", "%Bengaluru%");
-      if (locationFilter === "mumbai") query = query.ilike("location", "%Mumbai%");
-      if (locationFilter === "hyderabad") query = query.ilike("location", "%Hyderabad%");
-      if (locationFilter === "delhi") query = query.ilike("location", "%Delhi%");
-      if (locationFilter === "pune") query = query.ilike("location", "%Pune%");
-
-      if (experienceFilter === "entry") query = query.lte("experience_min", 1);
-      if (experienceFilter === "mid") query = query.gte("experience_min", 2).lte("experience_min", 5);
-      if (experienceFilter === "senior") query = query.gte("experience_min", 5);
-
-      if (salaryFilter === "0-10") {
-        query = query.or("salary_min.lt.10,and(salary_min.gte.1000,salary_min.lt.1000000)");
-      }
-      if (salaryFilter === "10-25") {
-        query = query.or("and(salary_min.gte.10,salary_min.lt.25),and(salary_min.gte.1000000,salary_min.lt.2500000)");
-      }
-      if (salaryFilter === "25+") {
-        query = query.or("and(salary_min.gte.25,salary_min.lt.1000),salary_min.gte.2500000");
-      }
-
-      if (industryFilter === "healthcare") query = query.ilike("industry", "%Healthcare%");
-      if (industryFilter === "finance") query = query.ilike("industry", "%BFSI%");
-      if (industryFilter === "media") query = query.ilike("industry", "%Media%");
-      if (industryFilter === "tech") query = query.or("industry.ilike.%IT / Software%,industry.ilike.%E-commerce%,industry.ilike.%Consulting%");
-      if (industryFilter === "marketing") query = query.or("industry.ilike.%Consulting%,industry.ilike.%Media%");
-      if (industryFilter === "design") query = query.ilike("department", "%Design%");
-
-      const from = (currentPage - 1) * JOBS_PER_PAGE;
-      const to = from + JOBS_PER_PAGE - 1;
-      const orderedQuery = query.order("created_at", { ascending: false });
-
-      const { data, error, count } = await withTimeout(
-        shouldShowOnlyRecommended ? orderedQuery.limit(DEFAULT_RECOMMENDATION_FETCH_LIMIT) : orderedQuery.range(from, to),
-        JOBS_QUERY_TIMEOUT_MS,
-        "Jobs request timed out",
-      ).catch((error) => {
-        console.error("Unable to load jobs:", error);
-        return { data: null, error, count: 0 };
-      });
 
       if (cancelled) return;
 
@@ -1038,7 +1678,7 @@ function FindJobPage() {
         return;
       }
 
-      const visibleJobs = ((data as unknown as DBJob[]) || []).filter((job) => isJobVisibleToSeekers(job));
+      const visibleJobs = ((data as unknown as DBJobWithApplications[]) || []).filter((job) => isJobVisibleToSeekers(job));
 
       if (shouldShowOnlyRecommended) {
         const recommendationTerms = profileSkills
@@ -1074,6 +1714,54 @@ function FindJobPage() {
     preferredInterviewModeKey,
   ]);
 
+  // Subscribe to real-time jobs table changes to update counts automatically
+  useEffect(() => {
+    const channel = supabase
+      .channel("jobseeker-jobs-realtime")
+      .on(
+        "postgres_changes",
+        {
+          event: "UPDATE",
+          schema: "public",
+          table: "jobs",
+        },
+        (payload) => {
+          const updatedJob = payload.new as DBJob;
+          if (updatedJob && updatedJob.id) {
+            setDbJobs((prev) =>
+              prev.map((job) => {
+                if (job.id === updatedJob.id) {
+                  return {
+                    ...job,
+                    applicant_count: updatedJob.applicant_count || 0,
+                  };
+                }
+                return job;
+              })
+            );
+            setSelectedJob((prev) => {
+              if (prev && prev.id === updatedJob.id) {
+                return {
+                  ...prev,
+                  applicantCount: updatedJob.applicant_count || 0,
+                  dbJob: {
+                    ...prev.dbJob,
+                    applicant_count: updatedJob.applicant_count || 0,
+                  },
+                };
+              }
+              return prev;
+            });
+          }
+        }
+      )
+      .subscribe();
+
+    return () => {
+      supabase.removeChannel(channel);
+    };
+  }, []);
+
   const handleApply = async (job: DBJob) => {
     if (!userId) return;
     if (appliedJobIds.includes(job.id)) return;
@@ -1089,6 +1777,28 @@ function FindJobPage() {
       });
       recordJobInteraction(job, userId);
       setAppliedJobIds(prev => [...prev, job.id]);
+      setDbJobs(prev => prev.map(j => {
+        if (j.id === job.id) {
+          return {
+            ...j,
+            applicant_count: (j.applicant_count || 0) + 1,
+          };
+        }
+        return j;
+      }));
+      setSelectedJob(prev => {
+        if (prev && prev.id === job.id) {
+          return {
+            ...prev,
+            applicantCount: (prev.applicantCount || 0) + 1,
+            dbJob: {
+              ...prev.dbJob,
+              applicant_count: (prev.dbJob.applicant_count || 0) + 1,
+            }
+          };
+        }
+        return prev;
+      });
     } finally {
       setApplyingId(null);
     }
@@ -1153,17 +1863,47 @@ function FindJobPage() {
 
       {/* Search Bar */}
       <div className="flex justify-center mb-8">
-        <div className="w-full max-w-2xl">
+        <div className="w-full max-w-2xl relative" ref={searchKeywordRef}>
           <div className="bg-white rounded-full shadow-lg border border-gray-200 p-2">
             <div className="flex items-center gap-3 px-4">
               <Search className="h-5 w-5 text-[#8A8A8A] shrink-0" />
               <Input
+                ref={keywordInputRef}
                 value={inputValue}
-                onChange={(e) => setInputValue(e.target.value)}
+                onFocus={() => setSkillSuggestionsOpen(true)}
+                onChange={(e) => {
+                  setInputValue(e.target.value);
+                  setSkillSuggestionsOpen(true);
+                }}
                 onKeyDown={(e) => {
-                  if (e.key === "Enter") {
-                    setSearchQuery(inputValue);
-                    recordJobSearch(inputValue, profile?.id);
+                  if (e.key === "ArrowDown") {
+                    if (skillSuggestionsOpen && flatSuggestionsList.length > 0) {
+                      e.preventDefault();
+                      setHighlightedIndex(prev => (prev + 1) % flatSuggestionsList.length);
+                    } else {
+                      setSkillSuggestionsOpen(true);
+                    }
+                  } else if (e.key === "ArrowUp") {
+                    if (skillSuggestionsOpen && flatSuggestionsList.length > 0) {
+                      e.preventDefault();
+                      setHighlightedIndex(prev => (prev - 1 + flatSuggestionsList.length) % flatSuggestionsList.length);
+                    }
+                  } else if (e.key === "Enter") {
+                    if (skillSuggestionsOpen && highlightedIndex >= 0 && highlightedIndex < flatSuggestionsList.length) {
+                      e.preventDefault();
+                      selectSuggestion(flatSuggestionsList[highlightedIndex].value);
+                    } else {
+                      setSkillSuggestionsOpen(false);
+                      setSearchQuery(inputValue);
+                      recordJobSearch(inputValue, profile?.id);
+                    }
+                  } else if (e.key === "Escape") {
+                    setSkillSuggestionsOpen(false);
+                  } else if (e.key === "Tab") {
+                    if (skillSuggestionsOpen && highlightedIndex >= 0 && highlightedIndex < flatSuggestionsList.length) {
+                      e.preventDefault();
+                      selectSuggestion(flatSuggestionsList[highlightedIndex].value);
+                    }
                   }
                 }}
                 placeholder="Search by title, company, or keywords..."
@@ -1177,6 +1917,7 @@ function FindJobPage() {
               <Button
                 className="bg-[#FF2B2B] hover:bg-[#e02525] text-white rounded-full px-6 h-10 shrink-0"
                 onClick={() => {
+                  setSkillSuggestionsOpen(false);
                   setSearchQuery(inputValue);
                   recordJobSearch(inputValue, profile?.id);
                 }}
@@ -1296,13 +2037,23 @@ function FindJobPage() {
                     >
                       <JobShareButton jobId={String(job.id)} title={job.title} className="absolute right-4 top-4" />
                       {job.isDB && (
-                        <div className={`absolute top-3 right-16 text-center rounded-xl px-2 py-1 min-w-[44px] ${matchBadgeClass}`}>
-                          <div className="text-sm font-bold leading-none">{matchPercentage}%</div>
-                          <div className="text-[10px] font-medium leading-tight mt-0.5 opacity-80">match</div>
-                        </div>
+                        <>
+                          <div 
+                            className="absolute top-3.5 right-16 bg-[#FFF2F2] text-[#FF2B2B] rounded-full px-2 py-1 text-[11px] font-semibold flex items-center gap-1 border border-red-100 shadow-sm shrink-0"
+                            title={`${job.applicantCount || 0} candidates applied`}
+                            onClick={(e) => e.stopPropagation()}
+                          >
+                            <Users className="h-3.5 w-3.5 shrink-0" />
+                            <span>{job.applicantCount || 0} applied</span>
+                          </div>
+                          <div className={`absolute top-3 right-[148px] text-center rounded-xl px-2 py-1 min-w-[44px] ${matchBadgeClass}`}>
+                            <div className="text-sm font-bold leading-none">{matchPercentage}%</div>
+                            <div className="text-[10px] font-medium leading-tight mt-0.5 opacity-80">match</div>
+                          </div>
+                        </>
                       )}
-                      <p className="text-xs text-[#8A8A8A] mb-0.5 pr-24">{job.company}</p>
-                      <h3 className="font-bold text-[#3A1F1F] text-lg mb-2 leading-snug pr-24">{job.title}</h3>
+                      <p className="text-xs text-[#8A8A8A] mb-0.5 pr-[200px]">{job.company}</p>
+                      <h3 className="font-bold text-[#3A1F1F] text-lg mb-2 leading-snug pr-[200px]">{job.title}</h3>
                       <p className="text-[#8A8A8A] text-sm mb-3 line-clamp-2 flex-1">{stripHtml(job.description)}</p>
                       <div className="space-y-1 mb-4">
                         <div className="flex items-center text-sm text-[#8A8A8A]">
@@ -1347,25 +2098,46 @@ function FindJobPage() {
                       />
                     </PaginationItem>
 
-                    {pageNumbers.map((pageNumber) => (
-                      <PaginationItem key={pageNumber}>
-                        <PaginationLink
-                          href="#job-results-pagination"
-                          isActive={currentPage === pageNumber}
-                          onClick={(event) => {
-                            event.preventDefault();
-                            setCurrentPage(pageNumber);
-                          }}
-                          className={
-                            currentPage === pageNumber
-                              ? "border-[#FF2B2B] bg-[#FF2B2B] text-white hover:bg-[#e02525] hover:text-white"
-                              : "text-[#3A1F1F]"
-                          }
-                        >
-                          {pageNumber}
-                        </PaginationLink>
-                      </PaginationItem>
-                    ))}
+                    {(() => {
+                      const delta = 1;
+                      const range: (number | string)[] = [];
+                      for (let i = 1; i <= totalPages; i++) {
+                        if (i === 1 || i === totalPages || (i >= currentPage - delta && i <= currentPage + delta)) {
+                          range.push(i);
+                        } else if (range[range.length - 1] !== "...") {
+                          range.push("...");
+                        }
+                      }
+                      return range.map((page, idx) => {
+                        if (page === "...") {
+                          return (
+                            <PaginationItem key={`ellipsis-${idx}`}>
+                              <PaginationEllipsis className="text-[#8A8A8A]" />
+                            </PaginationItem>
+                          );
+                        }
+                        const pageNumber = page as number;
+                        return (
+                          <PaginationItem key={pageNumber}>
+                            <PaginationLink
+                              href="#job-results-pagination"
+                              isActive={currentPage === pageNumber}
+                              onClick={(event) => {
+                                event.preventDefault();
+                                setCurrentPage(pageNumber);
+                              }}
+                              className={
+                                currentPage === pageNumber
+                                  ? "border-[#FF2B2B] bg-[#FF2B2B] text-white hover:bg-[#e02525] hover:text-white"
+                                  : "text-[#3A1F1F]"
+                              }
+                            >
+                              {pageNumber}
+                            </PaginationLink>
+                          </PaginationItem>
+                        );
+                      });
+                    })()}
 
                     <PaginationItem>
                       <PaginationNext
@@ -1403,9 +2175,20 @@ function FindJobPage() {
                       <p className="text-sm font-semibold text-[#3A1F1F]">{selectedJob.company}</p>
                     </div>
                   </div>
-                  <button onClick={() => setSelectedJob(null)} className="text-[#8A8A8A] hover:text-[#3A1F1F] p-1">
-                    <X className="h-5 w-5" />
-                  </button>
+                  <div className="flex items-center gap-2">
+                    {selectedJob.isDB && (
+                      <div 
+                        className="bg-[#FFF2F2] text-[#FF2B2B] rounded-full px-2.5 py-1 text-xs font-semibold flex items-center gap-1.5 border border-red-100 shadow-sm shrink-0"
+                        title={`${selectedJob.applicantCount || 0} candidates applied`}
+                      >
+                        <Users className="h-3.5 w-3.5 shrink-0" />
+                        <span>{selectedJob.applicantCount || 0} applied</span>
+                      </div>
+                    )}
+                    <button onClick={() => setSelectedJob(null)} className="text-[#8A8A8A] hover:text-[#3A1F1F] p-1">
+                      <X className="h-5 w-5" />
+                    </button>
+                  </div>
                 </div>
                 <div className="flex items-center justify-between gap-4 flex-wrap mb-4">
                   <h2 className="text-2xl font-bold text-[#3A1F1F]">{selectedJob.title}</h2>
@@ -1986,9 +2769,9 @@ function ProfilePage({ onPendingPrefsChange }: { onPendingPrefsChange?: (pending
 
   const completionColor = completion >= 80 ? "bg-green-500" : completion >= 50 ? "bg-yellow-500" : "bg-[#FF2B2B]";
   const filteredSkillOptions = useMemo(() => {
-    const query = skillSearch.trim().toLowerCase();
+    const query = skillSearch.trim();
     return PROFILE_SKILL_OPTIONS
-      .filter(skill => !query || skill.toLowerCase().includes(query))
+      .filter(skill => fuzzyMatch(query, skill))
       .slice(0, 80);
   }, [skillSearch]);
   const selectedPreferredJobTitles = useMemo(
@@ -2003,6 +2786,8 @@ function ProfilePage({ onPendingPrefsChange }: { onPendingPrefsChange?: (pending
       return matches && !selected.has(title.toLowerCase());
     });
   }, [preferredJobOptions, preferredJobSearch, selectedPreferredJobTitles]);
+
+
 
   const dobDisplayValue = basicForm.dob ? formatDateDisplay(basicForm.dob) : "";
   const today = new Date();
@@ -2449,6 +3234,7 @@ function ProfilePage({ onPendingPrefsChange }: { onPendingPrefsChange?: (pending
                     />
                   </div>
                 ))}
+                
                 <div>
                   <label className="block text-sm text-[#3A1F1F] mb-1">Date of Birth</label>
                   <Popover open={dobPickerOpen} onOpenChange={setDobPickerOpen}>
@@ -3004,13 +3790,15 @@ function ProfilePage({ onPendingPrefsChange }: { onPendingPrefsChange?: (pending
                     if (uploadError) { alert("Resume upload failed: " + (uploadError.message || "Unknown error")); return; }
                     if (uploadData?.path) {
                       const { data: urlData } = supabase.storage.from("resumes").getPublicUrl(filePath);
-                      await supabase.from("profiles").update({ resume_url: urlData.publicUrl }).eq("id", profile.id);
-                      await supabase.from("applications").update({ resume_url: urlData.publicUrl }).eq("profile_id", profile.id);
                       const { error: dbError } = await supabase.from("profiles").update({ resume_url: urlData.publicUrl }).eq("id", profile.id);
                       if (dbError) {
                         console.error("Resume DB update error:", dbError.message);
                         alert("Failed to save resume. Please try again.");
                         return;
+                      }
+                      const { error: appError } = await supabase.from("applications").update({ resume_url: urlData.publicUrl }).eq("profile_id", profile.id);
+                      if (appError) {
+                        console.error("Applications resume update error:", appError.message);
                       }
                       setResumeFile(urlData.publicUrl);
                       await refreshProfile();
@@ -3020,13 +3808,15 @@ function ProfilePage({ onPendingPrefsChange }: { onPendingPrefsChange?: (pending
                 </label>
                 <Button variant="ghost" size="sm" className="text-red-500 rounded-full" onClick={async () => {
                   if (!profile) return;
-                  await supabase.from("profiles").update({ resume_url: null }).eq("id", profile.id);
-                  await supabase.from("applications").update({ resume_url: null }).eq("profile_id", profile.id);
-                  const { error } = await supabase.from("profiles").update({ resume_url: null }).eq("id", profile.id);
-                  if (error) {
-                    console.error("Resume delete error:", error.message);
+                  const { error: dbError } = await supabase.from("profiles").update({ resume_url: null }).eq("id", profile.id);
+                  if (dbError) {
+                    console.error("Resume delete error:", dbError.message);
                     alert("Failed to delete resume. Please try again.");
                     return;
+                  }
+                  const { error: appError } = await supabase.from("applications").update({ resume_url: null }).eq("profile_id", profile.id);
+                  if (appError) {
+                    console.error("Applications resume delete error:", appError.message);
                   }
                   setResumeFile(null);
                   await refreshProfile();
@@ -3184,9 +3974,25 @@ function ProfilePage({ onPendingPrefsChange }: { onPendingPrefsChange?: (pending
                     )}
                   </div>
                 </div>
+                <div>
+                  <label className="block text-sm text-[#3A1F1F] mb-1">Preferred Location</label>
+                  <SearchableComboboxInput
+                    value={prefsForm.preferredLocation}
+                    onChange={(v) => setPrefsForm((f) => ({ ...f, preferredLocation: v }))}
+                    placeholder="Search location or type custom location..."
+                    options={PREFERRED_LOCATION_ALL_OPTIONS}
+                  />
+                </div>
+                <div>
+                  <label className="block text-sm text-[#3A1F1F] mb-1">Expected Salary (LPA)</label>
+                  <SearchableComboboxInput
+                    value={prefsForm.expectedSalary}
+                    onChange={(v) => setPrefsForm((f) => ({ ...f, expectedSalary: v }))}
+                    placeholder="Select or type expected salary (e.g. 12 LPA)..."
+                    options={EXPECTED_SALARY_LPA_OPTIONS}
+                  />
+                </div>
                 {[
-                  { label: "Preferred Location", key: "preferredLocation" },
-                  { label: "Expected Salary", key: "expectedSalary" },
                   { label: "Notice Period", key: "noticePeriod" },
                   { label: "Work Authorization", key: "workAuth" },
                 ].map(({ label, key }) => (
@@ -3250,7 +4056,7 @@ function ProfilePage({ onPendingPrefsChange }: { onPendingPrefsChange?: (pending
                   setPreferences(normalizedPrefs);
                   setEditingPrefs(false);
                   if (profile?.id) {
-                    const { error } = await supabase.from("profiles").update({
+                    const payload: Record<string, any> = {
                       desired_job_title: normalizedPrefs.desiredJobTitle || null,
                       job_type_pref: normalizedPrefs.jobType || null,
                       preferred_location: normalizedPrefs.preferredLocation || null,
@@ -3258,7 +4064,16 @@ function ProfilePage({ onPendingPrefsChange }: { onPendingPrefsChange?: (pending
                       notice_period: normalizedPrefs.noticePeriod || null,
                       work_auth: normalizedPrefs.workAuth || null,
                       willing_to_relocate: normalizedPrefs.willingToRelocate || null,
-                    }).eq("id", profile.id);
+                      preferred_interview_mode: Array.isArray(normalizedPrefs.preferredInterviewMode) && normalizedPrefs.preferredInterviewMode.length > 0 ? normalizedPrefs.preferredInterviewMode : null,
+                    };
+
+                    let { error } = await supabase.from("profiles").update(payload).eq("id", profile.id);
+                    if (error && typeof error.message === "string" && error.message.includes("preferred_interview_mode")) {
+                      console.warn("Preferred interview mode column missing in DB schema. Retrying without it.");
+                      delete payload.preferred_interview_mode;
+                      const retry = await supabase.from("profiles").update(payload).eq("id", profile.id);
+                      error = retry.error;
+                    }
                     if (error) {
                       console.error("Preferences update error:", error.message);
                       alert("Failed to save preferences. Please try again.");
@@ -3475,7 +4290,7 @@ function EduForm({ form, setForm, onSave, onCancel, degreeOptions, specializatio
             value={form.score}
             onChange={(e) => setForm({ ...form, score: e.target.value })}
             className="bg-white border-gray-200 rounded-xl"
-            placeholder="Score"
+            placeholder="e.g. 3.8 CGPA or 85%"
             disabled={educationDetailsDisabled}
           />
         </div>
@@ -4708,7 +5523,7 @@ function InsightsPage() {
 
           // Title similarity score (0–30)
           const jobTitleLower = job.title.toLowerCase();
-          const titleScore = titleWords.some(w => jobTitleLower.includes(w)) ? 25 : 0;
+          const titleScore = titleWords.some((word: string) => jobTitleLower.includes(word)) ? 25 : 0;
 
           const match = Math.min(Math.max(skillScore + titleScore + 30, 40), 99);
 
@@ -5013,7 +5828,7 @@ function InsightsPage() {
             </div>
           ) : (
             <div className="space-y-3">
-              {(aiInsights?.certifications ?? domainData.certifications).map((cert, i) => {
+              {(aiInsights?.certifications ?? domainData.certifications).map((cert: { name: string; provider?: string; reason?: string; value: string }, i: number) => {
                 const reason = "reason" in cert && typeof cert.reason === "string" ? cert.reason : "";
 
                 return (

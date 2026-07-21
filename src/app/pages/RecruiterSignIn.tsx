@@ -1,4 +1,4 @@
-import { useState } from "react";
+import { useState, useEffect } from "react";
 import { useNavigate, Link } from "react-router";
 
 const logoImage = new URL("../../logo/logo.png", import.meta.url).href;
@@ -43,6 +43,7 @@ export default function RecruiterSignIn() {
   const [error, setError] = useState("");
   const [userId, setUserId] = useState("");
   const [displayName, setDisplayName] = useState("");
+  const [isOrgAdmin, setIsOrgAdmin] = useState(false);
   const [forgotEmail, setForgotEmail] = useState("");
   const [forgotLoading, setForgotLoading] = useState(false);
   const [forgotOtp, setForgotOtp] = useState("");
@@ -51,6 +52,14 @@ export default function RecruiterSignIn() {
   const [showNewPassword, setShowNewPassword] = useState(false);
   const [resetSuccess, setResetSuccess] = useState(false);
   const navigate = useNavigate();
+
+  useEffect(() => {
+    const originalBg = document.body.style.backgroundColor;
+    document.body.style.backgroundColor = "#3A1F1F";
+    return () => {
+      document.body.style.backgroundColor = originalBg;
+    };
+  }, []);
 
   const handleForgotPassword = async (e: React.FormEvent) => {
     e.preventDefault();
@@ -101,7 +110,7 @@ export default function RecruiterSignIn() {
       // 3. Check recruiter profile exists in DB
       const { data: rp, error: rpErr } = await supabase
         .from("recruiter_profiles")
-        .select("id, recruiter_name")
+        .select("id, recruiter_name, is_org_admin, is_disabled, org_role, max_seats")
         .eq("id", data.user.id)
         .single();
 
@@ -110,17 +119,26 @@ export default function RecruiterSignIn() {
         throw new Error("No recruiter account found with this email. Please sign up first.");
       }
 
-      // 4. Skip OTP for internal test accounts
-      if (email.endsWith("@redhire.dev")) {
-        navigate("/recruiter/dashboard");
-        return;
+      if (rp.is_disabled) {
+        await supabase.auth.signOut();
+        throw new Error("This account has been disabled. Please contact your organization admin.");
       }
 
-      // 5. Generate & store OTP
+      // 4. Generate & send a real OTP for every account, no bypass
       const generatedOTP = generateOTP();
       await storeOTP(data.user.id, generatedOTP);
       setUserId(data.user.id);
       setDisplayName(rp.recruiter_name || "");
+      // Org admin accounts follow the admin_org{n}@redhire.dev convention (10 companies, org1-org10).
+      // org_role defaults to 'admin' for every recruiter_profiles row, so the DB flags
+      // (org_role / is_org_admin) are the source of truth; the email pattern below is a
+      // fallback in case those flags haven't been explicitly set for a given account yet.
+      // org_role defaults to 'admin' for EVERY recruiter_profiles row (including solo recruiters),
+      // so it cannot distinguish a real org admin on its own. max_seats is the real signal:
+      // seeded org admins have max_seats = 10, solo recruiters default to 5.
+      const isOrgAdminEmail = /^admin_org\d+@redhire\.dev$/i.test(email.trim());
+      const hasOrgSeats = (rp.max_seats ?? 0) > 5;
+      setIsOrgAdmin((rp.org_role === "admin" && hasOrgSeats) || !!rp.is_org_admin || isOrgAdminEmail);
 
       await sendOTPEmail(email, generatedOTP, rp.recruiter_name || "");
 
@@ -139,9 +157,9 @@ export default function RecruiterSignIn() {
     try {
       const valid = await verifyOTPFromDB(userId, otp.trim());
       if (!valid) throw new Error("Invalid or expired OTP. Please try again.");
-      await supabase.from("recruiter_profiles").update({ otp_code: null, otp_expires_at: null }).eq("id", userId);
+      await supabase.from("recruiter_profiles").update({ otp_code: null, otp_expires_at: null, last_login_at: new Date().toISOString() }).eq("id", userId);
       // Dashboard checks profile completion on load and redirects to company-profile if needed
-      navigate("/recruiter/dashboard");
+      navigate(isOrgAdmin ? "/recruiter/admin" : "/recruiter/dashboard");
     } catch (err: unknown) {
       setError(err instanceof Error ? err.message : "OTP verification failed.");
     } finally {

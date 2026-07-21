@@ -1,4 +1,5 @@
-import { createBrowserRouter, Outlet, ScrollRestoration } from "react-router";
+import { useEffect } from "react";
+import { createBrowserRouter, Navigate, Outlet, ScrollRestoration, useLocation } from "react-router";
 import ApplicantProfilePage from "./pages/ApplicantProfilePage";
 import LandingPage from "./pages/LandingPage";
 import SignInPage from "./pages/SignInPage";
@@ -31,6 +32,12 @@ import OrgAdminPanel from "./pages/OrgAdminPanel";
 import RecruiterInviteAccept from "./pages/RecruiterInviteAccept";
 
 function RootLayout() {
+  const { pathname } = useLocation();
+
+  useEffect(() => {
+    window.scrollTo(0, 0);
+  }, [pathname]);
+
   return (
     <>
       <ScrollRestoration />
@@ -159,6 +166,11 @@ export const router = createBrowserRouter([
     errorElement: <ErrorPage />,
   },
   {
+    path: "/recruiter/org-admin/*",
+    Component: () => <Navigate to="/recruiter/admin" replace />,
+    errorElement: <ErrorPage />,
+  },
+  {
     path: "/recruiter/candidate/:candidateId/profile",
     Component: ApplicantProfilePage,
     errorElement: <ErrorPage />,
@@ -180,6 +192,11 @@ export const router = createBrowserRouter([
   },
   {
     path: "/recruiter/admin",
+    Component: OrgAdminPanel,
+    errorElement: <ErrorPage />,
+  },
+  {
+    path: "/recruiter/admin/member/:memberId",
     Component: OrgAdminPanel,
     errorElement: <ErrorPage />,
   },

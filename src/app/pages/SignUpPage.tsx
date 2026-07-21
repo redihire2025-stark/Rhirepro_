@@ -1,5 +1,5 @@
-import { useState } from "react";
-import { useNavigate } from "react-router";
+import { useState, useEffect } from "react";
+import { useNavigate, useSearchParams } from "react-router";
 import { Button } from "../components/ui/button";
 import { Input } from "../components/ui/input";
 import { Checkbox } from "../components/ui/checkbox";
@@ -16,7 +16,12 @@ type PendingOTP = { code: string; expiresAt: number };
 const OTP_EXPIRY_MS = 10 * 60 * 1000;
 
 export default function SignUpPage() {
-  const [userType, setUserType] = useState<"jobseeker" | "recruiter">("jobseeker");
+  const navigate = useNavigate();
+  const [searchParams] = useSearchParams();
+  const roleParam = searchParams.get("role");
+  const initialUserType = (roleParam === "recruiter" || roleParam === "jobseeker") ? roleParam : "jobseeker";
+
+  const [userType, setUserType] = useState<"jobseeker" | "recruiter">(initialUserType);
   const [formData, setFormData] = useState({
     name: "",
     email: "",
@@ -34,8 +39,15 @@ export default function SignUpPage() {
   const [step, setStep] = useState<"signup" | "otp">("signup");
   const [otp, setOtp] = useState("");
   const [pendingOTP, setPendingOTP] = useState<PendingOTP | null>(null);
-  const [pendingUserType, setPendingUserType] = useState<"jobseeker" | "recruiter">("jobseeker");
-  const navigate = useNavigate();
+  const [pendingUserType, setPendingUserType] = useState<"jobseeker" | "recruiter">(initialUserType);
+
+  useEffect(() => {
+    const originalBg = document.body.style.backgroundColor;
+    document.body.style.backgroundColor = "#F6F6F6";
+    return () => {
+      document.body.style.backgroundColor = originalBg;
+    };
+  }, []);
 
   const set = (field: string, value: string) =>
     setFormData(prev => ({ ...prev, [field]: value }));

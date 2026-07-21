@@ -1,3 +1,4 @@
+import { useState, useEffect } from "react";
 import { ChevronRight, ArrowRight, Users, Award, Briefcase, TrendingUp, CheckCircle2, Clock, Star } from "lucide-react";
 import { Button } from "../components/ui/button";
 import { useNavigate } from "react-router";
@@ -5,55 +6,128 @@ import PublicHeader from "../components/PublicHeader";
 import PublicFooter from "../components/PublicFooter";
 import { PLANS, calculateGst } from "../../lib/plans";
 
+const fallbackServices = [
+  {
+    id: "talent-sourcing",
+    page: "/services/talent-sourcing",
+    title: "Talent Sourcing",
+    description: "Connect with top talent across industries to find the perfect candidates for your organization and build high-performing teams.",
+    icon: "Users",
+    image: "https://images.unsplash.com/photo-1521737711867-e3b97375f902?w=500&q=80"
+  },
+  {
+    id: "executive-search",
+    page: "/services/executive-search",
+    title: "Executive Search",
+    description: "Specialized recruitment for senior leadership positions that drive your company forward with strategic vision and expertise.",
+    icon: "Award",
+    image: "https://images.unsplash.com/photo-1580894732444-8ecded7900cd?w=500&q=80"
+  },
+  {
+    id: "job-matching",
+    page: "/services/job-matching",
+    title: "Job Matching",
+    description: "AI-powered algorithms match candidates with opportunities based on skills, experience, culture fit, and career goals.",
+    icon: "Briefcase",
+    image: "https://images.unsplash.com/photo-1551434678-e076c223a692?w=500&q=80"
+  },
+  {
+    id: "employer-branding",
+    page: "/services/branding-support",
+    title: "Employer Branding",
+    description: "Build and promote your employer brand to attract the best talent in your industry and stand out from competitors.",
+    icon: "TrendingUp",
+    image: "https://images.unsplash.com/photo-1600880292203-757bb62b4baf?w=500&q=80"
+  },
+  {
+    id: "career-coaching",
+    page: "/services/career-coaching",
+    title: "Career Coaching & Resume Review",
+    description: "Expert guidance to help candidates present themselves effectively and maximize their career potential.",
+    icon: "CheckCircle2",
+    image: "https://images.unsplash.com/photo-1516321318423-f06f85e504b3?w=500&q=80"
+  },
+  {
+    id: "contract-hiring",
+    page: "/services/project-based-hiring",
+    title: "Contract & Project-Based Hiring",
+    description: "Flexible hiring solutions for temporary and project-based needs with vetted professionals ready to contribute.",
+    icon: "Clock",
+    image: "https://images.unsplash.com/photo-1450101499163-c8848c66ca85?w=500&q=80"
+  }
+];
+
 export default function ServicesPage() {
   const navigate = useNavigate();
+  const [servicesList, setServicesList] = useState<any[]>(fallbackServices);
+  const [plansList, setPlansList] = useState<any[]>(PLANS);
+  const [testimonialsList, setTestimonialsList] = useState<any[]>([
+    {
+      name: "Sarah Johnson",
+      role: "Software Engineer",
+      rating: 5,
+      comment: "RhirePro helped me land my dream job in just 2 weeks. The process was seamless and the support team was incredible!"
+    }
+  ]);
 
-  const services = [
-    {
-      id: "talent-sourcing",
-      page: "/services/talent-sourcing",
-      title: "Talent Sourcing",
-      description: "Connect with top talent across industries to find the perfect candidates for your organization and build high-performing teams.",
-      icon: Users
-    },
-    {
-      id: "executive-search",
-      page: "/services/executive-search",
-      title: "Executive Search",
-      description: "Specialized recruitment for senior leadership positions that drive your company forward with strategic vision and expertise.",
-      icon: Award
-    },
-    {
-      id: "job-matching",
-      page: "/services/job-matching",
-      title: "Job Matching",
-      description: "AI-powered algorithms match candidates with opportunities based on skills, experience, culture fit, and career goals.",
-      icon: Briefcase
-    },
-    {
-      id: "employer-branding",
-      page: "/services/branding-support",
-      title: "Employer Branding",
-      description: "Build and promote your employer brand to attract the best talent in your industry and stand out from competitors.",
-      icon: TrendingUp
-    },
-    {
-      id: "career-coaching",
-      page: "/services/career-coaching",
-      title: "Career Coaching & Resume Review",
-      description: "Expert guidance to help candidates present themselves effectively and maximize their career potential.",
-      icon: CheckCircle2
-    },
-    {
-      id: "contract-hiring",
-      page: "/services/project-based-hiring",
-      title: "Contract & Project-Based Hiring",
-      description: "Flexible hiring solutions for temporary and project-based needs with vetted professionals ready to contribute.",
-      icon: Clock
-    },
-  ];
+  useEffect(() => {
+    const apiUrl = import.meta.env.VITE_API_URL || "http://localhost:8000";
 
-  const pricingPlans = PLANS;
+    // 1. Fetch services
+    fetch(`${apiUrl}/services`)
+      .then((res) => {
+        if (!res.ok) throw new Error("Failed to fetch services");
+        return res.json();
+      })
+      .then((data) => {
+        if (Array.isArray(data)) {
+          setServicesList(data);
+        }
+      })
+      .catch((err) => {
+        console.error("Services fetch error, using local fallback:", err);
+      });
+
+    // 2. Fetch plans
+    fetch(`${apiUrl}/plans`)
+      .then((res) => {
+        if (!res.ok) throw new Error("Failed to fetch plans");
+        return res.json();
+      })
+      .then((data) => {
+        if (Array.isArray(data)) {
+          setPlansList(data);
+        }
+      })
+      .catch((err) => {
+        console.error("Plans fetch error, using local fallback:", err);
+      });
+
+    // 3. Fetch testimonials
+    fetch(`${apiUrl}/testimonials`)
+      .then((res) => {
+        if (!res.ok) throw new Error("Failed to fetch testimonials");
+        return res.json();
+      })
+      .then((data) => {
+        if (Array.isArray(data)) {
+          setTestimonialsList(data);
+        }
+      })
+      .catch((err) => {
+        console.error("Testimonials fetch error, using local fallback:", err);
+      });
+  }, []);
+
+  const iconMap: Record<string, React.ComponentType<any>> = {
+    Users,
+    Award,
+    Briefcase,
+    TrendingUp,
+    CheckCircle2,
+    Clock,
+    Star
+  };
 
   return (
     <div className="min-h-screen bg-[#F6F6F6]">
@@ -79,8 +153,16 @@ export default function ServicesPage() {
               </p>
             </div>
             <div className="grid grid-cols-2 gap-4">
-              <div className="bg-gray-300 rounded-2xl h-40 w-48"></div>
-              <div className="bg-gray-400 rounded-2xl h-32 w-32 mt-8"></div>
+              <img
+                src="https://images.unsplash.com/photo-1573497019940-1c28c88b4f3e?w=400&q=80"
+                alt="Expert Services"
+                className="rounded-2xl h-40 w-48 object-cover shadow-md"
+              />
+              <img
+                src="https://images.unsplash.com/photo-1522071820081-009f0129c71c?w=400&q=80"
+                alt="Recruitment Team"
+                className="rounded-2xl h-32 w-32 mt-8 object-cover shadow-md"
+              />
             </div>
           </div>
         </div>
@@ -102,8 +184,8 @@ export default function ServicesPage() {
           </div>
           
           <div className="space-y-6 max-w-4xl mx-auto">
-            {services.map((service, index) => {
-              const Icon = service.icon;
+            {servicesList.map((service, index) => {
+              const Icon = iconMap[service.icon] || Briefcase;
               return (
                 <div
                   key={index}
@@ -111,7 +193,11 @@ export default function ServicesPage() {
                   onClick={() => navigate(service.page)}
                   className="bg-white rounded-2xl p-8 shadow-md hover:shadow-xl transition-all border border-gray-100 flex items-start gap-6 cursor-pointer"
                 >
-                  <div className="bg-gray-200 rounded-xl h-32 w-40 flex-shrink-0"></div>
+                  <img
+                    src={service.image}
+                    alt={service.title}
+                    className="rounded-xl h-32 w-40 object-cover flex-shrink-0"
+                  />
                   <div className="flex-1">
                     <h3 className="text-2xl font-bold text-[#3A1F1F] mb-3">{service.title}</h3>
                     <p className="text-[#8A8A8A] leading-relaxed">{service.description}</p>
@@ -154,11 +240,11 @@ export default function ServicesPage() {
           </div>
           
           <div className="grid md:grid-cols-3 gap-8 max-w-6xl mx-auto">
-            {pricingPlans.map((plan, index) => (
+            {plansList.map((plan, index) => (
               <div 
                 key={index} 
-                className={`bg-white rounded-2xl p-8 shadow-md hover:shadow-xl transition-shadow border ${
-                  plan.popular ? 'border-[#FF2B2B] border-2' : 'border-gray-200'
+                className={`bg-white rounded-2xl p-8 shadow-md hover:shadow-2xl hover:-translate-y-1.5 transition-all duration-300 border-2 ${
+                  plan.popular ? 'border-[#FF2B2B]' : 'border-gray-200 hover:border-[#FF2B2B]/60'
                 }`}
               >
                 <h3 className="text-2xl font-bold text-[#3A1F1F] mb-2">{plan.name}</h3>
@@ -213,25 +299,33 @@ export default function ServicesPage() {
           </div>
           
           <div className="grid md:grid-cols-2 gap-8 max-w-6xl mx-auto">
-            <div className="bg-gray-300 rounded-2xl h-96"></div>
+            <img
+              src="https://images.unsplash.com/photo-1573496359142-b8d87734a5a2?w=600&q=80"
+              alt="Candidate Success"
+              className="rounded-2xl h-96 w-full object-cover shadow-md"
+            />
             <div className="flex items-center">
-              <div className="bg-white rounded-2xl p-8 shadow-md border border-gray-100">
-                <div className="flex mb-4">
-                  {[...Array(5)].map((_, i) => (
-                    <Star key={i} className="h-5 w-5 fill-yellow-400 text-yellow-400" />
-                  ))}
-                </div>
-                <p className="text-[#8A8A8A] mb-6">
-                  "RhirePro helped me land my dream job in just 2 weeks. The process was seamless and the support team was incredible!"
-                </p>
-                <div className="flex items-center gap-3">
-                  <div className="w-12 h-12 bg-[#FF2B2B] rounded-full"></div>
-                  <div>
-                    <p className="font-bold text-[#3A1F1F]">Sarah Johnson</p>
-                    <p className="text-sm text-[#8A8A8A]">Software Engineer</p>
+              {testimonialsList.length > 0 && (
+                <div className="bg-white rounded-2xl p-8 shadow-md border border-gray-100 w-full">
+                  <div className="flex mb-4">
+                    {[...Array(testimonialsList[0].rating)].map((_, i) => (
+                      <Star key={i} className="h-5 w-5 fill-yellow-400 text-yellow-400" />
+                    ))}
+                  </div>
+                  <p className="text-[#8A8A8A] mb-6">
+                    "{testimonialsList[0].comment}"
+                  </p>
+                  <div className="flex items-center gap-3">
+                    <div className="w-12 h-12 bg-[#FF2B2B] rounded-full flex items-center justify-center font-bold text-white text-lg">
+                      {testimonialsList[0].name.charAt(0)}
+                    </div>
+                    <div>
+                      <p className="font-bold text-[#3A1F1F]">{testimonialsList[0].name}</p>
+                      <p className="text-sm text-[#8A8A8A]">{testimonialsList[0].role}</p>
+                    </div>
                   </div>
                 </div>
-              </div>
+              )}
             </div>
           </div>
         </div>

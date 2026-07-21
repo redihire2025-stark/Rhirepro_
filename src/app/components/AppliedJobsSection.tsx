@@ -8,6 +8,7 @@ import {
   PaginationLink,
   PaginationNext,
   PaginationPrevious,
+  PaginationEllipsis,
 } from "./ui/pagination";
 import { Dialog, DialogContent, DialogHeader, DialogTitle } from "./ui/dialog";
 import { AppliedJobWithJob, getAppliedJobs } from "../services/jobService";
@@ -229,6 +230,11 @@ export default function AppliedJobsSection({ userId, compact = false, onJobsLoad
   const [currentPage, setCurrentPage] = useState(1);
   const [interviewDetailsFor, setInterviewDetailsFor] = useState<AppliedJobWithJob | null>(null);
   const [selectedInterviewRound, setSelectedInterviewRound] = useState<AppliedJobWithJob["interviews"][number] | null>(null);
+
+  // Scroll to top of window when page changes
+  useEffect(() => {
+    window.scrollTo({ top: 0, behavior: "smooth" });
+  }, [currentPage]);
 
   const filteredJobs = useMemo(() => {
     if (!filterStatus) return appliedJobs;
@@ -603,21 +609,42 @@ export default function AppliedJobsSection({ userId, compact = false, onJobsLoad
                   className={currentPage === 1 ? "pointer-events-none opacity-50" : ""}
                 />
               </PaginationItem>
-              {Array.from({ length: totalPages }, (_, index) => index + 1).map((page) => (
-                <PaginationItem key={page}>
-                  <PaginationLink
-                    href="#applied-jobs-pagination"
-                    isActive={currentPage === page}
-                    onClick={(event) => {
-                      event.preventDefault();
-                      setCurrentPage(page);
-                    }}
-                    className={currentPage === page ? "border-[#FF2B2B] bg-[#FF2B2B] text-white hover:bg-[#e02525] hover:text-white" : "text-[#3A1F1F]"}
-                  >
-                    {page}
-                  </PaginationLink>
-                </PaginationItem>
-              ))}
+              {(() => {
+                const delta = 1;
+                const range: (number | string)[] = [];
+                for (let i = 1; i <= totalPages; i++) {
+                  if (i === 1 || i === totalPages || (i >= currentPage - delta && i <= currentPage + delta)) {
+                    range.push(i);
+                  } else if (range[range.length - 1] !== "...") {
+                    range.push("...");
+                  }
+                }
+                return range.map((page, idx) => {
+                  if (page === "...") {
+                    return (
+                      <PaginationItem key={`ellipsis-${idx}`}>
+                        <PaginationEllipsis className="text-[#8A8A8A]" />
+                      </PaginationItem>
+                    );
+                  }
+                  const pageNumber = page as number;
+                  return (
+                    <PaginationItem key={pageNumber}>
+                      <PaginationLink
+                        href="#applied-jobs-pagination"
+                        isActive={currentPage === pageNumber}
+                        onClick={(event) => {
+                          event.preventDefault();
+                          setCurrentPage(pageNumber);
+                        }}
+                        className={currentPage === pageNumber ? "border-[#FF2B2B] bg-[#FF2B2B] text-white hover:bg-[#e02525] hover:text-white" : "text-[#3A1F1F]"}
+                      >
+                        {pageNumber}
+                      </PaginationLink>
+                    </PaginationItem>
+                  );
+                });
+              })()}
               <PaginationItem>
                 <PaginationNext
                   href="#applied-jobs-pagination"

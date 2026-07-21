@@ -72,16 +72,18 @@ export default function ProjectBasedHiringPage() {
                 Flexible, on-demand talent for your projects and contracts. Get skilled professionals exactly when you need them — without the cost of full-time hiring.
               </p>
               <Button
-                onClick={() => navigate("/signin")}
+                onClick={() => navigate("/signin?role=recruiter")}
                 className="mt-6 bg-[#FF2B2B] hover:bg-[#e02525] text-white rounded-full px-8 py-5"
               >
                 Find Project Talent <ArrowRight className="ml-2 h-4 w-4" />
               </Button>
             </div>
             <div className="flex items-center justify-center w-full md:w-auto">
-              <div className="w-64 h-48 bg-gradient-to-br from-[#FF2B2B]/10 to-[#FF2B2B]/30 rounded-2xl flex items-center justify-center">
-                <Clock className="h-24 w-24 text-[#FF2B2B]" />
-              </div>
+              <img
+                src="https://images.unsplash.com/photo-1450101499163-c8848c66ca85?w=500&q=80"
+                alt="Contract & Project Hiring"
+                className="w-64 h-48 rounded-2xl object-cover shadow-md"
+              />
             </div>
           </div>
         </div>
@@ -208,8 +210,8 @@ export default function ProjectBasedHiringPage() {
             Tell us about your project and we'll match you with the right professionals — ready to start immediately.
           </p>
           <div className="flex flex-wrap gap-4 justify-center">
-            <Button
-              onClick={() => navigate("/recruiter/signin")}
+             <Button
+              onClick={() => navigate("/signin?role=recruiter")}
               className="bg-[#FF2B2B] hover:bg-[#e02525] text-white rounded-full px-8 py-5"
             >
               Post a Project <ArrowRight className="ml-2 h-4 w-4" />

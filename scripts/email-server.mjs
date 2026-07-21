@@ -1,6 +1,7 @@
 import http from "http";
 import path from "path";
 import { fileURLToPath } from "url";
+import { randomBytes } from "crypto";
 import dotenv from "dotenv";
 import { createClient } from "@supabase/supabase-js";
 
@@ -152,6 +153,79 @@ const server = http.createServer(async (req, res) => {
       if (updateErr) throw new Error("Failed to update password: " + updateErr.message);
 
       await admin.from(table).update({ otp_code: null, otp_expires_at: null }).eq("id", user.id);
+
+      ok({ success: true });
+    } catch (err) { fail(500, err.message); }
+    return;
+  }
+
+  // ── POST /api/send-invite  (org admin invite — mirrors Netlify function) ────
+  if (req.method === "POST" && req.url === "/api/send-invite") {
+    const { org_admin_id, company_name, invited_email, invited_by_name } = await readBody(req);
+    try {
+      if (!org_admin_id || !company_name || !invited_email)
+        return fail(400, "Missing required fields.");
+
+      const admin = adminClient();
+
+      // Fetch org admin profile to verify domains match
+      const { data: adminProfile, error: adminErr } = await admin
+        .from("recruiter_profiles")
+        .select("email")
+        .eq("id", org_admin_id)
+        .maybeSingle();
+
+      if (adminErr || !adminProfile) {
+        return fail(404, "Org admin profile not found.");
+      }
+
+      const adminDomain = adminProfile.email.split("@")[1]?.toLowerCase();
+      const inviteDomain = invited_email.split("@")[1]?.toLowerCase();
+
+      if (!adminDomain || !inviteDomain || adminDomain !== inviteDomain) {
+        return fail(400, `You can only invite users with a matching email domain (@${adminDomain || ""})`);
+      }
+
+      const token = randomBytes(32).toString("hex");
+      const { error: insertErr } = await admin.from("recruiter_invitations").insert({
+        org_admin_id,
+        company_name,
+        invited_email,
+        token,
+        role: "member",
+        status: "pending",
+      });
+      if (insertErr) return fail(500, insertErr.message);
+
+      const siteUrl = "http://localhost:5173";
+      const inviteUrl = `${siteUrl}/recruiter/join/${token}`;
+
+      const html = `
+        <div style="font-family:sans-serif;max-width:520px;margin:0 auto;padding:32px;">
+          <h2 style="color:#FF2B2B;margin-bottom:4px;">RhirePro</h2>
+          <p style="color:#333;">Hi there,</p>
+          <p style="color:#555;">
+            <strong>${invited_by_name || "Your team admin"}</strong> has invited you to join
+            <strong>${company_name}</strong> as a recruiter on RhirePro.
+          </p>
+          <div style="text-align:center;margin:32px 0;">
+            <a href="${inviteUrl}"
+               style="background:#FF2B2B;color:#fff;padding:14px 32px;border-radius:999px;
+                      text-decoration:none;font-weight:bold;font-size:16px;">
+              Accept Invitation
+            </a>
+          </div>
+          <p style="color:#888;font-size:13px;">This link expires in 7 days.</p>
+          <hr style="border:none;border-top:1px solid #eee;margin:24px 0;"/>
+          <p style="color:#aaa;font-size:12px;">— The RhirePro Team</p>
+        </div>`;
+
+      await sendBrevoEmail(
+        invited_email,
+        invited_email,
+        `You're invited to join ${company_name} on RhirePro`,
+        html
+      );
 
       ok({ success: true });
     } catch (err) { fail(500, err.message); }

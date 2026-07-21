@@ -68,12 +68,19 @@ export interface RecruiterProfile {
   founded: string | null;
   otp_code: string | null;
   otp_expires_at: string | null;
+  is_org_admin: boolean;
+  org_id: string | null;
+  is_disabled: boolean;
+  last_login_at: string | null;
   created_at: string;
   // Org admin fields
   org_role: "admin" | "member" | null;
   org_admin_id: string | null;
   is_active: boolean | null;
   max_seats: number | null;
+  resumes_used?: number;
+  keywords_used?: number;
+  profiles_viewed?: number;
 }
 
 export interface RecruiterInvitation {
@@ -135,6 +142,7 @@ export interface Job {
   deadline_time: string | null;
   created_at: string;
   recruiter?: RecruiterProfile | null;
+  applicant_count?: number;
 }
 
 export interface Application {

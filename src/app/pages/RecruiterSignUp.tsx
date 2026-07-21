@@ -1,4 +1,4 @@
-import { useState } from "react";
+import { useState, useEffect } from "react";
 import { useNavigate, Link } from "react-router";
 
 const logoImage = new URL("../../logo/logo.png", import.meta.url).href;
@@ -36,6 +36,14 @@ export default function RecruiterSignUp() {
   const [otp, setOtp] = useState("");
   const [pendingOTP, setPendingOTP] = useState<PendingOTP | null>(null);
   const navigate = useNavigate();
+
+  useEffect(() => {
+    const originalBg = document.body.style.backgroundColor;
+    document.body.style.backgroundColor = "#3A1F1F";
+    return () => {
+      document.body.style.backgroundColor = originalBg;
+    };
+  }, []);
 
   const handleSubmit = async (e: React.FormEvent) => {
     e.preventDefault();

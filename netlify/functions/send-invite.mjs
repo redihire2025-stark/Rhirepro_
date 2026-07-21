@@ -21,7 +21,12 @@ export default async (request) => {
   const brevoKey = process.env.BREVO_API_KEY;
   const senderEmail = process.env.BREVO_SENDER_EMAIL;
   const senderName = process.env.BREVO_SENDER_NAME || "RhirePro";
+  // DEPLOY_PRIME_URL resolves correctly per-context: the dev branch's stable URL on
+  // branch deploys, and the production URL on production deploys. URL alone always
+  // points at production, which broke invite links sent while testing on a preview
+  // deploy — the link pointed at production instead of the branch that sent it.
   const siteUrl =
+    process.env.DEPLOY_PRIME_URL ||
     process.env.URL ||
     process.env.DEPLOY_URL ||
     "https://rhirepro.netlify.app";
@@ -30,6 +35,45 @@ export default async (request) => {
     return new Response(
       JSON.stringify({ error: "Server configuration error" }),
       { status: 500, headers: { "Content-Type": "application/json" } }
+    );
+  }
+
+  // Fetch org admin profile to verify email domains match
+  const adminRes = await fetch(
+    `${supabaseUrl}/rest/v1/recruiter_profiles?id=eq.${org_admin_id}&select=email`,
+    {
+      method: "GET",
+      headers: {
+        apikey: serviceKey,
+        Authorization: `Bearer ${serviceKey}`,
+      },
+    }
+  );
+
+  if (!adminRes.ok) {
+    const err = await adminRes.text();
+    return new Response(
+      JSON.stringify({ error: `Failed to fetch admin profile: ${err}` }),
+      { status: 500, headers: { "Content-Type": "application/json" } }
+    );
+  }
+
+  const adminProfiles = await adminRes.json();
+  if (!adminProfiles || adminProfiles.length === 0) {
+    return new Response(
+      JSON.stringify({ error: "Org admin profile not found" }),
+      { status: 404, headers: { "Content-Type": "application/json" } }
+    );
+  }
+
+  const adminEmail = adminProfiles[0].email;
+  const adminDomain = adminEmail.split("@")[1]?.toLowerCase();
+  const inviteDomain = invited_email.split("@")[1]?.toLowerCase();
+
+  if (!adminDomain || !inviteDomain || adminDomain !== inviteDomain) {
+    return new Response(
+      JSON.stringify({ error: `You can only invite users with a matching email domain (@${adminDomain || ""})` }),
+      { status: 400, headers: { "Content-Type": "application/json" } }
     );
   }
 

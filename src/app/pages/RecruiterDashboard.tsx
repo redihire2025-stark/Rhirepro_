@@ -16,7 +16,7 @@ import {
 } from "../../lib/jobs";
 import { PLANS, FREE_DAILY_POST_LIMIT, getPlanById, validatePromo, getPlanPriceBreakdown } from "../../lib/plans";
 import { INDIA_CITY_OPTIONS } from "../../lib/locationData";
-import { SEARCH_SUGGESTION_DATASET, SKILL_OPTIONS, getSkillSearchTerms, skillsMatch } from "../../lib/skillKeywords";
+import { SEARCH_SUGGESTION_DATASET, SKILL_OPTIONS, getSkillSearchTerms, skillsMatch, fuzzyMatch } from "../../lib/skillKeywords";
 import { useAuth } from "../../lib/auth-context";
 import logoImage from "../../logo/logo.png";
 import {
@@ -27,8 +27,18 @@ import {
   MessageSquare, Video, Award, BookOpen, Globe, Linkedin, Share2,
   ArrowRight, Target, Zap, RefreshCw, MoreVertical, ThumbsUp, ThumbsDown, ExternalLink, Loader2,
   CreditCard, Tag, ShieldCheck, Crown, Check, Minimize2, ShieldAlert,
+  Menu, X,
 } from "lucide-react";
 import { Button } from "../components/ui/button";
+import {
+  Pagination,
+  PaginationContent,
+  PaginationItem,
+  PaginationLink,
+  PaginationNext,
+  PaginationPrevious,
+  PaginationEllipsis,
+} from "../components/ui/pagination";
 import { Input } from "../components/ui/input";
 import { Textarea } from "../components/ui/textarea";
 import { RichTextEditor } from "../components/ui/rich-text-editor";
@@ -175,15 +185,9 @@ function LocationAutocomplete({
   }, [open]);
 
   const filteredCities = useMemo(() => {
-    const query = search.trim().toLowerCase();
+    const query = search.trim();
     if (!query) return INDIA_CITY_OPTIONS;
-
-    const startsWith = INDIA_CITY_OPTIONS.filter(city => city.toLowerCase().startsWith(query));
-    const includes = INDIA_CITY_OPTIONS.filter(city => {
-      const normalized = city.toLowerCase();
-      return !normalized.startsWith(query) && normalized.includes(query);
-    });
-    return [...startsWith, ...includes];
+    return INDIA_CITY_OPTIONS.filter(city => fuzzyMatch(query, city)).slice(0, 50);
   }, [search]);
 
   const selectCity = (city: string, submit = false) => {
@@ -832,6 +836,9 @@ export default function RecruiterDashboard() {
   const location = useLocation();
   const { recruiterProfile, user, loading: authLoading, signOut, isOrgAdmin } = useAuth();
 
+  const [activeSub, setActiveSub] = useState<RecruiterSubscription | null>(null);
+  const [loadingSub, setLoadingSub] = useState(true);
+
   // Auth guard — redirect to sign-in if not authenticated
   useEffect(() => {
     if (!authLoading && !user) {
@@ -839,7 +846,45 @@ export default function RecruiterDashboard() {
     }
   }, [authLoading, user, navigate]);
 
+  useEffect(() => {
+    if (!recruiterProfile?.id) {
+      setLoadingSub(false);
+      return;
+    }
+    const load = async () => {
+      const now = new Date().toISOString();
+      const { data } = await supabase
+        .from("recruiter_subscriptions")
+        .select("*")
+        .eq("recruiter_id", recruiterProfile.id)
+        .eq("status", "active")
+        .gte("expires_at", now)
+        .order("created_at", { ascending: false })
+        .limit(1)
+        .maybeSingle();
+      setActiveSub(data ?? null);
+      setLoadingSub(false);
+    };
+    load();
+  }, [recruiterProfile?.id]);
+
+  // Subscription guard — redirect to plans if expired
+  useEffect(() => {
+    if (authLoading || loadingSub || !user || !recruiterProfile) return;
+    
+    // Allow users to access the Plans page regardless of subscription status
+    if (location.pathname === "/recruiter/dashboard/plans" || location.pathname === "/recruiter/dashboard/plans/") {
+      return;
+    }
+
+    const isExpired = activeSub === null;
+    if (isExpired) {
+      navigate("/recruiter/dashboard/plans", { replace: true });
+    }
+  }, [authLoading, loadingSub, user, recruiterProfile, activeSub, location.pathname, navigate]);
+
   const [notificationsOpen, setNotificationsOpen] = useState(false);
+  const [mobileNavOpen, setMobileNavOpen] = useState(false);
   const [notifications, setNotifications] = useState<Notification[]>([]);
   const [unreadCount, setUnreadCount] = useState(0);
 
@@ -935,6 +980,38 @@ export default function RecruiterDashboard() {
     navigate(getRecruiterNotificationPath(notification));
   }, [fetchNotifications, getRecruiterNotificationPath, navigate, recruiterProfile?.id]);
 
+  const handleClearAllNotifications = useCallback(async (e: React.MouseEvent) => {
+    e.stopPropagation();
+    if (!recruiterProfile?.id) return;
+    const { error } = await supabase
+      .from("notifications")
+      .delete()
+      .eq("user_id", recruiterProfile.id)
+      .eq("user_type", "recruiter");
+    if (!error) {
+      setNotifications([]);
+      setUnreadCount(0);
+    }
+  }, [recruiterProfile?.id]);
+
+  const handleDeleteNotification = useCallback(async (e: React.MouseEvent, notificationId: string) => {
+    e.stopPropagation();
+    if (!recruiterProfile?.id) return;
+    const target = notifications.find((n) => n.id === notificationId);
+    const { error } = await supabase
+      .from("notifications")
+      .delete()
+      .eq("id", notificationId)
+      .eq("user_id", recruiterProfile.id)
+      .eq("user_type", "recruiter");
+    if (!error) {
+      setNotifications((prev) => prev.filter((n) => n.id !== notificationId));
+      if (target && !target.is_read) {
+        setUnreadCount((prev) => Math.max(0, prev - 1));
+      }
+    }
+  }, [notifications, recruiterProfile?.id]);
+
   const notifRef = useRef<HTMLDivElement>(null);
   useEffect(() => {
     const handler = (e: MouseEvent) => {
@@ -1004,7 +1081,14 @@ export default function RecruiterDashboard() {
     ...(isOrgAdmin ? [{ id: "admin", label: "Team Admin", path: "/recruiter/admin" }] : []),
   ];
 
-  if (authLoading) {
+  // Same items, grouped into dropdown categories so the header nav doesn't overflow.
+  const navGroups: { id: string; label: string; items: typeof navItems }[] = [
+    { id: "hiring", label: "Hiring", items: navItems.filter(i => ["post-job", "manage-jobs", "search-candidates", "applicants"].includes(i.id)) },
+    { id: "insights", label: "Insights", items: navItems.filter(i => i.id === "analytics") },
+    { id: "company", label: "Company", items: navItems.filter(i => ["company-profile", "plans"].includes(i.id)) },
+  ];
+
+  if (authLoading || loadingSub) {
     return (
       <div className="min-h-screen bg-[#F6F6F6] flex items-center justify-center">
         <div className="text-center">
@@ -1049,18 +1133,60 @@ export default function RecruiterDashboard() {
             </Link>
 
             <nav className="hidden lg:flex items-center gap-1">
-              {navItems.map(item => (
-                <Link key={item.id} to={item.path}>
+              <Link to="/recruiter/dashboard">
+                <Button
+                  variant={currentTab() === "dashboard" ? "default" : "ghost"}
+                  className={`text-sm rounded-full px-4 ${currentTab() === "dashboard" ? "bg-[#FF2B2B] hover:bg-[#e02525]" : ""}`}
+                  size="sm"
+                >
+                  Dashboard
+                </Button>
+              </Link>
+
+              {navGroups.map(group => {
+                const groupActive = group.items.some(i => i.id === currentTab());
+                return (
+                  <DropdownMenu key={group.id}>
+                    <DropdownMenuTrigger asChild>
+                      <Button
+                        variant={groupActive ? "default" : "ghost"}
+                        className={`text-sm rounded-full px-4 ${groupActive ? "bg-[#FF2B2B] hover:bg-[#e02525]" : ""}`}
+                        size="sm"
+                      >
+                        {group.label} <ChevronDown className="ml-1 h-3.5 w-3.5" />
+                      </Button>
+                    </DropdownMenuTrigger>
+                    <DropdownMenuContent align="start">
+                      {group.items.map(item => (
+                        <DropdownMenuItem key={item.id} onClick={() => navigate(item.path)}>
+                          {item.label}
+                        </DropdownMenuItem>
+                      ))}
+                    </DropdownMenuContent>
+                  </DropdownMenu>
+                );
+              })}
+
+              {isOrgAdmin && (
+                <Link to="/recruiter/admin">
                   <Button
-                    variant={currentTab() === item.id ? "default" : "ghost"}
-                    className={`text-sm rounded-full px-4 ${currentTab() === item.id ? "bg-[#FF2B2B] hover:bg-[#e02525]" : ""}`}
+                    variant={currentTab() === "admin" ? "default" : "ghost"}
+                    className={`text-sm rounded-full px-4 ${currentTab() === "admin" ? "bg-[#FF2B2B] hover:bg-[#e02525]" : ""}`}
                     size="sm"
                   >
-                    {item.label}
+                    Team Admin
                   </Button>
                 </Link>
-              ))}
+              )}
             </nav>
+
+            <button
+              className="lg:hidden p-2 -mr-2 text-[#3A1F1F]"
+              onClick={() => setMobileNavOpen(true)}
+              aria-label="Open menu"
+            >
+              <Menu className="h-6 w-6" />
+            </button>
 
             <div className="flex items-center gap-2">
               <div className="relative" ref={notifRef}>
@@ -1077,18 +1203,45 @@ export default function RecruiterDashboard() {
                 {notificationsOpen && (
                   <div className="absolute right-0 top-full mt-2 w-80 bg-white rounded-xl shadow-lg border border-gray-100 z-[200]">
                     <div className="p-4">
-                      <h3 className="font-semibold text-[#3A1F1F] mb-3">Notifications</h3>
-                      <div className="space-y-2 max-h-72 overflow-y-auto">
+                      <div className="flex items-center justify-between mb-3">
+                        <h3 className="font-semibold text-[#3A1F1F]">Notifications</h3>
+                        {notifications.length > 0 && (
+                          <button
+                            type="button"
+                            onClick={handleClearAllNotifications}
+                            className="text-xs text-[#FF2B2B] hover:text-[#d92222] font-medium transition-colors hover:underline"
+                          >
+                            Clear all
+                          </button>
+                        )}
+                      </div>
+                      <div className="space-y-2 max-h-72 overflow-y-auto pr-1">
                         {notifications.length === 0 ? (
                           <p className="text-sm text-[#8A8A8A] text-center py-4">No notifications yet</p>
                         ) : notifications.map((n) => (
-                          <div key={n.id} onClick={() => handleNotificationClick(n)} className={`flex gap-3 p-2 rounded-lg cursor-pointer ${!n.is_read ? "bg-red-50" : "hover:bg-[#F6F6F6]"}`}>
-                            <div className="w-2 h-2 rounded-full mt-1.5 flex-shrink-0 bg-[#FF2B2B]" />
-                            <div>
-                              <p className="text-sm font-medium text-[#3A1F1F]">{n.title}</p>
-                              <p className="text-xs text-[#8A8A8A]">{n.message}</p>
-                              <p className="text-xs text-[#BABABA] mt-0.5">{new Date(n.created_at).toLocaleString()}</p>
+                          <div
+                            key={n.id}
+                            onClick={() => handleNotificationClick(n)}
+                            className={`group relative flex items-start justify-between gap-2 p-2.5 rounded-lg cursor-pointer transition-colors ${
+                              !n.is_read ? "bg-red-50 hover:bg-red-100/70" : "hover:bg-[#F6F6F6]"
+                            }`}
+                          >
+                            <div className="flex gap-2.5 flex-1 pr-5">
+                              <div className={`w-2 h-2 rounded-full mt-1.5 flex-shrink-0 ${!n.is_read ? "bg-[#FF2B2B]" : "bg-gray-300"}`} />
+                              <div>
+                                <p className="text-sm font-medium text-[#3A1F1F]">{n.title}</p>
+                                <p className="text-xs text-[#8A8A8A] mt-0.5">{n.message}</p>
+                                <p className="text-xs text-[#BABABA] mt-1">{new Date(n.created_at).toLocaleString()}</p>
+                              </div>
                             </div>
+                            <button
+                              type="button"
+                              onClick={(e) => handleDeleteNotification(e, n.id)}
+                              title="Delete notification"
+                              className="absolute right-2 top-2 p-1 text-gray-400 hover:text-[#FF2B2B] opacity-0 group-hover:opacity-100 transition-opacity rounded-full hover:bg-white"
+                            >
+                              <Trash2 className="h-3.5 w-3.5" />
+                            </button>
                           </div>
                         ))}
                       </div>
@@ -1099,7 +1252,13 @@ export default function RecruiterDashboard() {
 
               <DropdownMenu>
                 <DropdownMenuTrigger className="inline-flex h-10 w-10 items-center justify-center rounded-md hover:bg-accent focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-ring focus-visible:ring-offset-2">
-                  <div className="w-8 h-8 bg-[#FF2B2B] rounded-full flex items-center justify-center text-white text-xs font-bold">{companyInitials}</div>
+                  <div className="w-8 h-8 rounded-full overflow-hidden flex items-center justify-center border border-gray-200 bg-[#FF2B2B] text-white text-xs font-bold flex-shrink-0">
+                    {recruiterProfile?.logo_url ? (
+                      <img src={recruiterProfile.logo_url} alt="" className="w-full h-full object-cover" />
+                    ) : (
+                      companyInitials
+                    )}
+                  </div>
                 </DropdownMenuTrigger>
                 <DropdownMenuContent align="end">
                   <div className="px-3 py-2">
@@ -1119,7 +1278,7 @@ export default function RecruiterDashboard() {
 
               <Button
                 variant="outline"
-                className="border-[#FF2B2B] text-[#FF2B2B] hover:bg-[#FF2B2B] hover:text-white rounded-full"
+                className="hidden sm:inline-flex border-[#FF2B2B] text-[#FF2B2B] hover:bg-[#FF2B2B] hover:text-white rounded-full"
                 onClick={handleSignOut}
               >
                 <LogOut className="mr-2 h-4 w-4" /> Sign Out
@@ -1128,6 +1287,68 @@ export default function RecruiterDashboard() {
           </div>
         </div>
       </header>
+
+      {/* Mobile side nav drawer */}
+      {mobileNavOpen && (
+        <div className="fixed inset-0 z-[300] lg:hidden">
+          <div className="absolute inset-0 bg-black/40" onClick={() => setMobileNavOpen(false)} />
+          <div className="absolute left-0 top-0 bottom-0 w-72 bg-white shadow-2xl overflow-y-auto">
+            <div className="flex items-center justify-between px-4 py-4 border-b border-gray-100">
+              <div className="flex items-center gap-2">
+                <img src={logoImage} alt="RhirePro Logo" className="w-8 h-8" />
+                <div className="text-lg font-bold text-[#3A1F1F]">Rhire<span className="text-[#FF2B2B]">Pro</span></div>
+              </div>
+              <button onClick={() => setMobileNavOpen(false)} aria-label="Close menu" className="p-1 text-[#8A8A8A]">
+                <X className="h-5 w-5" />
+              </button>
+            </div>
+
+            <nav className="p-3 space-y-1">
+              <button
+                onClick={() => { navigate("/recruiter/dashboard"); setMobileNavOpen(false); }}
+                className={`w-full text-left px-3 py-2.5 rounded-xl text-sm font-medium ${currentTab() === "dashboard" ? "bg-[#FF2B2B] text-white" : "text-[#3A1F1F] hover:bg-[#F6F6F6]"}`}
+              >
+                Dashboard
+              </button>
+
+              {navGroups.map(group => (
+                <div key={group.id} className="pt-2">
+                  <p className="px-3 text-[10px] font-bold uppercase tracking-wide text-[#8A8A8A] mb-1">{group.label}</p>
+                  {group.items.map(item => (
+                    <button
+                      key={item.id}
+                      onClick={() => { navigate(item.path); setMobileNavOpen(false); }}
+                      className={`w-full text-left px-3 py-2.5 rounded-xl text-sm font-medium ${currentTab() === item.id ? "bg-[#FF2B2B] text-white" : "text-[#3A1F1F] hover:bg-[#F6F6F6]"}`}
+                    >
+                      {item.label}
+                    </button>
+                  ))}
+                </div>
+              ))}
+
+              {isOrgAdmin && (
+                <div className="pt-2">
+                  <button
+                    onClick={() => { navigate("/recruiter/admin"); setMobileNavOpen(false); }}
+                    className={`w-full text-left px-3 py-2.5 rounded-xl text-sm font-medium ${currentTab() === "admin" ? "bg-[#FF2B2B] text-white" : "text-[#3A1F1F] hover:bg-[#F6F6F6]"}`}
+                  >
+                    Team Admin
+                  </button>
+                </div>
+              )}
+
+              <div className="pt-3 mt-2 border-t border-gray-100">
+                <button
+                  onClick={() => { setMobileNavOpen(false); handleSignOut(); }}
+                  className="w-full text-left px-3 py-2.5 rounded-xl text-sm font-medium text-red-500 hover:bg-red-50 flex items-center gap-2"
+                >
+                  <LogOut className="h-4 w-4" /> Sign Out
+                </button>
+              </div>
+            </nav>
+          </div>
+        </div>
+      )}
 
       <Routes>
         <Route index element={<DashboardOverview />} />
@@ -1141,7 +1362,7 @@ export default function RecruiterDashboard() {
         <Route path="articles/new" element={<ArticleEditorPage />} />
         <Route path="articles/:articleId/edit" element={<ArticleEditorPage />} />
         <Route path="company-profile" element={<CompanyProfilePage />} />
-        <Route path="plans" element={<PlansPage />} />
+        <Route path="plans" element={<PlansPage activeSub={activeSub} loading={loadingSub} />} />
       </Routes>
     </div>
   );
@@ -1166,14 +1387,17 @@ function DashboardOverview() {
     status: Application["status"];
     appliedDate: string;
     matchScore: number;
+    avatarUrl?: string | null;
   }>>([]);
   const [pipelineLoading, setPipelineLoading] = useState(true);
   const [pipelineError, setPipelineError] = useState("");
   const [upcomingInterviews, setUpcomingInterviews] = useState<Array<{
+    id: string;
     name: string;
     role: string;
     time: string;
     type: string;
+    avatarUrl?: string | null;
   }>>([]);
 
   const recruiterCompletion = useMemo(() => {
@@ -1249,7 +1473,7 @@ function DashboardOverview() {
         const jobIds = recruiterJobs.map(job => job.id);
         const { data: recentApps } = await supabase
           .from("applications")
-          .select("id, status, applied_at, profile:profiles(first_name, last_name, current_company, current_title)")
+          .select("id, status, applied_at, profile:profiles(first_name, last_name, current_company, current_title, avatar_url)")
           .in("job_id", jobIds)
           .order("applied_at", { ascending: false })
           .limit(3);
@@ -1263,6 +1487,7 @@ function DashboardOverview() {
             last_name?: string | null;
             current_company?: string | null;
             current_title?: string | null;
+            avatar_url?: string | null;
           } | null;
         }>).map((app) => {
           const firstName = app.profile?.first_name?.trim() || "";
@@ -1285,6 +1510,7 @@ function DashboardOverview() {
             status: app.status,
             appliedDate: app.applied_at ? new Date(app.applied_at).toLocaleDateString("en-IN", { day: "numeric", month: "short", year: "numeric" }) : "N/A",
             matchScore: Math.floor(70 + (app.id.charCodeAt(0) % 25)),
+            avatarUrl: app.profile?.avatar_url || null,
           };
         });
 
@@ -1302,7 +1528,7 @@ function DashboardOverview() {
             status,
             applied_at,
             job:jobs(title),
-            profile:profiles(first_name, last_name),
+            profile:profiles(first_name, last_name, avatar_url),
             interview_details:interview_details(updated_at, meeting_url)
           `)
           .eq("recruiter_id", recruiterProfile.id)
@@ -1320,7 +1546,7 @@ function DashboardOverview() {
               status,
               applied_at,
               job:jobs(title),
-              profile:profiles(first_name, last_name)
+              profile:profiles(first_name, last_name, avatar_url)
             `)
             .eq("recruiter_id", recruiterProfile.id)
             .eq("status", "Interview Scheduled")
@@ -1346,10 +1572,12 @@ function DashboardOverview() {
         const time = dateObj.toLocaleDateString("en-IN", { day: "numeric", month: "short" }) + ", " + dateObj.toLocaleTimeString("en-IN", { hour: "numeric", minute: "2-digit" });
 
         return {
+          id: app.id,
           name: fullName,
           role,
           time,
-          type
+          type,
+          avatarUrl: app.profile?.avatar_url || null
         };
       });
       setUpcomingInterviews(formatted);
@@ -1434,7 +1662,7 @@ function DashboardOverview() {
   const stats = [
     { label: "Active Jobs", value: String(activeJobs), change: "Live postings", icon: Briefcase, color: "text-blue-600", bg: "bg-blue-50", path: "/recruiter/dashboard/manage-jobs" },
     { label: "Total Applicants", value: String(totalApplicantsCount), change: "Across all jobs", icon: Users, color: "text-green-600", bg: "bg-green-50", path: "/recruiter/dashboard/applicants" },
-    { label: "Interviews Scheduled", value: String(interviewsScheduledCount), change: "Next: Today 3PM", icon: Calendar, color: "text-purple-600", bg: "bg-purple-50", path: "/recruiter/dashboard/applicants?status=Interview Scheduled" },
+    { label: "Interviews Scheduled", value: String(interviewsScheduledCount), change: "", icon: Calendar, color: "text-purple-600", bg: "bg-purple-50", path: "/recruiter/dashboard/applicants?status=Interview Scheduled" },
     { label: "Positions Filled", value: String(positionsFilledCount), change: "This month", icon: CheckCircle, color: "text-[#FF2B2B]", bg: "bg-red-50", path: "/recruiter/dashboard/applicants?status=Joined" },
   ];
 
@@ -1609,9 +1837,19 @@ function DashboardOverview() {
               <p className="text-sm text-[#8A8A8A] text-center py-4">No upcoming interviews scheduled</p>
             ) : (
               upcomingInterviews.map((iv, i) => (
-                <div key={i} className="flex items-center gap-3 p-3 bg-[#F6F6F6] rounded-xl">
-                  <div className="w-10 h-10 bg-[#FF2B2B] rounded-full flex items-center justify-center text-white text-xs font-bold flex-shrink-0">
-                    {iv.name.split(" ").filter(Boolean).map(n => n[0]).join("")}
+                <div 
+                  key={i} 
+                  onClick={() => navigate(`/recruiter/dashboard/applicants/${iv.id}/profile`)}
+                  className="flex items-center gap-3 p-3 bg-[#F6F6F6] hover:bg-gray-100/80 transition-colors rounded-xl cursor-pointer"
+                >
+                  <div className="w-10 h-10 rounded-full overflow-hidden flex items-center justify-center flex-shrink-0">
+                    {iv.avatarUrl ? (
+                      <img src={iv.avatarUrl} alt={iv.name} className="w-full h-full object-cover" />
+                    ) : (
+                      <div className="w-full h-full bg-[#FF2B2B] flex items-center justify-center text-white text-xs font-bold">
+                        {iv.name.split(" ").filter(Boolean).map(n => n[0]).join("")}
+                      </div>
+                    )}
                   </div>
                   <div className="flex-1">
                     <p className="text-sm font-medium text-[#3A1F1F]">{iv.name}</p>
@@ -1640,9 +1878,19 @@ function DashboardOverview() {
               <p className="text-sm text-[#8A8A8A] text-center py-4">No recent applicants</p>
             ) : (
               recentApplicants.map(applicant => (
-                <div key={applicant.id} className="flex items-center gap-3 p-3 border border-gray-100 rounded-xl hover:bg-[#F6F6F6] transition-colors">
-                  <div className="w-10 h-10 bg-[#FF2B2B] rounded-full flex items-center justify-center text-white text-sm font-bold flex-shrink-0">
-                    {applicant.initials}
+                <div 
+                  key={applicant.id} 
+                  onClick={() => navigate(`/recruiter/dashboard/applicants/${applicant.id}/profile`)}
+                  className="flex items-center gap-3 p-3 border border-gray-100 rounded-xl hover:bg-[#F6F6F6] transition-colors cursor-pointer"
+                >
+                  <div className="w-10 h-10 rounded-full overflow-hidden flex items-center justify-center flex-shrink-0">
+                    {applicant.avatarUrl ? (
+                      <img src={applicant.avatarUrl} alt={applicant.name} className="w-full h-full object-cover" />
+                    ) : (
+                      <div className="w-full h-full bg-[#FF2B2B] flex items-center justify-center text-white text-sm font-bold">
+                        {applicant.initials}
+                      </div>
+                    )}
                   </div>
                   <div className="flex-1 min-w-0">
                     <p className="text-sm font-medium text-[#3A1F1F]">{applicant.name}</p>
@@ -1674,8 +1922,14 @@ function DashboardOverview() {
             ) : (
               dbJobs.slice(0, 3).map(job => (
                 <div key={job.id} className="flex items-center gap-3 p-3 border border-gray-100 rounded-xl hover:bg-[#F6F6F6] transition-colors">
-                  <div className="w-10 h-10 bg-[#3A1F1F] rounded-full flex items-center justify-center text-white text-sm font-bold flex-shrink-0">
-                    <Briefcase className="h-5 w-5" />
+                  <div className="w-10 h-10 rounded-full overflow-hidden flex items-center justify-center flex-shrink-0 border border-gray-200 bg-[#F6F6F6]">
+                    {recruiterProfile?.logo_url ? (
+                      <img src={recruiterProfile.logo_url} alt="" className="w-full h-full object-cover" />
+                    ) : (
+                      <div className="w-full h-full bg-[#3A1F1F] flex items-center justify-center text-white text-sm font-bold">
+                        {(recruiterProfile?.company_name || "C")[0].toUpperCase()}
+                      </div>
+                    )}
                   </div>
                   <div className="flex-1 min-w-0">
                     <p className="text-sm font-medium text-[#3A1F1F] truncate">{job.title}</p>
@@ -1767,10 +2021,13 @@ function PostJobPage() {
   const isSalaryRangeInvalid =
     Boolean(formData.salaryMin && formData.salaryMax) &&
     Number(formData.salaryMax) < Number(formData.salaryMin);
+  const isExperienceRangeInvalid =
+    Boolean(formData.experienceMin && formData.experienceMax) &&
+    Number(formData.experienceMax) < Number(formData.experienceMin);
   const filteredSkillOptions = useMemo(() => {
-    const query = skillSearch.trim().toLowerCase();
+    const query = skillSearch.trim();
     const options = query ? SEARCH_SUGGESTION_DATASET : SKILL_OPTIONS;
-    return options.filter(skill => !query || skill.toLowerCase().includes(query)).slice(0, 120);
+    return options.filter(skill => fuzzyMatch(query, skill)).slice(0, 120);
   }, [skillSearch]);
   const filteredDepartmentOptions = useMemo(() => {
     const query = departmentSearch.trim().toLowerCase();
@@ -1932,6 +2189,10 @@ function PostJobPage() {
       setPostError("Maximum salary must be greater than or equal to minimum salary.");
       return;
     }
+    if (isExperienceRangeInvalid) {
+      setPostError("Maximum experience must be greater than or equal to minimum experience.");
+      return;
+    }
     setPosting(true);
     try {
       const deadline = buildJobExpiryTimestamp();
@@ -1999,9 +2260,17 @@ function PostJobPage() {
           {/* Header */}
           <div className="p-6 border-b border-gray-100">
             <div className="flex items-start gap-4">
-              <div className="w-14 h-14 bg-[#FF2B2B] rounded-xl flex items-center justify-center text-white font-bold text-xl flex-shrink-0">
-                {(recruiterProfile?.company_name || "C")[0]}
-              </div>
+              {recruiterProfile?.logo_url ? (
+                <img
+                  src={recruiterProfile.logo_url}
+                  alt={recruiterProfile?.company_name || "Company Logo"}
+                  className="w-14 h-14 rounded-xl object-cover border border-gray-200 flex-shrink-0"
+                />
+              ) : (
+                <div className="w-14 h-14 bg-[#FF2B2B] rounded-xl flex items-center justify-center text-white font-bold text-xl flex-shrink-0">
+                  {(recruiterProfile?.company_name || "C")[0].toUpperCase()}
+                </div>
+              )}
               <div className="flex-1">
                 <h1 className="text-2xl font-bold text-[#3A1F1F]">{formData.jobTitle || "Job Title"}</h1>
                 <p className="text-[#FF2B2B] font-medium mt-0.5">{recruiterProfile?.company_name || "Your Company"}</p>
@@ -2154,6 +2423,10 @@ function PostJobPage() {
           }
           if (isSalaryRangeInvalid) {
             setPostError("Maximum salary must be greater than or equal to minimum salary.");
+            return;
+          }
+          if (isExperienceRangeInvalid) {
+            setPostError("Maximum experience must be greater than or equal to minimum experience.");
             return;
           }
           setPostError("");
@@ -2319,8 +2592,11 @@ function PostJobPage() {
                 <div className="flex gap-2 items-center">
                   <Input type="number" min="0" value={formData.experienceMin} onChange={e => setFormData({ ...formData, experienceMin: e.target.value })} className="bg-[#F6F6F6] border-gray-200 rounded-xl" placeholder="Min yrs" />
                   <span className="text-[#8A8A8A]">–</span>
-                  <Input type="number" min="0" value={formData.experienceMax} onChange={e => setFormData({ ...formData, experienceMax: e.target.value })} className="bg-[#F6F6F6] border-gray-200 rounded-xl" placeholder="Max yrs" />
+                  <Input type="number" min="0" value={formData.experienceMax} onChange={e => setFormData({ ...formData, experienceMax: e.target.value })} className={`bg-[#F6F6F6] rounded-xl ${isExperienceRangeInvalid ? "border-red-500 text-red-900 focus-visible:ring-red-500" : "border-gray-200"}`} placeholder="Max yrs" />
                 </div>
+                {isExperienceRangeInvalid && (
+                  <p className="text-xs text-red-500 mt-1.5">Maximum experience must be greater than or equal to minimum experience.</p>
+                )}
               </div>
               <div>
                 <label className="block mb-1.5 text-sm font-medium text-[#3A1F1F]">Minimum Education</label>
@@ -2506,6 +2782,7 @@ function ManageJobsPage() {
   })[]>([]);
   const [filter, setFilter] = useState("All");
   const [loading, setLoading] = useState(true);
+  const [currentPage, setCurrentPage] = useState<number>(1);
   const [editingJob, setEditingJob] = useState<Job | null>(null);
   const [editForm, setEditForm] = useState({ title: "", location: "", salaryMin: "", salaryMax: "", salaryType: "LPA", employmentType: "", workMode: "", openings: "1", skills: "" });
   const [saving, setSaving] = useState(false);
@@ -2641,6 +2918,30 @@ function ManageJobsPage() {
 
   const filtered = filter === "All" ? jobs : jobs.filter(j => getEffectiveJobStatus(j) === filter);
 
+  const JOBS_PER_PAGE = 10;
+
+  const totalPages = useMemo(() => {
+    return Math.ceil(filtered.length / JOBS_PER_PAGE);
+  }, [filtered]);
+
+  const pageNumbers = useMemo(
+    () => Array.from({ length: totalPages }, (_, index) => index + 1),
+    [totalPages]
+  );
+
+  const visibleJobs = useMemo(() => {
+    return filtered.slice((currentPage - 1) * JOBS_PER_PAGE, currentPage * JOBS_PER_PAGE);
+  }, [filtered, currentPage]);
+
+  useEffect(() => {
+    setCurrentPage(1);
+  }, [filter]);
+
+  // Scroll to top of window when page changes
+  useEffect(() => {
+    window.scrollTo({ top: 0, behavior: "smooth" });
+  }, [currentPage]);
+
   const toggleStatus = async (id: string, currentStatus: string) => {
     const newStatus = currentStatus === "Active" ? "Paused" : "Active";
     await supabase.from("jobs").update({ status: newStatus }).eq("id", id);
@@ -2728,7 +3029,7 @@ function ManageJobsPage() {
         </div>
       ) : (
         <div className="space-y-4">
-          {filtered.map(job => {
+          {visibleJobs.map(job => {
             const effectiveStatus = getEffectiveJobStatus(job);
             const badgeClass = effectiveStatus === "Active"
               ? "bg-green-100 text-green-700"
@@ -2943,6 +3244,78 @@ function ManageJobsPage() {
               </div>
             );
           })}
+          
+          {/* Pagination matching JobSeekerDashboard style */}
+          {totalPages > 1 && (
+            <div className="flex justify-center mt-8 pb-4" id="manage-jobs-pagination">
+              <Pagination>
+                <PaginationContent className="flex-wrap justify-center gap-2">
+                  <PaginationItem>
+                    <PaginationPrevious
+                      href="#manage-jobs-pagination"
+                      onClick={(event) => {
+                        event.preventDefault();
+                        if (currentPage > 1) setCurrentPage((page) => page - 1);
+                      }}
+                      className={currentPage === 1 ? "pointer-events-none opacity-50" : ""}
+                    />
+                  </PaginationItem>
+
+                  {(() => {
+                    const delta = 1;
+                    const range: (number | string)[] = [];
+                    for (let i = 1; i <= totalPages; i++) {
+                      if (i === 1 || i === totalPages || (i >= currentPage - delta && i <= currentPage + delta)) {
+                        range.push(i);
+                      } else if (range[range.length - 1] !== "...") {
+                        range.push("...");
+                      }
+                    }
+                    return range.map((page, idx) => {
+                      if (page === "...") {
+                        return (
+                          <PaginationItem key={`ellipsis-${idx}`}>
+                            <PaginationEllipsis className="text-[#8A8A8A]" />
+                          </PaginationItem>
+                        );
+                      }
+                      const pageNumber = page as number;
+                      return (
+                        <PaginationItem key={pageNumber}>
+                          <PaginationLink
+                            href="#manage-jobs-pagination"
+                            isActive={currentPage === pageNumber}
+                            onClick={(event) => {
+                              event.preventDefault();
+                              setCurrentPage(pageNumber);
+                            }}
+                            className={
+                              currentPage === pageNumber
+                                ? "border-[#FF2B2B] bg-[#FF2B2B] text-white hover:bg-[#e02525] hover:text-white"
+                                : "text-[#3A1F1F]"
+                            }
+                          >
+                            {pageNumber}
+                          </PaginationLink>
+                        </PaginationItem>
+                      );
+                    });
+                  })()}
+
+                  <PaginationItem>
+                    <PaginationNext
+                      href="#manage-jobs-pagination"
+                      onClick={(event) => {
+                        event.preventDefault();
+                        if (currentPage < totalPages) setCurrentPage((page) => page + 1);
+                      }}
+                      className={currentPage === totalPages ? "pointer-events-none opacity-50" : ""}
+                    />
+                  </PaginationItem>
+                </PaginationContent>
+              </Pagination>
+            </div>
+          )}
         </div>
       )}
 
@@ -3481,6 +3854,115 @@ function SearchCandidateProfileModal({
   );
 }
 
+const DESIGNATION_OPTIONS = [
+  "Software Engineer",
+  "Frontend Developer",
+  "Backend Developer",
+  "Full Stack Developer",
+  "React Developer",
+  "Node.js Developer",
+  "Java Developer",
+  "Python Developer",
+  "Go Developer",
+  "Mobile Developer",
+  "Android Developer",
+  "iOS Developer",
+  "DevOps Engineer",
+  "Cloud Architect",
+  "System Administrator",
+  "Database Administrator",
+  "QA Engineer",
+  "Automation Engineer",
+  "Data Scientist",
+  "Data Analyst",
+  "Data Engineer",
+  "Machine Learning Engineer",
+  "AI Engineer",
+  "Product Manager",
+  "Project Manager",
+  "Scrum Master",
+  "Business Analyst",
+  "System Analyst",
+  "UI/UX Designer",
+  "Product Designer",
+  "Graphic Designer",
+  "Web Designer",
+  "Motion Designer",
+  "Marketing Manager",
+  "Digital Marketing Specialist",
+  "SEO Analyst",
+  "Content Writer",
+  "Copywriter",
+  "Sales Manager",
+  "Sales Executive",
+  "Business Development Executive",
+  "BDM",
+  "Account Manager",
+  "HR Manager",
+  "HR Generalist",
+  "Recruiter",
+  "Talent Acquisition Specialist",
+  "Finance Manager",
+  "Accountant",
+  "Financial Analyst",
+  "Operations Manager",
+  "Operations Executive",
+  "Customer Support Executive",
+  "Customer Success Manager",
+  "Technical Support Engineer",
+];
+
+const ALL_SKILL_OPTIONS = Array.from(
+  new Set([...SEARCH_SUGGESTION_DATASET, ...SKILL_OPTIONS])
+).sort((a, b) => a.localeCompare(b));
+
+const ALL_LOCATION_OPTIONS = Array.from(
+  new Set([
+    "India",
+    "NCR",
+    "New Delhi",
+    "Bangalore",
+    "Gurugram",
+    "Trivandrum",
+    "Jammu",
+    "Kashmir",
+    "Andaman and Nicobar",
+    "Andhra Pradesh",
+    "Arunachal Pradesh",
+    "Assam",
+    "Bihar",
+    "Chhattisgarh",
+    "Goa",
+    "Gujarat",
+    "Haryana",
+    "Himachal Pradesh",
+    "Jharkhand",
+    "Karnataka",
+    "Kerala",
+    "Madhya Pradesh",
+    "Maharashtra",
+    "Manipur",
+    "Meghalaya",
+    "Mizoram",
+    "Nagaland",
+    "Odisha",
+    "Punjab",
+    "Rajasthan",
+    "Sikkim",
+    "Tamil Nadu",
+    "Telangana",
+    "Tripura",
+    "Uttar Pradesh",
+    "Uttarakhand",
+    "West Bengal",
+    ...INDIA_CITY_OPTIONS,
+  ])
+).sort((a, b) => a.localeCompare(b));
+
+const ALL_ROLE_AND_DEPT_OPTIONS = Array.from(
+  new Set([...DESIGNATION_OPTIONS, ...DEPARTMENT_OPTIONS])
+).sort((a, b) => a.localeCompare(b));
+
 type RecruiterAppliedJdSearchApplication = {
   profile: DBCandidate | null;
   job: Job | null;
@@ -3491,6 +3973,9 @@ function SearchCandidatesPage() {
   // ── Search state ──────────────────────────────────────────
   const [keywords, setKeywords] = useState("");
   const [location, setLocation] = useState("");
+  const [highlightedIndex, setHighlightedIndex] = useState(-1);
+  const keywordInputRef = useRef<HTMLInputElement>(null);
+  const dropdownContainerRef = useRef<HTMLDivElement>(null);
   const [expMin, setExpMin] = useState("");
   const [expMax, setExpMax] = useState("");
   const [curSalMin, setCurSalMin] = useState("");
@@ -3513,6 +3998,7 @@ function SearchCandidatesPage() {
   const [sortBy, setSortBy] = useState("relevant");
   const [shortlisted, setShortlisted] = useState<Set<string>>(new Set());
   const [interviewInvited, setInterviewInvited] = useState<Set<string>>(new Set());
+  const [searchPage, setSearchPage] = useState<number>(1);
 
   const toggleShortlist = (id: string) => setShortlisted(prev => { const s = new Set(prev); s.has(id) ? s.delete(id) : s.add(id); return s; });
   const toggleInterview = (id: string) => setInterviewInvited(prev => { const s = new Set(prev); s.has(id) ? s.delete(id) : s.add(id); return s; });
@@ -3564,6 +4050,26 @@ function SearchCandidatesPage() {
     return dayMatch ? parseInt(dayMatch[1]) : 999;
   };
 
+  // ── Boolean keyword parser ─────────────────────────────────
+  // Splits a search string like "React AND Python", "Bangalore OR Hyderabad",
+  // "Hyderabad, Bangalore", or "React Python" into clean search tokens,
+  // stripping out Boolean operators and detecting OR vs AND intent.
+  const parseSearchTokens = (input: string): { tokens: string[]; isOr: boolean } => {
+    const trimmed = input.trim();
+    if (!trimmed) return { tokens: [], isOr: false };
+    const isOr = /\bor\b/i.test(trimmed) || trimmed.includes(",");
+    if (isOr) {
+      // Split on OR operators and commas, then clean each segment
+      const segments = trimmed.split(/\bor\b|,/i).map(s => s.trim()).filter(Boolean);
+      const tokens = segments.map(seg => seg.replace(/\b(?:and|not)\b/gi, "").trim()).filter(Boolean);
+      return { tokens, isOr: true };
+    } else {
+      // AND mode: split on whitespace, remove Boolean operators
+      const tokens = trimmed.split(/\s+/).filter(t => !/^(and|or|not)$/i.test(t));
+      return { tokens, isOr: false };
+    }
+  };
+
   const jdMatchesKeyword = (job: Job | null, keyword: string): boolean => {
     if (!job) return false;
     const keywordLower = keyword.trim().toLowerCase();
@@ -3592,13 +4098,109 @@ function SearchCandidatesPage() {
     setSkillInput("");
   };
 
-  const filteredKeywordSuggestions = useMemo(() => {
-    const query = keywords.trim().toLowerCase();
-    if (!query) return [];
-    return SEARCH_SUGGESTION_DATASET
-      .filter(item => item.toLowerCase().includes(query))
-      .slice(0, 12);
+  const getCurrentSearchToken = (text: string) => {
+    const lastCommaIndex = text.lastIndexOf(",");
+    const operatorRegex = /\b(AND|OR|NOT)\b/gi;
+    let match;
+    let lastOperatorIndex = -1;
+    let lastOperatorLength = 0;
+    
+    while ((match = operatorRegex.exec(text)) !== null) {
+      lastOperatorIndex = match.index;
+      lastOperatorLength = match[0].length;
+    }
+    
+    if (lastCommaIndex === -1 && lastOperatorIndex === -1) {
+      return { token: text, prefix: "", separatorType: "none" as const };
+    }
+    
+    if (lastCommaIndex > lastOperatorIndex) {
+      const prefix = text.slice(0, lastCommaIndex + 1);
+      const token = text.slice(lastCommaIndex + 1);
+      return { token, prefix, separatorType: "comma" as const };
+    } else {
+      const prefix = text.slice(0, lastOperatorIndex + lastOperatorLength);
+      const token = text.slice(lastOperatorIndex + lastOperatorLength);
+      return { token, prefix, separatorType: "operator" as const };
+    }
+  };
+
+  const filteredSuggestions = useMemo(() => {
+    const { token } = getCurrentSearchToken(keywords);
+    const query = token.trim();
+    if (!query) return { skills: [], locations: [], designations: [] };
+
+    const normalizedInputKeywords = keywords
+      .toLowerCase()
+      .split(/,|\b(?:and|or|not)\b/i)
+      .map(k => k.trim())
+      .filter(Boolean);
+
+    const isAlreadyPresent = (item: string) => {
+      return normalizedInputKeywords.includes(item.toLowerCase());
+    };
+
+    const matchedSkills = ALL_SKILL_OPTIONS
+      .filter(skill => fuzzyMatch(query, skill) && !isAlreadyPresent(skill))
+      .slice(0, 8);
+
+    const matchedLocations = ALL_LOCATION_OPTIONS
+      .filter(city => fuzzyMatch(query, city) && !isAlreadyPresent(city))
+      .slice(0, 5);
+
+    const matchedDesignations = ALL_ROLE_AND_DEPT_OPTIONS
+      .filter(role => fuzzyMatch(query, role) && !isAlreadyPresent(role))
+      .slice(0, 5);
+
+    return {
+      skills: matchedSkills,
+      locations: matchedLocations,
+      designations: matchedDesignations,
+    };
   }, [keywords]);
+
+  const flatSuggestionsList = useMemo(() => {
+    const list: Array<{ value: string; type: "skill" | "location" | "designation" }> = [];
+    filteredSuggestions.skills.forEach(skill => list.push({ value: skill, type: "skill" }));
+    filteredSuggestions.locations.forEach(loc => list.push({ value: loc, type: "location" }));
+    filteredSuggestions.designations.forEach(role => list.push({ value: role, type: "designation" }));
+    return list;
+  }, [filteredSuggestions]);
+
+  const hasSuggestions = useMemo(() => {
+    return flatSuggestionsList.length > 0;
+  }, [flatSuggestionsList]);
+
+  useEffect(() => {
+    setHighlightedIndex(-1);
+  }, [keywords]);
+
+  useEffect(() => {
+    if (highlightedIndex < 0 || !dropdownContainerRef.current) return;
+    const container = dropdownContainerRef.current;
+    const buttons = container.querySelectorAll("button");
+    const activeBtn = buttons[highlightedIndex];
+    if (activeBtn) {
+      activeBtn.scrollIntoView({ block: "nearest" });
+    }
+  }, [highlightedIndex]);
+
+  const selectSuggestion = (suggestionValue: string) => {
+    const { prefix, separatorType } = getCurrentSearchToken(keywords);
+    let nextKeywords = "";
+    if (separatorType === "none") {
+      nextKeywords = suggestionValue + " ";
+    } else if (separatorType === "comma") {
+      nextKeywords = prefix.trim() + " " + suggestionValue + ", ";
+    } else {
+      nextKeywords = prefix.trim() + " " + suggestionValue + " ";
+    }
+    setKeywords(nextKeywords);
+    setSkillSuggestionsOpen(false);
+    if (keywordInputRef.current) {
+      keywordInputRef.current.focus();
+    }
+  };
 
   useEffect(() => {
     if (!skillSuggestionsOpen) return;
@@ -3617,100 +4219,190 @@ function SearchCandidatesPage() {
     setSearched(true);
     setSkillSuggestionsOpen(false);
     const activeKeywords = typeof overrideKeywords === "string" ? overrideKeywords : keywords;
+
+    // Track and store keywords used
+    if (activeKeywords.trim() && recruiterProfile?.id) {
+      const tokens = activeKeywords.trim().toLowerCase().split(/\s+/).filter(Boolean);
+      if (tokens.length > 0) {
+        void supabase.rpc("log_recruiter_keywords", { p_recruiter_id: recruiterProfile.id, p_keywords: tokens })
+          .then(({ error: kErr }) => {
+            if (kErr) {
+              console.warn("Failed to log search keywords to DB:", kErr.message);
+              // Fallback to localStorage for testing/development
+              try {
+                const localKey = `search_keywords_${recruiterProfile.id}`;
+                const existing = JSON.parse(localStorage.getItem(localKey) || "[]");
+                tokens.forEach(token => {
+                  existing.unshift({
+                    keyword: token,
+                    created_at: new Date().toISOString()
+                  });
+                });
+                localStorage.setItem(localKey, JSON.stringify(existing.slice(0, 200)));
+              } catch (e) {
+                console.error("Failed to save keywords to localStorage:", e);
+              }
+            }
+          });
+      }
+    }
     try {
-      let q = supabase
-  .from("profiles")
-  .select(`
-    id, first_name, last_name, avatar_url, headline, current_title, current_company, location, experience_type, total_experience, skills, about,
-    work_experience(id, company, title, start_date, end_date, description, is_current),
-    education(id, institution, degree, field, start_year, end_year)
-  `);
-
-
-      // Server-side: keyword search across text columns (token-based)
-      if (activeKeywords.trim()) {
-        const tokens = activeKeywords.trim().toLowerCase().split(/\s+/).filter(Boolean);
-        tokens.forEach(token => {
-          q = q.or(
-            `first_name.ilike.%${token}%,last_name.ilike.%${token}%,` +
-            `headline.ilike.%${token}%,current_title.ilike.%${token}%,` +
-            `current_company.ilike.%${token}%,about.ilike.%${token}%`
-          );
-        });
-      }
-      // Server-side: location
-      if (location.trim()) q = q.ilike("location", `%${location.trim()}%`);
-      // Server-side: current company override
-      if (currentCompany.trim()) q = q.ilike("current_company", `%${currentCompany.trim()}%`);
-      const { data } = await q.limit(200);
-      let raw = (data as unknown as DBCandidate[]) || [];
-
-      // Skill keyword also searches the skills array column
-      if (activeKeywords.trim()) {
-        const tokens = activeKeywords.trim().toLowerCase().split(/\s+/).filter(Boolean);
-        const allSkillTerms = tokens.flatMap(token => getSkillSearchTerms(token)).slice(0, 30);
-        if (allSkillTerms.length > 0) {
-          const { data: skillMatches } = await supabase
-            .from("profiles")
-            .select(`
-              id, first_name, last_name, avatar_url, headline, current_title, current_company, location, experience_type, total_experience, skills, about,
-              work_experience(id, company, title, start_date, end_date, description, is_current),
-              education(id, institution, degree, field, start_year, end_year)
-            `)
-            .overlaps("skills", allSkillTerms);
-          if (skillMatches) {
-            const ids = new Set(raw.map(r => r.id));
-            (skillMatches as unknown as DBCandidate[]).forEach(sm => { if (!ids.has(sm.id)) raw.push(sm); });
+      let raw: DBCandidate[] = [];
+      let esSuccess = false;
+      
+      try {
+        const apiUrl = import.meta.env.VITE_API_URL || "http://localhost:8000";
+        const esUrl = `${apiUrl}/candidates/search?q=${encodeURIComponent(activeKeywords)}` +
+          `&location=${encodeURIComponent(location)}` +
+          `&current_company=${encodeURIComponent(currentCompany)}` +
+          `&skills=${encodeURIComponent(skillTags.join(","))}` +
+          `&experience_type=${encodeURIComponent(expType)}` +
+          `&experience_min=${encodeURIComponent(expMin)}` +
+          `&experience_max=${encodeURIComponent(expMax)}`;
+        const esRes = await fetch(esUrl);
+        if (esRes.ok) {
+          const data = await esRes.json();
+          const matchedIds = data.candidates.map((c: any) => c.id);
+          
+          if (matchedIds.length > 0) {
+            const { data: hydratedData } = await supabase
+              .from("profiles")
+              .select(`
+                id, first_name, last_name, avatar_url, headline, current_title, current_company, location, experience_type, total_experience, skills, about,
+                work_experience(id, company, title, start_date, end_date, description, is_current),
+                education(id, institution, degree, field, start_year, end_year)
+              `)
+              .in("id", matchedIds);
+              
+            if (hydratedData) {
+              const idToCandidateMap = new Map(hydratedData.map((c: any) => [c.id, c]));
+              raw = matchedIds
+                .map((id: string) => idToCandidateMap.get(id))
+                .filter(Boolean) as DBCandidate[];
+            }
           }
+          esSuccess = true;
         }
+      } catch (err) {
+        console.error("Elasticsearch candidate query failed, falling back to local database search:", err);
       }
 
-      // ── Client-side filters ──────────────────────────────────────────────────
-      if (activeKeywords.trim()) {
-        let broadSkillQuery = supabase
+      if (!esSuccess) {
+        let q = supabase
           .from("profiles")
           .select(`
             id, first_name, last_name, avatar_url, headline, current_title, current_company, location, experience_type, total_experience, skills, about,
             work_experience(id, company, title, start_date, end_date, description, is_current),
             education(id, institution, degree, field, start_year, end_year)
           `);
-        if (location.trim()) broadSkillQuery = broadSkillQuery.ilike("location", `%${location.trim()}%`);
-        if (currentCompany.trim()) broadSkillQuery = broadSkillQuery.ilike("current_company", `%${currentCompany.trim()}%`);
 
-        const { data: broadSkillCandidates } = await broadSkillQuery.limit(1000);
-        if (broadSkillCandidates) {
-          const ids = new Set(raw.map(r => r.id));
-          const tokens = activeKeywords.trim().toLowerCase().split(/\s+/).filter(Boolean);
-          (broadSkillCandidates as unknown as DBCandidate[]).forEach(candidate => {
-            if (!ids.has(candidate.id)) {
-              const hasSkillMatch = (candidate.skills || []).some(skill =>
-                tokens.some(token => skillsMatch(skill, token))
-              );
-              if (hasSkillMatch) {
-                raw.push(candidate);
-                ids.add(candidate.id);
-              }
+        if (activeKeywords.trim()) {
+          const { tokens: searchTokens, isOr: isOrQuery } = parseSearchTokens(activeKeywords);
+          
+          if (isOrQuery) {
+            // OR: combine all token clauses into one .or() call
+            const clauses = searchTokens.flatMap(term => [
+              `first_name.ilike.%${term}%`,
+              `last_name.ilike.%${term}%`,
+              `headline.ilike.%${term}%`,
+              `current_title.ilike.%${term}%`,
+              `current_company.ilike.%${term}%`,
+              `about.ilike.%${term}%`,
+              `location.ilike.%${term}%`
+            ]);
+            if (clauses.length > 0) {
+              q = q.or(clauses.join(","));
             }
-          });
+          } else {
+            // AND: each token must match at least one field (chained .or())
+            searchTokens.forEach(token => {
+              q = q.or(
+                `first_name.ilike.%${token}%,last_name.ilike.%${token}%,` +
+                `headline.ilike.%${token}%,current_title.ilike.%${token}%,` +
+                `current_company.ilike.%${token}%,about.ilike.%${token}%,location.ilike.%${token}%`
+              );
+            });
+          }
+        }
+        if (location.trim()) q = q.ilike("location", `%${location.trim()}%`);
+        if (currentCompany.trim()) q = q.ilike("current_company", `%${currentCompany.trim()}%`);
+        const { data } = await q.limit(200);
+        raw = (data as unknown as DBCandidate[]) || [];
+
+        if (activeKeywords.trim()) {
+          const { tokens: skillSearchTokens } = parseSearchTokens(activeKeywords.toLowerCase());
+          const allSkillTerms = skillSearchTokens.flatMap(token => getSkillSearchTerms(token)).slice(0, 30);
+          if (allSkillTerms.length > 0) {
+            const { data: skillMatches } = await supabase
+              .from("profiles")
+              .select(`
+                id, first_name, last_name, avatar_url, headline, current_title, current_company, location, experience_type, total_experience, skills, about,
+                work_experience(id, company, title, start_date, end_date, description, is_current),
+                education(id, institution, degree, field, start_year, end_year)
+              `)
+              .overlaps("skills", allSkillTerms);
+            if (skillMatches) {
+              const ids = new Set(raw.map(r => r.id));
+              (skillMatches as unknown as DBCandidate[]).forEach(sm => { if (!ids.has(sm.id)) raw.push(sm); });
+            }
+          }
         }
 
-        const tokens = activeKeywords.trim().toLowerCase().split(/\s+/).filter(Boolean);
-        raw = raw.filter(candidate => {
-          const searchableText = [
-            candidate.first_name,
-            candidate.last_name,
-            candidate.headline,
-            candidate.current_title,
-            candidate.current_company,
-            candidate.about,
-            candidate.location,
-          ].filter(Boolean).join(" ").toLowerCase();
+        if (activeKeywords.trim()) {
+          let broadSkillQuery = supabase
+            .from("profiles")
+            .select(`
+              id, first_name, last_name, avatar_url, headline, current_title, current_company, location, experience_type, total_experience, skills, about,
+              work_experience(id, company, title, start_date, end_date, description, is_current),
+              education(id, institution, degree, field, start_year, end_year)
+            `);
+          if (location.trim()) broadSkillQuery = broadSkillQuery.ilike("location", `%${location.trim()}%`);
+          if (currentCompany.trim()) broadSkillQuery = broadSkillQuery.ilike("current_company", `%${currentCompany.trim()}%`);
 
-          return tokens.every(token =>
-            searchableText.includes(token) ||
-            (candidate.skills || []).some(skill => skillsMatch(skill, token))
-          );
-        });
+          const { data: broadSkillCandidates } = await broadSkillQuery.limit(1000);
+          if (broadSkillCandidates) {
+            const ids = new Set(raw.map(r => r.id));
+            const { tokens } = parseSearchTokens(activeKeywords.toLowerCase());
+            (broadSkillCandidates as unknown as DBCandidate[]).forEach(candidate => {
+              if (!ids.has(candidate.id)) {
+                const hasSkillMatch = (candidate.skills || []).some(skill =>
+                  tokens.some(token => skillsMatch(skill, token))
+                );
+                if (hasSkillMatch) {
+                  raw.push(candidate);
+                  ids.add(candidate.id);
+                }
+              }
+            });
+          }
+
+          const { tokens: filterTokens, isOr: isOrFilter } = parseSearchTokens(activeKeywords);
+          raw = raw.filter(candidate => {
+            const searchableText = [
+              candidate.first_name,
+              candidate.last_name,
+              candidate.headline,
+              candidate.current_title,
+              candidate.current_company,
+              candidate.about,
+              candidate.location,
+            ].filter(Boolean).join(" ").toLowerCase();
+
+            const matchToken = (token: string) => {
+              const t = token.toLowerCase();
+              if (!t) return false;
+              return (
+                searchableText.includes(t) ||
+                (candidate.skills || []).some(skill => skillsMatch(skill, t))
+              );
+            };
+
+            if (filterTokens.length === 0) return true;
+            return isOrFilter
+              ? filterTokens.some(t => matchToken(t))
+              : filterTokens.every(t => matchToken(t));
+          });
+        }
       }
 
       // Experience type (client-side so null values aren't excluded)
@@ -3780,6 +4472,7 @@ function SearchCandidatesPage() {
         }
       }
 
+      setSearchPage(1);
       setResults(raw);
     } finally {
       setSearching(false);
@@ -3792,7 +4485,28 @@ function SearchCandidatesPage() {
     setExpMin(""); setExpMax(""); setCurSalMin(""); setCurSalMax("");
     setExpSalMax(""); setNoticePeriod(""); setEducation("");
     setIndustry(""); setCurrentCompany(""); setExpType(""); setSkillTags([]);
+    setSearchPage(1);
   };
+
+  const CANDIDATES_PER_PAGE = 20;
+
+  const totalSearchPages = useMemo(() => {
+    return Math.ceil(results.length / CANDIDATES_PER_PAGE);
+  }, [results]);
+
+  const searchPageNumbers = useMemo(
+    () => Array.from({ length: totalSearchPages }, (_, index) => index + 1),
+    [totalSearchPages]
+  );
+
+  const visibleCandidates = useMemo(() => {
+    return results.slice((searchPage - 1) * CANDIDATES_PER_PAGE, searchPage * CANDIDATES_PER_PAGE);
+  }, [results, searchPage]);
+
+  // Scroll to top of window when search page changes
+  useEffect(() => {
+    window.scrollTo({ top: 0, behavior: "smooth" });
+  }, [searchPage]);
 
   const activeFilterCount = [expMin, expMax, curSalMin, curSalMax, expSalMax, noticePeriod, education, industry, currentCompany, expType].filter(Boolean).length + skillTags.length;
 
@@ -3807,6 +4521,7 @@ function SearchCandidatesPage() {
           <div className="relative flex-1 min-w-[220px]" ref={searchKeywordRef}>
             <Search className="absolute left-3 top-1/2 -translate-y-1/2 h-4 w-4 text-[#8A8A8A]" />
             <Input
+              ref={keywordInputRef}
               value={keywords}
               onFocus={() => setSkillSuggestionsOpen(true)}
               onChange={e => {
@@ -3814,35 +4529,116 @@ function SearchCandidatesPage() {
                 setSkillSuggestionsOpen(true);
               }}
               onKeyDown={e => {
-                if (e.key === "Enter") {
-                  e.preventDefault();
+                if (e.key === "ArrowDown") {
+                  if (skillSuggestionsOpen && flatSuggestionsList.length > 0) {
+                    e.preventDefault();
+                    setHighlightedIndex(prev => (prev + 1) % flatSuggestionsList.length);
+                  } else {
+                    setSkillSuggestionsOpen(true);
+                  }
+                } else if (e.key === "ArrowUp") {
+                  if (skillSuggestionsOpen && flatSuggestionsList.length > 0) {
+                    e.preventDefault();
+                    setHighlightedIndex(prev => (prev - 1 + flatSuggestionsList.length) % flatSuggestionsList.length);
+                  }
+                } else if (e.key === "Enter") {
+                  if (skillSuggestionsOpen && highlightedIndex >= 0 && highlightedIndex < flatSuggestionsList.length) {
+                    e.preventDefault();
+                    selectSuggestion(flatSuggestionsList[highlightedIndex].value);
+                  } else {
+                    e.preventDefault();
+                    setSkillSuggestionsOpen(false);
+                    handleSearch();
+                  }
+                } else if (e.key === "Escape") {
                   setSkillSuggestionsOpen(false);
-                  handleSearch();
-                }
-                if (e.key === "Escape") {
-                  setSkillSuggestionsOpen(false);
+                } else if (e.key === "Tab") {
+                  if (skillSuggestionsOpen && highlightedIndex >= 0 && highlightedIndex < flatSuggestionsList.length) {
+                    e.preventDefault();
+                    selectSuggestion(flatSuggestionsList[highlightedIndex].value);
+                  }
                 }
               }}
               className="pl-9 bg-[#F6F6F6] border-gray-200 rounded-xl"
               placeholder="Skills, designation, company name..."
             />
-            {skillSuggestionsOpen && filteredKeywordSuggestions.length > 0 && (
-              <div className="absolute left-0 right-0 top-full z-50 mt-1 overflow-hidden rounded-xl border border-gray-200 bg-white shadow-xl">
+            {skillSuggestionsOpen && hasSuggestions && (
+              <div 
+                ref={dropdownContainerRef}
+                className="absolute left-0 right-0 top-full z-50 mt-1 overflow-hidden rounded-xl border border-gray-200 bg-white shadow-xl"
+              >
                 <div className="max-h-72 overflow-y-auto">
-                  {filteredKeywordSuggestions.map(skill => (
-                    <button
-                      key={skill}
-                      type="button"
-                      onClick={() => {
-                        setKeywords(skill);
-                        setSkillSuggestionsOpen(false);
-                        handleSearch(skill);
-                      }}
-                      className="flex w-full items-center px-3 py-2 text-left text-sm text-[#3A1F1F] hover:bg-[#FFF0F0]"
-                    >
-                      <span>{skill}</span>
-                    </button>
-                  ))}
+                  {filteredSuggestions.skills.length > 0 && (
+                    <div>
+                      <div className="px-3 py-1.5 text-[10px] font-bold text-gray-400 bg-gray-50 uppercase tracking-wider">Skills</div>
+                      {filteredSuggestions.skills.map(skill => {
+                        const globalIndex = flatSuggestionsList.findIndex(item => item.value === skill && item.type === "skill");
+                        const isHighlighted = globalIndex === highlightedIndex;
+                        return (
+                          <button
+                            key={`skill-${skill}`}
+                            type="button"
+                            onClick={() => selectSuggestion(skill)}
+                            onMouseEnter={() => setHighlightedIndex(globalIndex)}
+                            className={`flex w-full items-center px-3 py-2 text-left text-sm transition-colors ${
+                              isHighlighted ? "bg-[#FFF0F0] text-[#FF2B2B] font-medium" : "text-[#3A1F1F] hover:bg-gray-50"
+                            }`}
+                          >
+                            <Tag className="h-3.5 w-3.5 mr-2 opacity-60 text-[#FF2B2B]" />
+                            <span>{skill}</span>
+                          </button>
+                        );
+                      })}
+                    </div>
+                  )}
+
+                  {filteredSuggestions.locations.length > 0 && (
+                    <div>
+                      <div className="px-3 py-1.5 text-[10px] font-bold text-gray-400 bg-gray-50 uppercase tracking-wider">Locations</div>
+                      {filteredSuggestions.locations.map(loc => {
+                        const globalIndex = flatSuggestionsList.findIndex(item => item.value === loc && item.type === "location");
+                        const isHighlighted = globalIndex === highlightedIndex;
+                        return (
+                          <button
+                            key={`loc-${loc}`}
+                            type="button"
+                            onClick={() => selectSuggestion(loc)}
+                            onMouseEnter={() => setHighlightedIndex(globalIndex)}
+                            className={`flex w-full items-center px-3 py-2 text-left text-sm transition-colors ${
+                              isHighlighted ? "bg-[#FFF0F0] text-[#FF2B2B] font-medium" : "text-[#3A1F1F] hover:bg-gray-50"
+                            }`}
+                          >
+                            <MapPin className="h-3.5 w-3.5 mr-2 opacity-60 text-blue-500" />
+                            <span>{loc}</span>
+                          </button>
+                        );
+                      })}
+                    </div>
+                  )}
+
+                  {filteredSuggestions.designations.length > 0 && (
+                    <div>
+                      <div className="px-3 py-1.5 text-[10px] font-bold text-gray-400 bg-gray-50 uppercase tracking-wider">Roles / Designations</div>
+                      {filteredSuggestions.designations.map(role => {
+                        const globalIndex = flatSuggestionsList.findIndex(item => item.value === role && item.type === "designation");
+                        const isHighlighted = globalIndex === highlightedIndex;
+                        return (
+                          <button
+                            key={`role-${role}`}
+                            type="button"
+                            onClick={() => selectSuggestion(role)}
+                            onMouseEnter={() => setHighlightedIndex(globalIndex)}
+                            className={`flex w-full items-center px-3 py-2 text-left text-sm transition-colors ${
+                              isHighlighted ? "bg-[#FFF0F0] text-[#FF2B2B] font-medium" : "text-[#3A1F1F] hover:bg-gray-50"
+                            }`}
+                          >
+                            <Briefcase className="h-3.5 w-3.5 mr-2 opacity-60 text-emerald-600" />
+                            <span>{role}</span>
+                          </button>
+                        );
+                      })}
+                    </div>
+                  )}
                 </div>
               </div>
             )}
@@ -4037,7 +4833,7 @@ function SearchCandidatesPage() {
               </div>
 
               <div className="space-y-3">
-                {results.map(c => {
+                {visibleCandidates.map(c => {
                   const name = getCandidateDisplayName(c);
                   const initials = getCandidateInitials(name);
                   const skills = c.skills || [];
@@ -4145,6 +4941,78 @@ function SearchCandidatesPage() {
                   );
                 })}
               </div>
+
+              {/* Pagination matching JobSeekerDashboard style */}
+              {totalSearchPages > 1 && (
+                <div className="flex justify-center mt-8 pb-12" id="candidates-results-pagination">
+                  <Pagination>
+                    <PaginationContent className="flex-wrap justify-center gap-2">
+                      <PaginationItem>
+                        <PaginationPrevious
+                          href="#candidates-results-pagination"
+                          onClick={(event) => {
+                            event.preventDefault();
+                            if (searchPage > 1) setSearchPage((page) => page - 1);
+                          }}
+                          className={searchPage === 1 ? "pointer-events-none opacity-50" : ""}
+                        />
+                      </PaginationItem>
+
+                      {(() => {
+                        const delta = 1;
+                        const range: (number | string)[] = [];
+                        for (let i = 1; i <= totalSearchPages; i++) {
+                          if (i === 1 || i === totalSearchPages || (i >= searchPage - delta && i <= searchPage + delta)) {
+                            range.push(i);
+                          } else if (range[range.length - 1] !== "...") {
+                            range.push("...");
+                          }
+                        }
+                        return range.map((page, idx) => {
+                          if (page === "...") {
+                            return (
+                              <PaginationItem key={`ellipsis-${idx}`}>
+                                <PaginationEllipsis className="text-[#8A8A8A]" />
+                              </PaginationItem>
+                            );
+                          }
+                          const pageNumber = page as number;
+                          return (
+                            <PaginationItem key={pageNumber}>
+                              <PaginationLink
+                                href="#candidates-results-pagination"
+                                isActive={searchPage === pageNumber}
+                                onClick={(event) => {
+                                  event.preventDefault();
+                                  setSearchPage(pageNumber);
+                                }}
+                                className={
+                                  searchPage === pageNumber
+                                    ? "border-[#FF2B2B] bg-[#FF2B2B] text-white hover:bg-[#e02525] hover:text-white"
+                                    : "text-[#3A1F1F]"
+                                }
+                              >
+                                {pageNumber}
+                              </PaginationLink>
+                            </PaginationItem>
+                          );
+                        });
+                      })()}
+
+                      <PaginationItem>
+                        <PaginationNext
+                          href="#candidates-results-pagination"
+                          onClick={(event) => {
+                            event.preventDefault();
+                            if (searchPage < totalSearchPages) setSearchPage((page) => page + 1);
+                          }}
+                          className={searchPage === totalSearchPages ? "pointer-events-none opacity-50" : ""}
+                        />
+                      </PaginationItem>
+                    </PaginationContent>
+                  </Pagination>
+                </div>
+              )}
             </>
           )}
         </div>
@@ -4206,6 +5074,7 @@ function ApplicantsPage() {
   const [sortBy, setSortBy] = useState<string>("recent");
   const [expandedCareer, setExpandedCareer] = useState<string | null>(null);
   const [profileModal, setProfileModal] = useState<AppWithProfile | null>(null);
+  const [currentPage, setCurrentPage] = useState<number>(1);
 
   // Naukri-style advanced filters
   const [expMin, setExpMin] = useState<string>("");
@@ -4251,10 +5120,15 @@ function ApplicantsPage() {
     setLoading(true);
     const { data } = await supabase
       .from("applications")
-      .select("*, profile:profiles(*, work_experience(*), education(*)), job:jobs(title,id), interview_details(*)")
+      .select(`
+        id, status, applied_at, cover_letter, resume_url, recruiter_id, profile_id, job_id,
+        profile:profiles(id, first_name, last_name, email, avatar_url, headline, location, total_experience, skills, current_title, current_company, expected_salary, notice_period, current_salary, about, work_experience(id, company, title, start_date, end_date, description, is_current), education(id, institution, degree, field, start_year, end_year)),
+        job:jobs(id, title),
+        interview_details(id, interview_message, meeting_url, status, created_at, updated_at)
+      `)
       .eq("recruiter_id", recruiterProfile.id)
       .order("applied_at", { ascending: false });
-    if (data) setApplicants(data as AppWithProfile[]);
+    if (data) setApplicants(data as unknown as AppWithProfile[]);
     setLoading(false);
   }, [recruiterProfile?.id]);
 
@@ -4273,16 +5147,16 @@ function ApplicantsPage() {
   const jobTitles = ["All", ...Array.from(new Set(applicants.map(a => a.job?.title).filter(Boolean)))];
 
   const filteredFilterSkillOptions = useMemo(() => {
-    const query = skillInput.trim().toLowerCase();
+    const query = skillInput.trim();
     const options = query ? SEARCH_SUGGESTION_DATASET : SKILL_OPTIONS;
-    return options.filter(skill => !query || skill.toLowerCase().includes(query)).slice(0, 50);
+    return options.filter(skill => fuzzyMatch(query, skill)).slice(0, 50);
   }, [skillInput]);
 
   const filteredTopSuggestions = useMemo(() => {
-    const query = searchTerm.trim().toLowerCase();
+    const query = searchTerm.trim();
     if (!query) return [];
     return SEARCH_SUGGESTION_DATASET
-      .filter(item => item.toLowerCase().includes(query))
+      .filter(item => fuzzyMatch(query, item))
       .slice(0, 12);
   }, [searchTerm]);
 
@@ -4383,6 +5257,25 @@ function ApplicantsPage() {
       return new Date(b.applied_at).getTime() - new Date(a.applied_at).getTime();
     });
   }, [filtered, sortBy]);
+
+  const ITEMS_PER_PAGE = 20;
+
+  const totalPages = useMemo(() => {
+    return Math.ceil(sortedApplicants.length / ITEMS_PER_PAGE);
+  }, [sortedApplicants]);
+
+  const visibleApplicants = useMemo(() => {
+    return sortedApplicants.slice((currentPage - 1) * ITEMS_PER_PAGE, currentPage * ITEMS_PER_PAGE);
+  }, [sortedApplicants, currentPage]);
+
+  useEffect(() => {
+    setCurrentPage(1);
+  }, [statusFilter, jobFilter, searchTerm, expMin, expMax, locationFilter, salaryFilter, noticePeriodFilter, skillTags, sortBy]);
+
+  // Scroll to top of window when page changes
+  useEffect(() => {
+    window.scrollTo({ top: 0, behavior: "smooth" });
+  }, [currentPage]);
 
   const updateStatus = async (id: string, newStatus: Application["status"]) => {
     const statusWriteAttempts: Record<Application["status"], string[]> = {
@@ -4963,27 +5856,33 @@ function ApplicantsPage() {
 
       <div className="flex gap-5 items-start">
         {/* ── LEFT: Filter Sidebar (Naukri ResdEx style) ── */}
-        <div className="w-64 flex-shrink-0 space-y-0 bg-white border border-gray-200 rounded-2xl shadow-sm overflow-hidden">
-          {/* Status Tabs Section */}
-          <div className="px-4 py-3 border-b border-gray-100">
-            <p className="text-xs font-semibold text-[#3A1F1F] mb-2 uppercase tracking-wide">Status</p>
-            <div className="flex flex-col gap-1">
-              {statuses.map(s => (
-                <button key={s} onClick={() => setStatusFilter(s)}
-                  className={`flex items-center justify-between px-3 py-1.5 rounded-lg text-xs transition-colors w-full border ${statusFilter === s ? "bg-[#FF2B2B] text-white border-[#FF2B2B] font-semibold" : "bg-white border-gray-100 text-[#5A5A5A] hover:border-[#FF2B2B] hover:bg-gray-50"}`}>
-                  <span>{s}</span>
-                  {s === "All" ? (
-                    applicants.length > 0 && (
-                      <span className={`text-[10px] rounded-full px-1.5 py-0.5 font-bold ${statusFilter === s ? "bg-white/30 text-white" : "bg-gray-100 text-gray-600"}`}>{applicants.length}</span>
-                    )
-                  ) : (
-                    statusCounts[s] > 0 && (
-                      <span className={`text-[10px] rounded-full px-1.5 py-0.5 font-bold ${statusFilter === s ? "bg-white/30 text-white" : "bg-gray-100 text-gray-600"}`}>{statusCounts[s]}</span>
-                    )
-                  )}
-                </button>
-              ))}
-            </div>
+        <div className="w-72 flex-shrink-0 space-y-0 bg-white border border-gray-200 rounded-2xl shadow-sm overflow-hidden">
+          {/* Status Filter — Dropdown */}
+          <div className="px-4 py-4 border-b border-gray-100 bg-gradient-to-b from-[#FFF8F8] to-white">
+            <p className="text-xs font-bold text-[#3A1F1F] mb-2 uppercase tracking-wide flex items-center gap-1.5">
+              <span className="w-1.5 h-1.5 rounded-full bg-[#FF2B2B]" /> Status
+            </p>
+            <Select value={statusFilter} onValueChange={setStatusFilter}>
+              <SelectTrigger className="w-full bg-white border-gray-200 rounded-xl text-xs h-9">
+                <SelectValue />
+              </SelectTrigger>
+              <SelectContent>
+                {statuses.map(s => {
+                  const isAll = s === "All";
+                  const stageStyle = !isAll ? PIPELINE_STAGE_STYLES[s as PipelineStage] : null;
+                  const count = isAll ? applicants.length : statusCounts[s];
+                  return (
+                    <SelectItem key={s} value={s}>
+                      <span className="flex items-center gap-2">
+                        <span className={`w-1.5 h-1.5 rounded-full ${isAll ? "bg-[#FF2B2B]" : stageStyle?.bar}`} />
+                        {s}
+                        {count > 0 && <span className="text-[10px] text-gray-400 font-semibold">({count})</span>}
+                      </span>
+                    </SelectItem>
+                  );
+                })}
+              </SelectContent>
+            </Select>
           </div>
 
           <div className="flex items-center justify-between px-4 py-3 border-b border-gray-100">
@@ -5132,7 +6031,7 @@ function ApplicantsPage() {
             </div>
           ) : (
             <div className="space-y-3">
-              {sortedApplicants.map(applicant => {
+              {visibleApplicants.map(applicant => {
                 const p = applicant.profile;
                 const name = getCandidateDisplayName(p);
                 const initials = getCandidateInitials(name);
@@ -5367,6 +6266,78 @@ function ApplicantsPage() {
                   </div>
                 );
               })}
+              
+              {/* Numbered Pagination Control Bar */}
+              {totalPages > 1 && (
+                <div className="flex justify-center mt-8 pb-4" id="applicants-pagination">
+                  <Pagination>
+                    <PaginationContent className="flex-wrap justify-center gap-2">
+                      <PaginationItem>
+                        <PaginationPrevious
+                          href="#applicants-pagination"
+                          onClick={(event) => {
+                            event.preventDefault();
+                            if (currentPage > 1) setCurrentPage((page) => page - 1);
+                          }}
+                          className={currentPage === 1 ? "pointer-events-none opacity-50" : ""}
+                        />
+                      </PaginationItem>
+
+                      {(() => {
+                        const delta = 1;
+                        const range: (number | string)[] = [];
+                        for (let i = 1; i <= totalPages; i++) {
+                          if (i === 1 || i === totalPages || (i >= currentPage - delta && i <= currentPage + delta)) {
+                            range.push(i);
+                          } else if (range[range.length - 1] !== "...") {
+                            range.push("...");
+                          }
+                        }
+                        return range.map((page, idx) => {
+                          if (page === "...") {
+                            return (
+                              <PaginationItem key={`ellipsis-${idx}`}>
+                                <PaginationEllipsis className="text-[#8A8A8A]" />
+                              </PaginationItem>
+                            );
+                          }
+                          const pageNumber = page as number;
+                          return (
+                            <PaginationItem key={pageNumber}>
+                              <PaginationLink
+                                href="#applicants-pagination"
+                                isActive={currentPage === pageNumber}
+                                onClick={(event) => {
+                                  event.preventDefault();
+                                  setCurrentPage(pageNumber);
+                                }}
+                                className={
+                                  currentPage === pageNumber
+                                    ? "border-[#FF2B2B] bg-[#FF2B2B] text-white hover:bg-[#e02525] hover:text-white"
+                                    : "text-[#3A1F1F]"
+                                }
+                              >
+                                {pageNumber}
+                              </PaginationLink>
+                            </PaginationItem>
+                          );
+                        });
+                      })()}
+
+                      <PaginationItem>
+                        <PaginationNext
+                          href="#applicants-pagination"
+                          onClick={(event) => {
+                            event.preventDefault();
+                            if (currentPage < totalPages) setCurrentPage((page) => page + 1);
+                          }}
+                          className={currentPage === totalPages ? "pointer-events-none opacity-50" : ""}
+                        />
+                      </PaginationItem>
+                    </PaginationContent>
+                  </Pagination>
+                </div>
+              )}
             </div>
           )}
         </div>
@@ -6786,34 +7757,13 @@ function CompanyProfilePage() {
 
 // ─── Plans Page ───────────────────────────────────────────────────────────────
 
-function PlansPage() {
+function PlansPage({ activeSub, loading }: { activeSub: RecruiterSubscription | null; loading: boolean }) {
   const navigate = useNavigate();
   const { recruiterProfile } = useAuth();
-  const [activeSub, setActiveSub] = useState<RecruiterSubscription | null>(null);
-  const [loading, setLoading] = useState(true);
   const [promoInput, setPromoInput] = useState("");
   const [promoError, setPromoError] = useState("");
   const [appliedPromo, setAppliedPromo] = useState<ReturnType<typeof validatePromo>>(null);
   const [promoSuccess, setPromoSuccess] = useState("");
-
-  useEffect(() => {
-    if (!recruiterProfile?.id) return;
-    const load = async () => {
-      const now = new Date().toISOString();
-      const { data } = await supabase
-        .from("recruiter_subscriptions")
-        .select("*")
-        .eq("recruiter_id", recruiterProfile.id)
-        .eq("status", "active")
-        .gte("expires_at", now)
-        .order("created_at", { ascending: false })
-        .limit(1)
-        .maybeSingle();
-      setActiveSub(data ?? null);
-      setLoading(false);
-    };
-    load();
-  }, [recruiterProfile?.id]);
 
   const handleApplyPromo = () => {
     const found = validatePromo(promoInput);
@@ -6942,12 +7892,13 @@ function PlansPage() {
           return (
             <div
               key={plan.id}
-              className={`bg-white rounded-2xl p-6 shadow-md border-2 transition-all ${isCurrentPlan
-                ? "border-[#FF2B2B]"
-                : plan.popular
-                  ? "border-[#FF2B2B]/40"
-                  : "border-gray-100"
-                }`}
+              className={`bg-white rounded-2xl p-6 shadow-md border-2 transition-all duration-300 ${
+                isCurrentPlan
+                  ? "border-[#FF2B2B]"
+                  : `hover:border-[#FF2B2B] hover:shadow-xl hover:-translate-y-1 ${
+                      plan.popular ? "border-[#FF2B2B]/40" : "border-gray-100"
+                    }`
+              }`}
             >
               {/* Header */}
               <div className="flex items-start justify-between mb-2">
@@ -6996,6 +7947,10 @@ function PlansPage() {
               {isCurrentPlan ? (
                 <Button disabled className="w-full rounded-full bg-green-100 text-green-700 cursor-default">
                   <CheckCircle className="mr-2 h-4 w-4" /> Current Plan
+                </Button>
+              ) : (activeSub && PLANS.findIndex(p => p.id === activeSub.plan_id) > PLANS.findIndex(p => p.id === plan.id)) ? (
+                <Button disabled className="w-full rounded-full bg-gray-100 text-gray-500 cursor-default">
+                  Lower Tier Plan
                 </Button>
               ) : (
                 <Button
