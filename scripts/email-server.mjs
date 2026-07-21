@@ -38,7 +38,20 @@ async function readBody(req) {
   });
 }
 
-async function sendBrevoEmail(to_email, to_name, subject, htmlContent) {
+// Best-effort log for the Super Admin "Emails" module — never allowed to
+// break the actual send if it fails (e.g. table not migrated yet).
+async function logEmail(admin, { recipient_email, email_type, subject, status, error_message }) {
+  try {
+    await admin.from("email_logs").insert({
+      recipient_email, email_type, subject, status, error_message: error_message ?? null,
+    });
+  } catch {
+    // Logging is best-effort only.
+  }
+}
+
+async function sendBrevoEmail(to_email, to_name, subject, htmlContent, emailType = "other") {
+  const admin = adminClient();
   const res = await fetch("https://api.brevo.com/v3/smtp/email", {
     method: "POST",
     headers: {
@@ -55,8 +68,10 @@ async function sendBrevoEmail(to_email, to_name, subject, htmlContent) {
   if (!res.ok) {
     const err = await res.text();
     console.error("[email] Brevo error:", err);
+    await logEmail(admin, { recipient_email: to_email, email_type: emailType, subject, status: "failed", error_message: err });
     throw new Error(err);
   }
+  await logEmail(admin, { recipient_email: to_email, email_type: emailType, subject, status: "sent" });
 }
 
 function otpHtml(toName, toEmail, otpCode, expiryMinutes, type) {
@@ -81,13 +96,30 @@ function otpHtml(toName, toEmail, otpCode, expiryMinutes, type) {
     </div>`;
 }
 
+// Best-effort log for the Super Admin "API Monitoring" module.
+function logApiRequest({ function_name, status_code, duration_ms, error_message }) {
+  adminClient()
+    .from("api_request_logs")
+    .insert({ function_name, status_code, duration_ms, error_message: error_message ?? null })
+    .then(() => {}, () => {});
+}
+
 const server = http.createServer(async (req, res) => {
   res.setHeader("Access-Control-Allow-Origin", "*");
   res.setHeader("Access-Control-Allow-Headers", "Content-Type");
   if (req.method === "OPTIONS") { res.writeHead(204); return res.end(); }
 
-  const ok = (data) => { res.writeHead(200, { "Content-Type": "application/json" }); res.end(JSON.stringify(data)); };
-  const fail = (status, msg) => { res.writeHead(status, { "Content-Type": "application/json" }); res.end(JSON.stringify({ error: msg })); };
+  const requestStart = Date.now();
+  const routeName = (req.url || "unknown").split("?")[0];
+
+  const ok = (data) => {
+    logApiRequest({ function_name: routeName, status_code: 200, duration_ms: Date.now() - requestStart });
+    res.writeHead(200, { "Content-Type": "application/json" }); res.end(JSON.stringify(data));
+  };
+  const fail = (status, msg) => {
+    logApiRequest({ function_name: routeName, status_code: status, duration_ms: Date.now() - requestStart, error_message: msg });
+    res.writeHead(status, { "Content-Type": "application/json" }); res.end(JSON.stringify({ error: msg }));
+  };
 
   // ── POST /api/send-otp  (Login OTP — generated client-side) ─────────────────
   if (req.method === "POST" && req.url === "/api/send-otp") {
@@ -96,7 +128,8 @@ const server = http.createServer(async (req, res) => {
       await sendBrevoEmail(
         to_email, to_name,
         `RhirePro Login OTP: ${otp_code}`,
-        otpHtml(to_name, to_email, otp_code, expiry_minutes, "login")
+        otpHtml(to_name, to_email, otp_code, expiry_minutes, "login"),
+        "otp"
       );
       ok({ success: true });
     } catch (err) { fail(500, err.message); }
@@ -127,7 +160,8 @@ const server = http.createServer(async (req, res) => {
       await sendBrevoEmail(
         email, name,
         `RhirePro Password Reset OTP: ${otp}`,
-        otpHtml(name, email, otp, 10, "reset")
+        otpHtml(name, email, otp, 10, "reset"),
+        "reset_otp"
       );
       ok({ success: true });
     } catch (err) { fail(500, err.message); }
@@ -224,11 +258,165 @@ const server = http.createServer(async (req, res) => {
         invited_email,
         invited_email,
         `You're invited to join ${company_name} on RhirePro`,
-        html
+        html,
+        "invite"
       );
 
       ok({ success: true });
     } catch (err) { fail(500, err.message); }
+    return;
+  }
+
+  // ── POST /api/super-admin-login  (mirrors netlify/functions/super-admin-login.mjs) ─
+  if (req.method === "POST" && req.url === "/api/super-admin-login") {
+    const { email: rawEmail, password } = await readBody(req);
+    const email = (rawEmail || "").trim().toLowerCase();
+    const BOOTSTRAP_EMAIL = process.env.SUPER_ADMIN_EMAIL;
+    const BOOTSTRAP_PASSWORD = process.env.SUPER_ADMIN_PASSWORD;
+
+    if (!email || !password) return fail(400, "Email and password are required.");
+
+    try {
+      const admin = adminClient();
+      const isBootstrapEmail = !!BOOTSTRAP_EMAIL && email === BOOTSTRAP_EMAIL.trim().toLowerCase();
+
+      const { data: existingAdmin } = await admin
+        .from("super_admins")
+        .select("id, email, is_active")
+        .eq("email", email)
+        .maybeSingle();
+
+      if (!existingAdmin) {
+        if (!isBootstrapEmail || password !== BOOTSTRAP_PASSWORD) {
+          return fail(401, "Invalid credentials");
+        }
+
+        let userId;
+        const { data: created, error: createErr } = await admin.auth.admin.createUser({
+          email,
+          password,
+          email_confirm: true,
+          user_metadata: { role: "super_admin" },
+        });
+
+        if (createErr) {
+          if (createErr.message?.includes("already been registered")) {
+            const { data: { users } } = await admin.auth.admin.listUsers();
+            const existing = users.find((u) => u.email?.toLowerCase() === email);
+            if (!existing) return fail(500, "Could not provision admin account");
+            userId = existing.id;
+            await admin.auth.admin.updateUserById(userId, {
+              password,
+              user_metadata: { role: "super_admin" },
+            });
+          } else {
+            return fail(500, createErr.message);
+          }
+        } else {
+          userId = created.user.id;
+        }
+
+        const { error: upsertErr } = await admin
+          .from("super_admins")
+          .upsert({ id: userId, email, is_active: true }, { onConflict: "id" });
+        if (upsertErr) return fail(500, upsertErr.message);
+      } else if (!existingAdmin.is_active) {
+        return fail(401, "Invalid credentials");
+      }
+
+      const anon = createClient(process.env.VITE_SUPABASE_URL, process.env.VITE_SUPABASE_ANON_KEY, {
+        auth: { autoRefreshToken: false, persistSession: false },
+      });
+      const { data: signInData, error: signInErr } = await anon.auth.signInWithPassword({ email, password });
+      if (signInErr || !signInData.session) return fail(401, "Invalid credentials");
+
+      const { data: finalAdmin } = await admin
+        .from("super_admins")
+        .select("id, is_active")
+        .eq("id", signInData.user.id)
+        .maybeSingle();
+      if (!finalAdmin || !finalAdmin.is_active) return fail(401, "Invalid credentials");
+
+      await admin.from("super_admins").update({ last_login_at: new Date().toISOString() }).eq("id", finalAdmin.id);
+
+      ok({
+        access_token: signInData.session.access_token,
+        refresh_token: signInData.session.refresh_token,
+        expires_in: signInData.session.expires_in,
+        user: { id: signInData.user.id, email: signInData.user.email },
+      });
+    } catch (err) {
+      fail(500, err.message || "Unexpected error");
+    }
+    return;
+  }
+
+  // ── POST /api/super-admin-invite  (mirrors netlify/functions/super-admin-invite.mjs) ─
+  if (req.method === "POST" && req.url === "/api/super-admin-invite") {
+    const authHeader = req.headers["authorization"] || "";
+    const callerToken = authHeader.replace(/^Bearer\s+/i, "");
+    if (!callerToken) return fail(401, "Not authenticated");
+
+    try {
+      const admin = adminClient();
+      const { data: callerUser, error: callerErr } = await admin.auth.getUser(callerToken);
+      if (callerErr || !callerUser?.user) return fail(401, "Not authenticated");
+
+      const { data: callerAdmin } = await admin
+        .from("super_admins").select("id, is_active").eq("id", callerUser.user.id).maybeSingle();
+      if (!callerAdmin || !callerAdmin.is_active) return fail(403, "Not authorized");
+
+      const body = await readBody(req);
+      const email = (body.email || "").trim().toLowerCase();
+      const fullName = body.full_name || null;
+      const role = ["owner", "admin", "viewer"].includes(body.role) ? body.role : "admin";
+      if (!email) return fail(400, "Email is required");
+
+      const tempPassword = randomBytes(12).toString("base64url");
+
+      let userId;
+      const { data: created, error: createErr } = await admin.auth.admin.createUser({
+        email, password: tempPassword, email_confirm: true, user_metadata: { role: "super_admin" },
+      });
+      if (createErr) {
+        if (createErr.message?.includes("already been registered")) {
+          const { data: { users } } = await admin.auth.admin.listUsers();
+          const existing = users.find((u) => u.email?.toLowerCase() === email);
+          if (!existing) return fail(500, "Could not provision admin account");
+          userId = existing.id;
+          await admin.auth.admin.updateUserById(userId, { password: tempPassword, user_metadata: { role: "super_admin" } });
+        } else {
+          return fail(500, createErr.message);
+        }
+      } else {
+        userId = created.user.id;
+      }
+
+      const { error: upsertErr } = await admin.from("super_admins").upsert(
+        { id: userId, email, full_name: fullName, role, is_active: true }, { onConflict: "id" }
+      );
+      if (upsertErr) return fail(500, upsertErr.message);
+
+      const subject = "You've been added as a RhirePro Super Admin";
+      await sendBrevoEmail(
+        email, fullName || email, subject,
+        `<div style="font-family:sans-serif;max-width:480px;margin:0 auto;padding:32px;">
+          <h2 style="color:#FF2B2B;margin-bottom:8px;">RhirePro</h2>
+          <p style="color:#333;">Hi ${fullName || email},</p>
+          <p style="color:#333;">You've been added as a Super Admin (role: <strong>${role}</strong>).</p>
+          <div style="background:#f5f5f5;border-radius:12px;padding:24px;margin:24px 0;">
+            <p style="color:#888;font-size:12px;margin:0 0 8px;">Temporary password</p>
+            <span style="font-size:22px;font-weight:bold;letter-spacing:1px;color:#FF2B2B;">${tempPassword}</span>
+          </div>
+          <p style="color:#666;font-size:14px;">Sign in at <strong>/super-admin/login</strong> and change your password afterwards.</p>
+        </div>`,
+        "invite"
+      ).catch(() => {});
+
+      ok({ success: true, temp_password: tempPassword });
+    } catch (err) {
+      fail(500, err.message || "Unexpected error");
+    }
     return;
   }
 

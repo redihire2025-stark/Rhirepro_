@@ -1,4 +1,45 @@
+// Best-effort log for the Super Admin "Emails" module — never allowed to
+// break the actual send if it fails (e.g. table not migrated yet).
+async function logEmail(supabaseUrl, serviceKey, { recipient_email, email_type, subject, status, error_message }) {
+  if (!supabaseUrl || !serviceKey) return;
+  try {
+    await fetch(`${supabaseUrl}/rest/v1/email_logs`, {
+      method: "POST",
+      headers: {
+        apikey: serviceKey,
+        Authorization: `Bearer ${serviceKey}`,
+        "Content-Type": "application/json",
+        Prefer: "return=minimal",
+      },
+      body: JSON.stringify({ recipient_email, email_type, subject, status, error_message: error_message ?? null }),
+    });
+  } catch {
+    // Logging is best-effort only.
+  }
+}
+
+// Best-effort log for the Super Admin "API Monitoring" module.
+async function logApiRequest(supabaseUrl, serviceKey, { function_name, status_code, duration_ms, error_message }) {
+  if (!supabaseUrl || !serviceKey) return;
+  try {
+    await fetch(`${supabaseUrl}/rest/v1/api_request_logs`, {
+      method: "POST",
+      headers: {
+        apikey: serviceKey,
+        Authorization: `Bearer ${serviceKey}`,
+        "Content-Type": "application/json",
+        Prefer: "return=minimal",
+      },
+      body: JSON.stringify({ function_name, status_code, duration_ms, error_message: error_message ?? null }),
+    });
+  } catch {
+    // Logging is best-effort only.
+  }
+}
+
 export default async (request) => {
+  const requestStart = Date.now();
+
   if (request.method !== "POST") {
     return new Response("Method Not Allowed", { status: 405 });
   }
@@ -8,6 +49,8 @@ export default async (request) => {
   const apiKey = process.env.BREVO_API_KEY;
   const senderEmail = process.env.BREVO_SENDER_EMAIL;
   const senderName = process.env.BREVO_SENDER_NAME || "RhirePro";
+  const supabaseUrl = process.env.VITE_SUPABASE_URL;
+  const serviceKey = process.env.SUPABASE_SERVICE_ROLE_KEY;
 
   if (!apiKey || !senderEmail) {
     return new Response(JSON.stringify({ error: "Email service not configured" }), {
@@ -45,11 +88,31 @@ export default async (request) => {
 
   if (!res.ok) {
     const err = await res.text();
+    await logEmail(supabaseUrl, serviceKey, {
+      recipient_email: to_email,
+      email_type: "otp",
+      subject: `Your RhirePro OTP: ${otp_code}`,
+      status: "failed",
+      error_message: err,
+    });
+    await logApiRequest(supabaseUrl, serviceKey, {
+      function_name: "/api/send-otp", status_code: 500, duration_ms: Date.now() - requestStart, error_message: err,
+    });
     return new Response(JSON.stringify({ error: err }), {
       status: 500,
       headers: { "Content-Type": "application/json" },
     });
   }
+
+  await logEmail(supabaseUrl, serviceKey, {
+    recipient_email: to_email,
+    email_type: "otp",
+    subject: `Your RhirePro OTP: ${otp_code}`,
+    status: "sent",
+  });
+  await logApiRequest(supabaseUrl, serviceKey, {
+    function_name: "/api/send-otp", status_code: 200, duration_ms: Date.now() - requestStart,
+  });
 
   return new Response(JSON.stringify({ success: true }), {
     status: 200,
