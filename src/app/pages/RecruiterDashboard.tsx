@@ -980,6 +980,38 @@ export default function RecruiterDashboard() {
     navigate(getRecruiterNotificationPath(notification));
   }, [fetchNotifications, getRecruiterNotificationPath, navigate, recruiterProfile?.id]);
 
+  const handleClearAllNotifications = useCallback(async (e: React.MouseEvent) => {
+    e.stopPropagation();
+    if (!recruiterProfile?.id) return;
+    const { error } = await supabase
+      .from("notifications")
+      .delete()
+      .eq("user_id", recruiterProfile.id)
+      .eq("user_type", "recruiter");
+    if (!error) {
+      setNotifications([]);
+      setUnreadCount(0);
+    }
+  }, [recruiterProfile?.id]);
+
+  const handleDeleteNotification = useCallback(async (e: React.MouseEvent, notificationId: string) => {
+    e.stopPropagation();
+    if (!recruiterProfile?.id) return;
+    const target = notifications.find((n) => n.id === notificationId);
+    const { error } = await supabase
+      .from("notifications")
+      .delete()
+      .eq("id", notificationId)
+      .eq("user_id", recruiterProfile.id)
+      .eq("user_type", "recruiter");
+    if (!error) {
+      setNotifications((prev) => prev.filter((n) => n.id !== notificationId));
+      if (target && !target.is_read) {
+        setUnreadCount((prev) => Math.max(0, prev - 1));
+      }
+    }
+  }, [notifications, recruiterProfile?.id]);
+
   const notifRef = useRef<HTMLDivElement>(null);
   useEffect(() => {
     const handler = (e: MouseEvent) => {
@@ -1171,18 +1203,45 @@ export default function RecruiterDashboard() {
                 {notificationsOpen && (
                   <div className="absolute right-0 top-full mt-2 w-80 bg-white rounded-xl shadow-lg border border-gray-100 z-[200]">
                     <div className="p-4">
-                      <h3 className="font-semibold text-[#3A1F1F] mb-3">Notifications</h3>
-                      <div className="space-y-2 max-h-72 overflow-y-auto">
+                      <div className="flex items-center justify-between mb-3">
+                        <h3 className="font-semibold text-[#3A1F1F]">Notifications</h3>
+                        {notifications.length > 0 && (
+                          <button
+                            type="button"
+                            onClick={handleClearAllNotifications}
+                            className="text-xs text-[#FF2B2B] hover:text-[#d92222] font-medium transition-colors hover:underline"
+                          >
+                            Clear all
+                          </button>
+                        )}
+                      </div>
+                      <div className="space-y-2 max-h-72 overflow-y-auto pr-1">
                         {notifications.length === 0 ? (
                           <p className="text-sm text-[#8A8A8A] text-center py-4">No notifications yet</p>
                         ) : notifications.map((n) => (
-                          <div key={n.id} onClick={() => handleNotificationClick(n)} className={`flex gap-3 p-2 rounded-lg cursor-pointer ${!n.is_read ? "bg-red-50" : "hover:bg-[#F6F6F6]"}`}>
-                            <div className="w-2 h-2 rounded-full mt-1.5 flex-shrink-0 bg-[#FF2B2B]" />
-                            <div>
-                              <p className="text-sm font-medium text-[#3A1F1F]">{n.title}</p>
-                              <p className="text-xs text-[#8A8A8A]">{n.message}</p>
-                              <p className="text-xs text-[#BABABA] mt-0.5">{new Date(n.created_at).toLocaleString()}</p>
+                          <div
+                            key={n.id}
+                            onClick={() => handleNotificationClick(n)}
+                            className={`group relative flex items-start justify-between gap-2 p-2.5 rounded-lg cursor-pointer transition-colors ${
+                              !n.is_read ? "bg-red-50 hover:bg-red-100/70" : "hover:bg-[#F6F6F6]"
+                            }`}
+                          >
+                            <div className="flex gap-2.5 flex-1 pr-5">
+                              <div className={`w-2 h-2 rounded-full mt-1.5 flex-shrink-0 ${!n.is_read ? "bg-[#FF2B2B]" : "bg-gray-300"}`} />
+                              <div>
+                                <p className="text-sm font-medium text-[#3A1F1F]">{n.title}</p>
+                                <p className="text-xs text-[#8A8A8A] mt-0.5">{n.message}</p>
+                                <p className="text-xs text-[#BABABA] mt-1">{new Date(n.created_at).toLocaleString()}</p>
+                              </div>
                             </div>
+                            <button
+                              type="button"
+                              onClick={(e) => handleDeleteNotification(e, n.id)}
+                              title="Delete notification"
+                              className="absolute right-2 top-2 p-1 text-gray-400 hover:text-[#FF2B2B] opacity-0 group-hover:opacity-100 transition-opacity rounded-full hover:bg-white"
+                            >
+                              <Trash2 className="h-3.5 w-3.5" />
+                            </button>
                           </div>
                         ))}
                       </div>
