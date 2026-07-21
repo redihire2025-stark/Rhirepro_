@@ -1193,7 +1193,13 @@ export default function RecruiterDashboard() {
 
               <DropdownMenu>
                 <DropdownMenuTrigger className="inline-flex h-10 w-10 items-center justify-center rounded-md hover:bg-accent focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-ring focus-visible:ring-offset-2">
-                  <div className="w-8 h-8 bg-[#FF2B2B] rounded-full flex items-center justify-center text-white text-xs font-bold">{companyInitials}</div>
+                  <div className="w-8 h-8 rounded-full overflow-hidden flex items-center justify-center border border-gray-200 bg-[#FF2B2B] text-white text-xs font-bold flex-shrink-0">
+                    {recruiterProfile?.logo_url ? (
+                      <img src={recruiterProfile.logo_url} alt="" className="w-full h-full object-cover" />
+                    ) : (
+                      companyInitials
+                    )}
+                  </div>
                 </DropdownMenuTrigger>
                 <DropdownMenuContent align="end">
                   <div className="px-3 py-2">
@@ -1322,14 +1328,17 @@ function DashboardOverview() {
     status: Application["status"];
     appliedDate: string;
     matchScore: number;
+    avatarUrl?: string | null;
   }>>([]);
   const [pipelineLoading, setPipelineLoading] = useState(true);
   const [pipelineError, setPipelineError] = useState("");
   const [upcomingInterviews, setUpcomingInterviews] = useState<Array<{
+    id: string;
     name: string;
     role: string;
     time: string;
     type: string;
+    avatarUrl?: string | null;
   }>>([]);
 
   const recruiterCompletion = useMemo(() => {
@@ -1405,7 +1414,7 @@ function DashboardOverview() {
         const jobIds = recruiterJobs.map(job => job.id);
         const { data: recentApps } = await supabase
           .from("applications")
-          .select("id, status, applied_at, profile:profiles(first_name, last_name, current_company, current_title)")
+          .select("id, status, applied_at, profile:profiles(first_name, last_name, current_company, current_title, avatar_url)")
           .in("job_id", jobIds)
           .order("applied_at", { ascending: false })
           .limit(3);
@@ -1419,6 +1428,7 @@ function DashboardOverview() {
             last_name?: string | null;
             current_company?: string | null;
             current_title?: string | null;
+            avatar_url?: string | null;
           } | null;
         }>).map((app) => {
           const firstName = app.profile?.first_name?.trim() || "";
@@ -1441,6 +1451,7 @@ function DashboardOverview() {
             status: app.status,
             appliedDate: app.applied_at ? new Date(app.applied_at).toLocaleDateString("en-IN", { day: "numeric", month: "short", year: "numeric" }) : "N/A",
             matchScore: Math.floor(70 + (app.id.charCodeAt(0) % 25)),
+            avatarUrl: app.profile?.avatar_url || null,
           };
         });
 
@@ -1458,7 +1469,7 @@ function DashboardOverview() {
             status,
             applied_at,
             job:jobs(title),
-            profile:profiles(first_name, last_name),
+            profile:profiles(first_name, last_name, avatar_url),
             interview_details:interview_details(updated_at, meeting_url)
           `)
           .eq("recruiter_id", recruiterProfile.id)
@@ -1476,7 +1487,7 @@ function DashboardOverview() {
               status,
               applied_at,
               job:jobs(title),
-              profile:profiles(first_name, last_name)
+              profile:profiles(first_name, last_name, avatar_url)
             `)
             .eq("recruiter_id", recruiterProfile.id)
             .eq("status", "Interview Scheduled")
@@ -1502,10 +1513,12 @@ function DashboardOverview() {
         const time = dateObj.toLocaleDateString("en-IN", { day: "numeric", month: "short" }) + ", " + dateObj.toLocaleTimeString("en-IN", { hour: "numeric", minute: "2-digit" });
 
         return {
+          id: app.id,
           name: fullName,
           role,
           time,
-          type
+          type,
+          avatarUrl: app.profile?.avatar_url || null
         };
       });
       setUpcomingInterviews(formatted);
@@ -1590,7 +1603,7 @@ function DashboardOverview() {
   const stats = [
     { label: "Active Jobs", value: String(activeJobs), change: "Live postings", icon: Briefcase, color: "text-blue-600", bg: "bg-blue-50", path: "/recruiter/dashboard/manage-jobs" },
     { label: "Total Applicants", value: String(totalApplicantsCount), change: "Across all jobs", icon: Users, color: "text-green-600", bg: "bg-green-50", path: "/recruiter/dashboard/applicants" },
-    { label: "Interviews Scheduled", value: String(interviewsScheduledCount), change: "Next: Today 3PM", icon: Calendar, color: "text-purple-600", bg: "bg-purple-50", path: "/recruiter/dashboard/applicants?status=Interview Scheduled" },
+    { label: "Interviews Scheduled", value: String(interviewsScheduledCount), change: "", icon: Calendar, color: "text-purple-600", bg: "bg-purple-50", path: "/recruiter/dashboard/applicants?status=Interview Scheduled" },
     { label: "Positions Filled", value: String(positionsFilledCount), change: "This month", icon: CheckCircle, color: "text-[#FF2B2B]", bg: "bg-red-50", path: "/recruiter/dashboard/applicants?status=Joined" },
   ];
 
@@ -1765,9 +1778,19 @@ function DashboardOverview() {
               <p className="text-sm text-[#8A8A8A] text-center py-4">No upcoming interviews scheduled</p>
             ) : (
               upcomingInterviews.map((iv, i) => (
-                <div key={i} className="flex items-center gap-3 p-3 bg-[#F6F6F6] rounded-xl">
-                  <div className="w-10 h-10 bg-[#FF2B2B] rounded-full flex items-center justify-center text-white text-xs font-bold flex-shrink-0">
-                    {iv.name.split(" ").filter(Boolean).map(n => n[0]).join("")}
+                <div 
+                  key={i} 
+                  onClick={() => navigate(`/recruiter/dashboard/applicants/${iv.id}/profile`)}
+                  className="flex items-center gap-3 p-3 bg-[#F6F6F6] hover:bg-gray-100/80 transition-colors rounded-xl cursor-pointer"
+                >
+                  <div className="w-10 h-10 rounded-full overflow-hidden flex items-center justify-center flex-shrink-0">
+                    {iv.avatarUrl ? (
+                      <img src={iv.avatarUrl} alt={iv.name} className="w-full h-full object-cover" />
+                    ) : (
+                      <div className="w-full h-full bg-[#FF2B2B] flex items-center justify-center text-white text-xs font-bold">
+                        {iv.name.split(" ").filter(Boolean).map(n => n[0]).join("")}
+                      </div>
+                    )}
                   </div>
                   <div className="flex-1">
                     <p className="text-sm font-medium text-[#3A1F1F]">{iv.name}</p>
@@ -1796,9 +1819,19 @@ function DashboardOverview() {
               <p className="text-sm text-[#8A8A8A] text-center py-4">No recent applicants</p>
             ) : (
               recentApplicants.map(applicant => (
-                <div key={applicant.id} className="flex items-center gap-3 p-3 border border-gray-100 rounded-xl hover:bg-[#F6F6F6] transition-colors">
-                  <div className="w-10 h-10 bg-[#FF2B2B] rounded-full flex items-center justify-center text-white text-sm font-bold flex-shrink-0">
-                    {applicant.initials}
+                <div 
+                  key={applicant.id} 
+                  onClick={() => navigate(`/recruiter/dashboard/applicants/${applicant.id}/profile`)}
+                  className="flex items-center gap-3 p-3 border border-gray-100 rounded-xl hover:bg-[#F6F6F6] transition-colors cursor-pointer"
+                >
+                  <div className="w-10 h-10 rounded-full overflow-hidden flex items-center justify-center flex-shrink-0">
+                    {applicant.avatarUrl ? (
+                      <img src={applicant.avatarUrl} alt={applicant.name} className="w-full h-full object-cover" />
+                    ) : (
+                      <div className="w-full h-full bg-[#FF2B2B] flex items-center justify-center text-white text-sm font-bold">
+                        {applicant.initials}
+                      </div>
+                    )}
                   </div>
                   <div className="flex-1 min-w-0">
                     <p className="text-sm font-medium text-[#3A1F1F]">{applicant.name}</p>
@@ -1830,8 +1863,14 @@ function DashboardOverview() {
             ) : (
               dbJobs.slice(0, 3).map(job => (
                 <div key={job.id} className="flex items-center gap-3 p-3 border border-gray-100 rounded-xl hover:bg-[#F6F6F6] transition-colors">
-                  <div className="w-10 h-10 bg-[#3A1F1F] rounded-full flex items-center justify-center text-white text-sm font-bold flex-shrink-0">
-                    <Briefcase className="h-5 w-5" />
+                  <div className="w-10 h-10 rounded-full overflow-hidden flex items-center justify-center flex-shrink-0 border border-gray-200 bg-[#F6F6F6]">
+                    {recruiterProfile?.logo_url ? (
+                      <img src={recruiterProfile.logo_url} alt="" className="w-full h-full object-cover" />
+                    ) : (
+                      <div className="w-full h-full bg-[#3A1F1F] flex items-center justify-center text-white text-sm font-bold">
+                        {(recruiterProfile?.company_name || "C")[0].toUpperCase()}
+                      </div>
+                    )}
                   </div>
                   <div className="flex-1 min-w-0">
                     <p className="text-sm font-medium text-[#3A1F1F] truncate">{job.title}</p>
@@ -1923,6 +1962,9 @@ function PostJobPage() {
   const isSalaryRangeInvalid =
     Boolean(formData.salaryMin && formData.salaryMax) &&
     Number(formData.salaryMax) < Number(formData.salaryMin);
+  const isExperienceRangeInvalid =
+    Boolean(formData.experienceMin && formData.experienceMax) &&
+    Number(formData.experienceMax) < Number(formData.experienceMin);
   const filteredSkillOptions = useMemo(() => {
     const query = skillSearch.trim();
     const options = query ? SEARCH_SUGGESTION_DATASET : SKILL_OPTIONS;
@@ -2088,6 +2130,10 @@ function PostJobPage() {
       setPostError("Maximum salary must be greater than or equal to minimum salary.");
       return;
     }
+    if (isExperienceRangeInvalid) {
+      setPostError("Maximum experience must be greater than or equal to minimum experience.");
+      return;
+    }
     setPosting(true);
     try {
       const deadline = buildJobExpiryTimestamp();
@@ -2155,9 +2201,17 @@ function PostJobPage() {
           {/* Header */}
           <div className="p-6 border-b border-gray-100">
             <div className="flex items-start gap-4">
-              <div className="w-14 h-14 bg-[#FF2B2B] rounded-xl flex items-center justify-center text-white font-bold text-xl flex-shrink-0">
-                {(recruiterProfile?.company_name || "C")[0]}
-              </div>
+              {recruiterProfile?.logo_url ? (
+                <img
+                  src={recruiterProfile.logo_url}
+                  alt={recruiterProfile?.company_name || "Company Logo"}
+                  className="w-14 h-14 rounded-xl object-cover border border-gray-200 flex-shrink-0"
+                />
+              ) : (
+                <div className="w-14 h-14 bg-[#FF2B2B] rounded-xl flex items-center justify-center text-white font-bold text-xl flex-shrink-0">
+                  {(recruiterProfile?.company_name || "C")[0].toUpperCase()}
+                </div>
+              )}
               <div className="flex-1">
                 <h1 className="text-2xl font-bold text-[#3A1F1F]">{formData.jobTitle || "Job Title"}</h1>
                 <p className="text-[#FF2B2B] font-medium mt-0.5">{recruiterProfile?.company_name || "Your Company"}</p>
@@ -2310,6 +2364,10 @@ function PostJobPage() {
           }
           if (isSalaryRangeInvalid) {
             setPostError("Maximum salary must be greater than or equal to minimum salary.");
+            return;
+          }
+          if (isExperienceRangeInvalid) {
+            setPostError("Maximum experience must be greater than or equal to minimum experience.");
             return;
           }
           setPostError("");
@@ -2475,8 +2533,11 @@ function PostJobPage() {
                 <div className="flex gap-2 items-center">
                   <Input type="number" min="0" value={formData.experienceMin} onChange={e => setFormData({ ...formData, experienceMin: e.target.value })} className="bg-[#F6F6F6] border-gray-200 rounded-xl" placeholder="Min yrs" />
                   <span className="text-[#8A8A8A]">–</span>
-                  <Input type="number" min="0" value={formData.experienceMax} onChange={e => setFormData({ ...formData, experienceMax: e.target.value })} className="bg-[#F6F6F6] border-gray-200 rounded-xl" placeholder="Max yrs" />
+                  <Input type="number" min="0" value={formData.experienceMax} onChange={e => setFormData({ ...formData, experienceMax: e.target.value })} className={`bg-[#F6F6F6] rounded-xl ${isExperienceRangeInvalid ? "border-red-500 text-red-900 focus-visible:ring-red-500" : "border-gray-200"}`} placeholder="Max yrs" />
                 </div>
+                {isExperienceRangeInvalid && (
+                  <p className="text-xs text-red-500 mt-1.5">Maximum experience must be greater than or equal to minimum experience.</p>
+                )}
               </div>
               <div>
                 <label className="block mb-1.5 text-sm font-medium text-[#3A1F1F]">Minimum Education</label>
