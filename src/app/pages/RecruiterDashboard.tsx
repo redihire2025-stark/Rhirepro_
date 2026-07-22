@@ -186,8 +186,17 @@ function LocationAutocomplete({
 
   const filteredCities = useMemo(() => {
     const query = search.trim();
-    if (!query) return INDIA_CITY_OPTIONS;
-    return INDIA_CITY_OPTIONS.filter(city => fuzzyMatch(query, city)).slice(0, 50);
+    if (!query) return INDIA_CITY_OPTIONS.slice(0, 50);
+    const qLower = query.toLowerCase();
+    const matches: string[] = [];
+    for (let i = 0; i < INDIA_CITY_OPTIONS.length; i++) {
+      const city = INDIA_CITY_OPTIONS[i];
+      if (city.toLowerCase().includes(qLower) || fuzzyMatch(query, city)) {
+        matches.push(city);
+        if (matches.length >= 50) break;
+      }
+    }
+    return matches;
   }, [search]);
 
   const selectCity = (city: string, submit = false) => {
@@ -4164,26 +4173,37 @@ function SearchCandidatesPage() {
       return normalizedInputKeywords.includes(item.toLowerCase());
     };
 
+    const qLower = query.toLowerCase();
     const searchExpansionTerms = getSkillSearchTerms(query);
 
     const directSkillMatches: string[] = [];
     const expandedSkillMatches: string[] = [];
 
-    ALL_SKILL_OPTIONS.forEach(skill => {
-      if (isAlreadyPresent(skill)) return;
+    for (let i = 0; i < ALL_SKILL_OPTIONS.length; i++) {
+      const skill = ALL_SKILL_OPTIONS[i];
+      if (isAlreadyPresent(skill)) continue;
       const sLower = skill.toLowerCase();
-      if (fuzzyMatch(query, skill)) {
+      if (sLower.includes(qLower) || fuzzyMatch(query, skill)) {
         directSkillMatches.push(skill);
+        if (directSkillMatches.length >= 10) break;
       } else if (searchExpansionTerms.some(term => sLower.includes(term) || skillsMatch(skill, term))) {
-        expandedSkillMatches.push(skill);
+        if (expandedSkillMatches.length < 10) {
+          expandedSkillMatches.push(skill);
+        }
       }
-    });
+    }
 
     const matchedSkills = Array.from(new Set([...directSkillMatches, ...expandedSkillMatches])).slice(0, 10);
 
-    const matchedDesignations = ALL_ROLE_AND_DEPT_OPTIONS
-      .filter(role => fuzzyMatch(query, role) && !isAlreadyPresent(role))
-      .slice(0, 5);
+    const matchedDesignations: string[] = [];
+    for (let i = 0; i < ALL_ROLE_AND_DEPT_OPTIONS.length; i++) {
+      const role = ALL_ROLE_AND_DEPT_OPTIONS[i];
+      if (isAlreadyPresent(role)) continue;
+      if (role.toLowerCase().includes(qLower) || fuzzyMatch(query, role)) {
+        matchedDesignations.push(role);
+        if (matchedDesignations.length >= 5) break;
+      }
+    }
 
     return {
       skills: matchedSkills,
@@ -4302,13 +4322,27 @@ function SearchCandidatesPage() {
   // ── Main search ───────────────────────────────────────────
   const handleSearch = async (overrideKeywords?: any) => {
     if (booleanSearchError) {
+      setSearched(false);
+      setResults([]);
+      setSearching(false);
       setSkillSuggestionsOpen(false);
       return;
     }
+    const activeKeywords = typeof overrideKeywords === "string" ? overrideKeywords : keywords;
+    const trimmedKw = activeKeywords.trim();
+    const hasSearchCriteria = Boolean(trimmedKw);
+
+    if (!hasSearchCriteria) {
+      setSearching(false);
+      setSearched(false);
+      setResults([]);
+      setSkillSuggestionsOpen(false);
+      return;
+    }
+
     setSearching(true);
     setSearched(true);
     setSkillSuggestionsOpen(false);
-    const activeKeywords = typeof overrideKeywords === "string" ? overrideKeywords : keywords;
 
     // Track and store keywords used
     if (activeKeywords.trim() && recruiterProfile?.id) {
@@ -4610,13 +4644,56 @@ function SearchCandidatesPage() {
     }
   };
 
-  // No automatic search on mount - candidates are only shown once a search is initiated.
+  // Dynamically update candidate search results or clear them instantly when search input/filters are emptied or invalid
+  useEffect(() => {
+    if (booleanSearchError) {
+      setSearched(false);
+      setResults([]);
+      setSearching(false);
+      return;
+    }
+
+    const trimmedKw = keywords.trim();
+    const hasSearchCriteria = Boolean(trimmedKw);
+
+    if (!hasSearchCriteria) {
+      setSearched(false);
+      setResults([]);
+      setSearching(false);
+      return;
+    }
+
+    const timer = setTimeout(() => {
+      handleSearch(keywords);
+    }, 400);
+    return () => clearTimeout(timer);
+  }, [
+    keywords,
+    location,
+    currentCompany,
+    skillTags,
+    expMin,
+    expMax,
+    curSalMin,
+    curSalMax,
+    expSalMax,
+    noticePeriod,
+    education,
+    expType,
+    booleanSearchEnabled,
+    booleanSearchError,
+    sortBy,
+  ]);
 
   const clearAllFilters = () => {
     setExpMin(""); setExpMax(""); setCurSalMin(""); setCurSalMax("");
     setExpSalMax(""); setNoticePeriod(""); setEducation("");
     setIndustry(""); setCurrentCompany(""); setExpType(""); setSkillTags([]);
     setSearchPage(1);
+    if (!keywords.trim()) {
+      setSearched(false);
+      setResults([]);
+    }
   };
 
   const CANDIDATES_PER_PAGE = 20;
@@ -4690,13 +4767,26 @@ function SearchCandidatesPage() {
                   }
                 }
               }}
-              className={`pl-9 bg-[#F6F6F6] rounded-xl transition-all ${
+              className={`pl-9 ${keywords ? "pr-9" : ""} bg-[#F6F6F6] rounded-xl transition-all ${
                 booleanSearchError
                   ? "border-red-500 ring-2 ring-red-200 text-red-700 bg-red-50/20"
                   : "border-gray-200"
               }`}
               placeholder={booleanSearchEnabled ? "e.g. React AND Python NOT Angular" : "Skills, designation, company name..."}
             />
+            {keywords && (
+              <button
+                type="button"
+                onClick={() => {
+                  setKeywords("");
+                  setSkillSuggestionsOpen(false);
+                }}
+                className="absolute right-3 top-1/2 -translate-y-1/2 text-[#8A8A8A] hover:text-[#3A1F1F]"
+                title="Clear search"
+              >
+                <X className="h-4 w-4" />
+              </button>
+            )}
 
             {booleanSearchError && (
               <div className="flex items-center justify-between gap-2 mt-2 px-3 py-2 bg-red-50 border border-red-200 rounded-lg text-xs font-semibold text-red-600 flex-wrap">
