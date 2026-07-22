@@ -2944,7 +2944,18 @@ function ManageJobsPage() {
 
   const toggleStatus = async (id: string, currentStatus: string) => {
     const newStatus = currentStatus === "Active" ? "Paused" : "Active";
-    await supabase.from("jobs").update({ status: newStatus }).eq("id", id);
+    let query = supabase.from("jobs").update({ status: newStatus }).eq("id", id);
+    if (recruiterProfile?.id) {
+      query = query.eq("recruiter_id", recruiterProfile.id);
+    }
+    const { error } = await query;
+
+    if (error) {
+      console.error("Failed to toggle job status:", error.message);
+      alert(`Unable to update job status: ${error.message}`);
+      return;
+    }
+
     setJobs(prev => prev.map(j => j.id === id ? { ...j, status: newStatus as "Active" | "Paused" | "Closed" | "Expired" } : j));
   };
 
@@ -2997,7 +3008,18 @@ function ManageJobsPage() {
 
   const closeJob = async (id: string) => {
     if (!confirm("Close this job? Applicant history will stay attached to this job.")) return;
-    await supabase.from("jobs").update({ status: "Closed" }).eq("id", id);
+    let query = supabase.from("jobs").update({ status: "Closed" }).eq("id", id);
+    if (recruiterProfile?.id) {
+      query = query.eq("recruiter_id", recruiterProfile.id);
+    }
+    const { error } = await query;
+
+    if (error) {
+      console.error("Failed to close job:", error.message);
+      alert(`Unable to close job: ${error.message}`);
+      return;
+    }
+
     setJobs(prev => prev.map(j => j.id === id ? { ...j, status: "Closed" } : j));
   };
 
