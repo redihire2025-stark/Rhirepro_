@@ -1295,6 +1295,24 @@ const ALL_ROLE_AND_DEPT_OPTIONS = Array.from(
   new Set([...DESIGNATION_OPTIONS, ...DEPARTMENT_OPTIONS])
 ).sort((a, b) => a.localeCompare(b));
 
+const ALL_SEARCHABLE_TERMS = Array.from(
+  new Set([...ALL_SKILL_OPTIONS, ...DESIGNATION_OPTIONS, ...ALL_LOCATION_OPTIONS])
+);
+
+function getFuzzyExpandedTerms(term: string): string[] {
+  const q = term.toLowerCase().trim();
+  if (!q || q.length <= 3) return [];
+
+  const matches: string[] = [];
+  for (const target of ALL_SEARCHABLE_TERMS) {
+    if (fuzzyMatch(q, target)) {
+      matches.push(target);
+      if (matches.length >= 5) break;
+    }
+  }
+  return matches;
+}
+
 // ── Find a Job ─────────────────────────────────────────────────────────────────
 function FindJobPage() {
   const { profile } = useAuth();
@@ -1333,6 +1351,85 @@ function FindJobPage() {
   const keywordInputRef = useRef<HTMLInputElement>(null);
   const dropdownContainerRef = useRef<HTMLDivElement>(null);
   const searchKeywordRef = useRef<HTMLDivElement>(null);
+
+  const computeJobRelevanceScore = (job: DBJobWithApplications, queryStr: string): number => {
+    if (!queryStr) return 0;
+    const cleanQuery = queryStr.toLowerCase().trim();
+    const queryTokens = cleanQuery.split(/,|\b(?:and|or|not)\b|\s+/i).map(t => t.trim()).filter(Boolean);
+    
+    const SYNONYM_MAP: Record<string, string[]> = {
+      "hr": ["recruiter", "recruitment", "human resources", "talent acquisition"],
+      "human resources": ["hr", "recruiter", "recruitment", "talent acquisition"],
+      "recruiter": ["hr", "human resources", "recruitment", "talent acquisition"],
+      "qa": ["quality assurance", "testing", "automation"],
+      "quality assurance": ["qa", "testing", "automation"],
+      "js": ["javascript"],
+      "javascript": ["js"],
+      "ts": ["typescript"],
+      "typescript": ["ts"],
+      "react": ["reactjs", "react.js"],
+      "ml": ["machine learning"],
+      "machine learning": ["ml"],
+      "ai": ["artificial intelligence"],
+      "artificial intelligence": ["ai"]
+    };
+
+    const expandedSynonyms = queryTokens.flatMap(t => SYNONYM_MAP[t.toLowerCase()] || []);
+    const fullSynonyms = SYNONYM_MAP[cleanQuery] || [];
+    const fuzzyTerms = [...queryTokens, cleanQuery].flatMap(t => getFuzzyExpandedTerms(t));
+    const searchTerms = Array.from(new Set([cleanQuery, ...queryTokens, ...expandedSynonyms, ...fullSynonyms, ...fuzzyTerms]));
+
+    let score = 0;
+    const title = (job.title || "").toLowerCase();
+    const company = (job.company_name || job.recruiter?.company_name || "").toLowerCase();
+    const description = (job.description || "").toLowerCase();
+    const requirements = (job.requirements || "").toLowerCase();
+    const roles = (job.roles_responsibilities || "").toLowerCase();
+    const skills = Array.isArray(job.skills)
+      ? job.skills.map(s => String(s).toLowerCase())
+      : typeof job.skills === "string"
+      ? [String(job.skills).toLowerCase()]
+      : [];
+
+    const department = (job.department || "").toLowerCase();
+    const industry = (job.industry || job.recruiter?.industry || "").toLowerCase();
+    const perks = Array.isArray(job.perks)
+      ? job.perks.map(p => String(p).toLowerCase())
+      : typeof job.perks === "string"
+      ? [String(job.perks).toLowerCase()]
+      : [];
+
+    searchTerms.forEach(term => {
+      if (!term) return;
+
+      const isShort = term.length <= 3;
+      const isWordMatch = (text: string) => {
+        if (!text) return false;
+        if (!isShort) return text.includes(term);
+        const escaped = term.replace(/[%_\\]/g, '');
+        const regex = new RegExp(`\\b${escaped}\\b`, 'i');
+        return regex.test(text);
+      };
+
+      if (isWordMatch(title)) {
+        score += title === term ? 150 : 100;
+      }
+
+      if (skills.some(s => s === term || isWordMatch(s))) {
+        score += 80;
+      }
+
+      if (isWordMatch(department)) score += 60;
+      if (isWordMatch(industry)) score += 40;
+      if (isWordMatch(company)) score += 40;
+      if (perks.some(p => p === term || isWordMatch(p))) score += 30;
+      if (isWordMatch(roles)) score += 20;
+      if (isWordMatch(description)) score += 10;
+      if (isWordMatch(requirements)) score += 10;
+    });
+
+    return score;
+  };
 
   // ── Boolean keyword parser ─────────────────────────────────
   const parseSearchTokens = (input: string): { tokens: string[]; isOr: boolean } => {
@@ -1400,7 +1497,7 @@ function FindJobPage() {
       .slice(0, 5);
 
     const matchedDesignations = ALL_ROLE_AND_DEPT_OPTIONS
-      .filter(role => fuzzyMatch(query, role) && !isAlreadyPresent(role))
+      .filter((role: string) => fuzzyMatch(query, role) && !isAlreadyPresent(role))
       .slice(0, 5);
 
     return {
@@ -1414,7 +1511,7 @@ function FindJobPage() {
     const list: Array<{ value: string; type: "skill" | "location" | "designation" }> = [];
     filteredSuggestions.skills.forEach(skill => list.push({ value: skill, type: "skill" }));
     filteredSuggestions.locations.forEach(loc => list.push({ value: loc, type: "location" }));
-    filteredSuggestions.designations.forEach(role => list.push({ value: role, type: "designation" }));
+    filteredSuggestions.designations.forEach((role: string) => list.push({ value: role, type: "designation" }));
     return list;
   }, [filteredSuggestions]);
 
@@ -1574,33 +1671,78 @@ function FindJobPage() {
           .eq("status", "Active");
 
         if (trimmedSearch) {
-          const { tokens: searchTokens, isOr: isOrQuery } = parseSearchTokens(trimmedSearch);
-          if (isOrQuery) {
-            // OR: combine all token clauses into one .or() call
-            const clauses = searchTokens.flatMap(term => {
-              const escapedTerm = escapeLikeValue(term);
-              return [
-                `title.ilike.%${escapedTerm}%`,
-                `company_name.ilike.%${escapedTerm}%`,
-                `description.ilike.%${escapedTerm}%`,
-                `location.ilike.%${escapedTerm}%`,
-                `requirements.ilike.%${escapedTerm}%`,
-                `roles_responsibilities.ilike.%${escapedTerm}%`
-              ];
+          const COMMON_ACRONYMS = new Set(['BI', 'AI', 'ML', 'UI', 'UX', 'CI', 'CD', 'API', 'APIS', 'SQL', 'AWS', 'GCP', 'ETL', 'ELT', 'QA', 'SME', 'SAP', 'IT', 'IP', 'HL7', 'FHIR', 'CCDA', 'JS', 'TS', 'DB', 'RDBMS', 'IAM', 'RDS', 'MQ']);
+
+          const getSkillVariations = (term: string): string[] => {
+            const variations = new Set<string>();
+            const sanitized = term.replace(/[,%_\\]/g, '').trim();
+            if (!sanitized) return [];
+
+            variations.add(sanitized);
+            variations.add(sanitized.toLowerCase());
+            variations.add(sanitized.toUpperCase());
+            variations.add(sanitized.charAt(0).toUpperCase() + sanitized.slice(1).toLowerCase());
+            variations.add(sanitized.replace(/\b\w/g, c => c.toUpperCase()));
+
+            const words = sanitized.split(/\s+/);
+            const acronymTitleCase = words.map(w => {
+              const upper = w.toUpperCase();
+              if (COMMON_ACRONYMS.has(upper)) return upper;
+              return w.charAt(0).toUpperCase() + w.slice(1).toLowerCase();
+            }).join(" ");
+            variations.add(acronymTitleCase);
+
+            return Array.from(variations);
+          };
+
+          const SYNONYM_MAP: Record<string, string[]> = {
+            "hr": ["recruiter", "recruitment", "human resources", "talent acquisition"],
+            "human resources": ["hr", "recruiter", "recruitment", "talent acquisition"],
+            "recruiter": ["hr", "human resources", "recruitment", "talent acquisition"],
+            "qa": ["quality assurance", "testing", "automation"],
+            "quality assurance": ["qa", "testing", "automation"],
+            "js": ["javascript"],
+            "javascript": ["js"],
+            "ts": ["typescript"],
+            "typescript": ["ts"],
+            "react": ["reactjs", "react.js"],
+            "ml": ["machine learning"],
+            "machine learning": ["ml"],
+            "ai": ["artificial intelligence"],
+            "artificial intelligence": ["ai"]
+          };
+
+          const rawTokens = trimmedSearch.split(/,|\b(?:and|or|not)\b|\s+/i).map(t => t.replace(/[,%_\\]/g, '').trim()).filter(Boolean);
+          const cleanFull = trimmedSearch.replace(/[,%_\\]/g, ' ').replace(/\s+/g, ' ').trim();
+          
+          const expandedSynonyms = rawTokens.flatMap(t => SYNONYM_MAP[t.toLowerCase()] || []);
+          const fullSynonyms = SYNONYM_MAP[cleanFull.toLowerCase()] || [];
+          const fuzzyTerms = [...rawTokens, cleanFull].flatMap(t => getFuzzyExpandedTerms(t));
+
+          const allSearchTerms = Array.from(new Set([cleanFull, ...rawTokens, ...expandedSynonyms, ...fullSynonyms, ...fuzzyTerms])).filter(Boolean);
+
+          const clauses: string[] = [];
+          allSearchTerms.forEach(term => {
+            const escaped = escapeLikeValue(term.replace(/[,%_\\]/g, ''));
+            if (!escaped) return;
+            clauses.push(`title.ilike.%${escaped}%`);
+            clauses.push(`company_name.ilike.%${escaped}%`);
+            clauses.push(`description.ilike.%${escaped}%`);
+            clauses.push(`location.ilike.%${escaped}%`);
+            clauses.push(`requirements.ilike.%${escaped}%`);
+            clauses.push(`roles_responsibilities.ilike.%${escaped}%`);
+            clauses.push(`department.ilike.%${escaped}%`);
+            clauses.push(`industry.ilike.%${escaped}%`);
+
+            getSkillVariations(term).forEach(v => {
+              const escapedV = v.replace(/"/g, '\\"');
+              clauses.push(`skills.cs.{"${escapedV}"}`);
+              clauses.push(`perks.cs.{"${escapedV}"}`);
             });
-            if (clauses.length > 0) {
-              query = query.or(clauses.join(","));
-            }
-          } else {
-            // AND: each token must match at least one field (chained .or())
-            searchTokens.forEach(token => {
-              const escapedToken = escapeLikeValue(token);
-              query = query.or(
-                `title.ilike.%${escapedToken}%,company_name.ilike.%${escapedToken}%,` +
-                `description.ilike.%${escapedToken}%,location.ilike.%${escapedToken}%,` +
-                `requirements.ilike.%${escapedToken}%,roles_responsibilities.ilike.%${escapedToken}%`
-              );
-            });
+          });
+
+          if (clauses.length > 0) {
+            query = query.or(clauses.join(","));
           }
         }
 
@@ -1655,7 +1797,7 @@ function FindJobPage() {
         const orderedQuery = query.order("created_at", { ascending: false });
 
         const res = await withTimeout(
-          shouldShowOnlyRecommended ? orderedQuery.limit(DEFAULT_RECOMMENDATION_FETCH_LIMIT) : orderedQuery.range(from, to),
+          shouldShowOnlyRecommended || trimmedSearch ? orderedQuery.limit(DEFAULT_RECOMMENDATION_FETCH_LIMIT) : orderedQuery.range(from, to),
           JOBS_QUERY_TIMEOUT_MS,
           "Jobs request timed out",
         ).catch((err) => {
@@ -1678,7 +1820,19 @@ function FindJobPage() {
         return;
       }
 
-      const visibleJobs = ((data as unknown as DBJobWithApplications[]) || []).filter((job) => isJobVisibleToSeekers(job));
+      let visibleJobs = ((data as unknown as DBJobWithApplications[]) || []).filter((job) => isJobVisibleToSeekers(job));
+
+      if (trimmedSearch) {
+        visibleJobs = visibleJobs.filter((job) => computeJobRelevanceScore(job, trimmedSearch) > 0);
+        visibleJobs.sort((a, b) => {
+          const scoreA = computeJobRelevanceScore(a, trimmedSearch);
+          const scoreB = computeJobRelevanceScore(b, trimmedSearch);
+          if (scoreB !== scoreA) {
+            return scoreB - scoreA;
+          }
+          return new Date(b.created_at || 0).getTime() - new Date(a.created_at || 0).getTime();
+        });
+      }
 
       if (shouldShowOnlyRecommended) {
         const recommendationTerms = profileSkills
@@ -1688,6 +1842,10 @@ function FindJobPage() {
         const pagedRecommendedJobs = recommendedJobs.slice(from, to + 1);
         setDbJobs(pagedRecommendedJobs);
         setTotalJobsCount(recommendedJobs.length);
+      } else if (trimmedSearch) {
+        const pagedSearchJobs = visibleJobs.slice(from, to + 1);
+        setDbJobs(pagedSearchJobs);
+        setTotalJobsCount(visibleJobs.length);
       } else {
         setDbJobs(visibleJobs);
         setTotalJobsCount(count || 0);
