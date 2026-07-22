@@ -400,6 +400,29 @@ export function normalizeSkillKeyword(value: string): string {
   return NORMALIZED_LOOKUP.get(key) || value.toLowerCase().replace(/[^a-z0-9]+/g, " ").trim();
 }
 
+const SKILL_EXPANSION_DICTIONARY: Record<string, string[]> = {
+  "python": ["django", "flask", "fastapi", "pandas", "numpy", "pytorch", "tensorflow", "data science"],
+  "react": ["reactjs", "react.js", "next.js", "redux", "frontend", "javascript", "typescript"],
+  "javascript": ["js", "ecmascript", "react", "node.js", "typescript", "frontend"],
+  "typescript": ["ts", "javascript", "angular", "react", "node.js"],
+  "java": ["spring boot", "hibernate", "j2ee", "microservices", "core java"],
+  "node.js": ["nodejs", "express.js", "nestjs", "backend", "javascript", "typescript"],
+  "node": ["nodejs", "node.js", "express.js", "backend"],
+  "hr": ["recruitment", "recruiter", "human resources", "talent acquisition", "hiring"],
+  "human resources": ["hr", "recruitment", "recruiter", "talent acquisition", "hris"],
+  "recruiter": ["recruitment", "hr", "talent acquisition", "sourcing", "boolean search"],
+  "qa": ["quality assurance", "selenium", "manual testing", "automation testing", "cypress", "testing"],
+  "quality assurance": ["qa", "selenium", "automation testing", "manual testing", "testing"],
+  "data science": ["machine learning", "python", "deep learning", "pandas", "ai", "statistics"],
+  "machine learning": ["ml", "data science", "deep learning", "python", "pytorch", "tensorflow", "ai"],
+  "ml": ["machine learning", "data science", "deep learning", "python", "ai"],
+  "ai": ["artificial intelligence", "generative ai", "machine learning", "deep learning", "ml"],
+  "devops": ["aws", "docker", "kubernetes", "ci/cd", "jenkins", "terraform", "cloud"],
+  "aws": ["amazon web services", "cloud", "devops", "ec2", "s3", "lambda", "docker"],
+  "sql": ["postgresql", "mysql", "database", "pl/sql", "tsql", "oracle", "rdbms"],
+  "design": ["ui/ux", "figma", "graphic design", "user experience", "user interface", "photoshop"]
+};
+
 export function getSkillSearchTerms(value: string): string[] {
   const cacheKey = value.toLowerCase().trim();
   const cached = SEARCH_TERMS_CACHE.get(cacheKey);
@@ -408,11 +431,13 @@ export function getSkillSearchTerms(value: string): string[] {
   const normalized = normalizeSkillKeyword(value);
   const key = compact(value);
   const matched = TERM_RECORD_LOOKUP.get(key);
+  const dictMatches = SKILL_EXPANSION_DICTIONARY[cacheKey] || SKILL_EXPANSION_DICTIONARY[normalized] || [];
 
   const terms = [
     value,
     normalized,
-    ...(matched ? [matched.skillName, ...matched.alternativeNames, ...matched.searchSynonyms] : []),
+    ...dictMatches,
+    ...(matched ? [matched.skillName, ...matched.alternativeNames, ...matched.searchSynonyms, ...matched.relatedKeywords] : []),
   ]
     .map((term) => term.toLowerCase().replace(/[^a-z0-9]+/g, " ").trim())
     .filter((term, index, terms) => term.length > 0 && terms.indexOf(term) === index);
