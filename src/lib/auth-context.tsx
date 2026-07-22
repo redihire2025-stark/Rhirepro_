@@ -30,6 +30,11 @@ export function AuthProvider({ children }: { children: ReactNode }) {
   const [loading, setLoading] = useState(true);
 
   const fetchProfile = async (userId: string, userRole: string, retries = 3) => {
+    if (userRole === "super_admin") {
+      setProfile(null);
+      setRecruiterProfile(null);
+      return;
+    }
     if (userRole === "recruiter") {
       const { data } = await supabase.from("recruiter_profiles").select("*").eq("id", userId).single();
       if (!data && retries > 0) {

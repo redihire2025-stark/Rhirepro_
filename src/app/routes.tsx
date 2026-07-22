@@ -30,6 +30,33 @@ import PrivacyPolicyPage from "./pages/PrivacyPolicyPage";
 import TermsOfServicePage from "./pages/TermsOfServicePage";
 import OrgAdminPanel from "./pages/OrgAdminPanel";
 import RecruiterInviteAccept from "./pages/RecruiterInviteAccept";
+import SuperAdminLoginPage from "./pages/super-admin/SuperAdminLoginPage";
+import SuperAdminLayout from "./pages/super-admin/SuperAdminLayout";
+import SuperAdminDashboard from "./pages/super-admin/SuperAdminDashboard";
+import SuperAdminRecruiters from "./pages/super-admin/SuperAdminRecruiters";
+import SuperAdminJobSeekers from "./pages/super-admin/SuperAdminJobSeekers";
+import SuperAdminJobs from "./pages/super-admin/SuperAdminJobs";
+import SuperAdminApplications from "./pages/super-admin/SuperAdminApplications";
+import SuperAdminCompanies from "./pages/super-admin/SuperAdminCompanies";
+import SuperAdminSubscriptions from "./pages/super-admin/SuperAdminSubscriptions";
+import SuperAdminRevenue from "./pages/super-admin/SuperAdminRevenue";
+import SuperAdminTransactions from "./pages/super-admin/SuperAdminTransactions";
+import SuperAdminCommunications from "./pages/super-admin/SuperAdminCommunications";
+import SuperAdminEmails from "./pages/super-admin/SuperAdminEmails";
+import SuperAdminNotifications from "./pages/super-admin/SuperAdminNotifications";
+import SuperAdminReports from "./pages/super-admin/SuperAdminReports";
+import SuperAdminAnalytics from "./pages/super-admin/SuperAdminAnalytics";
+import SuperAdminAuditLogs from "./pages/super-admin/SuperAdminAuditLogs";
+import SuperAdminSystemHealth from "./pages/super-admin/SuperAdminSystemHealth";
+import SuperAdminApiMonitoring from "./pages/super-admin/SuperAdminApiMonitoring";
+import SuperAdminBackgroundJobs from "./pages/super-admin/SuperAdminBackgroundJobs";
+import SuperAdminDatabase from "./pages/super-admin/SuperAdminDatabase";
+import SuperAdminStorage from "./pages/super-admin/SuperAdminStorage";
+import SuperAdminSupportTickets from "./pages/super-admin/SuperAdminSupportTickets";
+import SuperAdminFeedback from "./pages/super-admin/SuperAdminFeedback";
+import SuperAdminRoles from "./pages/super-admin/SuperAdminRoles";
+import SuperAdminAdminTeam from "./pages/super-admin/SuperAdminAdminTeam";
+import SuperAdminSettings from "./pages/super-admin/SuperAdminSettings";
 
 function RootLayout() {
   const { pathname } = useLocation();
@@ -204,6 +231,42 @@ export const router = createBrowserRouter([
     path: "/recruiter/join/:token",
     Component: RecruiterInviteAccept,
     errorElement: <ErrorPage />,
+  },
+  {
+    path: "/super-admin/login",
+    Component: SuperAdminLoginPage,
+    errorElement: <ErrorPage />,
+  },
+  {
+    Component: SuperAdminLayout,
+    errorElement: <ErrorPage />,
+    children: [
+      { path: "/super-admin", Component: SuperAdminDashboard },
+      { path: "/super-admin/recruiters", Component: SuperAdminRecruiters },
+      { path: "/super-admin/jobseekers", Component: SuperAdminJobSeekers },
+      { path: "/super-admin/jobs", Component: SuperAdminJobs },
+      { path: "/super-admin/applications", Component: SuperAdminApplications },
+      { path: "/super-admin/companies", Component: SuperAdminCompanies },
+      { path: "/super-admin/subscriptions", Component: SuperAdminSubscriptions },
+      { path: "/super-admin/revenue", Component: SuperAdminRevenue },
+      { path: "/super-admin/transactions", Component: SuperAdminTransactions },
+      { path: "/super-admin/communications", Component: SuperAdminCommunications },
+      { path: "/super-admin/emails", Component: SuperAdminEmails },
+      { path: "/super-admin/notifications", Component: SuperAdminNotifications },
+      { path: "/super-admin/reports", Component: SuperAdminReports },
+      { path: "/super-admin/analytics", Component: SuperAdminAnalytics },
+      { path: "/super-admin/audit-logs", Component: SuperAdminAuditLogs },
+      { path: "/super-admin/system-health", Component: SuperAdminSystemHealth },
+      { path: "/super-admin/api-monitoring", Component: SuperAdminApiMonitoring },
+      { path: "/super-admin/background-jobs", Component: SuperAdminBackgroundJobs },
+      { path: "/super-admin/database", Component: SuperAdminDatabase },
+      { path: "/super-admin/storage", Component: SuperAdminStorage },
+      { path: "/super-admin/support-tickets", Component: SuperAdminSupportTickets },
+      { path: "/super-admin/feedback", Component: SuperAdminFeedback },
+      { path: "/super-admin/roles", Component: SuperAdminRoles },
+      { path: "/super-admin/admin-team", Component: SuperAdminAdminTeam },
+      { path: "/super-admin/settings", Component: SuperAdminSettings },
+    ],
   },
   {
     path: "*",

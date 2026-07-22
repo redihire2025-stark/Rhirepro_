@@ -1,6 +1,45 @@
 import { randomBytes } from "crypto";
 
+// Best-effort log for the Super Admin "Emails" module — never allowed to
+// break the actual send if it fails (e.g. table not migrated yet).
+async function logEmail(supabaseUrl, serviceKey, { recipient_email, email_type, subject, status, error_message }) {
+  try {
+    await fetch(`${supabaseUrl}/rest/v1/email_logs`, {
+      method: "POST",
+      headers: {
+        apikey: serviceKey,
+        Authorization: `Bearer ${serviceKey}`,
+        "Content-Type": "application/json",
+        Prefer: "return=minimal",
+      },
+      body: JSON.stringify({ recipient_email, email_type, subject, status, error_message: error_message ?? null }),
+    });
+  } catch {
+    // Logging is best-effort only.
+  }
+}
+
+// Best-effort log for the Super Admin "API Monitoring" module.
+async function logApiRequest(supabaseUrl, serviceKey, { function_name, status_code, duration_ms, error_message }) {
+  try {
+    await fetch(`${supabaseUrl}/rest/v1/api_request_logs`, {
+      method: "POST",
+      headers: {
+        apikey: serviceKey,
+        Authorization: `Bearer ${serviceKey}`,
+        "Content-Type": "application/json",
+        Prefer: "return=minimal",
+      },
+      body: JSON.stringify({ function_name, status_code, duration_ms, error_message: error_message ?? null }),
+    });
+  } catch {
+    // Logging is best-effort only.
+  }
+}
+
 export default async (request) => {
+  const requestStart = Date.now();
+
   if (request.method !== "POST") {
     return new Response("Method Not Allowed", { status: 405 });
   }
@@ -164,11 +203,31 @@ export default async (request) => {
 
   if (!emailRes.ok) {
     const err = await emailRes.text();
+    await logEmail(supabaseUrl, serviceKey, {
+      recipient_email: invited_email,
+      email_type: "invite",
+      subject: `${adminName} invited you to join ${company_name} on RhirePro`,
+      status: "failed",
+      error_message: err,
+    });
+    await logApiRequest(supabaseUrl, serviceKey, {
+      function_name: "/api/send-invite", status_code: 500, duration_ms: Date.now() - requestStart, error_message: err,
+    });
     return new Response(
       JSON.stringify({ error: `Email send failed: ${err}` }),
       { status: 500, headers: { "Content-Type": "application/json" } }
     );
   }
+
+  await logEmail(supabaseUrl, serviceKey, {
+    recipient_email: invited_email,
+    email_type: "invite",
+    subject: `${adminName} invited you to join ${company_name} on RhirePro`,
+    status: "sent",
+  });
+  await logApiRequest(supabaseUrl, serviceKey, {
+    function_name: "/api/send-invite", status_code: 200, duration_ms: Date.now() - requestStart,
+  });
 
   return new Response(JSON.stringify({ success: true }), {
     status: 200,

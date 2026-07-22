@@ -280,6 +280,44 @@ export interface RecruiterSubscription {
   created_at: string;
 }
 
+export interface SuperAdmin {
+  id: string;
+  email: string;
+  full_name: string | null;
+  is_active: boolean;
+  role: "owner" | "admin" | "viewer";
+  created_at: string;
+  last_login_at: string | null;
+}
+
+export interface ActivityEvent {
+  id: string;
+  event_type:
+    | "recruiter_signup"
+    | "jobseeker_signup"
+    | "job_posted"
+    | "application_submitted"
+    | "application_status_changed"
+    | "payment_success";
+  actor_id: string | null;
+  actor_type: "recruiter" | "jobseeker" | "system" | null;
+  entity_type: string;
+  entity_id: string;
+  title: string;
+  description: string | null;
+  metadata: Record<string, unknown> | null;
+  created_at: string;
+}
+
+export interface ApplicationStatusHistory {
+  id: string;
+  application_id: string;
+  old_status: string | null;
+  new_status: string;
+  changed_at: string;
+  changed_by: string | null;
+}
+
 export interface PromoCode {
   id: string;
   code: string;
