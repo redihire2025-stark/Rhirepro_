@@ -4174,32 +4174,39 @@ function SearchCandidatesPage() {
     };
 
     const qLower = query.toLowerCase();
-    const searchExpansionTerms = getSkillSearchTerms(query);
+    const matchedSkills: string[] = [];
 
-    const directSkillMatches: string[] = [];
-    const expandedSkillMatches: string[] = [];
-
+    // Phase 1: Fast direct prefix / inclusion match (sub-millisecond execution)
     for (let i = 0; i < ALL_SKILL_OPTIONS.length; i++) {
       const skill = ALL_SKILL_OPTIONS[i];
       if (isAlreadyPresent(skill)) continue;
       const sLower = skill.toLowerCase();
-      if (sLower.includes(qLower) || fuzzyMatch(query, skill)) {
-        directSkillMatches.push(skill);
-        if (directSkillMatches.length >= 10) break;
-      } else if (searchExpansionTerms.some(term => sLower.includes(term) || skillsMatch(skill, term))) {
-        if (expandedSkillMatches.length < 10) {
-          expandedSkillMatches.push(skill);
-        }
+      if (sLower.startsWith(qLower) || sLower.includes(qLower)) {
+        matchedSkills.push(skill);
+        if (matchedSkills.length >= 8) break;
       }
     }
 
-    const matchedSkills = Array.from(new Set([...directSkillMatches, ...expandedSkillMatches])).slice(0, 10);
+    // Phase 2: Fallback to fuzzy match only if direct matches are fewer than 8
+    if (matchedSkills.length < 8) {
+      const searchExpansionTerms = getSkillSearchTerms(query);
+      for (let i = 0; i < ALL_SKILL_OPTIONS.length; i++) {
+        const skill = ALL_SKILL_OPTIONS[i];
+        if (isAlreadyPresent(skill) || matchedSkills.includes(skill)) continue;
+        const sLower = skill.toLowerCase();
+        if (fuzzyMatch(query, skill) || searchExpansionTerms.some(term => sLower.includes(term))) {
+          matchedSkills.push(skill);
+          if (matchedSkills.length >= 8) break;
+        }
+      }
+    }
 
     const matchedDesignations: string[] = [];
     for (let i = 0; i < ALL_ROLE_AND_DEPT_OPTIONS.length; i++) {
       const role = ALL_ROLE_AND_DEPT_OPTIONS[i];
       if (isAlreadyPresent(role)) continue;
-      if (role.toLowerCase().includes(qLower) || fuzzyMatch(query, role)) {
+      const rLower = role.toLowerCase();
+      if (rLower.startsWith(qLower) || rLower.includes(qLower) || fuzzyMatch(query, role)) {
         matchedDesignations.push(role);
         if (matchedDesignations.length >= 5) break;
       }
@@ -4663,9 +4670,13 @@ function SearchCandidatesPage() {
       return;
     }
 
+    if (trimmedKw.length < 2) {
+      return;
+    }
+
     const timer = setTimeout(() => {
       handleSearch(keywords);
-    }, 400);
+    }, 450);
     return () => clearTimeout(timer);
   }, [
     keywords,
