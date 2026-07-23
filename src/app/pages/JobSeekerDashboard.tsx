@@ -1332,6 +1332,7 @@ function FindJobPage() {
   const [industryFilter, setIndustryFilter] = useState("");
   const [jobTypeFilter, setJobTypeFilter] = useState("");
   const [remoteFilter, setRemoteFilter] = useState("");
+  const [interviewModeFilter, setInterviewModeFilter] = useState("");
   const [dbJobs, setDbJobs] = useState<DBJobWithApplications[]>([]);
   const [totalJobsCount, setTotalJobsCount] = useState(0);
   const [jobsLoading, setJobsLoading] = useState(true);
@@ -1606,9 +1607,19 @@ function FindJobPage() {
         !salaryFilter &&
         !industryFilter &&
         !jobTypeFilter &&
-        !remoteFilter;
+        !remoteFilter &&
+        !interviewModeFilter;
 
-      const hasAnyFilter = !!(selectedChip || locationFilter || experienceFilter || salaryFilter || industryFilter || jobTypeFilter || remoteFilter);
+      const hasAnyFilter = !!(
+        selectedChip ||
+        locationFilter ||
+        experienceFilter ||
+        salaryFilter ||
+        industryFilter ||
+        jobTypeFilter ||
+        remoteFilter ||
+        interviewModeFilter
+      );
 
       if (trimmedSearch || hasAnyFilter) {
         try {
@@ -1635,7 +1646,7 @@ function FindJobPage() {
                 .select(
                   `id, title, description, roles_responsibilities, requirements, skills, perks, location, 
                    salary_min, salary_max, salary_type, experience_min, experience_max, employment_type, 
-                   work_mode, created_at, status, deadline, deadline_time, recruiter_id,
+                   work_mode, interview_mode, created_at, status, deadline, deadline_time, recruiter_id,
                    recruiter:recruiter_profiles(logo_url, company_name, website, tagline, company_description, industry, company_type, company_size, founded, location),
                    applicant_count`
                 )
@@ -1663,7 +1674,7 @@ function FindJobPage() {
           .select(
             `id, title, description, roles_responsibilities, requirements, skills, perks, location, 
              salary_min, salary_max, salary_type, experience_min, experience_max, employment_type, 
-             work_mode, created_at, status, deadline, deadline_time, recruiter_id,
+             work_mode, interview_mode, created_at, status, deadline, deadline_time, recruiter_id,
              recruiter:recruiter_profiles(logo_url, company_name, website, tagline, company_description, industry, company_type, company_size, founded, location),
              applicant_count`,
             { count: "exact" }
@@ -1762,15 +1773,18 @@ function FindJobPage() {
           query = query.neq("work_mode", "Work from Home").neq("work_mode", "Remote");
         }
 
-        const preferredInterviewModes = normalizeInterviewModes(profile?.preferred_interview_mode);
-        if (preferredInterviewModes.length > 0) {
-          query = query.in("interview_mode", preferredInterviewModes);
+        if (interviewModeFilter === "in_person") {
+          query = query.or("interview_mode.ilike.%In-Person%,interview_mode.ilike.%Walk-in%,interview_mode.ilike.%In Person%");
+        } else if (interviewModeFilter === "remote") {
+          query = query.or("interview_mode.ilike.%Remote%,interview_mode.ilike.%Video Call%,interview_mode.ilike.%Telephonic%,interview_mode.ilike.%Online%");
+        } else if (interviewModeFilter === "hybrid") {
+          query = query.or("interview_mode.ilike.%Hybrid%,interview_mode.ilike.%Both%");
         }
 
-        if (locationFilter === "bengaluru") query = query.ilike("location", "%Bengaluru%");
+        if (locationFilter === "bengaluru") query = query.or("location.ilike.%Bengaluru%,location.ilike.%Bangalore%");
         if (locationFilter === "mumbai") query = query.ilike("location", "%Mumbai%");
         if (locationFilter === "hyderabad") query = query.ilike("location", "%Hyderabad%");
-        if (locationFilter === "delhi") query = query.ilike("location", "%Delhi%");
+        if (locationFilter === "delhi") query = query.or("location.ilike.%Delhi%,location.ilike.%NCR%,location.ilike.%Gurugram%,location.ilike.%Noida%");
         if (locationFilter === "pune") query = query.ilike("location", "%Pune%");
 
         if (experienceFilter === "entry") query = query.lte("experience_min", 1);
@@ -1788,16 +1802,16 @@ function FindJobPage() {
         }
 
         if (industryFilter === "healthcare") query = query.ilike("industry", "%Healthcare%");
-        if (industryFilter === "finance") query = query.ilike("industry", "%BFSI%");
-        if (industryFilter === "media") query = query.ilike("industry", "%Media%");
-        if (industryFilter === "tech") query = query.or("industry.ilike.%IT / Software%,industry.ilike.%E-commerce%,industry.ilike.%Consulting%");
-        if (industryFilter === "marketing") query = query.or("industry.ilike.%Consulting%,industry.ilike.%Media%");
-        if (industryFilter === "design") query = query.ilike("department", "%Design%");
+        if (industryFilter === "finance") query = query.or("industry.ilike.%BFSI%,industry.ilike.%Finance%,industry.ilike.%Banking%");
+        if (industryFilter === "media") query = query.or("industry.ilike.%Media%,industry.ilike.%Entertainment%");
+        if (industryFilter === "tech") query = query.or("industry.ilike.%IT / Software%,industry.ilike.%E-commerce%,industry.ilike.%Consulting%,industry.ilike.%Technology%");
+        if (industryFilter === "marketing") query = query.or("industry.ilike.%Consulting%,industry.ilike.%Media%,industry.ilike.%Marketing%");
+        if (industryFilter === "design") query = query.or("department.ilike.%Design%,industry.ilike.%Design%");
 
         const orderedQuery = query.order("created_at", { ascending: false });
 
         const res = await withTimeout(
-          shouldShowOnlyRecommended || trimmedSearch ? orderedQuery.limit(DEFAULT_RECOMMENDATION_FETCH_LIMIT) : orderedQuery.range(from, to),
+          shouldShowOnlyRecommended || trimmedSearch || hasAnyFilter ? orderedQuery.limit(DEFAULT_RECOMMENDATION_FETCH_LIMIT) : orderedQuery.range(from, to),
           JOBS_QUERY_TIMEOUT_MS,
           "Jobs request timed out",
         ).catch((err) => {
@@ -1820,10 +1834,94 @@ function FindJobPage() {
         return;
       }
 
-      let visibleJobs = ((data as unknown as DBJobWithApplications[]) || []).filter((job) => isJobVisibleToSeekers(job));
+      const jobMatchesAllFilters = (job: DBJobWithApplications): boolean => {
+        if (!isJobVisibleToSeekers(job)) return false;
+
+        // Job Type
+        if (jobTypeFilter === "fulltime" && !(job.employment_type || "").toLowerCase().includes("full")) return false;
+        if (jobTypeFilter === "parttime" && !(job.employment_type || "").toLowerCase().includes("part")) return false;
+        if (jobTypeFilter === "contract" && !(job.employment_type || "").toLowerCase().includes("contract")) return false;
+
+        // Remote
+        if (remoteFilter === "yes") {
+          const isRem = job.work_mode === "Work from Home" || job.work_mode === "Remote" || (job.location || "").toLowerCase().includes("remote");
+          if (!isRem) return false;
+        } else if (remoteFilter === "no") {
+          const isRem = job.work_mode === "Work from Home" || job.work_mode === "Remote" || (job.location || "").toLowerCase().includes("remote");
+          if (isRem) return false;
+        }
+
+        // Location
+        if (locationFilter) {
+          const loc = (job.location || "").toLowerCase();
+          const mode = (job.work_mode || "").toLowerCase();
+          if (locationFilter === "remote") {
+            if (mode !== "work from home" && mode !== "remote" && !loc.includes("remote")) return false;
+          } else if (locationFilter === "bengaluru") {
+            if (!loc.includes("bengaluru") && !loc.includes("bangalore")) return false;
+          } else if (locationFilter === "mumbai") {
+            if (!loc.includes("mumbai")) return false;
+          } else if (locationFilter === "hyderabad") {
+            if (!loc.includes("hyderabad")) return false;
+          } else if (locationFilter === "delhi") {
+            if (!loc.includes("delhi") && !loc.includes("ncr") && !loc.includes("gurugram") && !loc.includes("noida")) return false;
+          } else if (locationFilter === "pune") {
+            if (!loc.includes("pune")) return false;
+          }
+        }
+
+        // Experience
+        if (experienceFilter) {
+          const minExp = job.experience_min ?? 0;
+          const maxExp = job.experience_max ?? minExp;
+          if (experienceFilter === "entry" && minExp > 1) return false;
+          if (experienceFilter === "mid" && (minExp > 5 || (maxExp < 2 && minExp < 2))) return false;
+          if (experienceFilter === "senior" && minExp < 5 && maxExp < 5) return false;
+        }
+
+        // Salary Range
+        if (salaryFilter) {
+          const salMin = job.salary_min ?? 0;
+          const salMax = job.salary_max ?? salMin;
+          const minLpa = salMin > 1000 ? salMin / 100000 : salMin;
+          const maxLpa = salMax > 1000 ? salMax / 100000 : (salMin > 1000 ? salMin / 100000 : salMax);
+
+          if (salaryFilter === "0-10" && minLpa > 10 && maxLpa > 10) return false;
+          if (salaryFilter === "10-25" && ((minLpa > 25 && maxLpa > 25) || (minLpa < 10 && maxLpa < 10))) return false;
+          if (salaryFilter === "25+" && minLpa < 25 && maxLpa < 25) return false;
+        }
+
+        // Industry
+        if (industryFilter) {
+          const ind = (job.industry || job.recruiter?.industry || "").toLowerCase();
+          const dept = (job.department || "").toLowerCase();
+          const title = (job.title || "").toLowerCase();
+
+          if (industryFilter === "tech" && !ind.includes("it") && !ind.includes("tech") && !ind.includes("software") && !ind.includes("e-commerce") && !ind.includes("consulting") && !dept.includes("tech") && !dept.includes("engineering")) return false;
+          if (industryFilter === "finance" && !ind.includes("bfsi") && !ind.includes("finance") && !ind.includes("banking") && !ind.includes("fintech")) return false;
+          if (industryFilter === "healthcare" && !ind.includes("health") && !ind.includes("pharma") && !ind.includes("medical")) return false;
+          if (industryFilter === "marketing" && !ind.includes("marketing") && !ind.includes("consulting") && !ind.includes("media") && !ind.includes("advertising")) return false;
+          if (industryFilter === "design" && !ind.includes("design") && !dept.includes("design") && !title.includes("design")) return false;
+          if (industryFilter === "media" && !ind.includes("media") && !ind.includes("entertainment") && !ind.includes("publishing")) return false;
+        }
+
+        // Preferred Interview Mode
+        if (interviewModeFilter) {
+          const mode = (job.interview_mode || "").toLowerCase();
+          if (interviewModeFilter === "in_person" && !mode.includes("in-person") && !mode.includes("walk-in") && !mode.includes("in person")) return false;
+          if (interviewModeFilter === "remote" && !mode.includes("remote") && !mode.includes("video") && !mode.includes("telephonic") && !mode.includes("online")) return false;
+          if (interviewModeFilter === "hybrid" && !mode.includes("hybrid") && !mode.includes("both")) return false;
+        }
+
+        // Search Query
+        if (trimmedSearch && computeJobRelevanceScore(job, trimmedSearch) <= 0) return false;
+
+        return true;
+      };
+
+      let visibleJobs = ((data as unknown as DBJobWithApplications[]) || []).filter(jobMatchesAllFilters);
 
       if (trimmedSearch) {
-        visibleJobs = visibleJobs.filter((job) => computeJobRelevanceScore(job, trimmedSearch) > 0);
         visibleJobs.sort((a, b) => {
           const scoreA = computeJobRelevanceScore(a, trimmedSearch);
           const scoreB = computeJobRelevanceScore(b, trimmedSearch);
@@ -1839,16 +1937,14 @@ function FindJobPage() {
           .map((skill) => skill.trim().toLowerCase())
           .filter((skill) => skill.length >= 2);
         const recommendedJobs = visibleJobs.filter((job) => isRecommendedJobForProfile(job, recommendationTerms));
-        const pagedRecommendedJobs = recommendedJobs.slice(from, to + 1);
+        const jobsToDisplay = recommendedJobs.length > 0 ? recommendedJobs : visibleJobs;
+        const pagedRecommendedJobs = jobsToDisplay.slice(from, to + 1);
         setDbJobs(pagedRecommendedJobs);
-        setTotalJobsCount(recommendedJobs.length);
-      } else if (trimmedSearch) {
-        const pagedSearchJobs = visibleJobs.slice(from, to + 1);
-        setDbJobs(pagedSearchJobs);
-        setTotalJobsCount(visibleJobs.length);
+        setTotalJobsCount(jobsToDisplay.length);
       } else {
-        setDbJobs(visibleJobs);
-        setTotalJobsCount(count || 0);
+        const pagedJobs = visibleJobs.slice(from, to + 1);
+        setDbJobs(pagedJobs);
+        setTotalJobsCount(visibleJobs.length);
       }
 
       setJobsLoading(false);
@@ -1868,6 +1964,7 @@ function FindJobPage() {
     searchQuery,
     selectedChip,
     salaryFilter,
+    interviewModeFilter,
     profileSkillKey,
     preferredInterviewModeKey,
   ]);
@@ -1978,11 +2075,11 @@ function FindJobPage() {
 
   useEffect(() => {
     setCurrentPage(1);
-  }, [searchQuery, selectedChip, locationFilter, experienceFilter, salaryFilter, industryFilter, jobTypeFilter, remoteFilter]);
+  }, [searchQuery, selectedChip, locationFilter, experienceFilter, salaryFilter, industryFilter, jobTypeFilter, remoteFilter, interviewModeFilter]);
 
   useEffect(() => {
     setSelectedJob(null);
-  }, [currentPage, searchQuery, selectedChip, locationFilter, experienceFilter, salaryFilter, industryFilter, jobTypeFilter, remoteFilter]);
+  }, [currentPage, searchQuery, selectedChip, locationFilter, experienceFilter, salaryFilter, industryFilter, jobTypeFilter, remoteFilter, interviewModeFilter]);
 
   const totalPages = Math.ceil(totalJobsCount / JOBS_PER_PAGE);
 
@@ -2002,17 +2099,84 @@ function FindJobPage() {
     [totalPages],
   );
 
-  const hasFilters = searchQuery || selectedChip || locationFilter || experienceFilter || salaryFilter || industryFilter || jobTypeFilter || remoteFilter;
+  const hasFilters = !!(
+    searchQuery ||
+    selectedChip ||
+    locationFilter ||
+    experienceFilter ||
+    salaryFilter ||
+    industryFilter ||
+    jobTypeFilter ||
+    remoteFilter ||
+    interviewModeFilter
+  );
 
   function clearAll() {
-    setSearchQuery(""); setInputValue(""); setSelectedChip(null);
-    setLocationFilter(""); setExperienceFilter(""); setSalaryFilter("");
-    setIndustryFilter(""); setJobTypeFilter(""); setRemoteFilter("");
+    setSearchQuery("");
+    setInputValue("");
+    setSelectedChip(null);
+    setLocationFilter("");
+    setExperienceFilter("");
+    setSalaryFilter("");
+    setIndustryFilter("");
+    setJobTypeFilter("");
+    setRemoteFilter("");
+    setInterviewModeFilter("");
+  }
+
+  function onChangeJobTypeFilter(val: string) {
+    setJobTypeFilter(val);
+    if (val === "fulltime") setSelectedChip("Full-time");
+    else if (val === "parttime") setSelectedChip("Part-time");
+    else if (val === "contract") setSelectedChip("Contract");
+    else setSelectedChip(remoteFilter === "yes" ? "Remote" : null);
+  }
+
+  function onChangeRemoteFilter(val: string) {
+    setRemoteFilter(val);
+    if (val === "yes") {
+      if (!jobTypeFilter) setSelectedChip("Remote");
+    } else {
+      if (selectedChip === "Remote") {
+        setSelectedChip(
+          jobTypeFilter === "fulltime"
+            ? "Full-time"
+            : jobTypeFilter === "parttime"
+            ? "Part-time"
+            : jobTypeFilter === "contract"
+            ? "Contract"
+            : null
+        );
+      }
+    }
   }
 
   function handleChipClick(chip: string) {
-    setSelectedChip(prev => prev === chip ? null : chip);
-    setJobTypeFilter(""); setRemoteFilter("");
+    if (chip === "Remote") {
+      const nextVal = remoteFilter === "yes" ? "" : "yes";
+      setRemoteFilter(nextVal);
+      setSelectedChip(nextVal === "yes" ? "Remote" : null);
+    } else if (chip === "Full-time") {
+      const nextVal = jobTypeFilter === "fulltime" ? "" : "fulltime";
+      setJobTypeFilter(nextVal);
+      setSelectedChip(nextVal === "fulltime" ? "Full-time" : null);
+    } else if (chip === "Part-time") {
+      const nextVal = jobTypeFilter === "parttime" ? "" : "parttime";
+      setJobTypeFilter(nextVal);
+      setSelectedChip(nextVal === "parttime" ? "Part-time" : null);
+    } else if (chip === "Contract") {
+      const nextVal = jobTypeFilter === "contract" ? "" : "contract";
+      setJobTypeFilter(nextVal);
+      setSelectedChip(nextVal === "contract" ? "Contract" : null);
+    }
+  }
+
+  function isChipActive(chip: string): boolean {
+    if (chip === "Remote") return remoteFilter === "yes" || selectedChip === "Remote";
+    if (chip === "Full-time") return jobTypeFilter === "fulltime" || selectedChip === "Full-time";
+    if (chip === "Part-time") return jobTypeFilter === "parttime" || selectedChip === "Part-time";
+    if (chip === "Contract") return jobTypeFilter === "contract" || selectedChip === "Contract";
+    return selectedChip === chip;
   }
 
   return (
@@ -2087,19 +2251,22 @@ function FindJobPage() {
 
           {/* Type Chips */}
           <div className="flex justify-center gap-3 mt-4 flex-wrap">
-            {["Remote", "Full-time", "Part-time", "Contract"].map((chip) => (
-              <button
-                key={chip}
-                onClick={() => handleChipClick(chip)}
-                className={`px-4 py-1.5 rounded-full text-sm font-medium border transition-all ${
-                  selectedChip === chip
-                    ? "bg-[#FF2B2B] text-white border-[#FF2B2B]"
-                    : "bg-white text-[#3A1F1F] border-gray-300 hover:border-[#FF2B2B] hover:text-[#FF2B2B]"
-                }`}
-              >
-                {chip}
-              </button>
-            ))}
+            {["Remote", "Full-time", "Part-time", "Contract"].map((chip) => {
+              const active = isChipActive(chip);
+              return (
+                <button
+                  key={chip}
+                  onClick={() => handleChipClick(chip)}
+                  className={`px-4 py-1.5 rounded-full text-sm font-medium border transition-all ${
+                    active
+                      ? "bg-[#FF2B2B] text-white border-[#FF2B2B]"
+                      : "bg-white text-[#3A1F1F] border-gray-300 hover:border-[#FF2B2B] hover:text-[#FF2B2B]"
+                  }`}
+                >
+                  {chip}
+                </button>
+              );
+            })}
           </div>
         </div>
       </div>
@@ -2125,10 +2292,12 @@ function FindJobPage() {
                 options: [["0-10","0-10 LPA"],["10-25","10-25 LPA"],["25+","25+ LPA"]] },
               { label: "Industry", value: industryFilter, onChange: setIndustryFilter,
                 options: [["tech","Technology"],["finance","Finance"],["healthcare","Healthcare"],["marketing","Marketing"],["design","Design"],["media","Media"]] },
-              { label: "Job Type", value: jobTypeFilter, onChange: setJobTypeFilter,
+              { label: "Job Type", value: jobTypeFilter, onChange: onChangeJobTypeFilter,
                 options: [["fulltime","Full-time"],["parttime","Part-time"],["contract","Contract"]] },
-              { label: "Remote", value: remoteFilter, onChange: setRemoteFilter,
+              { label: "Remote", value: remoteFilter, onChange: onChangeRemoteFilter,
                 options: [["yes","Remote Only"],["no","On-site Only"]] },
+              { label: "Interview Mode", value: interviewModeFilter, onChange: setInterviewModeFilter,
+                options: [["in_person","In-Person"],["remote","Remote"],["hybrid","Hybrid"]] },
             ].map(({ label, value, onChange, options }) => (
               <div key={label}>
                 <label className="block mb-1.5 text-xs text-[#3A1F1F] font-medium uppercase tracking-wide">{label}</label>

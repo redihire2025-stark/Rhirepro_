@@ -3676,9 +3676,9 @@ function SearchCandidateProfileModal({
 
               {/* Action buttons */}
               <div className="flex gap-2 flex-wrap">
-                <Button size="sm" variant={shortlisted.has(candidate.id) ? "default" : "outline"} className={shortlisted.has(candidate.id) ? "bg-pink-600 hover:bg-pink-700 text-white rounded-full text-xs" : "border-pink-500 text-pink-600 hover:bg-pink-50 rounded-full text-xs"} onClick={() => toggleShortlist(candidate.id)}><ThumbsUp className="h-3.5 w-3.5 mr-1" /> {shortlisted.has(candidate.id) ? "Shortlisted ✓" : "Shortlist"}</Button>
-                <Button size="sm" variant={interviewInvited.has(candidate.id) ? "default" : "outline"} className={interviewInvited.has(candidate.id) ? "bg-purple-600 hover:bg-purple-700 text-white rounded-full text-xs" : "border-purple-400 text-purple-600 hover:bg-purple-50 rounded-full text-xs"} onClick={() => toggleInterview(candidate.id)}><Video className="h-3.5 w-3.5 mr-1" /> {interviewInvited.has(candidate.id) ? "Invited ✓" : "Schedule Interview"}</Button>
-                <Button size="sm" variant="outline" className="border-gray-200 rounded-full text-xs" onClick={() => { if (candidate.email) window.location.href = `mailto:${candidate.email}`; }}><Mail className="h-3.5 w-3.5 mr-1" /> Send Message</Button>
+                <Button size="sm" variant={shortlisted.has(candidate.id) ? "default" : "outline"} className={shortlisted.has(candidate.id) ? "bg-pink-600 hover:bg-pink-700 text-white rounded-full text-xs cursor-default" : "border-pink-500 text-pink-600 hover:bg-pink-50 rounded-full text-xs"} onClick={() => toggleShortlist(candidate.id)}><ThumbsUp className="h-3.5 w-3.5 mr-1" /> {shortlisted.has(candidate.id) ? "Shortlisted ✓" : "Shortlist"}</Button>
+                <Button size="sm" variant="outline" disabled={!shortlisted.has(candidate.id)} title={!shortlisted.has(candidate.id) ? "Please shortlist candidate first before interview" : "Go to Applicants module to schedule interview"} className={!shortlisted.has(candidate.id) ? "border-purple-200 text-purple-300 rounded-full text-xs opacity-50 cursor-not-allowed" : "border-purple-400 text-purple-600 hover:bg-purple-50 rounded-full text-xs"} onClick={() => toggleInterview(candidate.id)}><Video className="h-3.5 w-3.5 mr-1" /> Schedule Interview</Button>
+                <Button size="sm" variant="outline" className="border-gray-200 text-[#3A1F1F] hover:bg-gray-50 rounded-full text-xs" onClick={() => { if (candidate.email) window.location.href = `mailto:${candidate.email}`; }}><Mail className="h-3.5 w-3.5 mr-1" /> Send Message</Button>
                 {candidate.linkedin_url && <a href={candidate.linkedin_url} target="_blank" rel="noreferrer"><Button size="sm" variant="outline" className="border-blue-400 text-blue-600 hover:bg-blue-50 rounded-full text-xs">LinkedIn</Button></a>}
                 {candidate.portfolio_url && <a href={candidate.portfolio_url} target="_blank" rel="noreferrer"><Button size="sm" variant="outline" className="border-gray-300 rounded-full text-xs"><Globe className="h-3.5 w-3.5 mr-1" /> Portfolio</Button></a>}
               </div>
@@ -3979,6 +3979,7 @@ type RecruiterAppliedJdSearchApplication = {
 
 function SearchCandidatesPage() {
   const { recruiterProfile } = useAuth();
+  const navigate = useNavigate();
   // ── Search state ──────────────────────────────────────────
   const [keywords, setKeywords] = useState("");
   const [location, setLocation] = useState("");
@@ -4009,10 +4010,144 @@ function SearchCandidatesPage() {
   const [sortBy, setSortBy] = useState("relevant");
   const [shortlisted, setShortlisted] = useState<Set<string>>(new Set());
   const [interviewInvited, setInterviewInvited] = useState<Set<string>>(new Set());
+  const [messagedCandidates, setMessagedCandidates] = useState<Set<string>>(new Set());
   const [searchPage, setSearchPage] = useState<number>(1);
 
-  const toggleShortlist = (id: string) => setShortlisted(prev => { const s = new Set(prev); s.has(id) ? s.delete(id) : s.add(id); return s; });
-  const toggleInterview = (id: string) => setInterviewInvited(prev => { const s = new Set(prev); s.has(id) ? s.delete(id) : s.add(id); return s; });
+  // Load candidate statuses from database on mount & when recruiter changes
+  useEffect(() => {
+    const recruiterId = recruiterProfile?.id;
+    if (!recruiterId) return;
+
+    let isMounted = true;
+    async function loadCandidateStatuses() {
+      try {
+        const { data: apps } = await supabase
+          .from("applications")
+          .select("id, profile_id, status")
+          .eq("recruiter_id", recruiterId);
+
+        if (apps && isMounted) {
+          const sSet = new Set<string>();
+          const iSet = new Set<string>();
+
+          apps.forEach(app => {
+            if (!app.profile_id) return;
+            const st = (app.status || "").toLowerCase();
+            if (st === "shortlisted") {
+              sSet.add(app.profile_id);
+            } else if (st.includes("interview")) {
+              iSet.add(app.profile_id);
+            }
+          });
+
+          setShortlisted(sSet);
+          setInterviewInvited(iSet);
+        }
+
+        const { data: notifications } = await supabase
+          .from("notifications")
+          .select("user_id")
+          .eq("related_id", recruiterId)
+          .eq("type", "message");
+
+        if (notifications && isMounted) {
+          const mSet = new Set<string>();
+          notifications.forEach(n => {
+            if (n.user_id) mSet.add(n.user_id);
+          });
+          setMessagedCandidates(mSet);
+        }
+      } catch (err) {
+        console.error("Error loading candidate statuses from DB:", err);
+      }
+    }
+
+    loadCandidateStatuses();
+    return () => { isMounted = false; };
+  }, [recruiterProfile?.id]);
+
+  const toggleShortlist = async (candidateId: string) => {
+    if (!candidateId) return;
+
+    // Step-by-step pipeline progression: if already shortlisted or beyond (invited), do not backstep
+    if (shortlisted.has(candidateId) || interviewInvited.has(candidateId)) return;
+
+    setShortlisted(prev => new Set(prev).add(candidateId));
+
+    const recruiterId = recruiterProfile?.id;
+    if (!recruiterId) return;
+
+    try {
+      const { data: existingApps } = await supabase
+        .from("applications")
+        .select("id, status")
+        .eq("recruiter_id", recruiterId)
+        .eq("profile_id", candidateId);
+
+      if (existingApps && existingApps.length > 0) {
+        await supabase
+          .from("applications")
+          .update({ status: "Shortlisted" })
+          .eq("id", existingApps[0].id);
+      } else {
+        const { data: jobs } = await supabase
+          .from("jobs")
+          .select("id")
+          .eq("recruiter_id", recruiterId)
+          .eq("status", "Active")
+          .order("created_at", { ascending: false })
+          .limit(1);
+
+        const jobId = jobs && jobs.length > 0 ? jobs[0].id : null;
+
+        if (jobId) {
+          await supabase.from("applications").insert({
+            profile_id: candidateId,
+            recruiter_id: recruiterId,
+            job_id: jobId,
+            status: "Shortlisted",
+          });
+        }
+      }
+    } catch (err) {
+      console.error("Failed to persist shortlist status to DB:", err);
+    }
+  };
+
+  const toggleInterview = (candidateId: string) => {
+    if (!candidateId) return;
+
+    // Candidate MUST be shortlisted first before scheduling interview
+    if (!shortlisted.has(candidateId)) return;
+
+    // Redirect recruiter directly to Applicants module so they can manually schedule interview there
+    navigate("/recruiter/dashboard/applicants?status=Shortlisted");
+  };
+
+  const handleMessageCandidate = (candidate: DBCandidate) => {
+    if (!candidate) return;
+
+    if (candidate.email) {
+      window.location.href = `mailto:${candidate.email}`;
+    }
+
+    if (candidate.id) {
+      setMessagedCandidates(prev => new Set(prev).add(candidate.id));
+    }
+
+    const recruiterId = recruiterProfile?.id;
+    if (recruiterId && candidate.id) {
+      void supabase.from("notifications").insert({
+        user_id: candidate.id,
+        user_type: "jobseeker",
+        title: "Message from Recruiter",
+        message: `${recruiterProfile?.company_name || recruiterProfile?.recruiter_name || "A recruiter"} sent you a message regarding job opportunities.`,
+        type: "message",
+        related_id: recruiterId,
+        is_read: false,
+      });
+    }
+  };
 
   // ── Helpers ───────────────────────────────────────────────
   // Compute total years of experience from total_experience text OR from work_experience records
@@ -4400,7 +4535,7 @@ function SearchCandidatesPage() {
             const { data: hydratedData } = await supabase
               .from("profiles")
               .select(`
-                id, first_name, last_name, avatar_url, headline, current_title, current_company, location, experience_type, total_experience, skills, about,
+                id, first_name, last_name, email, avatar_url, headline, current_title, current_company, location, experience_type, total_experience, skills, about,
                 work_experience(id, company, title, start_date, end_date, description, is_current),
                 education(id, institution, degree, field, start_year, end_year)
               `)
@@ -4423,7 +4558,7 @@ function SearchCandidatesPage() {
         let q = supabase
           .from("profiles")
           .select(`
-            id, first_name, last_name, avatar_url, headline, current_title, current_company, location, experience_type, total_experience, skills, about,
+            id, first_name, last_name, email, avatar_url, headline, current_title, current_company, location, experience_type, total_experience, skills, about,
             work_experience(id, company, title, start_date, end_date, description, is_current),
             education(id, institution, degree, field, start_year, end_year)
           `);
@@ -4484,7 +4619,7 @@ function SearchCandidatesPage() {
             const { data: skillMatches } = await supabase
               .from("profiles")
               .select(`
-                id, first_name, last_name, avatar_url, headline, current_title, current_company, location, experience_type, total_experience, skills, about,
+                id, first_name, last_name, email, avatar_url, headline, current_title, current_company, location, experience_type, total_experience, skills, about,
                 work_experience(id, company, title, start_date, end_date, description, is_current),
                 education(id, institution, degree, field, start_year, end_year)
               `)
@@ -4500,7 +4635,7 @@ function SearchCandidatesPage() {
           let broadSkillQuery = supabase
             .from("profiles")
             .select(`
-              id, first_name, last_name, avatar_url, headline, current_title, current_company, location, experience_type, total_experience, skills, about,
+              id, first_name, last_name, email, avatar_url, headline, current_title, current_company, location, experience_type, total_experience, skills, about,
               work_experience(id, company, title, start_date, end_date, description, is_current),
               education(id, institution, degree, field, start_year, end_year)
             `);
@@ -5211,14 +5346,30 @@ function SearchCandidatesPage() {
                               <Eye className="h-3.5 w-3.5 mr-1" /> View Full Profile
                             </a>
                           </Button>
-                          <Button size="sm" variant={shortlisted.has(c.id) ? "default" : "outline"} className={shortlisted.has(c.id) ? "bg-pink-600 hover:bg-pink-700 text-white rounded-full text-xs h-7" : "border-pink-500 text-pink-600 hover:bg-pink-50 rounded-full text-xs h-7"} onClick={() => toggleShortlist(c.id)}>
+                          <Button size="sm" variant={shortlisted.has(c.id) ? "default" : "outline"} className={shortlisted.has(c.id) ? "bg-pink-600 hover:bg-pink-700 text-white rounded-full text-xs h-7 cursor-default" : "border-pink-500 text-pink-600 hover:bg-pink-50 rounded-full text-xs h-7"} onClick={() => toggleShortlist(c.id)}>
                             <ThumbsUp className="h-3.5 w-3.5 mr-1" /> {shortlisted.has(c.id) ? "Shortlisted" : "Shortlist"}
                           </Button>
-                          <Button size="sm" variant="outline" className="border-gray-200 rounded-full text-xs h-7" onClick={() => { if (c.email) window.location.href = `mailto:${c.email}`; }}>
+                          <Button
+                            size="sm"
+                            variant="outline"
+                            className="border-gray-200 text-[#3A1F1F] hover:bg-gray-50 rounded-full text-xs h-7"
+                            onClick={() => handleMessageCandidate(c)}
+                          >
                             <Mail className="h-3.5 w-3.5 mr-1" /> Message
                           </Button>
-                          <Button size="sm" variant={interviewInvited.has(c.id) ? "default" : "outline"} className={interviewInvited.has(c.id) ? "bg-purple-600 hover:bg-purple-700 text-white rounded-full text-xs h-7" : "border-purple-400 text-purple-600 hover:bg-purple-50 rounded-full text-xs h-7"} onClick={() => toggleInterview(c.id)}>
-                            <Video className="h-3.5 w-3.5 mr-1" /> {interviewInvited.has(c.id) ? "Invited" : "Interview"}
+                          <Button
+                            size="sm"
+                            variant="outline"
+                            disabled={!shortlisted.has(c.id)}
+                            title={!shortlisted.has(c.id) ? "Please shortlist candidate first before interview" : "Go to Applicants module to schedule interview"}
+                            className={
+                              !shortlisted.has(c.id)
+                                ? "border-purple-200 text-purple-300 rounded-full text-xs h-7 opacity-50 cursor-not-allowed"
+                                : "border-purple-400 text-purple-600 hover:bg-purple-50 rounded-full text-xs h-7"
+                            }
+                            onClick={() => toggleInterview(c.id)}
+                          >
+                            <Video className="h-3.5 w-3.5 mr-1" /> Interview
                           </Button>
                         </div>
                       </div>
