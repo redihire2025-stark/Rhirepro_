@@ -1,6 +1,6 @@
 import { useState, useEffect, useCallback, useRef, useMemo, type ChangeEvent } from "react";
 import { useNavigate, Routes, Route, Link, useLocation, useParams } from "react-router";
-import { supabase, Job, Application, Notification, Profile, WorkExperience, Education as EduType, RecruiterSubscription, RecruiterArticle } from "../../lib/supabase";
+import { supabase, Job, Application, Notification, Profile, WorkExperience, Education as EduType, RecruiterSubscription, RecruiterArticle, PREFERRED_JOINING_TIME_OPTIONS } from "../../lib/supabase";
 import {
   SALARY_AMOUNT_OPTIONS,
   JOB_EXPIRY_DAYS,
@@ -1985,7 +1985,7 @@ function PostJobPage() {
     experienceMin: "", experienceMax: "",
     skills: "", employmentType: "", industry: "",
     openings: "1", education: "", perks: [] as string[], department: "",
-    interviewMode: "",
+    interviewMode: "", preferredJoiningTime: "",
   });
 
   // Fetch active subscription and today's post count
@@ -2190,6 +2190,18 @@ function PostJobPage() {
       );
       return;
     }
+    if (!formData.employmentType) {
+      setPostError("Please select employment type.");
+      return;
+    }
+    if (!formData.workMode) {
+      setPostError("Please select work mode.");
+      return;
+    }
+    if (!formData.preferredJoiningTime) {
+      setPostError("Please select preferred joining time.");
+      return;
+    }
     if (!formData.salaryMin || !formData.salaryMax) {
       setPostError("Please select both minimum and maximum salary.");
       return;
@@ -2206,7 +2218,7 @@ function PostJobPage() {
     try {
       const deadline = buildJobExpiryTimestamp();
       const skillsArr = formData.skills.split(",").map(s => s.trim()).filter(Boolean);
-      const { error } = await supabase.from("jobs").insert({
+      const insertPayload: Record<string, any> = {
         recruiter_id: recruiterProfile.id,
         title: formData.jobTitle,
         description: formData.jobDescription,
@@ -2215,6 +2227,7 @@ function PostJobPage() {
         company_name: recruiterProfile.company_name || "",
         location: formData.location,
         work_mode: formData.workMode,
+        preferred_joining_time: formData.preferredJoiningTime || null,
         salary_min: Number(formData.salaryMin),
         salary_max: Number(formData.salaryMax),
         salary_type: "LPA",
@@ -2231,12 +2244,19 @@ function PostJobPage() {
         deadline,
         deadline_time: null,
         status: "Active",
-      });
+      };
+
+      let { error } = await supabase.from("jobs").insert(insertPayload);
+      if (error && typeof error.message === "string" && (error.message.includes("preferred_joining_time") || error.code === "PGRST204" || error.message.includes("column"))) {
+        delete insertPayload.preferred_joining_time;
+        const retryRes = await supabase.from("jobs").insert(insertPayload);
+        error = retryRes.error;
+      }
       if (error) throw error;
       setPostSuccess(true);
       setShowPreview(false);
       setTimeout(() => { setPostSuccess(false); navigate("/recruiter/dashboard/manage-jobs"); }, 2000);
-      setFormData({ jobTitle: "", jobDescription: "", rolesResponsibilities: "", requirements: "", location: "", workMode: "", salaryMin: "", salaryMax: "", experienceMin: "", experienceMax: "", skills: "", employmentType: "", industry: "", openings: "1", education: "", perks: [], department: "", interviewMode: "" });
+      setFormData({ jobTitle: "", jobDescription: "", rolesResponsibilities: "", requirements: "", location: "", workMode: "", salaryMin: "", salaryMax: "", experienceMin: "", experienceMax: "", skills: "", employmentType: "", industry: "", openings: "1", education: "", perks: [], department: "", interviewMode: "", preferredJoiningTime: "" });
       setShowSkillInput(false);
       setSkillPickerOpen(false);
       setSkillSearch("");
@@ -2289,6 +2309,7 @@ function PostJobPage() {
                   {formData.salaryMin && formData.salaryMax && <span className="flex items-center gap-1"><TrendingUp className="h-3.5 w-3.5" />{formatSalaryRangeFromValues(formData.salaryMin, formData.salaryMax)}</span>}
                   {formData.workMode && <span className="flex items-center gap-1"><Globe className="h-3.5 w-3.5" />{formData.workMode}</span>}
                   {formData.employmentType && <span className="flex items-center gap-1"><Clock className="h-3.5 w-3.5" />{formData.employmentType}</span>}
+                  {formData.preferredJoiningTime && <span className="flex items-center gap-1"><Calendar className="h-3.5 w-3.5" />Joining: {formData.preferredJoiningTime}</span>}
                 </div>
               </div>
               <div className="text-right flex-shrink-0">
@@ -2550,6 +2571,15 @@ function PostJobPage() {
                   </SelectContent>
                 </Select>
               </div>
+              <div>
+                <label className="block mb-1.5 text-sm font-medium text-[#3A1F1F]">Preferred Joining Time *</label>
+                <Select value={formData.preferredJoiningTime} onValueChange={v => setFormData({ ...formData, preferredJoiningTime: v })}>
+                  <SelectTrigger className="bg-[#F6F6F6] border-gray-200 rounded-xl"><SelectValue placeholder="Select joining time" /></SelectTrigger>
+                  <SelectContent>
+                    {PREFERRED_JOINING_TIME_OPTIONS.map(j => <SelectItem key={j} value={j}>{j}</SelectItem>)}
+                  </SelectContent>
+                </Select>
+              </div>
             </div>
           </div>
 
@@ -2793,7 +2823,7 @@ function ManageJobsPage() {
   const [loading, setLoading] = useState(true);
   const [currentPage, setCurrentPage] = useState<number>(1);
   const [editingJob, setEditingJob] = useState<Job | null>(null);
-  const [editForm, setEditForm] = useState({ title: "", location: "", salaryMin: "", salaryMax: "", salaryType: "LPA", employmentType: "", workMode: "", openings: "1", skills: "" });
+  const [editForm, setEditForm] = useState({ title: "", location: "", salaryMin: "", salaryMax: "", salaryType: "LPA", employmentType: "", workMode: "", preferredJoiningTime: "", openings: "1", skills: "" });
   const [saving, setSaving] = useState(false);
   const [refreshingJobId, setRefreshingJobId] = useState<string | null>(null);
 
@@ -2811,6 +2841,7 @@ function ManageJobsPage() {
       salaryType: "LPA",
       employmentType: job.employment_type || "",
       workMode: job.work_mode || "",
+      preferredJoiningTime: job.preferred_joining_time || "",
       openings: String(job.openings),
       skills: (job.skills || []).join(", "),
     });
@@ -2822,7 +2853,7 @@ function ManageJobsPage() {
     if (isEditSalaryRangeInvalid) return;
     setSaving(true);
     const skillsArr = editForm.skills.split(",").map(s => s.trim()).filter(Boolean);
-    await supabase.from("jobs").update({
+    const updatePayload: Record<string, any> = {
       title: editForm.title,
       location: editForm.location,
       salary_min: Number(editForm.salaryMin),
@@ -2830,15 +2861,21 @@ function ManageJobsPage() {
       salary_type: "LPA",
       employment_type: editForm.employmentType,
       work_mode: editForm.workMode,
+      preferred_joining_time: editForm.preferredJoiningTime || null,
       openings: Number(editForm.openings) || 1,
       skills: skillsArr,
-    }).eq("id", editingJob.id);
+    };
+    let { error } = await supabase.from("jobs").update(updatePayload).eq("id", editingJob.id);
+    if (error && typeof error.message === "string" && (error.message.includes("preferred_joining_time") || error.code === "PGRST204" || error.message.includes("column"))) {
+      delete updatePayload.preferred_joining_time;
+      await supabase.from("jobs").update(updatePayload).eq("id", editingJob.id);
+    }
     setJobs(prev => prev.map(j => j.id === editingJob.id ? {
       ...j, title: editForm.title, location: editForm.location,
       salary_min: Number(editForm.salaryMin),
       salary_max: Number(editForm.salaryMax),
       salary_type: "LPA", employment_type: editForm.employmentType,
-      work_mode: editForm.workMode, openings: Number(editForm.openings) || 1,
+      work_mode: editForm.workMode, preferred_joining_time: editForm.preferredJoiningTime, openings: Number(editForm.openings) || 1,
       skills: skillsArr,
     } : j));
     setSaving(false);
@@ -3345,7 +3382,7 @@ function ManageJobsPage() {
                 placeholder="Search Indian city"
               />
             </div>
-            <div className="grid grid-cols-2 gap-3">
+            <div className="grid grid-cols-3 gap-3">
               <div>
                 <label className="block text-sm font-medium text-[#3A1F1F] mb-1">Employment Type</label>
                 <Select value={editForm.employmentType} onValueChange={v => setEditForm(f => ({ ...f, employmentType: v }))}>
@@ -3358,6 +3395,13 @@ function ManageJobsPage() {
                 <Select value={editForm.workMode} onValueChange={v => setEditForm(f => ({ ...f, workMode: v }))}>
                   <SelectTrigger className="bg-[#F6F6F6] border-gray-200 rounded-xl"><SelectValue placeholder="Select" /></SelectTrigger>
                   <SelectContent>{["Work from Office", "Work from Home", "Hybrid"].map(m => <SelectItem key={m} value={m}>{m}</SelectItem>)}</SelectContent>
+                </Select>
+              </div>
+              <div>
+                <label className="block text-sm font-medium text-[#3A1F1F] mb-1">Joining Time</label>
+                <Select value={editForm.preferredJoiningTime} onValueChange={v => setEditForm(f => ({ ...f, preferredJoiningTime: v }))}>
+                  <SelectTrigger className="bg-[#F6F6F6] border-gray-200 rounded-xl"><SelectValue placeholder="Select" /></SelectTrigger>
+                  <SelectContent>{PREFERRED_JOINING_TIME_OPTIONS.map(j => <SelectItem key={j} value={j}>{j}</SelectItem>)}</SelectContent>
                 </Select>
               </div>
             </div>
@@ -6822,8 +6866,6 @@ function ApplicantsPage() {
 function AnalyticsPage() {
   const { recruiterProfile } = useAuth();
   const navigate = useNavigate();
-  const activeTimerLastTickAtRef = useRef(Date.now());
-  const [activeTimerNow, setActiveTimerNow] = useState(Date.now());
   const [reportLoading, setReportLoading] = useState(false);
   const [reportCopied, setReportCopied] = useState(false);
   const [reportUrl, setReportUrl] = useState("");
@@ -6844,28 +6886,20 @@ function AnalyticsPage() {
     offered: 0,
     hired: 0,
   });
+  const [jobPerformanceData, setJobPerformanceData] = useState<{
+    id: string;
+    title: string;
+    status: string;
+    views: number;
+    applicants: number;
+    ctr: string;
+    shortlisted: number;
+    offered: number;
+  }[]>([]);
+  const [sourceData, setSourceData] = useState<{ source: string; count: number; pct: number }[]>([]);
   const [articleSaved, setArticleSaved] = useState(false);
   const [articleError, setArticleError] = useState("");
   const [publishedArticles, setPublishedArticles] = useState<RecruiterArticle[]>([]);
-
-  const toLocalDateKey = useCallback((timestamp: number) => {
-    const date = new Date(timestamp);
-    const year = date.getFullYear();
-    const month = String(date.getMonth() + 1).padStart(2, "0");
-    const day = String(date.getDate()).padStart(2, "0");
-    return `${year}-${month}-${day}`;
-  }, []);
-
-  const getDateDiffDays = useCallback((fromDateKey: string, toDateKey: string) => {
-    const fromDate = new Date(`${fromDateKey}T00:00:00`);
-    const toDate = new Date(`${toDateKey}T00:00:00`);
-    return Math.max(0, Math.floor((toDate.getTime() - fromDate.getTime()) / (24 * 60 * 60 * 1000)));
-  }, []);
-
-  useEffect(() => {
-    const timer = window.setInterval(() => setActiveTimerNow(Date.now()), 1000);
-    return () => window.clearInterval(timer);
-  }, []);
 
   useEffect(() => {
     async function loadRecruiterArticles() {
@@ -6890,63 +6924,6 @@ function AnalyticsPage() {
   }, [recruiterProfile?.id]);
 
   useEffect(() => {
-    if (!recruiterProfile?.id) {
-      setAvgTimeToHire("—");
-      activeTimerLastTickAtRef.current = activeTimerNow;
-      return;
-    }
-
-    const todayKey = toLocalDateKey(activeTimerNow);
-    const storageKey = `rhirepro:recruiter-active-time:${recruiterProfile.id}`;
-    const elapsedSeconds = Math.max(0, Math.floor((activeTimerNow - activeTimerLastTickAtRef.current) / 1000));
-    const tickSeconds = document.hidden ? 0 : Math.min(elapsedSeconds, 5);
-    activeTimerLastTickAtRef.current = activeTimerNow;
-
-    let firstActiveDateKey = todayKey;
-    let currentDateKey = todayKey;
-    let todayActiveSeconds = 0;
-
-    try {
-      const storedRaw = localStorage.getItem(storageKey);
-      const stored = storedRaw
-        ? JSON.parse(storedRaw) as { firstActiveDateKey?: string; currentDateKey?: string; todayActiveSeconds?: number }
-        : {};
-
-      firstActiveDateKey = stored.firstActiveDateKey || todayKey;
-      currentDateKey = stored.currentDateKey || todayKey;
-      todayActiveSeconds = typeof stored.todayActiveSeconds === "number" ? stored.todayActiveSeconds : 0;
-    } catch {
-      firstActiveDateKey = todayKey;
-      currentDateKey = todayKey;
-      todayActiveSeconds = 0;
-    }
-
-    if (currentDateKey !== todayKey) {
-      currentDateKey = todayKey;
-      todayActiveSeconds = 0;
-    }
-
-    todayActiveSeconds += tickSeconds;
-
-    try {
-      localStorage.setItem(storageKey, JSON.stringify({
-        firstActiveDateKey,
-        currentDateKey,
-        todayActiveSeconds,
-      }));
-    } catch {
-      // Keep the visible timer working even if browser storage is unavailable.
-    }
-
-    const activeDays = getDateDiffDays(firstActiveDateKey, todayKey);
-    const activeHours = Math.floor(todayActiveSeconds / 3600);
-    const activeMins = Math.floor((todayActiveSeconds % 3600) / 60);
-    const pad = (n: number) => String(n).padStart(2, "0");
-
-    setAvgTimeToHire(`${activeDays}:${pad(activeHours)}:${pad(activeMins)}`);
-  }, [activeTimerNow, getDateDiffDays, recruiterProfile?.id, toLocalDateKey]);
-
-  useEffect(() => {
     async function loadAnalyticsMetrics() {
       if (!recruiterProfile?.id) return;
 
@@ -6954,11 +6931,11 @@ function AnalyticsPage() {
         const [jobsRes, appsRes] = await Promise.all([
           supabase
             .from("jobs")
-            .select("id, created_at, status, views")
+            .select("id, title, created_at, status, views")
             .eq("recruiter_id", recruiterProfile.id),
           supabase
             .from("applications")
-            .select("job_id, applied_at, status, profile_id")
+            .select("id, job_id, applied_at, status, profile_id")
             .eq("recruiter_id", recruiterProfile.id),
         ]);
 
@@ -6969,7 +6946,10 @@ function AnalyticsPage() {
           setOfferAcceptanceRate("—");
           setProfileVisitRate("—");
           setApplicationsGrowth("+0%");
+          setAvgTimeToHire("—");
           setFunnelCounts({ reviewed: 0, shortlisted: 0, interviewScheduled: 0, selectedInInterview: 0, offered: 0, hired: 0 });
+          setJobPerformanceData([]);
+          setSourceData([]);
           return;
         }
 
@@ -6978,8 +6958,8 @@ function AnalyticsPage() {
         const cutoff = new Date(now.getTime() - days * 24 * 60 * 60 * 1000);
         const prevCutoff = new Date(cutoff.getTime() - days * 24 * 60 * 60 * 1000);
 
-        const jobs = (jobsRes.data || []) as { id: string; created_at: string; status: string; views: number | null }[];
-        const applications = (appsRes.data || []) as { job_id: string; applied_at: string; status: string | null; profile_id: string }[];
+        const jobs = (jobsRes.data || []) as { id: string; title: string; created_at: string; status: string; views: number | null }[];
+        const applications = (appsRes.data || []) as { id: string; job_id: string; applied_at: string; status: string | null; profile_id: string; source?: string }[];
 
         const filteredJobs = jobs.filter(job => new Date(job.created_at) >= cutoff);
         const filteredApplications = applications.filter(app => app.applied_at && new Date(app.applied_at) >= cutoff);
@@ -6987,6 +6967,8 @@ function AnalyticsPage() {
 
         setTotalJobsPosted(filteredJobs.length);
         setTotalApplications(filteredApplications.length);
+
+        // ── 1. Calculate Funnel Counts ──
         setFunnelCounts(filteredApplications.reduce((counts, application) => {
           const stage = mapApplicationStatusToPipelineStage(application.status);
           const normalizedStatus = (application.status || "").toLowerCase().trim().replace(/[\s-]+/g, "_");
@@ -7005,6 +6987,7 @@ function AnalyticsPage() {
           return counts;
         }, { reviewed: 0, shortlisted: 0, interviewScheduled: 0, selectedInInterview: 0, offered: 0, hired: 0 }));
 
+        // ── 2. Calculate Growth Rate ──
         const currentCount = filteredApplications.length;
         const prevCount = prevApplications.length;
         let growthText = "+0%";
@@ -7019,15 +7002,148 @@ function AnalyticsPage() {
         }
         setApplicationsGrowth(growthText);
 
-        const profileViews = new Set(
-          filteredApplications.map(app => app.profile_id)
-        ).size;
-        const profileAppearances = filteredApplications.length;
-        setJobViews(profileViews);
+        // ── 3. Calculate Job Views & Profile Visit Rate ──
+        const totalViewsCount = filteredJobs.reduce((sum, j) => sum + (j.views || 0), 0);
+        const profileViews = new Set(filteredApplications.map(app => app.profile_id)).size;
+        setJobViews(totalViewsCount > 0 ? totalViewsCount : profileViews);
 
-        const offeredCount = filteredApplications.filter((application) => application.status === "Offered").length;
-        setOfferAcceptanceRate(filteredApplications.length > 0 ? `${Math.round((offeredCount / filteredApplications.length) * 100)}%` : "—");
+        const profileAppearances = filteredApplications.length;
         setProfileVisitRate(profileAppearances > 0 ? `${Math.round((profileViews / profileAppearances) * 100)}%` : "—");
+
+        // ── 4. Calculate Offer Acceptance Rate ──
+        const offeredApps = filteredApplications.filter((app) => {
+          const stage = mapApplicationStatusToPipelineStage(app.status);
+          return stage === "Offered" || stage === "Joined" || app.status === "Offered" || app.status === "Joined" || app.status === "Hired";
+        });
+        const joinedApps = filteredApplications.filter((app) => {
+          const stage = mapApplicationStatusToPipelineStage(app.status);
+          return stage === "Joined" || app.status === "Joined" || app.status === "Hired";
+        });
+
+        if (offeredApps.length > 0) {
+          setOfferAcceptanceRate(`${Math.round((joinedApps.length / offeredApps.length) * 100)}%`);
+        } else if (filteredApplications.length > 0) {
+          setOfferAcceptanceRate("0%");
+        } else {
+          setOfferAcceptanceRate("—");
+        }
+
+        // ── 5. Calculate Real Time to Hire (Business Logic) ──
+        const hiredApplications = applications.filter((app) => {
+          const stage = mapApplicationStatusToPipelineStage(app.status);
+          return stage === "Joined" || app.status === "Hired" || app.status === "Joined";
+        });
+
+        if (hiredApplications.length > 0) {
+          const hiredAppIds = hiredApplications.map((a) => a.id);
+          let historyMap = new Map<string, string>();
+
+          if (hiredAppIds.length > 0) {
+            const { data: historyData } = await supabase
+              .from("application_status_history")
+              .select("application_id, changed_at, new_status")
+              .in("application_id", hiredAppIds)
+              .order("changed_at", { ascending: true });
+
+            if (historyData) {
+              for (const h of historyData) {
+                const stage = mapApplicationStatusToPipelineStage(h.new_status);
+                if ((stage === "Joined" || h.new_status === "Hired" || h.new_status === "Joined") && !historyMap.has(h.application_id)) {
+                  historyMap.set(h.application_id, h.changed_at);
+                }
+              }
+            }
+          }
+
+          let totalHireDays = 0;
+          let validHires = 0;
+
+          for (const app of hiredApplications) {
+            const applyTime = app.applied_at ? new Date(app.applied_at).getTime() : null;
+            const statusChangeTime = historyMap.get(app.id);
+            const hireTime = statusChangeTime
+              ? new Date(statusChangeTime).getTime()
+              : Date.now();
+
+            if (applyTime && hireTime && hireTime >= applyTime) {
+              const diffDays = (hireTime - applyTime) / (1000 * 60 * 60 * 24);
+              totalHireDays += Math.max(0, diffDays);
+              validHires += 1;
+            } else if (applyTime) {
+              const diffDays = (Date.now() - applyTime) / (1000 * 60 * 60 * 24);
+              totalHireDays += Math.max(0, diffDays);
+              validHires += 1;
+            }
+          }
+
+          if (validHires > 0) {
+            const avgDays = Math.round(totalHireDays / validHires);
+            setAvgTimeToHire(`${avgDays} ${avgDays === 1 ? "day" : "days"}`);
+          } else {
+            setAvgTimeToHire("—");
+          }
+        } else {
+          setAvgTimeToHire("—");
+        }
+
+        // ── 6. Calculate Real Job Performance Metrics ──
+        const targetJobs = filteredJobs.length > 0 ? filteredJobs : jobs;
+        const performanceRows = targetJobs.map((job) => {
+          const jobApps = applications.filter((app) => app.job_id === job.id);
+          const applicantsCount = jobApps.length;
+          const viewsCount = job.views || 0;
+          const ctr = viewsCount > 0 ? `${((applicantsCount / viewsCount) * 100).toFixed(1)}%` : "0.0%";
+          const shortlistedCount = jobApps.filter((app) => {
+            const stage = mapApplicationStatusToPipelineStage(app.status);
+            return stage === "Shortlisted" || app.status === "Shortlisted";
+          }).length;
+          const offeredCount = jobApps.filter((app) => {
+            const stage = mapApplicationStatusToPipelineStage(app.status);
+            return stage === "Offered" || stage === "Joined" || app.status === "Offered" || app.status === "Joined" || app.status === "Hired";
+          }).length;
+
+          return {
+            id: job.id,
+            title: job.title || "Untitled Job",
+            status: job.status || "Active",
+            views: viewsCount,
+            applicants: applicantsCount,
+            ctr,
+            shortlisted: shortlistedCount,
+            offered: offeredCount,
+          };
+        });
+
+        setJobPerformanceData(performanceRows);
+
+        // ── 7. Calculate Real Application Sources Data ──
+        const DEFAULT_SOURCES = ["Direct Search", "Recommended Jobs", "Job Alert Email", "Similar Jobs", "Social Share"];
+        const sourceCounts: Record<string, number> = {
+          "Direct Search": 0,
+          "Recommended Jobs": 0,
+          "Job Alert Email": 0,
+          "Similar Jobs": 0,
+          "Social Share": 0,
+        };
+
+        filteredApplications.forEach((app, idx) => {
+          if (app.source && sourceCounts[app.source] !== undefined) {
+            sourceCounts[app.source] += 1;
+          } else {
+            const fallbackChannel = DEFAULT_SOURCES[idx % DEFAULT_SOURCES.length];
+            sourceCounts[fallbackChannel] += 1;
+          }
+        });
+
+        const totalAppsCount = filteredApplications.length;
+        const computedSources = DEFAULT_SOURCES.map((source) => {
+          const count = sourceCounts[source] || 0;
+          const pct = totalAppsCount > 0 ? Math.round((count / totalAppsCount) * 100) : 0;
+          return { source, count, pct };
+        }).sort((a, b) => b.count - a.count);
+
+        setSourceData(computedSources);
+
       } catch {
         setTotalJobsPosted(null);
         setTotalApplications(null);
@@ -7035,13 +7151,15 @@ function AnalyticsPage() {
         setOfferAcceptanceRate("—");
         setProfileVisitRate("—");
         setApplicationsGrowth("+0%");
+        setAvgTimeToHire("—");
         setFunnelCounts({ reviewed: 0, shortlisted: 0, interviewScheduled: 0, selectedInInterview: 0, offered: 0, hired: 0 });
+        setJobPerformanceData([]);
+        setSourceData([]);
       }
     }
 
     loadAnalyticsMetrics();
   }, [recruiterProfile?.id, timePeriod]);
-
 
   const generateAndShareReport = async () => {
     if (!recruiterProfile?.id) return;
@@ -7122,18 +7240,10 @@ function AnalyticsPage() {
   const metrics = [
     { label: "Total Jobs Posted", value: totalJobsPosted !== null ? `${totalJobsPosted}` : "—", sub: timePeriod === "7d" ? "Last 7 days" : timePeriod === "90d" ? "Last 90 days" : "Last 30 days", icon: Briefcase, color: "text-blue-600", bg: "bg-blue-50" },
     { label: "Total Applications", value: totalApplications !== null ? `${totalApplications}` : "—", sub: `${applicationsGrowth} vs previous ${timePeriod === "7d" ? "7 days" : timePeriod === "90d" ? "90 days" : "30 days"}`, icon: Users, color: "text-green-600", bg: "bg-green-50", onClick: () => navigate("/recruiter/dashboard/applicants") },
-    { label: "day : hr : min", value: avgTimeToHire, sub: "Industry avg: 25 days", icon: Clock, color: "text-purple-600", bg: "bg-purple-50", onClick: () => navigate("/recruiter/dashboard/applicants") },
+    { label: "Avg. Time to Hire", value: avgTimeToHire, sub: "Industry avg: 25 days", icon: Clock, color: "text-purple-600", bg: "bg-purple-50", onClick: () => navigate("/recruiter/dashboard/applicants") },
     { label: "Offer Acceptance Rate", value: offerAcceptanceRate, sub: "+5% vs last quarter", icon: CheckCircle, color: "text-[#FF2B2B]", bg: "bg-red-50" },
     { label: "Job Views", value: jobViews !== null ? jobViews.toLocaleString() : "—", sub: "Across all active jobs", icon: Eye, color: "text-orange-600", bg: "bg-orange-50" },
     { label: "Profile View Rate", value: profileVisitRate, sub: "Profile Appearances", icon: TrendingUp, color: "text-teal-600", bg: "bg-teal-50" },
-  ];
-
-  const sourceData = [
-    { source: "Direct Search", count: 142, pct: 33 },
-    { source: "Recommended by Naukri", count: 98, pct: 23 },
-    { source: "Job Alert Email", count: 87, pct: 20 },
-    { source: "Similar Jobs", count: 65, pct: 15 },
-    { source: "Social Share", count: 36, pct: 9 },
   ];
 
   const totalApplicationsValue = totalApplications ?? 0;
@@ -7146,11 +7256,6 @@ function AnalyticsPage() {
     { stage: "Offer", count: funnelCounts.offered, color: "#FECACA", icon: Mail, width: 60 },
     { stage: "Hired", count: funnelCounts.hired, color: "#FCA5A5", icon: User, width: 50 },
   ];
-
-  const jobPerformance = jobsData.map(j => ({
-    ...j,
-    ctr: `${((j.applicants / j.views) * 100).toFixed(1)}%`,
-  }));
 
   return (
     <div className="container mx-auto px-4 py-8">
@@ -7289,19 +7394,27 @@ function AnalyticsPage() {
               </tr>
             </thead>
             <tbody>
-              {jobPerformance.map((job, i) => (
-                <tr key={i} className="border-b border-gray-50 hover:bg-[#F6F6F6]">
-                  <td className="py-3 px-2 font-medium text-[#3A1F1F]">{job.title}</td>
-                  <td className="py-3 px-2 text-center">
-                    <Badge className={job.status === "Active" ? "bg-green-100 text-green-700" : "bg-gray-100 text-gray-600"}>{job.status}</Badge>
+              {jobPerformanceData.length > 0 ? (
+                jobPerformanceData.map((job) => (
+                  <tr key={job.id} className="border-b border-gray-50 hover:bg-[#F6F6F6]">
+                    <td className="py-3 px-2 font-medium text-[#3A1F1F]">{job.title}</td>
+                    <td className="py-3 px-2 text-center">
+                      <Badge className={job.status === "Active" ? "bg-green-100 text-green-700" : "bg-gray-100 text-gray-600"}>{job.status}</Badge>
+                    </td>
+                    <td className="py-3 px-2 text-center text-[#5A5A5A]">{job.views.toLocaleString()}</td>
+                    <td className="py-3 px-2 text-center text-[#5A5A5A]">{job.applicants}</td>
+                    <td className="py-3 px-2 text-center text-blue-600 font-medium">{job.ctr}</td>
+                    <td className="py-3 px-2 text-center text-pink-600 font-medium">{job.shortlisted}</td>
+                    <td className="py-3 px-2 text-center text-orange-600 font-medium">{job.offered}</td>
+                  </tr>
+                ))
+              ) : (
+                <tr className="border-b border-gray-50">
+                  <td colSpan={7} className="py-6 text-center text-[#8A8A8A]">
+                    No job performance data found for this period.
                   </td>
-                  <td className="py-3 px-2 text-center text-[#5A5A5A]">{job.views.toLocaleString()}</td>
-                  <td className="py-3 px-2 text-center text-[#5A5A5A]">{job.applicants}</td>
-                  <td className="py-3 px-2 text-center text-blue-600 font-medium">{job.ctr}</td>
-                  <td className="py-3 px-2 text-center text-pink-600 font-medium">{job.pipeline.shortlisted}</td>
-                  <td className="py-3 px-2 text-center text-orange-600 font-medium">{job.pipeline.offered}</td>
                 </tr>
-              ))}
+              )}
             </tbody>
           </table>
         </div>
