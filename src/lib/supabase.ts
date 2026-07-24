@@ -135,6 +135,7 @@ export interface Job {
   skills: string[] | null;
   perks: string[] | null;
   education: string | null;
+  preferred_joining_time?: string | null;
   openings: number;
   views?: number | null;
   status: "Active" | "Paused" | "Closed" | "Expired";
@@ -144,6 +145,16 @@ export interface Job {
   recruiter?: RecruiterProfile | null;
   applicant_count?: number;
 }
+
+export const PREFERRED_JOINING_TIME_OPTIONS = [
+  "Immediate Joiner",
+  "Within 15 Days",
+  "Within 30 Days",
+  "Within 60 Days",
+  "Within 90 Days",
+] as const;
+
+export type PreferredJoiningTime = typeof PREFERRED_JOINING_TIME_OPTIONS[number];
 
 export interface Application {
   id: string;

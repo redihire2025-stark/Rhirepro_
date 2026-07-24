@@ -1,5 +1,5 @@
 import { useEffect, useMemo, useState } from "react";
-import { Menu, MapPin, DollarSign, Clock, ChevronRight, Facebook, Instagram, Twitter, Bell, Star, ArrowRight, Globe } from "lucide-react";
+import { Menu, MapPin, DollarSign, Clock, ChevronRight, Facebook, Instagram, Twitter, Bell, Star, ArrowRight, Globe, Calendar } from "lucide-react";
 import { Button } from "../components/ui/button";
 import { Input } from "../components/ui/input";
 import { Sheet, SheetContent, SheetTrigger, SheetTitle, SheetDescription } from "../components/ui/sheet";
@@ -150,8 +150,10 @@ export default function JobDetailPage() {
       qualifications: splitBulletContent(job.requirements, "Job requirements will be shared by the recruiter."),
       rawResponsibilities: job.roles_responsibilities,
       rawQualifications: job.requirements,
+      preferredJoiningTime: job.preferred_joining_time || null,
       additionalInfo: [
         job.work_mode ? `Work mode: ${job.work_mode}` : "",
+        job.preferred_joining_time ? `Preferred joining time: ${job.preferred_joining_time}` : "",
         job.interview_mode ? `Interview mode: ${job.interview_mode}` : "",
         job.education ? `Education: ${job.education}` : "",
         job.openings ? `Openings: ${job.openings}` : "",
@@ -375,7 +377,7 @@ export default function JobDetailPage() {
                   </div>
                 </div>
 
-                <div className="grid md:grid-cols-3 gap-4 mb-6">
+                <div className="grid md:grid-cols-4 gap-4 mb-6">
                   <div className="flex items-center gap-3 text-[#8A8A8A]">
                     <MapPin className="h-5 w-5 text-[#FF2B2B]" />
                     <div>
@@ -397,6 +399,15 @@ export default function JobDetailPage() {
                       <p className="font-semibold text-[#3A1F1F]">{currentJob.experience}</p>
                     </div>
                   </div>
+                  {currentJob.preferredJoiningTime && (
+                    <div className="flex items-center gap-3 text-[#8A8A8A]">
+                      <Calendar className="h-5 w-5 text-[#FF2B2B]" />
+                      <div>
+                        <p className="text-xs">Joining Time</p>
+                        <p className="font-semibold text-[#3A1F1F]">{currentJob.preferredJoiningTime}</p>
+                      </div>
+                    </div>
+                  )}
                 </div>
 
                 <Button className="bg-[#FF2B2B] hover:bg-[#e02525] text-white rounded-full px-12 py-6" onClick={handleApplyClick}>
