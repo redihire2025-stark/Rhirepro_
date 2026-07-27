@@ -5420,7 +5420,15 @@ function EmailingPage() {
   }, [recruiterJobs, selectedJobId]);
 
   // ── Multi-Candidate Selection & Email Composer State ──
-  const [selectedCandidateIds, setSelectedCandidateIds] = useState<Set<string>>(new Set());
+  const [selectedCandidatesMap, setSelectedCandidatesMap] = useState<Map<string, DBCandidate>>(new Map());
+
+  const selectedCandidates = useMemo(() => {
+    return Array.from(selectedCandidatesMap.values());
+  }, [selectedCandidatesMap]);
+
+  const selectedCandidateIds = useMemo(() => {
+    return new Set(selectedCandidatesMap.keys());
+  }, [selectedCandidatesMap]);
   const [isComposerOpen, setIsComposerOpen] = useState(false);
   const [emailTemplateKey, setEmailTemplateKey] = useState<string>("job_invitation");
   const [subject, setSubject] = useState("");
@@ -5755,10 +5763,6 @@ function EmailingPage() {
     return list;
   }, [results, sortBy, keywords, location, booleanSearchEnabled, expMin, expMax, expType, noticePeriod, currentCompany, skillTags]);
 
-  const selectedCandidates = useMemo(() => {
-    return filteredAndSortedResults.filter(c => selectedCandidateIds.has(c.id));
-  }, [filteredAndSortedResults, selectedCandidateIds]);
-
   // Predefined Templates (RhirePro styled)
   const EMAIL_TEMPLATES: Record<string, { name: string; subject: string; body: string }> = {
     job_invitation: {
@@ -5856,10 +5860,9 @@ Best regards,
     }
   }, [emailTemplateKey]);
 
-  // Handle job selection changes: auto-fill search & template or reset on "none"
+  // Handle job selection changes: auto-fill search & template or reset search filters
   const handleSelectJobForInvite = (jobId: string) => {
     setSelectedJobId(jobId);
-    setSelectedCandidateIds(new Set());
 
     if (jobId === "none") {
       setKeywords("");
@@ -5896,30 +5899,38 @@ Best regards,
   };
 
   const handleOpenSingleEmail = (candidate: DBCandidate) => {
-    setSelectedCandidateIds(new Set([candidate.id]));
+    setSelectedCandidatesMap(new Map([[candidate.id, candidate]]));
     setIsComposerOpen(true);
   };
 
-  const toggleSelectCandidate = (id: string) => {
-    setSelectedCandidateIds(prev => {
-      const next = new Set(prev);
-      if (next.has(id)) next.delete(id);
-      else next.add(id);
+  const toggleSelectCandidate = (candidate: DBCandidate) => {
+    setSelectedCandidatesMap(prev => {
+      const next = new Map(prev);
+      if (next.has(candidate.id)) {
+        next.delete(candidate.id);
+      } else {
+        next.set(candidate.id, candidate);
+      }
       return next;
     });
   };
 
   const toggleSelectAll = () => {
-    if (selectedCandidateIds.size === filteredAndSortedResults.length) {
-      setSelectedCandidateIds(new Set());
-    } else {
-      setSelectedCandidateIds(new Set(filteredAndSortedResults.map(c => c.id)));
-    }
+    const allSelectedOnPage = filteredAndSortedResults.length > 0 && filteredAndSortedResults.every(c => selectedCandidatesMap.has(c.id));
+    setSelectedCandidatesMap(prev => {
+      const next = new Map(prev);
+      if (allSelectedOnPage) {
+        filteredAndSortedResults.forEach(c => next.delete(c.id));
+      } else {
+        filteredAndSortedResults.forEach(c => next.set(c.id, c));
+      }
+      return next;
+    });
   };
 
   const removeCandidateFromBatch = (id: string) => {
-    setSelectedCandidateIds(prev => {
-      const next = new Set(prev);
+    setSelectedCandidatesMap(prev => {
+      const next = new Map(prev);
       next.delete(id);
       return next;
     });
@@ -6143,7 +6154,7 @@ Best regards,
       setTimeout(() => setToastMessage(null), 5000);
 
       setIsComposerOpen(false);
-      setSelectedCandidateIds(new Set());
+      setSelectedCandidatesMap(new Map());
     } catch (err: any) {
       alert("Failed to send emails: " + (err.message || "Unknown error"));
     } finally {
@@ -6512,7 +6523,7 @@ Best regards,
                         <input
                           type="checkbox"
                           checked={isSelected}
-                          onChange={() => toggleSelectCandidate(candidate.id)}
+                          onChange={() => toggleSelectCandidate(candidate)}
                           className="mt-1 rounded border-gray-300 text-[#FF2B2B] focus:ring-[#FF2B2B] h-4 w-4 cursor-pointer"
                         />
 
@@ -6632,7 +6643,7 @@ Best regards,
             <Button
               size="sm"
               variant="ghost"
-              onClick={() => setSelectedCandidateIds(new Set())}
+              onClick={() => setSelectedCandidatesMap(new Map())}
               className="text-xs border border-white/30 text-white hover:bg-white/20 hover:text-white rounded-xl transition-all cursor-pointer"
             >
               Clear Selection
