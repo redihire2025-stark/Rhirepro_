@@ -582,6 +582,11 @@ export default function JobListingsPage() {
                       Interview mode: <span className="font-medium text-[#3A1F1F]">{job.interviewMode}</span>
                     </div>
                   ) : null}
+                  {job.dbJob?.preferred_joining_time ? (
+                    <div className="text-sm text-[#8A8A8A]">
+                      Joining: <span className="font-medium text-[#3A1F1F]">{job.dbJob.preferred_joining_time}</span>
+                    </div>
+                  ) : null}
                 </div>
                 <Button className="w-full bg-white border-2 border-[#FF2B2B] text-[#FF2B2B] hover:bg-[#FF2B2B] hover:text-white rounded-full">
                   Apply Now

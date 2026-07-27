@@ -24,6 +24,7 @@ type CompareFieldKey =
   | "companyName"
   | "location"
   | "employmentType"
+  | "preferredJoiningTime"
   | "salary"
   | "experience"
   | "skills"
@@ -262,6 +263,7 @@ export default function SavedJobsComparePage({ forcedState, embedded = false }: 
       { key: "companyName", label: "Company Name", getValue: (job) => job.company_name?.trim() || "N/A" },
       { key: "location", label: "Location", getValue: (job) => formatLocation(job) },
       { key: "employmentType", label: "Employment Type", getValue: (job) => job.employment_type?.trim() || job.work_mode?.trim() || "N/A" },
+      { key: "preferredJoiningTime", label: "Preferred Joining Time", getValue: (job) => job.preferred_joining_time?.trim() || "N/A" },
       { key: "salary", label: "Salary Range", getValue: (job) => formatSalary(job) },
       { key: "experience", label: "Experience Required", getValue: (job) => formatExperience(job) },
       { key: "skills", label: "Skills Required", getValue: (job) => formatSkills(job) },

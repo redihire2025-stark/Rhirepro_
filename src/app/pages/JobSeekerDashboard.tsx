@@ -53,6 +53,7 @@ interface DashboardDisplayJob {
   salaryMin: number;
   type: "Full-time" | "Part-time" | "Contract";
   interviewMode?: string;
+  preferredJoiningTime?: string;
   description: string;
   industry: string;
   experience: string;
@@ -532,6 +533,7 @@ function buildDashboardJob(job: DBJobWithApplications): DashboardDisplayJob {
     salaryMin: job.salary_min || 0,
     type: formatDashboardType(job) as "Full-time" | "Part-time" | "Contract",
     interviewMode: job.interview_mode || undefined,
+    preferredJoiningTime: job.preferred_joining_time || undefined,
     description: formatDashboardDescription(job),
     industry: job.recruiter?.industry || job.industry || "",
     experience: "",
@@ -1646,7 +1648,7 @@ function FindJobPage() {
                 .select(
                   `id, title, description, roles_responsibilities, requirements, skills, perks, location, 
                    salary_min, salary_max, salary_type, experience_min, experience_max, employment_type, 
-                   work_mode, interview_mode, created_at, status, deadline, deadline_time, recruiter_id,
+                   work_mode, interview_mode, preferred_joining_time, created_at, status, deadline, deadline_time, recruiter_id,
                    recruiter:recruiter_profiles(logo_url, company_name, website, tagline, company_description, industry, company_type, company_size, founded, location),
                    applicant_count`
                 )
@@ -1674,7 +1676,7 @@ function FindJobPage() {
           .select(
             `id, title, description, roles_responsibilities, requirements, skills, perks, location, 
              salary_min, salary_max, salary_type, experience_min, experience_max, employment_type, 
-             work_mode, interview_mode, created_at, status, deadline, deadline_time, recruiter_id,
+             work_mode, interview_mode, preferred_joining_time, created_at, status, deadline, deadline_time, recruiter_id,
              recruiter:recruiter_profiles(logo_url, company_name, website, tagline, company_description, industry, company_type, company_size, founded, location),
              applicant_count`,
             { count: "exact" }
@@ -2547,6 +2549,12 @@ function FindJobPage() {
                     <div>
                       <p className="text-xs text-[#8A8A8A] mb-0.5">Interview Mode</p>
                       <p className="font-semibold text-[#3A1F1F] text-sm">{selectedJob.interviewMode}</p>
+                    </div>
+                  ) : null}
+                  {(selectedJob.preferredJoiningTime || selectedJob.dbJob?.preferred_joining_time) ? (
+                    <div>
+                      <p className="text-xs text-[#8A8A8A] mb-0.5">Joining Time</p>
+                      <p className="font-semibold text-[#3A1F1F] text-sm">{selectedJob.preferredJoiningTime || selectedJob.dbJob?.preferred_joining_time}</p>
                     </div>
                   ) : null}
                 </div>
@@ -5823,7 +5831,7 @@ function InsightsPage() {
       const [{ data }, marketJobs, geminiResult] = await Promise.all([
         supabase
           .from("jobs")
-          .select("id, title, company_name, location, salary_min, salary_max, salary_type, skills, employment_type, status, deadline, deadline_time")
+          .select("id, title, company_name, location, salary_min, salary_max, salary_type, skills, employment_type, preferred_joining_time, status, deadline, deadline_time")
           .eq("status", "Active")
           .limit(30),
         fetchRemotiveJobs(marketSearchTerm),
