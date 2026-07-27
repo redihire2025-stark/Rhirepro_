@@ -5053,7 +5053,7 @@ function AnalyticsPage() {
 
         {/* Right Sidebar — hidden when compare is active */}
         {activeTab !== "compare" && !analyticsLoading && (
-          <div className="lg:col-span-1 space-y-4">
+          <div className="lg:col-span-1 space-y-4 sticky top-6 self-start">
             {activeTab === "applied" && selectedOfferJob && (
               <div className="bg-white rounded-2xl border border-gray-100 p-5 shadow-[0_2px_8px_rgba(16,24,40,0.08)]">
                 <div className="flex items-start justify-between gap-3">
