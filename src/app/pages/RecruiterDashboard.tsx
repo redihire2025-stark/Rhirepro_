@@ -5756,8 +5756,8 @@ function EmailingPage() {
   }, [results, sortBy, keywords, location, booleanSearchEnabled, expMin, expMax, expType, noticePeriod, currentCompany, skillTags]);
 
   const selectedCandidates = useMemo(() => {
-    return filteredAndSortedResults.filter(c => selectedCandidateIds.has(c.id));
-  }, [filteredAndSortedResults, selectedCandidateIds]);
+    return results.filter(c => selectedCandidateIds.has(c.id));
+  }, [results, selectedCandidateIds]);
 
   // Predefined Templates (RhirePro styled)
   const EMAIL_TEMPLATES: Record<string, { name: string; subject: string; body: string }> = {
@@ -5896,7 +5896,7 @@ Best regards,
   };
 
   const handleOpenSingleEmail = (candidate: DBCandidate) => {
-    setSelectedCandidateIds(new Set([candidate.id]));
+    setSelectedCandidateIds(prev => (prev.size > 0 ? new Set(prev).add(candidate.id) : new Set([candidate.id])));
     setIsComposerOpen(true);
   };
 
