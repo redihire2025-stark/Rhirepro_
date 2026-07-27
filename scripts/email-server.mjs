@@ -267,6 +267,63 @@ const server = http.createServer(async (req, res) => {
     return;
   }
 
+  // ── POST /api/send-recruiter-email  (Recruiter candidate email broadcast via Resend) ──
+  if (req.method === "POST" && req.url === "/api/send-recruiter-email") {
+    const { recipients, subject, body, templateName } = await readBody(req);
+    try {
+      if (!Array.isArray(recipients) || recipients.length === 0) {
+        return fail(400, "No recipients provided.");
+      }
+
+      const resendKey = process.env.RESEND_API_KEY
+      const senderEmail = process.env.RESEND_SENDER_EMAIL || "onboarding@resend.dev";
+      const senderName = process.env.RESEND_SENDER_NAME || "RhirePro";
+
+      for (const r of recipients) {
+        const formattedHtml = `
+          <div style="font-family: Arial, sans-serif; background-color: #f6f6f6; padding: 24px;">
+            <div style="max-width: 600px; margin: 0 auto; background: #ffffff; border-radius: 16px; overflow: hidden; box-shadow: 0 4px 12px rgba(0,0,0,0.05); border: 1px solid #e5e7eb;">
+              <div style="background-color: #3A1F1F; color: #ffffff; padding: 16px 24px; display: flex; align-items: center; justify-content: space-between;">
+                <span style="font-weight: bold; font-size: 18px; color: #ffffff;">RhirePro</span>
+                <span style="background-color: #FF2B2B; color: #ffffff; padding: 4px 10px; border-radius: 99px; font-size: 11px; font-weight: bold;">Recruiter Message</span>
+              </div>
+              <div style="padding: 24px; color: #3A1F1F; font-size: 14px; line-height: 1.6;">
+                <div style="white-space: pre-wrap;">${body.replace(/\n/g, "<br/>")}</div>
+              </div>
+              <div style="background-color: #f9fafb; border-top: 1px solid #f3f4f6; padding: 16px 24px; text-align: center; font-size: 12px; color: #8A8A8A;">
+                Sent via RhirePro Talent Acquisition Platform • <a href="https://rhirepro.com" style="color: #FF2B2B; text-decoration: none; font-weight: bold;">RhirePro</a>
+              </div>
+            </div>
+          </div>
+        `;
+
+        if (resendKey) {
+          const res = await fetch("https://api.resend.com/emails", {
+            method: "POST",
+            headers: {
+              "Content-Type": "application/json",
+              "Authorization": `Bearer ${resendKey}`,
+            },
+            body: JSON.stringify({
+              from: `${senderName} <${senderEmail}>`,
+              to: [r.email],
+              subject,
+              html: formattedHtml,
+            }),
+          });
+          if (!res.ok) {
+            const err = await res.text();
+            console.error("[send-recruiter-email] Resend error:", err);
+          }
+        } else {
+          await sendBrevoEmail(r.email, r.name, subject, formattedHtml, "recruiter_candidate_outreach");
+        }
+      }
+      ok({ success: true, count: recipients.length });
+    } catch (err) { fail(500, err.message); }
+    return;
+  }
+
   // ── POST /api/super-admin-login  (mirrors netlify/functions/super-admin-login.mjs) ─
   if (req.method === "POST" && req.url === "/api/super-admin-login") {
     const { email: rawEmail, password } = await readBody(req);
