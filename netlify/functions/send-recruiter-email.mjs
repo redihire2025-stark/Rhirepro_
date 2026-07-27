@@ -44,6 +44,7 @@ export default async (request) => {
 
   const { recipients, subject, body, templateName } = await request.json();
 
+  const resendKey = process.env.RESEND_API_KEY;
   const brevoKey = process.env.BREVO_API_KEY;
   const senderEmail = process.env.RESEND_SENDER_EMAIL || "onboarding@resend.dev";
   const senderName = process.env.RESEND_SENDER_NAME || "RhirePro";
