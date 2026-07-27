@@ -259,8 +259,6 @@ export default function SavedJobsComparePage({ forcedState, embedded = false }: 
 
   const compareFields: CompareField[] = useMemo(
     () => [
-      { key: "jobTitle", label: "Job Title", getValue: (job) => job.title?.trim() || "N/A" },
-      { key: "companyName", label: "Company Name", getValue: (job) => job.company_name?.trim() || "N/A" },
       { key: "location", label: "Location", getValue: (job) => formatLocation(job) },
       { key: "employmentType", label: "Employment Type", getValue: (job) => job.employment_type?.trim() || job.work_mode?.trim() || "N/A" },
       { key: "preferredJoiningTime", label: "Preferred Joining Time", getValue: (job) => job.preferred_joining_time?.trim() || "N/A" },
@@ -388,11 +386,11 @@ export default function SavedJobsComparePage({ forcedState, embedded = false }: 
             <table className={`${tableMinWidthClass} w-full border-separate border-spacing-0`}>
               <thead>
                 <tr>
-                  <th className="sticky top-20 z-20 text-left text-base text-[#6B6B6B] font-semibold bg-[#F1F1F1] px-5 py-4 rounded-l-xl border-b border-gray-200">Field</th>
+                  <th className="text-left text-base text-[#6B6B6B] font-semibold bg-[#F1F1F1] px-5 py-4 rounded-l-xl border-b border-gray-200">Field</th>
                   {selectedJobs.map((savedJob, index) => (
                     <th
                       key={savedJob.id}
-                      className={`sticky top-20 z-20 text-left bg-[#F1F1F1] px-5 py-4 border-b border-gray-200 ${index === selectedJobs.length - 1 ? "rounded-r-xl" : ""}`}
+                      className={`text-left bg-[#F1F1F1] px-5 py-4 border-b border-gray-200 ${index === selectedJobs.length - 1 ? "rounded-r-xl" : ""}`}
                     >
                       <p className="text-base font-semibold text-[#3A1F1F]">{savedJob.job?.title?.trim() || "N/A"}</p>
                       <p className="text-sm text-[#8A8A8A]">{savedJob.job?.company_name?.trim() || "N/A"}</p>

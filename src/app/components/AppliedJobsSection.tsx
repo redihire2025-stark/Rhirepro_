@@ -1,5 +1,5 @@
 import { useEffect, useMemo, useState } from "react";
-import { Briefcase, Loader2, X } from "lucide-react";
+import { Briefcase, Loader2 } from "lucide-react";
 import { Badge } from "./ui/badge";
 import {
   Pagination,
@@ -488,21 +488,10 @@ export default function AppliedJobsSection({ userId, compact = false, onJobsLoad
             key={application.id}
             className={`rounded-2xl border border-gray-100 bg-white ${compact ? "p-4" : "p-5"} shadow-[0_2px_8px_rgba(16,24,40,0.08)]`}
           >
-            <div className="flex justify-between items-start gap-4">
-              <div>
-                <h3 className={`font-semibold text-[#2D1A1A] ${compact ? "text-base" : "text-lg"}`}>{application.job.title}</h3>
-                <p className="text-[#7C8593] text-sm">{application.job.company_name} · {formatLocation(application.job)}</p>
-                <p className="text-sm text-[#7C8593] mt-0.5">Applied on {formatDate(application.applied_at)}</p>
-              </div>
-              <div className="flex items-center gap-2">
-                <button
-                  type="button"
-                  aria-label="Close status card"
-                  className="text-[#8A8A8A] hover:text-[#646464] transition-colors"
-                >
-                  <X className="h-4 w-4" />
-                </button>
-              </div>
+            <div>
+              <h3 className={`font-semibold text-[#2D1A1A] ${compact ? "text-base" : "text-lg"}`}>{application.job.title}</h3>
+              <p className="text-[#7C8593] text-sm">{application.job.company_name} · {formatLocation(application.job)}</p>
+              <p className="text-sm text-[#7C8593] mt-0.5">Applied on {formatDate(application.applied_at)}</p>
             </div>
 
             <div className="mt-4">
