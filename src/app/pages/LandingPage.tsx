@@ -622,57 +622,14 @@ export default function LandingPage() {
     },
   ];
 
-  const blogs = [
-    {
-      title: "Why Soft Skills Matter More Than Ever",
-      description:
-        "Explore why employers are prioritizing soft skills and how you can showcase yours effectively.",
-      date: "March 1, 2026",
-      category: "Career Tips",
-    },
-    {
-      title: "How Companies Are Battling Talent Shortages",
-      description:
-        "Discover innovative strategies companies use to attract and retain top talent in competitive markets.",
-      date: "February 28, 2026",
-      category: "Industry Insights",
-    },
-    {
-      title: "Recruiters Now Focus on Candidate Experience",
-      description:
-        "Learn how the recruitment landscape is shifting to prioritize candidate satisfaction and engagement.",
-      date: "February 25, 2026",
-      category: "Trends",
-    },
-    {
-      title: "How to Stand Out in a Competitive Market",
-      description:
-        "Expert advice on differentiating yourself from other candidates in today's job market.",
-      date: "February 20, 2026",
-      category: "Job Search",
-    },
-    {
-      title: "Why Employer Branding Matters in 2025",
-      description:
-        "Understanding the impact of company culture and reputation more than ever before.",
-      date: "February 15, 2026",
-      category: "Employer Tips",
-    },
-    {
-      title: "Remote Work Continues to Dominate",
-      description:
-        "Analyzing the lasting impact of remote work and hybrid models on the job market.",
-      date: "February 10, 2026",
-      category: "Work Trends",
-    },
-  ];
-const BLOG_ROUTE = "/blog";
+  const BLOG_ROUTE = "/blog" as const;
+  const MAX_FEATURED_BLOGS = 2;
+  const BLOG_FALLBACK_IMAGE = "https://images.unsplash.com/photo-1434030216411-0b793f4b4173?auto=format&fit=crop&w=400&h=250&q=80";
 
   const [publishedArticles, setPublishedArticles] = useState<RecruiterArticle[]>([]);
   const isMountedRef = useRef(true);
 
   useEffect(() => {
-    isMountedRef.current = true;
     return () => {
       isMountedRef.current = false;
     };
@@ -688,7 +645,7 @@ const BLOG_ROUTE = "/blog";
         .order("created_at", { ascending: false })
         .limit(3);
 
-      if (data && isMountedRef.current) setPublishedArticles(data as RecruiterArticle[]);
+      if (isMountedRef.current && data) setPublishedArticles(data as RecruiterArticle[]);
     }
 
     void loadPublishedArticles();
@@ -698,22 +655,21 @@ const BLOG_ROUTE = "/blog";
     if (!Array.isArray(publishedArticles)) return [];
     return publishedArticles.filter((article) => {
       if (!article || article.status !== "Published") return false;
-      const cleanTitle = (article.title || "").trim().toLowerCase();
+      const cleanTitle = (article.title ?? "").trim().toLowerCase();
       return !PREDEFINED_SEED_TITLES.has(cleanTitle);
     });
   }, [publishedArticles]);
 
-
   const blogFeaturedCards = useMemo(() => {
-    if (!realPublishedArticles || realPublishedArticles.length === 0) {
+    if (realPublishedArticles.length === 0) {
       return [];
     }
-    return realPublishedArticles.slice(0, 2).map((pub) => ({
+    return realPublishedArticles.slice(0, MAX_FEATURED_BLOGS).map((pub) => ({
       id: pub.id,
       title: pub.title,
-      description: pub.summary || (pub.content ? pub.content.slice(0, 90) + "..." : ""),
+      description: pub.summary ?? (pub.content ? pub.content.slice(0, 90) + "..." : ""),
       category: pub.category,
-      image: pub.cover_image_url || "https://images.unsplash.com/photo-1434030216411-0b793f4b4173?auto=format&fit=crop&w=400&h=250&q=80",
+      image: pub.cover_image_url ?? BLOG_FALLBACK_IMAGE,
       path: `/blog/${pub.id}`,
     }));
   }, [realPublishedArticles]);

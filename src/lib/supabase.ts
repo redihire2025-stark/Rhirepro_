@@ -100,8 +100,8 @@ export interface RecruiterArticle {
   recruiter_id: string;
   /**
    * Organization ID associated with this article.
-   * When string: Belongs to a team under the specified Org Admin.
-   * When null/undefined: Belongs directly to an individual recruiter account.
+   * - `string`: Belongs to a team under the specified Org Admin.
+   * - `null` or `undefined` (omitted): Belongs directly to an individual recruiter account.
    */
   org_id?: string | null;
   title: string;

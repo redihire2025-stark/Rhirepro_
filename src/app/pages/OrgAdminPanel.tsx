@@ -1,4 +1,4 @@
-import { useState, useEffect, useCallback, useRef } from "react";
+import { useState, useEffect, useCallback, useRef, useMemo } from "react";
 import { Link, useNavigate, useParams } from "react-router";
 import { supabase, type RecruiterArticle } from "../../lib/supabase";
 import { useAuth } from "../../lib/auth-context";
@@ -107,6 +107,27 @@ const APP_STATUS_COLOR: Record<string, string> = {
   "On Hold": "bg-gray-100 text-gray-500",
 };
 
+/** Default blog category used when creating a new blog. */
+const DEFAULT_BLOG_CATEGORY = "Career Advice";
+
+/** Average reading speed for blog read-time estimation. */
+const WORDS_PER_MINUTE = 200;
+
+/** Strip HTML tags from user input as a basic XSS defense-in-depth measure. */
+const stripHtmlTags = (input: string): string => input.replace(/<[^>]*>/g, "");
+
+/** Validate that a URL string is a valid HTTP(S) URL. Returns the URL or null. */
+const sanitizeUrl = (url: string): string | null => {
+  const trimmed = url.trim();
+  if (!trimmed) return null;
+  try {
+    const parsed = new URL(trimmed);
+    return ["http:", "https:"].includes(parsed.protocol) ? trimmed : null;
+  } catch {
+    return null;
+  }
+};
+
 // Memory cache to prevent reloading flicker when navigating back to OrgAdminPanel
 let orgCache: {
   members: OrgMember[];
@@ -148,7 +169,7 @@ export default function OrgAdminPanel() {
   const [blogModalOpen, setBlogModalOpen] = useState(false);
   const [editingBlog, setEditingBlog] = useState<RecruiterArticle | null>(null);
   const [blogTitle, setBlogTitle] = useState("");
-  const [blogCategory, setBlogCategory] = useState("Career Advice");
+  const [blogCategory, setBlogCategory] = useState(DEFAULT_BLOG_CATEGORY);
   const [blogTags, setBlogTags] = useState("");
   const [blogCoverUrl, setBlogCoverUrl] = useState("");
   const [blogSummary, setBlogSummary] = useState("");
@@ -403,7 +424,7 @@ export default function OrgAdminPanel() {
   const handleOpenCreateBlog = () => {
     setEditingBlog(null);
     setBlogTitle("");
-    setBlogCategory("Career Advice");
+    setBlogCategory(DEFAULT_BLOG_CATEGORY);
     setBlogTags("");
     setBlogCoverUrl("");
     setBlogSummary("");
@@ -416,7 +437,7 @@ export default function OrgAdminPanel() {
   const handleOpenEditBlog = (blog: RecruiterArticle) => {
     setEditingBlog(blog);
     setBlogTitle(blog.title || "");
-    setBlogCategory(blog.category || "Career Advice");
+    setBlogCategory(blog.category || DEFAULT_BLOG_CATEGORY);
     setBlogTags(Array.isArray(blog.tags) ? blog.tags.join(", ") : "");
     setBlogCoverUrl(blog.cover_image_url || "");
     setBlogSummary(blog.summary || "");
@@ -442,26 +463,30 @@ export default function OrgAdminPanel() {
     try {
       const userTags = blogTags
         .split(",")
-        .map(t => t.trim())
+        .map(t => stripHtmlTags(t.trim()))
         .filter(Boolean);
       const tagsArray = Array.from(new Set(["Blog", ...userTags]));
 
-      const calcReadTime = Math.max(1, Math.ceil(blogContent.trim().split(/\s+/).length / 200));
+      const sanitizedTitle = stripHtmlTags(blogTitle.trim());
+      const sanitizedContent = stripHtmlTags(blogContent.trim());
+      const sanitizedSummary = stripHtmlTags(blogSummary.trim()) || null;
+      const sanitizedCoverUrl = sanitizeUrl(blogCoverUrl);
+      const calcReadTime = Math.max(1, Math.ceil(sanitizedContent.split(/\s+/).length / WORDS_PER_MINUTE));
 
       let error: any = null;
 
       // 1. Try full payload with org_id and tags
       const fullPayload: Record<string, any> = {
-        title: blogTitle.trim(),
+        title: sanitizedTitle,
         category: blogCategory,
         tags: tagsArray,
-        summary: blogSummary.trim() || null,
-        content: blogContent.trim(),
-        cover_image_url: blogCoverUrl.trim() || null,
+        summary: sanitizedSummary,
+        content: sanitizedContent,
+        cover_image_url: sanitizedCoverUrl,
         status: blogStatus,
         read_time: calcReadTime,
         recruiter_id: user?.id,
-        org_id: recruiterProfile?.org_id || user?.id,
+        org_id: recruiterProfile?.org_id ?? user?.id,
         published_at: blogStatus === "Published" ? new Date().toISOString() : null,
       };
 
@@ -481,11 +506,11 @@ export default function OrgAdminPanel() {
       // 2. If schema cache error for org_id or tags, fallback to baseline table fields
       if (error && (error.message?.includes("org_id") || error.message?.includes("tags") || error.message?.includes("schema cache"))) {
         const fallbackPayload: Record<string, any> = {
-          title: blogTitle.trim(),
+          title: sanitizedTitle,
           category: blogCategory,
-          summary: blogSummary.trim() || (tagsArray.length > 0 ? `Tags: ${tagsArray.join(", ")}` : null),
-          content: blogContent.trim(),
-          cover_image_url: blogCoverUrl.trim() || null,
+          summary: sanitizedSummary || (tagsArray.length > 0 ? `Tags: ${tagsArray.join(", ")}` : null),
+          content: sanitizedContent,
+          cover_image_url: sanitizedCoverUrl,
           status: blogStatus,
           read_time: calcReadTime,
           recruiter_id: user?.id,
@@ -665,18 +690,29 @@ export default function OrgAdminPanel() {
   const companyInitials = (recruiterProfile?.company_name || "RC")
     .split(" ").map(w => w[0]).join("").slice(0, 2).toUpperCase();
 
-  const filteredJobs = teamJobs.filter(j =>
+  const filteredJobs = useMemo(() => teamJobs.filter(j =>
     !jobSearch ||
     j.title.toLowerCase().includes(jobSearch.toLowerCase()) ||
     j.recruiter_name.toLowerCase().includes(jobSearch.toLowerCase())
-  );
-  const filteredApps = teamApps.filter(a =>
+  ), [teamJobs, jobSearch]);
+
+  const filteredApps = useMemo(() => teamApps.filter(a =>
     appStatusFilter === "all" || a.status === appStatusFilter
-  );
+  ), [teamApps, appStatusFilter]);
+
+  const filteredBlogs = useMemo(() => teamBlogs.filter(blog => {
+    const matchesStatus = blogStatusFilter === "all" || blog.status === blogStatusFilter;
+    const q = blogSearchQuery.toLowerCase().trim();
+    const matchesSearch = !q ||
+      blog.title.toLowerCase().includes(q) ||
+      blog.category.toLowerCase().includes(q) ||
+      (Array.isArray(blog.tags) && blog.tags.some(t => t.toLowerCase().includes(q)));
+    return matchesStatus && matchesSearch;
+  }), [teamBlogs, blogStatusFilter, blogSearchQuery]);
 
   // Overview tab KPIs — derived from data already fetched for the other tabs, no extra queries.
   const todayStr = new Date().toDateString();
-  const overviewKpis = {
+  const overviewKpis = useMemo(() => ({
     totalRecruiters: members.length,
     activeRecruiters: activeCount,
     totalJobs: teamJobs.length,
@@ -687,7 +723,7 @@ export default function OrgAdminPanel() {
     interviewsScheduled: teamApps.filter(a => a.status === "Interview Scheduled").length,
     offersReleased: teamApps.filter(a => a.status === "Offered").length,
     successfulHires: teamApps.filter(a => ["Hired", "Joined"].includes(a.status)).length,
-  };
+  }), [members.length, activeCount, teamJobs, teamApps, todayStr]);
 
   // ── Header Render Helper ────────────────────────────────────
   const renderHeader = () => (
@@ -1585,19 +1621,7 @@ export default function OrgAdminPanel() {
             {/* Blogs Table */}
             {dataLoading ? (
               <LoadingCard />
-            ) : (() => {
-              const filteredBlogs = teamBlogs.filter(blog => {
-                const matchesStatus = blogStatusFilter === "all" || blog.status === blogStatusFilter;
-                const q = blogSearchQuery.toLowerCase().trim();
-                const matchesSearch = !q ||
-                  blog.title.toLowerCase().includes(q) ||
-                  blog.category.toLowerCase().includes(q) ||
-                  (Array.isArray(blog.tags) && blog.tags.some(t => t.toLowerCase().includes(q)));
-                return matchesStatus && matchesSearch;
-              });
-
-              if (filteredBlogs.length === 0) {
-                return (
+            ) : filteredBlogs.length === 0 ? (
                   <div className="bg-white rounded-2xl p-12 text-center shadow-sm">
                     <BookOpen className="h-12 w-12 text-gray-300 mx-auto mb-3" />
                     <h4 className="font-bold text-[#3A1F1F] mb-1">No blogs found</h4>
@@ -1613,10 +1637,7 @@ export default function OrgAdminPanel() {
                       <Plus className="h-4 w-4 mr-1.5" /> Create First Blog
                     </Button>
                   </div>
-                );
-              }
-
-              return (
+            ) : (
                 <div className="bg-white rounded-2xl shadow-sm overflow-hidden mb-6">
                   <div className="overflow-x-auto">
                     <table className="w-full">
@@ -1727,8 +1748,7 @@ export default function OrgAdminPanel() {
                     </table>
                   </div>
                 </div>
-              );
-            })()}
+              )}
           </TabsContent>
         </Tabs>
       </div>

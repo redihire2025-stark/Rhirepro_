@@ -16,7 +16,6 @@ export interface BlogPageItem {
   category: string;
   tags: string[];
   image: string;
-  isDatabaseArticle: boolean;
 }
 
 const getCategoryFallbackImage = (category: string = "") => {
@@ -76,7 +75,6 @@ export default function BlogPage() {
   const isMountedRef = useRef(true);
 
   useEffect(() => {
-    isMountedRef.current = true;
     return () => {
       isMountedRef.current = false;
     };
@@ -91,7 +89,7 @@ export default function BlogPage() {
         .order("published_at", { ascending: false, nullsFirst: false })
         .order("created_at", { ascending: false });
 
-      if (data && isMountedRef.current) setPublishedArticles(data as RecruiterArticle[]);
+      if (isMountedRef.current && data) setPublishedArticles(data as RecruiterArticle[]);
     }
 
     void loadPublishedArticles();
@@ -111,8 +109,7 @@ export default function BlogPage() {
         date: new Date(article.published_at || article.created_at).toLocaleDateString("en-US", { month: "long", day: "numeric", year: "numeric" }),
         category: article.category,
         tags: Array.isArray(article.tags) ? article.tags.filter((t) => t.toLowerCase() !== "blog") : [],
-        image: article.cover_image_url || getCategoryFallbackImage(article.category),
-        isDatabaseArticle: true,
+        image: article.cover_image_url ?? getCategoryFallbackImage(article.category),
       }));
   }, [publishedArticles]);
 
@@ -239,8 +236,8 @@ export default function BlogPage() {
           
           {visibleBlogs.length > 0 ? (
             <div className="grid md:grid-cols-3 gap-8">
-              {visibleBlogs.map((blog, index) => (
-              <div key={index} className="bg-white rounded-2xl overflow-hidden shadow-md hover:shadow-xl transition-shadow border border-gray-100">
+              {visibleBlogs.map((blog) => (
+              <div key={blog.id} className="bg-white rounded-2xl overflow-hidden shadow-md hover:shadow-xl transition-shadow border border-gray-100">
                 <ImageWithFallback
                   src={blog.image}
                   alt={blog.title}

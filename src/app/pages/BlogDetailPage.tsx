@@ -271,7 +271,6 @@ export default function BlogDetailPage() {
 
   const isMountedRef = useRef(true);
   useEffect(() => {
-    isMountedRef.current = true;
     return () => {
       isMountedRef.current = false;
     };
@@ -311,7 +310,7 @@ export default function BlogDetailPage() {
         .order("created_at", { ascending: false });
 
       if (isMountedRef.current) {
-        setPublishedArticles((data || []) as RecruiterArticle[]);
+        setPublishedArticles((data ?? []) as RecruiterArticle[]);
       }
     }
 
