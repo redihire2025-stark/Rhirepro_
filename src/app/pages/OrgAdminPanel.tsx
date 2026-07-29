@@ -333,7 +333,12 @@ export default function OrgAdminPanel() {
       setInvitations(invData || []);
 
       // All team jobs
-      const allIds = [user.id, ...membersList.map(m => m.id)];
+      const allIds = Array.from(
+        new Set(
+          [user.id, recruiterProfile?.id, ...membersList.map(m => m.id)]
+            .filter((id): id is string => typeof id === "string" && id.trim().length > 0)
+        )
+      );
       const { data: jobsData } = await supabase
         .from("jobs")
         .select("id, title, status, recruiter_id, company_name, location, created_at, deadline, views, openings")

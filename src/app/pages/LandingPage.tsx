@@ -669,6 +669,7 @@ export default function LandingPage() {
   const [publishedArticles, setPublishedArticles] = useState<RecruiterArticle[]>([]);
 
   useEffect(() => {
+    let isMounted = true;
     async function loadPublishedArticles() {
       const { data } = await supabase
         .from("recruiter_articles")
@@ -678,15 +679,19 @@ export default function LandingPage() {
         .order("created_at", { ascending: false })
         .limit(3);
 
-      if (data) setPublishedArticles(data as RecruiterArticle[]);
+      if (data && isMounted) setPublishedArticles(data as RecruiterArticle[]);
     }
 
     void loadPublishedArticles();
+    return () => {
+      isMounted = false;
+    };
   }, []);
 
   const realPublishedArticles = useMemo(() => {
+    if (!Array.isArray(publishedArticles)) return [];
     return publishedArticles.filter((article) => {
-      if (article.status !== "Published") return false;
+      if (!article || article.status !== "Published") return false;
       const cleanTitle = (article.title || "").trim().toLowerCase();
       return !PREDEFINED_SEED_TITLES.has(cleanTitle);
     });

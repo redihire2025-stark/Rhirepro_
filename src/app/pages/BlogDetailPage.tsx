@@ -270,9 +270,10 @@ export default function BlogDetailPage() {
   const isDatabaseArticleId = Boolean(id && Number.isNaN(numericArticleId));
 
   useEffect(() => {
+    let isMounted = true;
     async function loadDatabaseArticle() {
       if (!id || !isDatabaseArticleId) {
-        setDatabaseArticle(null);
+        if (isMounted) setDatabaseArticle(null);
         return;
       }
 
@@ -284,14 +285,20 @@ export default function BlogDetailPage() {
         .eq("status", "Published")
         .single();
 
-      setDatabaseArticle(articleResult.data as RecruiterArticle | null);
-      setArticleLoading(false);
+      if (isMounted) {
+        setDatabaseArticle(articleResult.data as RecruiterArticle | null);
+        setArticleLoading(false);
+      }
     }
 
     void loadDatabaseArticle();
+    return () => {
+      isMounted = false;
+    };
   }, [id, isDatabaseArticleId]);
 
   useEffect(() => {
+    let isMounted = true;
     async function loadPublishedArticles() {
       const { data } = await supabase
         .from("recruiter_articles")
@@ -300,10 +307,15 @@ export default function BlogDetailPage() {
         .order("published_at", { ascending: false, nullsFirst: false })
         .order("created_at", { ascending: false });
 
-      setPublishedArticles((data || []) as RecruiterArticle[]);
+      if (isMounted) {
+        setPublishedArticles((data || []) as RecruiterArticle[]);
+      }
     }
 
     void loadPublishedArticles();
+    return () => {
+      isMounted = false;
+    };
   }, []);
 
   const staticArticle = articles.find(a => a.id === numericArticleId) || articles[0];

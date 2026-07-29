@@ -64,6 +64,7 @@ export default function BlogPage() {
   const [publishedArticles, setPublishedArticles] = useState<RecruiterArticle[]>([]);
 
   useEffect(() => {
+    let isMounted = true;
     async function loadPublishedArticles() {
       const { data } = await supabase
         .from("recruiter_articles")
@@ -72,10 +73,13 @@ export default function BlogPage() {
         .order("published_at", { ascending: false, nullsFirst: false })
         .order("created_at", { ascending: false });
 
-      if (data) setPublishedArticles(data as RecruiterArticle[]);
+      if (data && isMounted) setPublishedArticles(data as RecruiterArticle[]);
     }
 
     void loadPublishedArticles();
+    return () => {
+      isMounted = false;
+    };
   }, []);
 
   const realBlogs = useMemo(() => {
@@ -232,7 +236,7 @@ export default function BlogPage() {
                     <span className="inline-block bg-[#ECECF4] text-[#3A1F1F] px-3 py-1 rounded-full text-xs font-semibold">
                       {blog.category}
                     </span>
-                    {Array.isArray((blog as any).tags) && (blog as any).tags.map((tag: string, tidx: number) => (
+                    {Array.isArray(blog.tags) && blog.tags.map((tag: string, tidx: number) => (
                       <span key={tidx} className="bg-red-50 text-[#FF2B2B] px-2 py-0.5 rounded-full text-[11px] font-medium">
                         #{tag}
                       </span>

@@ -98,6 +98,7 @@ export interface RecruiterInvitation {
 export interface RecruiterArticle {
   id: string;
   recruiter_id: string;
+  /** Organization ID associated with this article, used for team article management and organization filtering */
   org_id?: string | null;
   title: string;
   category: string;
@@ -115,6 +116,7 @@ export interface RecruiterArticle {
   recruiter?: Pick<RecruiterProfile, "company_name" | "recruiter_name" | "logo_url"> | null;
 }
 
+/** Predefined seed article titles to filter out legacy static articles from dynamic recruiter blog listings */
 export const PREDEFINED_SEED_TITLES = new Set([
   "building a strong employer brand for better hiring",
   "why remote work continues to grow in 2026",
