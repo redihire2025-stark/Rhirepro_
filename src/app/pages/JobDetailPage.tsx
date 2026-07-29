@@ -1,5 +1,5 @@
 import { useEffect, useMemo, useState } from "react";
-import { Menu, MapPin, DollarSign, Clock, ChevronRight, Facebook, Instagram, Twitter, Bell, Star, ArrowRight, Globe } from "lucide-react";
+import { Menu, MapPin, DollarSign, Clock, ChevronRight, Facebook, Instagram, Twitter, Bell, Star, ArrowRight, Globe, Calendar } from "lucide-react";
 import { Button } from "../components/ui/button";
 import { Input } from "../components/ui/input";
 import { Sheet, SheetContent, SheetTrigger, SheetTitle, SheetDescription } from "../components/ui/sheet";
@@ -10,6 +10,7 @@ import { formatJobSalary, isJobVisibleToSeekers } from "../../lib/jobs";
 import { isIndianLocation } from "../../lib/locationData";
 import { useAuth } from "../../lib/auth-context";
 import { SafeHtml } from "../components/ui/safe-html";
+import { ImageWithFallback } from "../components/figma/ImageWithFallback";
 
 function parseCompanyDescription(text: string | null | undefined): { aboutCompany: string; companyInfo: string } {
   const val = (text || "").trim();
@@ -150,8 +151,10 @@ export default function JobDetailPage() {
       qualifications: splitBulletContent(job.requirements, "Job requirements will be shared by the recruiter."),
       rawResponsibilities: job.roles_responsibilities,
       rawQualifications: job.requirements,
+      preferredJoiningTime: job.preferred_joining_time || null,
       additionalInfo: [
         job.work_mode ? `Work mode: ${job.work_mode}` : "",
+        job.preferred_joining_time ? `Preferred joining time: ${job.preferred_joining_time}` : "",
         job.interview_mode ? `Interview mode: ${job.interview_mode}` : "",
         job.education ? `Education: ${job.education}` : "",
         job.openings ? `Openings: ${job.openings}` : "",
@@ -273,9 +276,17 @@ export default function JobDetailPage() {
                 View detailed information about this position's requirements and how to apply. Take the next step in your career today.
               </p>
             </div>
-            <div className="grid grid-cols-2 gap-4">
-              <div className="bg-gray-300 rounded-2xl h-48 w-56"></div>
-              <div className="bg-gray-400 rounded-2xl h-40 w-40 mt-8"></div>
+            <div className="flex gap-4 items-center">
+              <ImageWithFallback
+                src="https://images.unsplash.com/photo-1551836022-d5d88e9218df?auto=format&fit=crop&w=600&q=80"
+                alt="Job Overview"
+                className="rounded-2xl h-44 w-52 object-cover shadow-md border border-gray-100"
+              />
+              <ImageWithFallback
+                src="https://images.unsplash.com/photo-1522071820081-009f0129c71c?auto=format&fit=crop&w=600&q=80"
+                alt="Team Workspace"
+                className="rounded-2xl h-36 w-36 mt-6 object-cover shadow-md border border-gray-100"
+              />
             </div>
           </div>
         </div>
@@ -375,7 +386,7 @@ export default function JobDetailPage() {
                   </div>
                 </div>
 
-                <div className="grid md:grid-cols-3 gap-4 mb-6">
+                <div className="grid md:grid-cols-4 gap-4 mb-6">
                   <div className="flex items-center gap-3 text-[#8A8A8A]">
                     <MapPin className="h-5 w-5 text-[#FF2B2B]" />
                     <div>
@@ -397,6 +408,15 @@ export default function JobDetailPage() {
                       <p className="font-semibold text-[#3A1F1F]">{currentJob.experience}</p>
                     </div>
                   </div>
+                  {currentJob.preferredJoiningTime && (
+                    <div className="flex items-center gap-3 text-[#8A8A8A]">
+                      <Calendar className="h-5 w-5 text-[#FF2B2B]" />
+                      <div>
+                        <p className="text-xs">Joining Time</p>
+                        <p className="font-semibold text-[#3A1F1F]">{currentJob.preferredJoiningTime}</p>
+                      </div>
+                    </div>
+                  )}
                 </div>
 
                 <Button className="bg-[#FF2B2B] hover:bg-[#e02525] text-white rounded-full px-12 py-6" onClick={handleApplyClick}>
