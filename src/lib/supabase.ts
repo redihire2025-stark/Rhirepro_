@@ -98,10 +98,18 @@ export interface RecruiterInvitation {
 export interface RecruiterArticle {
   id: string;
   recruiter_id: string;
-  /** Organization ID associated with this article, used for team article management and organization filtering */
+  /**
+   * Organization ID associated with this article.
+   * When string: Belongs to a team under the specified Org Admin.
+   * When null/undefined: Belongs directly to an individual recruiter account.
+   */
   org_id?: string | null;
   title: string;
   category: string;
+  /**
+   * Optional list of article tag strings (e.g. ["#hiring", "#remote"]).
+   * Null/undefined or empty array indicates no extra tags attached.
+   */
   tags?: string[] | null;
   summary: string | null;
   key_takeaway: string | null;
@@ -116,7 +124,10 @@ export interface RecruiterArticle {
   recruiter?: Pick<RecruiterProfile, "company_name" | "recruiter_name" | "logo_url"> | null;
 }
 
-/** Predefined seed article titles to filter out legacy static articles from dynamic recruiter blog listings */
+/**
+ * Predefined set of seed article titles used to filter out legacy sample articles
+ * from dynamic recruiter blog listings. Expandable as new seed articles are configured.
+ */
 export const PREDEFINED_SEED_TITLES = new Set([
   "building a strong employer brand for better hiring",
   "why remote work continues to grow in 2026",

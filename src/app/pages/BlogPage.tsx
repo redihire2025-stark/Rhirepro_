@@ -1,4 +1,4 @@
-import { useEffect, useMemo, useState } from "react";
+import { useEffect, useMemo, useState, useRef } from "react";
 import { Menu, ChevronRight, Facebook, Instagram, Twitter, Bell, Star, ArrowRight, MapPin, BookOpen } from "lucide-react";
 import { Button } from "../components/ui/button";
 import { Input } from "../components/ui/input";
@@ -7,6 +7,17 @@ import { useNavigate, useSearchParams } from "react-router";
 import logoImage from "../../logo/logo.png";
 import { supabase, RecruiterArticle, PREDEFINED_SEED_TITLES } from "../../lib/supabase";
 import { ImageWithFallback } from "../components/figma/ImageWithFallback";
+
+export interface BlogPageItem {
+  id: string;
+  title: string;
+  description: string;
+  date: string;
+  category: string;
+  tags: string[];
+  image: string;
+  isDatabaseArticle: boolean;
+}
 
 const getCategoryFallbackImage = (category: string = "") => {
   const cat = category.toLowerCase();
@@ -62,9 +73,16 @@ export default function BlogPage() {
   const selectedCategory = searchParams.get("category") || "";
 
   const [publishedArticles, setPublishedArticles] = useState<RecruiterArticle[]>([]);
+  const isMountedRef = useRef(true);
 
   useEffect(() => {
-    let isMounted = true;
+    isMountedRef.current = true;
+    return () => {
+      isMountedRef.current = false;
+    };
+  }, []);
+
+  useEffect(() => {
     async function loadPublishedArticles() {
       const { data } = await supabase
         .from("recruiter_articles")
@@ -73,16 +91,13 @@ export default function BlogPage() {
         .order("published_at", { ascending: false, nullsFirst: false })
         .order("created_at", { ascending: false });
 
-      if (data && isMounted) setPublishedArticles(data as RecruiterArticle[]);
+      if (data && isMountedRef.current) setPublishedArticles(data as RecruiterArticle[]);
     }
 
     void loadPublishedArticles();
-    return () => {
-      isMounted = false;
-    };
   }, []);
 
-  const realBlogs = useMemo(() => {
+  const realBlogs = useMemo<BlogPageItem[]>(() => {
     return publishedArticles
       .filter((article) => {
         if (article.status !== "Published") return false;

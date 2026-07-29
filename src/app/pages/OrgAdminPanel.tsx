@@ -426,7 +426,7 @@ export default function OrgAdminPanel() {
     setBlogModalOpen(true);
   };
 
-  const handleSaveBlog = async () => {
+  const handleSaveBlog = useCallback(async () => {
     if (!blogTitle.trim()) {
       setBlogError("Blog title is required.");
       return;
@@ -515,9 +515,9 @@ export default function OrgAdminPanel() {
     } finally {
       setBlogSaving(false);
     }
-  };
+  }, [blogTitle, blogContent, blogTags, blogCategory, blogSummary, blogCoverUrl, blogStatus, user?.id, recruiterProfile?.org_id, editingBlog, loadData]);
 
-  const handleTogglePublishStatus = async (blog: RecruiterArticle) => {
+  const handleTogglePublishStatus = useCallback(async (blog: RecruiterArticle) => {
     const newStatus = blog.status === "Published" ? "Draft" : "Published";
     try {
       await supabase
@@ -532,9 +532,9 @@ export default function OrgAdminPanel() {
     } catch (err) {
       console.error("Failed to toggle status", err);
     }
-  };
+  }, [loadData]);
 
-  const handleDeleteBlog = async (blogId: string) => {
+  const handleDeleteBlog = useCallback(async (blogId: string) => {
     try {
       await supabase.from("recruiter_articles").delete().eq("id", blogId);
       setDeleteBlogId(null);
@@ -542,7 +542,7 @@ export default function OrgAdminPanel() {
     } catch (err) {
       console.error("Failed to delete blog", err);
     }
-  };
+  }, [loadData]);
 
   useEffect(() => {
     if (user && recruiterProfile && isOrgAdmin) {

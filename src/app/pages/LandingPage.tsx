@@ -666,10 +666,19 @@ export default function LandingPage() {
       category: "Work Trends",
     },
   ];
+const BLOG_ROUTE = "/blog";
+
   const [publishedArticles, setPublishedArticles] = useState<RecruiterArticle[]>([]);
+  const isMountedRef = useRef(true);
 
   useEffect(() => {
-    let isMounted = true;
+    isMountedRef.current = true;
+    return () => {
+      isMountedRef.current = false;
+    };
+  }, []);
+
+  useEffect(() => {
     async function loadPublishedArticles() {
       const { data } = await supabase
         .from("recruiter_articles")
@@ -679,13 +688,10 @@ export default function LandingPage() {
         .order("created_at", { ascending: false })
         .limit(3);
 
-      if (data && isMounted) setPublishedArticles(data as RecruiterArticle[]);
+      if (data && isMountedRef.current) setPublishedArticles(data as RecruiterArticle[]);
     }
 
     void loadPublishedArticles();
-    return () => {
-      isMounted = false;
-    };
   }, []);
 
   const realPublishedArticles = useMemo(() => {
@@ -1579,7 +1585,7 @@ export default function LandingPage() {
                 recruitment efforts.
               </p>
               <Button
-                onClick={() => navigate("/blog")}
+                onClick={() => navigate(BLOG_ROUTE)}
                 className="bg-[#FF2B2B] hover:bg-[#e02525] text-white rounded-full px-8 py-6 cursor-pointer"
               >
                 Explore <ArrowRight className="ml-2 h-5 w-5" />

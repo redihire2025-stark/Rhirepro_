@@ -23,9 +23,11 @@ import { ImageWithFallback } from "../components/figma/ImageWithFallback";
 import {
   assignBalancedCategories,
   getAvailableJobCategories,
-  getRandomJobCategories,
-  type JobCategory,
 } from "../../lib/jobCategorization";
+
+const HeroImageCard = ({ src, alt, className }: { src: string; alt: string; className: string }) => (
+  <ImageWithFallback src={src} alt={alt} className={className} />
+);
 
 type DisplayJob = {
   id: string;
@@ -468,12 +470,12 @@ export default function JobListingsPage() {
               </p>
             </div>
             <div className="flex gap-4 items-center">
-              <ImageWithFallback
+              <HeroImageCard
                 src="https://images.unsplash.com/photo-1486406146926-c627a92ad1ab?auto=format&fit=crop&w=600&q=80"
                 alt="Find Your Next Opportunity"
                 className="rounded-2xl h-40 w-48 object-cover shadow-md border border-gray-100"
               />
-              <ImageWithFallback
+              <HeroImageCard
                 src="https://images.unsplash.com/photo-1573496359142-b8d87734a5a2?auto=format&fit=crop&w=600&q=80"
                 alt="Career Growth"
                 className="rounded-2xl h-32 w-32 mt-6 object-cover shadow-md border border-gray-100"

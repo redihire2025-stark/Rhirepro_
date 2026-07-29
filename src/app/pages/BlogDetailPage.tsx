@@ -1,4 +1,4 @@
-import { useEffect, useMemo, useState } from "react";
+import { useEffect, useMemo, useState, useRef } from "react";
 import { Menu, ChevronRight, Facebook, Instagram, Twitter, Bell, Star, ArrowRight, MapPin, Clock, User } from "lucide-react";
 import { Button } from "../components/ui/button";
 import { Input } from "../components/ui/input";
@@ -269,11 +269,18 @@ export default function BlogDetailPage() {
   const numericArticleId = Number(id);
   const isDatabaseArticleId = Boolean(id && Number.isNaN(numericArticleId));
 
+  const isMountedRef = useRef(true);
   useEffect(() => {
-    let isMounted = true;
+    isMountedRef.current = true;
+    return () => {
+      isMountedRef.current = false;
+    };
+  }, []);
+
+  useEffect(() => {
     async function loadDatabaseArticle() {
       if (!id || !isDatabaseArticleId) {
-        if (isMounted) setDatabaseArticle(null);
+        if (isMountedRef.current) setDatabaseArticle(null);
         return;
       }
 
@@ -285,20 +292,16 @@ export default function BlogDetailPage() {
         .eq("status", "Published")
         .single();
 
-      if (isMounted) {
+      if (isMountedRef.current) {
         setDatabaseArticle(articleResult.data as RecruiterArticle | null);
         setArticleLoading(false);
       }
     }
 
     void loadDatabaseArticle();
-    return () => {
-      isMounted = false;
-    };
   }, [id, isDatabaseArticleId]);
 
   useEffect(() => {
-    let isMounted = true;
     async function loadPublishedArticles() {
       const { data } = await supabase
         .from("recruiter_articles")
@@ -307,15 +310,12 @@ export default function BlogDetailPage() {
         .order("published_at", { ascending: false, nullsFirst: false })
         .order("created_at", { ascending: false });
 
-      if (isMounted) {
+      if (isMountedRef.current) {
         setPublishedArticles((data || []) as RecruiterArticle[]);
       }
     }
 
     void loadPublishedArticles();
-    return () => {
-      isMounted = false;
-    };
   }, []);
 
   const staticArticle = articles.find(a => a.id === numericArticleId) || articles[0];
