@@ -50,7 +50,7 @@ export async function resetPasswordWithOTP(
 
 /** Send Recruiter Candidate Email (Single or Bulk) */
 export async function sendRecruiterCandidateEmail(payload: {
-  recipients: { email: string; name: string }[];
+  recipients: { email: string; name: string; subject?: string; body?: string }[];
   subject: string;
   body: string;
   templateName?: string;

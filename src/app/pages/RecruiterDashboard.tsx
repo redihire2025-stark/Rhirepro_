@@ -149,6 +149,41 @@ const createEmptyArticleDraft = (): RecruiterArticleDraft => ({
 
 const toArticleCardText = (article: RecruiterArticle) => article.summary || article.content;
 
+export type AppWithProfile = Application & {
+  profiles?: DBCandidate | null;
+  profile?: DBCandidate | null;
+  candidate?: DBCandidate | null;
+  job?: Job | null;
+  jobs?: Job | null;
+  rating?: number;
+  rating_reason?: string;
+  cv_match_score?: number;
+  interview_date?: string;
+  interview_time?: string;
+  interview_mode?: string;
+  interview_link?: string;
+  interview_location?: string;
+  interview_message?: string;
+  feedback?: string;
+  rating_skills?: number;
+  rating_experience?: number;
+  rating_communication?: number;
+  rating_culture?: number;
+  offer_ctc?: string;
+  offer_designation?: string;
+  offer_joining_date?: string;
+  offer_letter_url?: string;
+  offer_notes?: string;
+  offer_status?: string;
+  rejection_reason?: string;
+  rejection_stage?: string;
+  rejection_notes?: string;
+  rejection_date?: string;
+  applicant_name?: string;
+  applicant_email?: string;
+  applicant_phone?: string;
+};
+
 function LocationAutocomplete({
   value,
   onChange,
@@ -4455,7 +4490,7 @@ function SearchCandidatesPage() {
             const { data: hydratedData } = await supabase
               .from("profiles")
               .select(`
-                id, first_name, last_name, avatar_url, headline, current_title, current_company, location, experience_type, total_experience, skills, about,
+                id, first_name, last_name, avatar_url, headline, current_title, current_company, location, experience_type, total_experience, skills, about, email, phone,
                 work_experience(id, company, title, start_date, end_date, description, is_current),
                 education(id, institution, degree, field, start_year, end_year)
               `)
@@ -4478,7 +4513,7 @@ function SearchCandidatesPage() {
         let q = supabase
           .from("profiles")
           .select(`
-            id, first_name, last_name, avatar_url, headline, current_title, current_company, location, experience_type, total_experience, skills, about,
+            id, first_name, last_name, avatar_url, headline, current_title, current_company, location, experience_type, total_experience, skills, about, email, phone,
             work_experience(id, company, title, start_date, end_date, description, is_current),
             education(id, institution, degree, field, start_year, end_year)
           `);
@@ -4539,7 +4574,7 @@ function SearchCandidatesPage() {
             const { data: skillMatches } = await supabase
               .from("profiles")
               .select(`
-                id, first_name, last_name, avatar_url, headline, current_title, current_company, location, experience_type, total_experience, skills, about,
+                id, first_name, last_name, avatar_url, headline, current_title, current_company, location, experience_type, total_experience, skills, about, email, phone,
                 work_experience(id, company, title, start_date, end_date, description, is_current),
                 education(id, institution, degree, field, start_year, end_year)
               `)
@@ -4555,7 +4590,7 @@ function SearchCandidatesPage() {
           let broadSkillQuery = supabase
             .from("profiles")
             .select(`
-              id, first_name, last_name, avatar_url, headline, current_title, current_company, location, experience_type, total_experience, skills, about,
+              id, first_name, last_name, avatar_url, headline, current_title, current_company, location, experience_type, total_experience, skills, about, email, phone,
               work_experience(id, company, title, start_date, end_date, description, is_current),
               education(id, institution, degree, field, start_year, end_year)
             `);
@@ -5898,8 +5933,17 @@ Best regards,
     }
   };
 
+  const resetComposerState = (key: string = emailTemplateKey) => {
+    const t = EMAIL_TEMPLATES[key] || EMAIL_TEMPLATES["job_invitation"];
+    if (t) {
+      setSubject(t.subject);
+      setBody(t.body);
+    }
+  };
+
   const handleOpenSingleEmail = (candidate: DBCandidate) => {
     setSelectedCandidatesMap(new Map([[candidate.id, candidate]]));
+    resetComposerState();
     setIsComposerOpen(true);
   };
 
@@ -5936,24 +5980,105 @@ Best regards,
     });
   };
 
-  const insertTag = (tag: string) => setBody(prev => prev + " " + tag);
+  const subjectInputRef = useRef<HTMLInputElement>(null);
+  const bodyTextareaRef = useRef<HTMLTextAreaElement>(null);
+  const lastFocusedFieldRef = useRef<"subject" | "body">("body");
+  const subjectCaretPosRef = useRef<{ start: number; end: number }>({ start: -1, end: -1 });
+  const bodyCaretPosRef = useRef<{ start: number; end: number }>({ start: -1, end: -1 });
+
+  const recordSubjectCaret = (el: HTMLInputElement | null) => {
+    if (el && typeof el.selectionStart === "number" && typeof el.selectionEnd === "number") {
+      subjectCaretPosRef.current = { start: el.selectionStart, end: el.selectionEnd };
+    }
+  };
+
+  const recordBodyCaret = (el: HTMLTextAreaElement | null) => {
+    if (el && typeof el.selectionStart === "number" && typeof el.selectionEnd === "number") {
+      bodyCaretPosRef.current = { start: el.selectionStart, end: el.selectionEnd };
+    }
+  };
+
+  const insertTag = (tag: string) => {
+    const isSubject = lastFocusedFieldRef.current === "subject";
+    
+    if (isSubject && subjectInputRef.current) {
+      const el = subjectInputRef.current;
+      let start = subjectCaretPosRef.current.start >= 0 ? subjectCaretPosRef.current.start : (el.selectionStart ?? subject.length);
+      let end = subjectCaretPosRef.current.end >= 0 ? subjectCaretPosRef.current.end : (el.selectionEnd ?? start);
+      if (start > subject.length) start = subject.length;
+      if (end > subject.length) end = subject.length;
+
+      const updated = subject.slice(0, start) + tag + subject.slice(end);
+      setSubject(updated);
+      const newPos = start + tag.length;
+      subjectCaretPosRef.current = { start: newPos, end: newPos };
+      setTimeout(() => {
+        if (subjectInputRef.current) {
+          subjectInputRef.current.focus();
+          subjectInputRef.current.setSelectionRange(newPos, newPos);
+        }
+      }, 0);
+    } else if (bodyTextareaRef.current) {
+      const el = bodyTextareaRef.current;
+      let start = bodyCaretPosRef.current.start >= 0 ? bodyCaretPosRef.current.start : (el.selectionStart ?? body.length);
+      let end = bodyCaretPosRef.current.end >= 0 ? bodyCaretPosRef.current.end : (el.selectionEnd ?? start);
+      if (start > body.length) start = body.length;
+      if (end > body.length) end = body.length;
+
+      const updated = body.slice(0, start) + tag + body.slice(end);
+      setBody(updated);
+      const newPos = start + tag.length;
+      bodyCaretPosRef.current = { start: newPos, end: newPos };
+      setTimeout(() => {
+        if (bodyTextareaRef.current) {
+          bodyTextareaRef.current.focus();
+          bodyTextareaRef.current.setSelectionRange(newPos, newPos);
+        }
+      }, 0);
+    } else {
+      setBody(prev => prev + " " + tag);
+    }
+  };
 
   // Dynamic interpolation helper for merge tags
   const getRenderedText = (text: string, candidate?: DBCandidate) => {
-    const candidateName = candidate ? getCandidateDisplayName(candidate) : "Rahul Sharma";
-    const job = currentSelectedJob || recruiterJobs[0] || null;
+    const candidateName = candidate ? getCandidateDisplayName(candidate) : "Candidate";
+    
+    // Only resolve job attributes if a specific job is selected (NOT "none")
+    const job = (selectedJobId && selectedJobId !== "none")
+      ? (recruiterJobs.find(j => j.id === selectedJobId) || null)
+      : null;
 
-    const jobTitle = job?.title || candidate?.current_title || candidate?.headline || "Software Developer";
+    const jobTitle = job?.title || (selectedJobId === "none" ? "open" : (candidate?.current_title || candidate?.headline || "Software Developer"));
     const compName = recruiterProfile?.company_name || job?.company_name || "RhirePro Client";
     const recruiterName = recruiterProfile?.recruiter_name || "Talent Acquisition Team";
-    const jobLoc = job?.location || candidate?.location || "Bengaluru / Hyderabad";
-    const jobExp = job ? (job.experience_min !== undefined ? `${job.experience_min} - ${job.experience_max || "N/A"} yrs` : "Relevant Exp") : "3 - 5 yrs";
-    const jobSal = job ? (job.salary_min ? `${job.salary_min} - ${job.salary_max} ${job.salary_currency || "LPA"}` : "As per Industry Standards") : "15 - 20 LPA";
-    const workMode = job?.employment_type || "Full-time (In office)";
-    const skillsList = job?.skills ? job.skills.join(", ") : (candidate?.skills ? candidate.skills.slice(0, 5).join(", ") : "Java, Python, React");
-    const applyUrl = job ? `${window.location.origin}/job/${job.id}` : `${window.location.origin}/jobs`;
+    const jobLoc = job?.location || (selectedJobId === "none" ? "As discussed / Flexible" : (candidate?.location || "As discussed"));
 
-    return text
+    let jobExp = "As per role requirements";
+    if (job) {
+      if (job.experience_min !== undefined && job.experience_min !== null && job.experience_max !== undefined && job.experience_max !== null) {
+        jobExp = `${job.experience_min} - ${job.experience_max} yrs`;
+      } else if (job.experience_min !== undefined && job.experience_min !== null) {
+        jobExp = `${job.experience_min}+ yrs`;
+      }
+    }
+
+    let jobSal = "As per industry standards";
+    if (job) {
+      if (job.salary_min && job.salary_max) {
+        jobSal = `${job.salary_min} - ${job.salary_max} ${job.salary_type || "LPA"}`;
+      } else if (job.salary_min) {
+        jobSal = `${job.salary_min} ${job.salary_type || "LPA"}`;
+      }
+    }
+
+    const workMode = job?.work_mode || job?.employment_type || "Full-time / Remote";
+    const skillsList = (job?.skills && job.skills.length > 0)
+      ? job.skills.join(", ")
+      : (selectedJobId === "none" ? "As per job requirements" : ((candidate?.skills && candidate.skills.length > 0) ? candidate.skills.slice(0, 5).join(", ") : "Relevant Technical Skills"));
+    const applyUrl = job?.id ? `${window.location.origin}/job/${job.id}` : `${window.location.origin}/jobs`;
+
+    let rendered = text
       .replaceAll("{{candidate_name}}", candidateName)
       .replaceAll("{{job_title}}", jobTitle)
       .replaceAll("{{company_name}}", compName)
@@ -5964,6 +6089,27 @@ Best regards,
       .replaceAll("{{work_mode}}", workMode)
       .replaceAll("{{key_skills}}", skillsList)
       .replaceAll("{{apply_url}}", applyUrl);
+
+    // If user typed custom text inside braces like {{job_dev}} or {{comdoodley_name}}, preserve the inner word
+    rendered = rendered.replace(/\{\{([^}]+)\}\}/g, '$1');
+
+    // If batch contains multiple candidates, automatically swap any other candidate's name for candidate's actual name
+    if (candidate && selectedCandidates.length > 0) {
+      for (const otherCandidate of selectedCandidates) {
+        if (otherCandidate.id !== candidate.id) {
+          const otherFullName = getCandidateDisplayName(otherCandidate);
+          if (otherFullName && otherFullName !== "Candidate" && otherFullName.length > 2 && rendered.includes(otherFullName)) {
+            rendered = rendered.replaceAll(otherFullName, candidateName);
+          }
+          if (otherCandidate.first_name && otherCandidate.first_name.trim().length > 2 && rendered.includes(otherCandidate.first_name.trim())) {
+            const candFirstName = candidate.first_name?.trim() || candidateName.split(" ")[0] || candidateName;
+            rendered = rendered.replaceAll(otherCandidate.first_name.trim(), candFirstName);
+          }
+        }
+      }
+    }
+
+    return rendered;
   };
 
   const handleSearch = async () => {
@@ -6121,6 +6267,8 @@ Best regards,
       const recipients = selectedCandidates.map(c => ({
         email: c.email || `${c.id}@candidate.recruiter`,
         name: getCandidateDisplayName(c),
+        subject: getRenderedText(subject, c),
+        body: getRenderedText(body, c),
       }));
 
       for (const candidate of selectedCandidates) {
@@ -6131,7 +6279,7 @@ Best regards,
           const { error: notifErr } = await supabase.from("notifications").insert({
             user_id: candidate.id,
             user_type: "jobseeker",
-            type: "recruiter_email",
+            type: "message",
             title: candidateSubject,
             message: candidateBody.slice(0, 150) + "...",
             is_read: false,
@@ -6744,8 +6892,9 @@ Best regards,
                   <button
                     key={tag}
                     type="button"
+                    onMouseDown={e => e.preventDefault()}
                     onClick={() => insertTag(tag)}
-                    className="text-[11px] font-medium bg-[#FFF0F0] text-[#FF2B2B] hover:bg-[#FFE5E5] px-2.5 py-1 rounded-md border border-[#FF2B2B]/20 transition-colors"
+                    className="text-[11px] font-medium bg-[#FFF0F0] text-[#FF2B2B] hover:bg-[#FFE5E5] px-2.5 py-1 rounded-md border border-[#FF2B2B]/20 transition-colors cursor-pointer"
                   >
                     + {tag}
                   </button>
@@ -6781,17 +6930,43 @@ Best regards,
                 <div>
                   <label className="text-xs font-semibold text-[#3A1F1F] mb-1 block">Subject</label>
                   <Input
+                    ref={subjectInputRef}
                     value={subject}
-                    onChange={e => setSubject(e.target.value)}
+                    onFocus={e => {
+                      lastFocusedFieldRef.current = "subject";
+                      recordSubjectCaret(e.currentTarget);
+                    }}
+                    onClick={e => {
+                      lastFocusedFieldRef.current = "subject";
+                      recordSubjectCaret(e.currentTarget);
+                    }}
+                    onSelect={e => recordSubjectCaret(e.currentTarget)}
+                    onChange={e => {
+                      setSubject(e.target.value);
+                      recordSubjectCaret(e.target);
+                    }}
                     className="bg-[#F6F6F6] border-gray-200 rounded-xl text-sm"
                   />
                 </div>
                 <div>
                   <label className="text-xs font-semibold text-[#3A1F1F] mb-1 block">Email Body</label>
                   <Textarea
+                    ref={bodyTextareaRef}
                     rows={9}
                     value={body}
-                    onChange={e => setBody(e.target.value)}
+                    onFocus={e => {
+                      lastFocusedFieldRef.current = "body";
+                      recordBodyCaret(e.currentTarget);
+                    }}
+                    onClick={e => {
+                      lastFocusedFieldRef.current = "body";
+                      recordBodyCaret(e.currentTarget);
+                    }}
+                    onSelect={e => recordBodyCaret(e.currentTarget)}
+                    onChange={e => {
+                      setBody(e.target.value);
+                      recordBodyCaret(e.target);
+                    }}
                     className="bg-[#F6F6F6] border-gray-200 rounded-xl text-sm font-sans"
                   />
                 </div>
