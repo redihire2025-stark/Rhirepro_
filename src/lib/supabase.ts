@@ -98,8 +98,10 @@ export interface RecruiterInvitation {
 export interface RecruiterArticle {
   id: string;
   recruiter_id: string;
+  org_id?: string | null;
   title: string;
   category: string;
+  tags?: string[] | null;
   summary: string | null;
   key_takeaway: string | null;
   content: string;
@@ -112,6 +114,16 @@ export interface RecruiterArticle {
   published_at: string | null;
   recruiter?: Pick<RecruiterProfile, "company_name" | "recruiter_name" | "logo_url"> | null;
 }
+
+export const PREDEFINED_SEED_TITLES = new Set([
+  "building a strong employer brand for better hiring",
+  "why remote work continues to grow in 2026",
+  "top interview mistakes candidates should avoid",
+  "how companies are adapting to hiring challenges",
+  "how to make your resume stand out in 2026",
+  "why soft skills matter more than ever",
+  "how companies are battling talent shortages",
+]);
 
 export interface Job {
   id: string;

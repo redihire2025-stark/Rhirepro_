@@ -52,7 +52,7 @@ import JobShareButton from "../components/JobShareButton";
 import PublicFooter from "../components/PublicFooter";
 
 import { PLANS, calculateGst } from "../../lib/plans";
-import { supabase, type Job as DBJob, type RecruiterArticle } from "../../lib/supabase";
+import { supabase, PREDEFINED_SEED_TITLES, type Job as DBJob, type RecruiterArticle } from "../../lib/supabase";
 import { formatJobSalary, isJobVisibleToSeekers } from "../../lib/jobs";
 import { getRecommendedJobs, recordJobInteraction } from "../../lib/jobRecommendations";
 import { isIndianLocation } from "../../lib/locationData";
@@ -684,28 +684,28 @@ export default function LandingPage() {
     void loadPublishedArticles();
   }, []);
 
-  const recentPublishedArticles = publishedArticles.slice(0, 3);
-  const landingArticles = recentPublishedArticles.length > 0
-    ? recentPublishedArticles.map((article) => ({
-      id: article.id,
-      title: article.title,
-      description: article.summary || article.content,
-      category: article.category,
-      image: article.cover_image_url || "",
-      isDatabaseArticle: true,
-    }))
-    : blogs.slice(0, 3).map((blog, index) => ({
-      id: String(index + 1),
-      title: blog.title,
-      description: blog.description,
-      category: blog.category,
-      image: [
-        "https://images.unsplash.com/photo-1754885262663-470bb3c5e1f2?crop=entropy&cs=tinysrgb&fit=max&fm=jpg&ixid=M3w3Nzg4Nzd8MHwxfHNlYXJjaHwxfHxjYXJlZXIlMjBncm93dGglMjBwcm9mZXNzaW9uYWwlMjBzdWNjZXNzfGVufDF8fHx8MTc3MjgyMjQ4OXww&ixlib=rb-4.1.0&q=80&w=1080",
-        "https://images.unsplash.com/photo-1758518730162-09a142505bfd?crop=entropy&cs=tinysrgb&fit=max&fm=jpg&ixid=M3w3Nzg4Nzd8MHwxfHNlYXJjaHwxfHx0YWxlbnQlMjBhY3F1aXNpdGlvbiUyMGhpcmluZyUyMHByb2Nlc3N8ZW58MXx8fHwxNzcyODIyNTA4fDA&ixlib=rb-4.1.0&q=80&w=1080",
-        "https://images.unsplash.com/photo-1626065838283-d338b7702fed?crop=entropy&cs=tinysrgb&fit=max&fm=jpg&ixid=M3w3Nzg4Nzd8MHwxfHNlYXJjaHwxfHxyZW1vdGUlMjB3b3JrJTIwaG9tZSUyMG9mZmljZXxlbnwxfHx8fDE3NzI3MTU3NjZ8MA&ixlib=rb-4.1.0&q=80&w=1080",
-      ][index],
-      isDatabaseArticle: false,
+  const realPublishedArticles = useMemo(() => {
+    return publishedArticles.filter((article) => {
+      if (article.status !== "Published") return false;
+      const cleanTitle = (article.title || "").trim().toLowerCase();
+      return !PREDEFINED_SEED_TITLES.has(cleanTitle);
+    });
+  }, [publishedArticles]);
+
+
+  const blogFeaturedCards = useMemo(() => {
+    if (!realPublishedArticles || realPublishedArticles.length === 0) {
+      return [];
+    }
+    return realPublishedArticles.slice(0, 2).map((pub) => ({
+      id: pub.id,
+      title: pub.title,
+      description: pub.summary || (pub.content ? pub.content.slice(0, 90) + "..." : ""),
+      category: pub.category,
+      image: pub.cover_image_url || "https://images.unsplash.com/photo-1434030216411-0b793f4b4173?auto=format&fit=crop&w=400&h=250&q=80",
+      path: `/blog/${pub.id}`,
     }));
+  }, [realPublishedArticles]);
 
   const faqs = [
     {
@@ -1469,35 +1469,6 @@ export default function LandingPage() {
           </div>
 
           <div className="grid md:grid-cols-3 gap-8">
-            {landingArticles.map((article) => (
-              <div key={article.id} className="bg-white rounded-2xl overflow-hidden shadow-md hover:shadow-lg transition-shadow border border-gray-100">
-                {article.image ? (
-                  <ImageWithFallback src={article.image} alt={article.title} className="h-56 w-full object-cover" />
-                ) : (
-                  <div className="h-56 w-full bg-[#ECECF4] flex items-center justify-center">
-                    <BookOpen className="h-10 w-10 text-[#FF2B2B]" />
-                  </div>
-                )}
-                <div className="p-6">
-                  <span className="inline-block bg-[#ECECF4] text-[#3A1F1F] px-3 py-1 rounded-full text-sm mb-3">
-                    {article.category}
-                  </span>
-                  <h3 className="text-xl font-bold text-[#3A1F1F] mb-3">{article.title}</h3>
-                  <p className="text-[#8A8A8A] mb-4 line-clamp-3">{article.description}</p>
-                  <Button
-                    variant="link"
-                    className="text-[#FF2B2B] p-0 h-auto font-semibold"
-                    onClick={() => navigate(`/blog/${article.id}`)}
-                  >
-                    Read More{" "}
-                    <ArrowRight className="ml-1 h-4 w-4" />
-                  </Button>
-                </div>
-              </div>
-            ))}
-          </div>
-
-          <div className="hidden">
             <div className="bg-white rounded-2xl overflow-hidden shadow-md hover:shadow-lg transition-shadow border border-gray-100">
               <ImageWithFallback
                 src="https://images.unsplash.com/photo-1690192435015-319c1d5065b2?crop=entropy&cs=tinysrgb&fit=max&fm=jpg&ixid=M3w3Nzg4Nzd8MHwxfHNlYXJjaHwxfHxzb2Z0JTIwc2tplHMlMjwY29tbXVuaWNhdGlvbiUyMHRlYW13b3JrfGVufDF8fHx8MTc3MjgwODE4Nnww&ixlib=rb-4.1.0&q=80&w=1080"
@@ -1505,20 +1476,20 @@ export default function LandingPage() {
                 className="h-56 w-full object-cover"
               />
               <div className="p-6">
-                <span className="inline-block bg-[#ECECF4] text-[#3A1F1F] px-3 py-1 rounded-full text-sm mb-3">
+                <span className="inline-block bg-[#ECECF4] text-[#3A1F1F] px-3 py-1 rounded-full text-sm mb-3 font-semibold">
                   Career Tips
                 </span>
                 <h3 className="text-xl font-bold text-[#3A1F1F] mb-3">
                   Why Soft Skills Matter More Than Ever
                 </h3>
-                <p className="text-[#8A8A8A] mb-4">
+                <p className="text-[#8A8A8A] mb-4 line-clamp-3">
                   Explore why employers are prioritizing soft
                   skills and how you can showcase yours
                   effectively.
                 </p>
                 <Button
                   variant="link"
-                  className="text-[#FF2B2B] p-0 h-auto font-semibold"
+                  className="text-[#FF2B2B] p-0 h-auto font-semibold cursor-pointer"
                   onClick={() => navigate("/blog/1")}
                 >
                   Read More{" "}
@@ -1533,20 +1504,20 @@ export default function LandingPage() {
                 className="h-56 w-full object-cover"
               />
               <div className="p-6">
-                <span className="inline-block bg-[#ECECF4] text-[#3A1F1F] px-3 py-1 rounded-full text-sm mb-3">
+                <span className="inline-block bg-[#ECECF4] text-[#3A1F1F] px-3 py-1 rounded-full text-sm mb-3 font-semibold">
                   Industry Insights
                 </span>
                 <h3 className="text-xl font-bold text-[#3A1F1F] mb-3">
                   How Companies Are Battling Talent Shortages
                 </h3>
-                <p className="text-[#8A8A8A] mb-4">
+                <p className="text-[#8A8A8A] mb-4 line-clamp-3">
                   Discover innovative strategies companies use
                   to attract and retain top talent in
                   competitive markets.
                 </p>
                 <Button
                   variant="link"
-                  className="text-[#FF2B2B] p-0 h-auto font-semibold"
+                  className="text-[#FF2B2B] p-0 h-auto font-semibold cursor-pointer"
                   onClick={() => navigate("/blog/2")}
                 >
                   Read More{" "}
@@ -1561,20 +1532,20 @@ export default function LandingPage() {
                 className="h-56 w-full object-cover"
               />
               <div className="p-6">
-                <span className="inline-block bg-[#ECECF4] text-[#3A1F1F] px-3 py-1 rounded-full text-sm mb-3">
+                <span className="inline-block bg-[#ECECF4] text-[#3A1F1F] px-3 py-1 rounded-full text-sm mb-3 font-semibold">
                   Trends
                 </span>
                 <h3 className="text-xl font-bold text-[#3A1F1F] mb-3">
                   Recruiters Now Focus on Candidate Experience
                 </h3>
-                <p className="text-[#8A8A8A] mb-4">
+                <p className="text-[#8A8A8A] mb-4 line-clamp-3">
                   Learn how the recruitment landscape is
                   shifting to prioritize candidate satisfaction
                   and engagement.
                 </p>
                 <Button
                   variant="link"
-                  className="text-[#FF2B2B] p-0 h-auto font-semibold"
+                  className="text-[#FF2B2B] p-0 h-auto font-semibold cursor-pointer"
                   onClick={() => navigate("/blog/3")}
                 >
                   Read More{" "}
@@ -1602,44 +1573,52 @@ export default function LandingPage() {
                 help you succeed in your job search or
                 recruitment efforts.
               </p>
-              <Button className="bg-[#FF2B2B] hover:bg-[#e02525] text-white rounded-full px-8 py-6">
+              <Button
+                onClick={() => navigate("/blog")}
+                className="bg-[#FF2B2B] hover:bg-[#e02525] text-white rounded-full px-8 py-6 cursor-pointer"
+              >
                 Explore <ArrowRight className="ml-2 h-5 w-5" />
               </Button>
             </div>
-            <div className="grid grid-cols-2 gap-4">
-              <div className="space-y-4">
-                <div className="bg-white rounded-2xl p-6">
-                  <ImageWithFallback
-                    src="https://images.unsplash.com/photo-1434030216411-0b793f4b4173?auto=format&fit=crop&w=400&h=250&q=80"
-                    alt="Career Growth Tips"
-                    className="w-full h-32 object-cover rounded-xl mb-4"
-                  />
-                  <h4 className="font-semibold text-[#3A1F1F] mb-2">
-                    Career Growth Tips
-                  </h4>
-                  <p className="text-sm text-[#8A8A8A]">
-                    Essential strategies for advancing your
-                    professional journey.
-                  </p>
-                </div>
+            {blogFeaturedCards.length > 0 ? (
+              <div className="grid grid-cols-1 sm:grid-cols-2 gap-4">
+                {blogFeaturedCards.map((card, idx) => (
+                  <div key={card.id} className={`space-y-4 ${idx % 2 === 1 ? "sm:mt-8" : ""}`}>
+                    <div
+                      onClick={() => navigate(card.path)}
+                      className="bg-white rounded-2xl p-6 shadow-sm hover:shadow-md transition-all duration-200 cursor-pointer border border-gray-100"
+                    >
+                      {card.image ? (
+                        <ImageWithFallback
+                          src={card.image}
+                          alt={card.title}
+                          className="w-full h-32 object-cover rounded-xl mb-4"
+                        />
+                      ) : (
+                        <div className="w-full h-32 bg-[#ECECF4] rounded-xl mb-4 flex items-center justify-center">
+                          <BookOpen className="h-8 w-8 text-[#FF2B2B]" />
+                        </div>
+                      )}
+                      <span className="text-[10px] font-semibold text-[#FF2B2B] bg-red-50 px-2 py-0.5 rounded-full mb-1.5 inline-block">
+                        {card.category}
+                      </span>
+                      <h4 className="font-semibold text-[#3A1F1F] mb-2 line-clamp-1">
+                        {card.title}
+                      </h4>
+                      <p className="text-sm text-[#8A8A8A] line-clamp-2">
+                        {card.description}
+                      </p>
+                    </div>
+                  </div>
+                ))}
               </div>
-              <div className="space-y-4 mt-8">
-                <div className="bg-white rounded-2xl p-6">
-                  <ImageWithFallback
-                    src="https://images.unsplash.com/photo-1586281380349-632531db7ed4?auto=format&fit=crop&w=400&h=250&q=80"
-                    alt="Resume Building"
-                    className="w-full h-32 object-cover rounded-xl mb-4"
-                  />
-                  <h4 className="font-semibold text-[#3A1F1F] mb-2">
-                    Resume Building
-                  </h4>
-                  <p className="text-sm text-[#8A8A8A]">
-                    Create impactful resumes that get noticed by
-                    recruiters.
-                  </p>
-                </div>
+            ) : (
+              <div className="bg-white rounded-2xl p-8 text-center border border-gray-100">
+                <BookOpen className="h-10 w-10 text-[#FF2B2B] mx-auto mb-3" />
+                <h4 className="font-bold text-[#3A1F1F] mb-1">No Featured Blogs Yet</h4>
+                <p className="text-xs text-[#8A8A8A]">Published articles by organization admins will appear here.</p>
               </div>
-            </div>
+            )}
           </div>
         </div>
       </section>

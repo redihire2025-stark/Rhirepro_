@@ -19,6 +19,7 @@ import { useAuth } from "../../lib/auth-context";
 import { getRecommendedJobs, recordJobInteraction, recordJobSearch } from "../../lib/jobRecommendations";
 import { isIndianLocation } from "../../lib/locationData";
 import JobShareButton from "../components/JobShareButton";
+import { ImageWithFallback } from "../components/figma/ImageWithFallback";
 import {
   assignBalancedCategories,
   getAvailableJobCategories,
@@ -466,9 +467,17 @@ export default function JobListingsPage() {
                 Browse curated job openings across various industries that match your skills and career goals.
               </p>
             </div>
-            <div className="grid grid-cols-2 gap-4">
-              <div className="bg-gray-300 rounded-2xl h-40 w-48"></div>
-              <div className="bg-gray-400 rounded-2xl h-40 w-32 mt-8"></div>
+            <div className="flex gap-4 items-center">
+              <ImageWithFallback
+                src="https://images.unsplash.com/photo-1486406146926-c627a92ad1ab?auto=format&fit=crop&w=600&q=80"
+                alt="Find Your Next Opportunity"
+                className="rounded-2xl h-40 w-48 object-cover shadow-md border border-gray-100"
+              />
+              <ImageWithFallback
+                src="https://images.unsplash.com/photo-1573496359142-b8d87734a5a2?auto=format&fit=crop&w=600&q=80"
+                alt="Career Growth"
+                className="rounded-2xl h-32 w-32 mt-6 object-cover shadow-md border border-gray-100"
+              />
             </div>
           </div>
         </div>

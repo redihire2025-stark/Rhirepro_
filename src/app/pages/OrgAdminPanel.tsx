@@ -1,6 +1,6 @@
 import { useState, useEffect, useCallback, useRef } from "react";
 import { Link, useNavigate, useParams } from "react-router";
-import { supabase } from "../../lib/supabase";
+import { supabase, type RecruiterArticle } from "../../lib/supabase";
 import { useAuth } from "../../lib/auth-context";
 import logoImage from "../../logo/logo.png";
 import {
@@ -8,6 +8,8 @@ import {
   BarChart2, Plus, MoreVertical, Loader2, X, CheckCircle,
   Clock, ArrowLeft, LogOut, Shield, RefreshCw, Send,
   LayoutGrid, TrendingUp, CreditCard, Download, ArrowRight,
+  BookOpen, Edit3, Trash2, Eye, EyeOff, Tag, Image as ImageIcon,
+  Search, Filter, ExternalLink, FileText,
 } from "lucide-react";
 import { Button } from "../components/ui/button";
 import { Input } from "../components/ui/input";
@@ -140,6 +142,23 @@ export default function OrgAdminPanel() {
   // Filters
   const [jobSearch, setJobSearch] = useState("");
   const [appStatusFilter, setAppStatusFilter] = useState("all");
+
+  // Blog Management State
+  const [teamBlogs, setTeamBlogs] = useState<RecruiterArticle[]>([]);
+  const [blogModalOpen, setBlogModalOpen] = useState(false);
+  const [editingBlog, setEditingBlog] = useState<RecruiterArticle | null>(null);
+  const [blogTitle, setBlogTitle] = useState("");
+  const [blogCategory, setBlogCategory] = useState("Career Advice");
+  const [blogTags, setBlogTags] = useState("");
+  const [blogCoverUrl, setBlogCoverUrl] = useState("");
+  const [blogSummary, setBlogSummary] = useState("");
+  const [blogContent, setBlogContent] = useState("");
+  const [blogStatus, setBlogStatus] = useState<"Published" | "Draft">("Published");
+  const [blogSaving, setBlogSaving] = useState(false);
+  const [blogError, setBlogError] = useState("");
+  const [blogSearchQuery, setBlogSearchQuery] = useState("");
+  const [blogStatusFilter, setBlogStatusFilter] = useState<"all" | "Published" | "Draft">("all");
+  const [deleteBlogId, setDeleteBlogId] = useState<string | null>(null);
 
   // Recruiter Details & Keywords dialog
   const [selectedMember, setSelectedMember] = useState<OrgMember | null>(null);
@@ -353,6 +372,14 @@ export default function OrgAdminPanel() {
       }));
       setTeamApps(mappedApps);
 
+      // Fetch org-scoped blogs
+      const { data: blogsData } = await supabase
+        .from("recruiter_articles")
+        .select("*")
+        .in("recruiter_id", allIds)
+        .order("created_at", { ascending: false });
+      setTeamBlogs((blogsData || []) as RecruiterArticle[]);
+
       // Cache the loaded data
       orgCache = {
         members: membersList,
@@ -365,6 +392,152 @@ export default function OrgAdminPanel() {
       if (!silent) setDataLoading(false);
     }
   }, [user, recruiterProfile]);
+
+  // ── Blog Actions ───────────────────────────────────────────
+
+  const handleOpenCreateBlog = () => {
+    setEditingBlog(null);
+    setBlogTitle("");
+    setBlogCategory("Career Advice");
+    setBlogTags("");
+    setBlogCoverUrl("");
+    setBlogSummary("");
+    setBlogContent("");
+    setBlogStatus("Published");
+    setBlogError("");
+    setBlogModalOpen(true);
+  };
+
+  const handleOpenEditBlog = (blog: RecruiterArticle) => {
+    setEditingBlog(blog);
+    setBlogTitle(blog.title || "");
+    setBlogCategory(blog.category || "Career Advice");
+    setBlogTags(Array.isArray(blog.tags) ? blog.tags.join(", ") : "");
+    setBlogCoverUrl(blog.cover_image_url || "");
+    setBlogSummary(blog.summary || "");
+    setBlogContent(blog.content || "");
+    setBlogStatus(blog.status || "Published");
+    setBlogError("");
+    setBlogModalOpen(true);
+  };
+
+  const handleSaveBlog = async () => {
+    if (!blogTitle.trim()) {
+      setBlogError("Blog title is required.");
+      return;
+    }
+    if (!blogContent.trim()) {
+      setBlogError("Blog content is required.");
+      return;
+    }
+
+    setBlogSaving(true);
+    setBlogError("");
+
+    try {
+      const userTags = blogTags
+        .split(",")
+        .map(t => t.trim())
+        .filter(Boolean);
+      const tagsArray = Array.from(new Set(["Blog", ...userTags]));
+
+      const calcReadTime = Math.max(1, Math.ceil(blogContent.trim().split(/\s+/).length / 200));
+
+      let error: any = null;
+
+      // 1. Try full payload with org_id and tags
+      const fullPayload: Record<string, any> = {
+        title: blogTitle.trim(),
+        category: blogCategory,
+        tags: tagsArray,
+        summary: blogSummary.trim() || null,
+        content: blogContent.trim(),
+        cover_image_url: blogCoverUrl.trim() || null,
+        status: blogStatus,
+        read_time: calcReadTime,
+        recruiter_id: user?.id,
+        org_id: recruiterProfile?.org_id || user?.id,
+        published_at: blogStatus === "Published" ? new Date().toISOString() : null,
+      };
+
+      if (editingBlog) {
+        const res = await supabase
+          .from("recruiter_articles")
+          .update(fullPayload)
+          .eq("id", editingBlog.id);
+        error = res.error;
+      } else {
+        const res = await supabase
+          .from("recruiter_articles")
+          .insert([fullPayload]);
+        error = res.error;
+      }
+
+      // 2. If schema cache error for org_id or tags, fallback to baseline table fields
+      if (error && (error.message?.includes("org_id") || error.message?.includes("tags") || error.message?.includes("schema cache"))) {
+        const fallbackPayload: Record<string, any> = {
+          title: blogTitle.trim(),
+          category: blogCategory,
+          summary: blogSummary.trim() || (tagsArray.length > 0 ? `Tags: ${tagsArray.join(", ")}` : null),
+          content: blogContent.trim(),
+          cover_image_url: blogCoverUrl.trim() || null,
+          status: blogStatus,
+          read_time: calcReadTime,
+          recruiter_id: user?.id,
+          published_at: blogStatus === "Published" ? new Date().toISOString() : null,
+        };
+
+        if (editingBlog) {
+          const res = await supabase
+            .from("recruiter_articles")
+            .update(fallbackPayload)
+            .eq("id", editingBlog.id);
+          error = res.error;
+        } else {
+          const res = await supabase
+            .from("recruiter_articles")
+            .insert([fallbackPayload]);
+          error = res.error;
+        }
+      }
+
+      if (error) throw error;
+
+      setBlogModalOpen(false);
+      await loadData(true);
+    } catch (err: any) {
+      setBlogError(err.message || "Failed to save blog.");
+    } finally {
+      setBlogSaving(false);
+    }
+  };
+
+  const handleTogglePublishStatus = async (blog: RecruiterArticle) => {
+    const newStatus = blog.status === "Published" ? "Draft" : "Published";
+    try {
+      await supabase
+        .from("recruiter_articles")
+        .update({
+          status: newStatus,
+          published_at: newStatus === "Published" ? new Date().toISOString() : blog.published_at,
+        })
+        .eq("id", blog.id);
+
+      await loadData(true);
+    } catch (err) {
+      console.error("Failed to toggle status", err);
+    }
+  };
+
+  const handleDeleteBlog = async (blogId: string) => {
+    try {
+      await supabase.from("recruiter_articles").delete().eq("id", blogId);
+      setDeleteBlogId(null);
+      await loadData(true);
+    } catch (err) {
+      console.error("Failed to delete blog", err);
+    }
+  };
 
   useEffect(() => {
     if (user && recruiterProfile && isOrgAdmin) {
@@ -787,6 +960,9 @@ export default function OrgAdminPanel() {
             </TabsTrigger>
             <TabsTrigger value="subscription_usage" className="rounded-lg text-sm data-[state=active]:bg-[#FF2B2B] data-[state=active]:text-white">
               <CreditCard className="h-4 w-4 mr-1.5" /> Subscription Usage
+            </TabsTrigger>
+            <TabsTrigger value="blogs" className="rounded-lg text-sm data-[state=active]:bg-[#FF2B2B] data-[state=active]:text-white">
+              <BookOpen className="h-4 w-4 mr-1.5" /> Blogs
             </TabsTrigger>
           </TabsList>
 
@@ -1342,8 +1518,404 @@ export default function OrgAdminPanel() {
               </>
             )}
           </TabsContent>
+
+          {/* ── Blogs Tab ── */}
+          <TabsContent value="blogs">
+            <div className="bg-white rounded-2xl p-6 mb-6 shadow-sm flex flex-col md:flex-row md:items-center justify-between gap-4">
+              <div>
+                <h3 className="font-semibold text-lg text-[#3A1F1F]">Organization Blogs & Articles</h3>
+                <p className="text-sm text-[#8A8A8A] mt-0.5">
+                  Create, edit, publish, or draft articles visible to candidates and job seekers.
+                </p>
+              </div>
+              <Button
+                onClick={handleOpenCreateBlog}
+                className="bg-[#FF2B2B] hover:bg-[#e02525] rounded-full flex items-center gap-2 self-start md:self-auto"
+              >
+                <Plus className="h-4 w-4" /> Create Blog
+              </Button>
+            </div>
+
+            {/* Filter & Search Bar */}
+            <div className="bg-white rounded-2xl p-4 mb-6 shadow-sm flex flex-col sm:flex-row items-center justify-between gap-3">
+              <div className="flex items-center gap-2 w-full sm:w-auto">
+                <Button
+                  variant={blogStatusFilter === "all" ? "default" : "ghost"}
+                  size="sm"
+                  onClick={() => setBlogStatusFilter("all")}
+                  className={`rounded-full text-xs ${blogStatusFilter === "all" ? "bg-[#3A1F1F] text-white hover:bg-[#3A1F1F]" : "text-[#8A8A8A]"}`}
+                >
+                  All ({teamBlogs.length})
+                </Button>
+                <Button
+                  variant={blogStatusFilter === "Published" ? "default" : "ghost"}
+                  size="sm"
+                  onClick={() => setBlogStatusFilter("Published")}
+                  className={`rounded-full text-xs ${blogStatusFilter === "Published" ? "bg-green-600 text-white hover:bg-green-700" : "text-[#8A8A8A]"}`}
+                >
+                  Published ({teamBlogs.filter(b => b.status === "Published").length})
+                </Button>
+                <Button
+                  variant={blogStatusFilter === "Draft" ? "default" : "ghost"}
+                  size="sm"
+                  onClick={() => setBlogStatusFilter("Draft")}
+                  className={`rounded-full text-xs ${blogStatusFilter === "Draft" ? "bg-amber-600 text-white hover:bg-amber-700" : "text-[#8A8A8A]"}`}
+                >
+                  Drafts ({teamBlogs.filter(b => b.status === "Draft").length})
+                </Button>
+              </div>
+
+              <div className="relative w-full sm:w-64">
+                <Search className="h-4 w-4 absolute left-3 top-1/2 -translate-y-1/2 text-[#8A8A8A]" />
+                <Input
+                  type="text"
+                  placeholder="Search title, category, tags..."
+                  value={blogSearchQuery}
+                  onChange={e => setBlogSearchQuery(e.target.value)}
+                  className="pl-9 text-xs rounded-full bg-[#F6F6F6] border-gray-200"
+                />
+              </div>
+            </div>
+
+            {/* Blogs Table */}
+            {dataLoading ? (
+              <LoadingCard />
+            ) : (() => {
+              const filteredBlogs = teamBlogs.filter(blog => {
+                const matchesStatus = blogStatusFilter === "all" || blog.status === blogStatusFilter;
+                const q = blogSearchQuery.toLowerCase().trim();
+                const matchesSearch = !q ||
+                  blog.title.toLowerCase().includes(q) ||
+                  blog.category.toLowerCase().includes(q) ||
+                  (Array.isArray(blog.tags) && blog.tags.some(t => t.toLowerCase().includes(q)));
+                return matchesStatus && matchesSearch;
+              });
+
+              if (filteredBlogs.length === 0) {
+                return (
+                  <div className="bg-white rounded-2xl p-12 text-center shadow-sm">
+                    <BookOpen className="h-12 w-12 text-gray-300 mx-auto mb-3" />
+                    <h4 className="font-bold text-[#3A1F1F] mb-1">No blogs found</h4>
+                    <p className="text-xs text-[#8A8A8A] max-w-sm mx-auto mb-4">
+                      {blogSearchQuery || blogStatusFilter !== "all"
+                        ? "No blogs match your filter criteria."
+                        : "Your organization has not created any blogs yet."}
+                    </p>
+                    <Button
+                      onClick={handleOpenCreateBlog}
+                      className="bg-[#FF2B2B] hover:bg-[#e02525] rounded-full text-xs"
+                    >
+                      <Plus className="h-4 w-4 mr-1.5" /> Create First Blog
+                    </Button>
+                  </div>
+                );
+              }
+
+              return (
+                <div className="bg-white rounded-2xl shadow-sm overflow-hidden mb-6">
+                  <div className="overflow-x-auto">
+                    <table className="w-full">
+                      <thead>
+                        <tr className="bg-[#F6F6F6] text-xs text-[#8A8A8A] font-medium uppercase tracking-wide">
+                          <th className="text-left px-6 py-3">Blog</th>
+                          <th className="text-left px-6 py-3">Category</th>
+                          <th className="text-left px-6 py-3">Tags</th>
+                          <th className="text-left px-6 py-3">Status</th>
+                          <th className="text-left px-6 py-3">Date</th>
+                          <th className="text-right px-6 py-3">Actions</th>
+                        </tr>
+                      </thead>
+                      <tbody className="divide-y divide-gray-50">
+                        {filteredBlogs.map(blog => (
+                          <tr key={blog.id} className="hover:bg-[#FFF8F8] transition-colors">
+                            <td className="px-6 py-4">
+                              <div className="flex items-center gap-3">
+                                {blog.cover_image_url ? (
+                                  <img
+                                    src={blog.cover_image_url}
+                                    alt=""
+                                    className="w-12 h-12 rounded-xl object-cover border border-gray-100 flex-shrink-0"
+                                  />
+                                ) : (
+                                  <div className="w-12 h-12 rounded-xl bg-[#F6F6F6] flex items-center justify-center text-gray-400 flex-shrink-0">
+                                    <ImageIcon className="h-5 w-5" />
+                                  </div>
+                                )}
+                                <div className="max-w-xs sm:max-w-md">
+                                  <p className="text-sm font-semibold text-[#3A1F1F] line-clamp-1">
+                                    {blog.title}
+                                  </p>
+                                  {blog.summary && (
+                                    <p className="text-xs text-[#8A8A8A] line-clamp-1 mt-0.5">
+                                      {blog.summary}
+                                    </p>
+                                  )}
+                                </div>
+                              </div>
+                            </td>
+                            <td className="px-6 py-4">
+                              <Badge variant="outline" className="text-xs font-normal text-[#3A1F1F] border-gray-200 bg-gray-50">
+                                {blog.category}
+                              </Badge>
+                            </td>
+                            <td className="px-6 py-4">
+                              <div className="flex flex-wrap gap-1 max-w-xs">
+                                {Array.isArray(blog.tags) && blog.tags.length > 0 ? (
+                                  blog.tags.map((tag, idx) => (
+                                    <span key={idx} className="text-[10px] bg-red-50 text-[#FF2B2B] px-2 py-0.5 rounded-full font-medium">
+                                      #{tag}
+                                    </span>
+                                  ))
+                                ) : (
+                                  <span className="text-xs text-[#8A8A8A]">—</span>
+                                )}
+                              </div>
+                            </td>
+                            <td className="px-6 py-4">
+                              {blog.status === "Published" ? (
+                                <Badge className="bg-green-100 text-green-700 border-green-200 text-xs gap-1">
+                                  <Eye className="h-3 w-3" /> Published
+                                </Badge>
+                              ) : (
+                                <Badge className="bg-amber-100 text-amber-700 border-amber-200 text-xs gap-1">
+                                  <EyeOff className="h-3 w-3" /> Draft
+                                </Badge>
+                              )}
+                            </td>
+                            <td className="px-6 py-4 text-xs text-[#8A8A8A]">
+                              {fmtDate(blog.published_at || blog.created_at)}
+                            </td>
+                            <td className="px-6 py-4 text-right">
+                              <DropdownMenu>
+                                <DropdownMenuTrigger className="inline-flex h-8 w-8 items-center justify-center rounded-md hover:bg-accent">
+                                  <MoreVertical className="h-4 w-4 text-[#8A8A8A]" />
+                                </DropdownMenuTrigger>
+                                <DropdownMenuContent align="end" className="w-44">
+                                  <DropdownMenuItem onClick={() => handleOpenEditBlog(blog)}>
+                                    <Edit3 className="h-4 w-4 mr-2" /> Edit Blog
+                                  </DropdownMenuItem>
+                                  <DropdownMenuItem onClick={() => handleTogglePublishStatus(blog)}>
+                                    {blog.status === "Published" ? (
+                                      <><EyeOff className="h-4 w-4 mr-2 text-amber-600" /> Save as Draft</>
+                                    ) : (
+                                      <><Eye className="h-4 w-4 mr-2 text-green-600" /> Publish Blog</>
+                                    )}
+                                  </DropdownMenuItem>
+                                  {blog.status === "Published" && (
+                                    <DropdownMenuItem onClick={() => window.open(`/blog/${blog.id}`, "_blank")}>
+                                      <ExternalLink className="h-4 w-4 mr-2 text-blue-500" /> View Public Page
+                                    </DropdownMenuItem>
+                                  )}
+                                  <DropdownMenuSeparator />
+                                  <DropdownMenuItem
+                                    onClick={() => setDeleteBlogId(blog.id)}
+                                    className="text-red-500 focus:text-red-600"
+                                  >
+                                    <Trash2 className="h-4 w-4 mr-2" /> Delete Blog
+                                  </DropdownMenuItem>
+                                </DropdownMenuContent>
+                              </DropdownMenu>
+                            </td>
+                          </tr>
+                        ))}
+                      </tbody>
+                    </table>
+                  </div>
+                </div>
+              );
+            })()}
+          </TabsContent>
         </Tabs>
       </div>
+
+      {/* Create / Edit Blog Dialog */}
+      <Dialog open={blogModalOpen} onOpenChange={setBlogModalOpen}>
+        <DialogContent className="max-w-2xl max-h-[90vh] overflow-y-auto">
+          <DialogHeader>
+            <DialogTitle className="flex items-center gap-2 text-[#3A1F1F]">
+              <BookOpen className="h-5 w-5 text-[#FF2B2B]" />
+              {editingBlog ? "Edit Blog" : "Create New Blog"}
+            </DialogTitle>
+          </DialogHeader>
+
+          <div className="space-y-4 pt-2">
+            {blogError && (
+              <div className="bg-red-50 text-red-600 text-xs p-3 rounded-xl border border-red-100">
+                {blogError}
+              </div>
+            )}
+
+            <div>
+              <label className="text-xs font-semibold text-[#3A1F1F] block mb-1">
+                Blog Title <span className="text-red-500">*</span>
+              </label>
+              <Input
+                type="text"
+                value={blogTitle}
+                onChange={e => setBlogTitle(e.target.value)}
+                placeholder="e.g., 10 Strategies for Hiring Top Software Engineers"
+                className="rounded-xl bg-[#F6F6F6] border-gray-200"
+              />
+            </div>
+
+            <div className="grid grid-cols-1 sm:grid-cols-2 gap-4">
+              <div>
+                <label className="text-xs font-semibold text-[#3A1F1F] block mb-1">
+                  Category
+                </label>
+                <select
+                  value={blogCategory}
+                  onChange={e => setBlogCategory(e.target.value)}
+                  className="w-full h-10 px-3 rounded-xl bg-[#F6F6F6] border border-gray-200 text-xs font-medium text-[#3A1F1F] focus:outline-none focus:ring-2 focus:ring-[#FF2B2B]"
+                >
+                  <option value="Career Advice">Career Advice</option>
+                  <option value="Hiring Trends">Hiring Trends</option>
+                  <option value="Interview Tips">Interview Tips</option>
+                  <option value="Employer Tips">Employer Tips</option>
+                  <option value="Work Trends">Work Trends</option>
+                  <option value="Industry Insights">Industry Insights</option>
+                  <option value="Technology & Product">Technology & Product</option>
+                </select>
+              </div>
+
+              <div>
+                <label className="text-xs font-semibold text-[#3A1F1F] block mb-1">
+                  Tags <span className="text-[#8A8A8A] font-normal">(comma-separated)</span>
+                </label>
+                <Input
+                  type="text"
+                  value={blogTags}
+                  onChange={e => setBlogTags(e.target.value)}
+                  placeholder="e.g., hiring, engineering, recruitment"
+                  className="rounded-xl bg-[#F6F6F6] border-gray-200 text-xs"
+                />
+              </div>
+            </div>
+
+            <div>
+              <label className="text-xs font-semibold text-[#3A1F1F] block mb-1">
+                Cover Image URL <span className="text-[#8A8A8A] font-normal">(optional)</span>
+              </label>
+              <Input
+                type="text"
+                value={blogCoverUrl}
+                onChange={e => setBlogCoverUrl(e.target.value)}
+                placeholder="https://images.unsplash.com/..."
+                className="rounded-xl bg-[#F6F6F6] border-gray-200 text-xs"
+              />
+            </div>
+
+            <div>
+              <label className="text-xs font-semibold text-[#3A1F1F] block mb-1">
+                Short Summary / Excerpt <span className="text-[#8A8A8A] font-normal">(optional)</span>
+              </label>
+              <textarea
+                rows={2}
+                value={blogSummary}
+                onChange={e => setBlogSummary(e.target.value)}
+                placeholder="Brief 1-2 sentence description summarizing the main takeaways..."
+                className="w-full p-3 rounded-xl bg-[#F6F6F6] border border-gray-200 text-xs text-[#3A1F1F] focus:outline-none focus:ring-2 focus:ring-[#FF2B2B]"
+              />
+            </div>
+
+            <div>
+              <label className="text-xs font-semibold text-[#3A1F1F] block mb-1">
+                Blog Content <span className="text-red-500">*</span>
+              </label>
+              <textarea
+                rows={8}
+                value={blogContent}
+                onChange={e => setBlogContent(e.target.value)}
+                placeholder="Write your detailed blog content here..."
+                className="w-full p-3 rounded-xl bg-[#F6F6F6] border border-gray-200 text-xs text-[#3A1F1F] leading-relaxed focus:outline-none focus:ring-2 focus:ring-[#FF2B2B]"
+              />
+            </div>
+
+            <div>
+              <label className="text-xs font-semibold text-[#3A1F1F] block mb-1.5">
+                Publication Status
+              </label>
+              <div className="flex items-center gap-4">
+                <label className="flex items-center gap-2 cursor-pointer text-xs font-medium text-[#3A1F1F]">
+                  <input
+                    type="radio"
+                    name="blogStatus"
+                    value="Published"
+                    checked={blogStatus === "Published"}
+                    onChange={() => setBlogStatus("Published")}
+                    className="accent-[#FF2B2B]"
+                  />
+                  Publish Immediately
+                </label>
+                <label className="flex items-center gap-2 cursor-pointer text-xs font-medium text-[#3A1F1F]">
+                  <input
+                    type="radio"
+                    name="blogStatus"
+                    value="Draft"
+                    checked={blogStatus === "Draft"}
+                    onChange={() => setBlogStatus("Draft")}
+                    className="accent-[#FF2B2B]"
+                  />
+                  Save as Draft
+                </label>
+              </div>
+            </div>
+
+            <div className="flex gap-3 pt-4 border-t border-gray-100">
+              <Button
+                variant="outline"
+                className="flex-1 rounded-full"
+                onClick={() => setBlogModalOpen(false)}
+                disabled={blogSaving}
+              >
+                Cancel
+              </Button>
+              <Button
+                className="flex-1 bg-[#FF2B2B] hover:bg-[#e02525] rounded-full"
+                onClick={handleSaveBlog}
+                disabled={blogSaving}
+              >
+                {blogSaving ? (
+                  <><Loader2 className="h-4 w-4 mr-2 animate-spin" /> Saving…</>
+                ) : (
+                  editingBlog ? "Update Blog" : (blogStatus === "Published" ? "Publish Blog" : "Save Draft")
+                )}
+              </Button>
+            </div>
+          </div>
+        </DialogContent>
+      </Dialog>
+
+      {/* Delete Blog Confirmation Dialog */}
+      <Dialog open={!!deleteBlogId} onOpenChange={() => setDeleteBlogId(null)}>
+        <DialogContent className="max-w-md">
+          <DialogHeader>
+            <DialogTitle className="text-[#3A1F1F] flex items-center gap-2">
+              <Trash2 className="h-5 w-5 text-red-500" /> Delete Blog
+            </DialogTitle>
+          </DialogHeader>
+          <div className="py-3">
+            <p className="text-sm text-[#8A8A8A]">
+              Are you sure you want to delete this blog? This action cannot be undone.
+            </p>
+          </div>
+          <div className="flex gap-3 pt-2">
+            <Button
+              variant="outline"
+              className="flex-1 rounded-full"
+              onClick={() => setDeleteBlogId(null)}
+            >
+              Cancel
+            </Button>
+            <Button
+              className="flex-1 bg-red-600 hover:bg-red-700 text-white rounded-full"
+              onClick={() => deleteBlogId && handleDeleteBlog(deleteBlogId)}
+            >
+              Confirm Delete
+            </Button>
+          </div>
+        </DialogContent>
+      </Dialog>
 
 
 

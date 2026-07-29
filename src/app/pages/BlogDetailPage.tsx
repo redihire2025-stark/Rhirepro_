@@ -320,6 +320,8 @@ export default function BlogDetailPage() {
     author: "RhirePro Recruiter",
     readTime: `${databaseArticle.read_time} min read`,
     intro: databaseArticle.summary || contentParagraphs[0] || databaseArticle.content,
+    coverUrl: databaseArticle.cover_image_url,
+    tags: Array.isArray(databaseArticle.tags) ? databaseArticle.tags : [],
     sections: (contentParagraphs.length > 1 ? contentParagraphs.slice(1) : contentParagraphs).map((paragraph, index) => ({
       heading: index === 0 ? "Article" : `Insight ${index + 1}`,
       content: paragraph,
@@ -465,9 +467,16 @@ export default function BlogDetailPage() {
             </span>
           </div>
           <div className="max-w-3xl">
-            <span className="inline-block bg-[#FF2B2B] text-white px-4 py-1 rounded-full text-sm mb-4">
-              {article.category.toUpperCase()}
-            </span>
+            <div className="flex flex-wrap gap-2 items-center mb-4">
+              <span className="inline-block bg-[#FF2B2B] text-white px-4 py-1 rounded-full text-sm font-semibold">
+                {article.category.toUpperCase()}
+              </span>
+              {Array.isArray((article as any).tags) && (article as any).tags.map((t: string, i: number) => (
+                <span key={i} className="bg-red-50 text-[#FF2B2B] border border-red-100 px-3 py-1 rounded-full text-xs font-medium">
+                  #{t}
+                </span>
+              ))}
+            </div>
             <h1 className="text-4xl md:text-5xl font-bold text-[#3A1F1F] mb-6 leading-tight">
               {article.title}
             </h1>
@@ -495,6 +504,15 @@ export default function BlogDetailPage() {
           <div className="grid lg:grid-cols-3 gap-8">
             {/* Main Article */}
             <div className="lg:col-span-2 space-y-6">
+              {(article as any).coverUrl && (
+                <div className="bg-white rounded-2xl overflow-hidden shadow-md">
+                  <img
+                    src={(article as any).coverUrl}
+                    alt={article.title}
+                    className="w-full max-h-[420px] object-cover"
+                  />
+                </div>
+              )}
               {/* Intro */}
               <div className="bg-white rounded-2xl p-8 shadow-md">
                 <p className="text-lg text-[#8A8A8A] leading-relaxed border-l-4 border-[#FF2B2B] pl-6 italic">
