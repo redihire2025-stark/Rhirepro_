@@ -10,6 +10,7 @@ import { formatJobSalary, isJobVisibleToSeekers } from "../../lib/jobs";
 import { isIndianLocation } from "../../lib/locationData";
 import { useAuth } from "../../lib/auth-context";
 import { SafeHtml } from "../components/ui/safe-html";
+import { ImageWithFallback } from "../components/figma/ImageWithFallback";
 
 function parseCompanyDescription(text: string | null | undefined): { aboutCompany: string; companyInfo: string } {
   const val = (text || "").trim();
@@ -275,9 +276,17 @@ export default function JobDetailPage() {
                 View detailed information about this position's requirements and how to apply. Take the next step in your career today.
               </p>
             </div>
-            <div className="grid grid-cols-2 gap-4">
-              <div className="bg-gray-300 rounded-2xl h-48 w-56"></div>
-              <div className="bg-gray-400 rounded-2xl h-40 w-40 mt-8"></div>
+            <div className="flex gap-4 items-center">
+              <ImageWithFallback
+                src="https://images.unsplash.com/photo-1551836022-d5d88e9218df?auto=format&fit=crop&w=600&q=80"
+                alt="Job Overview"
+                className="rounded-2xl h-44 w-52 object-cover shadow-md border border-gray-100"
+              />
+              <ImageWithFallback
+                src="https://images.unsplash.com/photo-1522071820081-009f0129c71c?auto=format&fit=crop&w=600&q=80"
+                alt="Team Workspace"
+                className="rounded-2xl h-36 w-36 mt-6 object-cover shadow-md border border-gray-100"
+              />
             </div>
           </div>
         </div>
