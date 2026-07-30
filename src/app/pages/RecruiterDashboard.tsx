@@ -18,6 +18,7 @@ import { PLANS, FREE_DAILY_POST_LIMIT, getPlanById, validatePromo, getPlanPriceB
 import { INDIA_CITY_OPTIONS } from "../../lib/locationData";
 import { SEARCH_SUGGESTION_DATASET, SKILL_OPTIONS, getSkillSearchTerms, skillsMatch, fuzzyMatch } from "../../lib/skillKeywords";
 import { useAuth } from "../../lib/auth-context";
+import { sendRecruiterCandidateEmail } from "../../lib/email";
 import logoImage from "../../logo/logo.png";
 import {
   Bell, LogOut, Plus, Edit, Pause, Trash2, User, Upload, Building2,
@@ -27,7 +28,7 @@ import {
   MessageSquare, Video, Award, BookOpen, Globe, Linkedin, Share2,
   ArrowRight, Target, Zap, RefreshCw, MoreVertical, ThumbsUp, ThumbsDown, ExternalLink, Loader2,
   CreditCard, Tag, ShieldCheck, Crown, Check, Minimize2, ShieldAlert,
-  Menu, X,
+  Menu, X, Send,
 } from "lucide-react";
 import { Button } from "../components/ui/button";
 import {
@@ -147,6 +148,41 @@ const createEmptyArticleDraft = (): RecruiterArticleDraft => ({
 });
 
 const toArticleCardText = (article: RecruiterArticle) => article.summary || article.content;
+
+export type AppWithProfile = Application & {
+  profiles?: DBCandidate | null;
+  profile?: DBCandidate | null;
+  candidate?: DBCandidate | null;
+  job?: Job | null;
+  jobs?: Job | null;
+  rating?: number;
+  rating_reason?: string;
+  cv_match_score?: number;
+  interview_date?: string;
+  interview_time?: string;
+  interview_mode?: string;
+  interview_link?: string;
+  interview_location?: string;
+  interview_message?: string;
+  feedback?: string;
+  rating_skills?: number;
+  rating_experience?: number;
+  rating_communication?: number;
+  rating_culture?: number;
+  offer_ctc?: string;
+  offer_designation?: string;
+  offer_joining_date?: string;
+  offer_letter_url?: string;
+  offer_notes?: string;
+  offer_status?: string;
+  rejection_reason?: string;
+  rejection_stage?: string;
+  rejection_notes?: string;
+  rejection_date?: string;
+  applicant_name?: string;
+  applicant_email?: string;
+  applicant_phone?: string;
+};
 
 function LocationAutocomplete({
   value,
@@ -1072,6 +1108,7 @@ export default function RecruiterDashboard() {
     if (path.includes("applicants")) return "applicants";
     if (path.includes("company-profile")) return "company-profile";
     if (path.includes("search-candidates")) return "search-candidates";
+    if (path.includes("emailing")) return "emailing";
     if (path.includes("analytics") || path.includes("articles")) return "analytics";
     if (path.includes("post-job")) return "post-job";
     if (path.includes("plans")) return "plans";
@@ -1083,6 +1120,7 @@ export default function RecruiterDashboard() {
     { id: "post-job", label: "Post Job", path: "/recruiter/dashboard/post-job" },
     { id: "manage-jobs", label: "Manage Jobs", path: "/recruiter/dashboard/manage-jobs" },
     { id: "search-candidates", label: "Search Candidates", path: "/recruiter/dashboard/search-candidates" },
+    { id: "emailing", label: "Emailing", path: "/recruiter/dashboard/emailing" },
     { id: "applicants", label: "Applicants", path: "/recruiter/dashboard/applicants" },
     { id: "analytics", label: "Analytics", path: "/recruiter/dashboard/analytics" },
     { id: "company-profile", label: "Company Profile", path: "/recruiter/dashboard/company-profile" },
@@ -1092,7 +1130,7 @@ export default function RecruiterDashboard() {
 
   // Same items, grouped into dropdown categories so the header nav doesn't overflow.
   const navGroups: { id: string; label: string; items: typeof navItems }[] = [
-    { id: "hiring", label: "Hiring", items: navItems.filter(i => ["post-job", "manage-jobs", "search-candidates", "applicants"].includes(i.id)) },
+    { id: "hiring", label: "Hiring", items: navItems.filter(i => ["post-job", "manage-jobs", "search-candidates", "emailing", "applicants"].includes(i.id)) },
     { id: "insights", label: "Insights", items: navItems.filter(i => i.id === "analytics") },
     { id: "company", label: "Company", items: navItems.filter(i => ["company-profile", "plans"].includes(i.id)) },
   ];
@@ -1364,6 +1402,7 @@ export default function RecruiterDashboard() {
         <Route path="post-job" element={<PostJobPage />} />
         <Route path="manage-jobs" element={<ManageJobsPage />} />
         <Route path="search-candidates" element={<SearchCandidatesPage />} />
+        <Route path="emailing" element={<EmailingPage />} />
         <Route path="applicants" element={<ApplicantsPage />} />
         <Route path="applicants/:applicantId/profile" element={<ApplicantProfilePage />} />
         <Route path="candidates/:candidateId/profile" element={<ApplicantProfilePage />} />
@@ -2990,7 +3029,18 @@ function ManageJobsPage() {
 
   const toggleStatus = async (id: string, currentStatus: string) => {
     const newStatus = currentStatus === "Active" ? "Paused" : "Active";
-    await supabase.from("jobs").update({ status: newStatus }).eq("id", id);
+    let query = supabase.from("jobs").update({ status: newStatus }).eq("id", id);
+    if (recruiterProfile?.id) {
+      query = query.eq("recruiter_id", recruiterProfile.id);
+    }
+    const { error } = await query;
+
+    if (error) {
+      console.error("Failed to toggle job status:", error.message);
+      alert(`Unable to update job status: ${error.message}`);
+      return;
+    }
+
     setJobs(prev => prev.map(j => j.id === id ? { ...j, status: newStatus as "Active" | "Paused" | "Closed" | "Expired" } : j));
   };
 
@@ -3043,7 +3093,18 @@ function ManageJobsPage() {
 
   const closeJob = async (id: string) => {
     if (!confirm("Close this job? Applicant history will stay attached to this job.")) return;
-    await supabase.from("jobs").update({ status: "Closed" }).eq("id", id);
+    let query = supabase.from("jobs").update({ status: "Closed" }).eq("id", id);
+    if (recruiterProfile?.id) {
+      query = query.eq("recruiter_id", recruiterProfile.id);
+    }
+    const { error } = await query;
+
+    if (error) {
+      console.error("Failed to close job:", error.message);
+      alert(`Unable to close job: ${error.message}`);
+      return;
+    }
+
     setJobs(prev => prev.map(j => j.id === id ? { ...j, status: "Closed" } : j));
   };
 
@@ -4016,6 +4077,35 @@ const ALL_ROLE_AND_DEPT_OPTIONS = Array.from(
   new Set([...DESIGNATION_OPTIONS, ...DEPARTMENT_OPTIONS])
 ).sort((a, b) => a.localeCompare(b));
 
+function getCandidateDisplayName(profile?: Profile | DBCandidate | null) {
+  if (!profile) return "Unknown Candidate";
+
+  const firstName = profile.first_name?.trim() || "";
+  const lastName = profile.last_name?.trim() || "";
+  const splitName = `${firstName} ${lastName}`.trim();
+  if (splitName) return splitName;
+
+  const googleName = ((profile as any).full_name || (profile as any).name || "").trim();
+  if (googleName) return googleName;
+
+  const emailName = profile.email?.split("@")[0]?.replace(/[._-]+/g, " ").trim() || "";
+  return emailName || "Unknown Candidate";
+}
+
+function getCandidateInitials(name: string, fallback = "UC") {
+  return name
+    .split(" ")
+    .filter(Boolean)
+    .map(part => part[0])
+    .join("")
+    .toUpperCase()
+    .slice(0, 2) || fallback;
+}
+
+function getResumeUrl(applicant: Pick<Application, "resume_url"> & { profile?: Pick<Profile, "resume_url"> | null }): string | null {
+  return applicant.profile?.resume_url || applicant.resume_url || null;
+}
+
 type RecruiterAppliedJdSearchApplication = {
   profile: DBCandidate | null;
   job: Job | null;
@@ -4579,7 +4669,7 @@ function SearchCandidatesPage() {
             const { data: hydratedData } = await supabase
               .from("profiles")
               .select(`
-                id, first_name, last_name, email, avatar_url, headline, current_title, current_company, location, experience_type, total_experience, skills, about,
+                id, first_name, last_name, avatar_url, headline, current_title, current_company, location, experience_type, total_experience, skills, about,
                 work_experience(id, company, title, start_date, end_date, description, is_current),
                 education(id, institution, degree, field, start_year, end_year)
               `)
@@ -4602,7 +4692,7 @@ function SearchCandidatesPage() {
         let q = supabase
           .from("profiles")
           .select(`
-            id, first_name, last_name, email, avatar_url, headline, current_title, current_company, location, experience_type, total_experience, skills, about,
+            id, first_name, last_name, avatar_url, headline, current_title, current_company, location, experience_type, total_experience, skills, about,
             work_experience(id, company, title, start_date, end_date, description, is_current),
             education(id, institution, degree, field, start_year, end_year)
           `);
@@ -4663,7 +4753,7 @@ function SearchCandidatesPage() {
             const { data: skillMatches } = await supabase
               .from("profiles")
               .select(`
-                id, first_name, last_name, email, avatar_url, headline, current_title, current_company, location, experience_type, total_experience, skills, about,
+                id, first_name, last_name, avatar_url, headline, current_title, current_company, location, experience_type, total_experience, skills, about,
                 work_experience(id, company, title, start_date, end_date, description, is_current),
                 education(id, institution, degree, field, start_year, end_year)
               `)
@@ -4679,7 +4769,7 @@ function SearchCandidatesPage() {
           let broadSkillQuery = supabase
             .from("profiles")
             .select(`
-              id, first_name, last_name, email, avatar_url, headline, current_title, current_company, location, experience_type, total_experience, skills, about,
+              id, first_name, last_name, avatar_url, headline, current_title, current_company, location, experience_type, total_experience, skills, about,
               work_experience(id, company, title, start_date, end_date, description, is_current),
               education(id, institution, degree, field, start_year, end_year)
             `);
@@ -5501,40 +5591,1637 @@ function SearchCandidatesPage() {
   );
 }
 
-// ─── Applicants Page ──────────────────────────────────────────────────────────
+// ─── Emailing Page (Full Search Engine + Job Invitation Broadcast + RhirePro Branded Emails) ───
 
-interface AppWithProfile extends Application {
-  profile: Profile & { work_experience: WorkExperience[]; education: EduType[] };
-  job: Job;
-}
+function EmailingPage() {
+  const { recruiterProfile } = useAuth();
+  const navigate = useNavigate();
 
-function getCandidateDisplayName(profile?: Profile | null) {
-  if (!profile) return "Unknown Candidate";
+  // ── Search State (Matches Search Candidates 100%) ──
+  const [keywords, setKeywords] = useState("");
+  const [location, setLocation] = useState("");
+  const [keywordSearchEnabled, setKeywordSearchEnabled] = useState(true);
+  const [booleanSearchEnabled, setBooleanSearchEnabled] = useState(false);
+  const [highlightedIndex, setHighlightedIndex] = useState(-1);
+  const keywordInputRef = useRef<HTMLInputElement>(null);
+  const dropdownContainerRef = useRef<HTMLDivElement>(null);
+  const searchKeywordRef = useRef<HTMLDivElement>(null);
 
-  const firstName = profile.first_name?.trim() || "";
-  const lastName = profile.last_name?.trim() || "";
-  const splitName = `${firstName} ${lastName}`.trim();
-  if (splitName) return splitName;
+  const [expMin, setExpMin] = useState("");
+  const [expMax, setExpMax] = useState("");
+  const [curSalMin, setCurSalMin] = useState("");
+  const [curSalMax, setCurSalMax] = useState("");
+  const [expSalMax, setExpSalMax] = useState("");
+  const [noticePeriod, setNoticePeriod] = useState("");
+  const [education, setEducation] = useState("");
+  const [industry, setIndustry] = useState("");
+  const [currentCompany, setCurrentCompany] = useState("");
+  const [expType, setExpType] = useState("");
+  const [skillTags, setSkillTags] = useState<string[]>([]);
+  const [skillInput, setSkillInput] = useState("");
+  const [skillSuggestionsOpen, setSkillSuggestionsOpen] = useState(false);
 
-  const googleName = ((profile as any).full_name || (profile as any).name || "").trim();
-  if (googleName) return googleName;
+  const [results, setResults] = useState<DBCandidate[]>([]);
+  const [searching, setSearching] = useState(false);
+  const [searched, setSearched] = useState(false);
+  const [sortBy, setSortBy] = useState("relevant");
+  const [profileModal, setProfileModal] = useState<DBCandidate | null>(null);
 
-  const emailName = profile.email?.split("@")[0]?.replace(/[._-]+/g, " ").trim() || "";
-  return emailName || "Unknown Candidate";
-}
+  // ── Recruiter Posted Jobs State ──
+  const [recruiterJobs, setRecruiterJobs] = useState<Job[]>([]);
+  const [selectedJobId, setSelectedJobId] = useState<string>("none");
 
-function getCandidateInitials(name: string, fallback = "UC") {
-  return name
-    .split(" ")
-    .filter(Boolean)
-    .map(part => part[0])
-    .join("")
-    .toUpperCase()
-    .slice(0, 2) || fallback;
-}
+  // Fetch recruiter's posted jobs
+  useEffect(() => {
+    if (!recruiterProfile?.id) return;
+    supabase
+      .from("jobs")
+      .select("*")
+      .eq("recruiter_id", recruiterProfile.id)
+      .order("created_at", { ascending: false })
+      .then(({ data }) => {
+        if (data) setRecruiterJobs(data);
+      });
+  }, [recruiterProfile?.id]);
 
-function getResumeUrl(applicant: Pick<Application, "resume_url"> & { profile?: Pick<Profile, "resume_url"> | null }): string | null {
-  return applicant.profile?.resume_url || applicant.resume_url || null;
+  // Selected job object reference
+  const currentSelectedJob = useMemo(() => {
+    return recruiterJobs.find(j => j.id === selectedJobId) || null;
+  }, [recruiterJobs, selectedJobId]);
+
+  // ── Multi-Candidate Selection & Email Composer State ──
+  const [selectedCandidatesMap, setSelectedCandidatesMap] = useState<Map<string, DBCandidate>>(new Map());
+
+  const selectedCandidates = useMemo(() => {
+    return Array.from(selectedCandidatesMap.values());
+  }, [selectedCandidatesMap]);
+
+  const selectedCandidateIds = useMemo(() => {
+    return new Set(selectedCandidatesMap.keys());
+  }, [selectedCandidatesMap]);
+  const [isComposerOpen, setIsComposerOpen] = useState(false);
+  const [emailTemplateKey, setEmailTemplateKey] = useState<string>("job_invitation");
+  const [subject, setSubject] = useState("");
+  const [body, setBody] = useState("");
+  const [composerTab, setComposerTab] = useState<"edit" | "preview">("edit");
+  const [sendingEmail, setSendingEmail] = useState(false);
+  const [toastMessage, setToastMessage] = useState<string | null>(null);
+
+  // Helpers
+  const parseExp = (c: DBCandidate) => {
+    if (c.total_experience) {
+      const m = c.total_experience.match(/(\d+)/);
+      if (m) return parseInt(m[1]);
+    }
+    const exps = c.work_experience || [];
+    if (exps.length === 0) return 0;
+    let totalMonths = 0;
+    const now = new Date();
+    exps.forEach(exp => {
+      const parseDate = (s: string | null | undefined): Date => {
+        if (!s) return now;
+        if (s.toLowerCase() === "present") return now;
+        const d = new Date(s);
+        return isNaN(d.getTime()) ? now : d;
+      };
+      const start = parseDate(exp.start_date);
+      const end = exp.is_current ? now : parseDate(exp.end_date);
+      totalMonths += Math.max(0, (end.getFullYear() - start.getFullYear()) * 12 + (end.getMonth() - start.getMonth()));
+    });
+    return Math.floor(totalMonths / 12);
+  };
+
+  const parseSal = (c: DBCandidate) => {
+    const salStr = (c as any).salary || (c as any).current_salary || (c as any).expected_salary || (c as any).current_ctc || (c as any).expected_ctc || "";
+    if (salStr) {
+      const m = String(salStr).match(/(\d+\.?\d*)/);
+      if (m) return parseFloat(m[1]);
+    }
+    return parseExp(c) * 3;
+  };
+
+  const parseNotice = (s: string | null) => {
+    if (!s) return 999;
+    const lower = s.toLowerCase();
+    if (lower.includes("immediate") || lower === "0") return 0;
+    const monthMatch = lower.match(/(\d+)\s*month/);
+    if (monthMatch) return parseInt(monthMatch[1]) * 30;
+    const dayMatch = lower.match(/(\d+)/);
+    return dayMatch ? parseInt(dayMatch[1]) : 999;
+  };
+
+  const parseSearchTokens = (input: string): { tokens: string[]; isOr: boolean; notTokens: string[] } => {
+    const trimmed = input.trim();
+    if (!trimmed) return { tokens: [], isOr: false, notTokens: [] };
+
+    if (booleanSearchEnabled) {
+      const cleanInput = trimmed.replace(/,/g, " ");
+      const notTokens: string[] = [];
+      const notParts = cleanInput.split(/\bnot\b/i);
+      const mainPart = notParts[0];
+      for (let i = 1; i < notParts.length; i++) {
+        const notWord = notParts[i].trim().split(/\s+/)[0];
+        if (notWord) notTokens.push(notWord.toLowerCase());
+      }
+
+      const isOr = /\bor\b/i.test(mainPart);
+      let tokens: string[] = [];
+      if (isOr) {
+        tokens = mainPart
+          .split(/\bor\b/i)
+          .map(s => s.replace(/\b(?:and|not)\b/gi, "").trim())
+          .filter(Boolean);
+      } else {
+        tokens = mainPart
+          .split(/\s+/)
+          .map(t => t.replace(/\b(?:and|not)\b/gi, "").trim())
+          .filter(t => Boolean(t) && !/^(and|or|not)$/i.test(t));
+      }
+      return { tokens, isOr, notTokens };
+    } else {
+      const segments = trimmed.split(/,/);
+      const tokens = segments.flatMap(s => s.trim().split(/\s+/)).map(t => t.trim()).filter(Boolean);
+      return { tokens, isOr: true, notTokens: [] };
+    }
+  };
+
+  const getCurrentSearchToken = (text: string) => {
+    const lastCommaIndex = text.lastIndexOf(",");
+    const operatorRegex = /\b(AND|OR|NOT)\b/gi;
+    let match;
+    let lastOperatorIndex = -1;
+    let lastOperatorLength = 0;
+    while ((match = operatorRegex.exec(text)) !== null) {
+      lastOperatorIndex = match.index;
+      lastOperatorLength = match[0].length;
+    }
+    if (lastCommaIndex === -1 && lastOperatorIndex === -1) {
+      return { token: text, prefix: "", separatorType: "none" as const };
+    }
+    if (lastCommaIndex > lastOperatorIndex) {
+      const prefix = text.slice(0, lastCommaIndex + 1);
+      const token = text.slice(lastCommaIndex + 1);
+      return { token, prefix, separatorType: "comma" as const };
+    } else {
+      const prefix = text.slice(0, lastOperatorIndex + lastOperatorLength);
+      const token = text.slice(lastOperatorIndex + lastOperatorLength);
+      return { token, prefix, separatorType: "operator" as const };
+    }
+  };
+
+  const ALL_SKILL_OPTIONS = useMemo(() => SKILL_OPTIONS, []);
+  const ALL_ROLE_AND_DEPT_OPTIONS = useMemo(() => SEARCH_SUGGESTION_DATASET, []);
+
+  const filteredSuggestions = useMemo(() => {
+    const { token } = getCurrentSearchToken(keywords);
+    const query = token.trim();
+    if (!query) return { skills: [], designations: [] };
+
+    const normalizedInputKeywords = keywords
+      .toLowerCase()
+      .split(/,|\b(?:and|or|not)\b/i)
+      .map(k => k.trim())
+      .filter(Boolean);
+
+    const isAlreadyPresent = (item: string) => normalizedInputKeywords.includes(item.toLowerCase());
+    const qLower = query.toLowerCase();
+    const matchedSkills: string[] = [];
+
+    for (let i = 0; i < ALL_SKILL_OPTIONS.length; i++) {
+      const skill = ALL_SKILL_OPTIONS[i];
+      if (isAlreadyPresent(skill)) continue;
+      const sLower = skill.toLowerCase();
+      if (sLower.startsWith(qLower) || sLower.includes(qLower)) {
+        matchedSkills.push(skill);
+        if (matchedSkills.length >= 8) break;
+      }
+    }
+
+    if (matchedSkills.length < 8) {
+      const searchExpansionTerms = getSkillSearchTerms(query);
+      for (let i = 0; i < ALL_SKILL_OPTIONS.length; i++) {
+        const skill = ALL_SKILL_OPTIONS[i];
+        if (isAlreadyPresent(skill) || matchedSkills.includes(skill)) continue;
+        const sLower = skill.toLowerCase();
+        if (fuzzyMatch(query, skill) || searchExpansionTerms.some(term => sLower.includes(term))) {
+          matchedSkills.push(skill);
+          if (matchedSkills.length >= 8) break;
+        }
+      }
+    }
+
+    const matchedDesignations: string[] = [];
+    for (let i = 0; i < ALL_ROLE_AND_DEPT_OPTIONS.length; i++) {
+      const role = ALL_ROLE_AND_DEPT_OPTIONS[i];
+      if (isAlreadyPresent(role)) continue;
+      const rLower = role.toLowerCase();
+      if (rLower.startsWith(qLower) || rLower.includes(qLower) || fuzzyMatch(query, role)) {
+        matchedDesignations.push(role);
+        if (matchedDesignations.length >= 5) break;
+      }
+    }
+
+    return { skills: matchedSkills, designations: matchedDesignations };
+  }, [keywords, ALL_SKILL_OPTIONS, ALL_ROLE_AND_DEPT_OPTIONS]);
+
+  const flatSuggestionsList = useMemo(() => {
+    const list: Array<{ value: string; type: "skill" | "designation" }> = [];
+    filteredSuggestions.skills.forEach(skill => list.push({ value: skill, type: "skill" }));
+    filteredSuggestions.designations.forEach(role => list.push({ value: role, type: "designation" }));
+    return list;
+  }, [filteredSuggestions]);
+
+  const hasSuggestions = useMemo(() => flatSuggestionsList.length > 0, [flatSuggestionsList]);
+
+  useEffect(() => {
+    setHighlightedIndex(-1);
+  }, [keywords]);
+
+  const selectSuggestion = (suggestionValue: string) => {
+    const { prefix, separatorType } = getCurrentSearchToken(keywords);
+    let nextKeywords = "";
+    if (separatorType === "none") {
+      nextKeywords = suggestionValue + (booleanSearchEnabled ? " " : ", ");
+    } else if (separatorType === "comma") {
+      nextKeywords = prefix.trim() + " " + suggestionValue + (booleanSearchEnabled ? " " : ", ");
+    } else {
+      nextKeywords = prefix.trim() + " " + suggestionValue + " ";
+    }
+    setKeywords(nextKeywords);
+    setSkillSuggestionsOpen(false);
+    if (keywordInputRef.current) keywordInputRef.current.focus();
+  };
+
+  useEffect(() => {
+    if (!skillSuggestionsOpen) return;
+    const handleClickOutside = (event: MouseEvent) => {
+      if (!searchKeywordRef.current?.contains(event.target as Node)) {
+        setSkillSuggestionsOpen(false);
+      }
+    };
+    document.addEventListener("mousedown", handleClickOutside);
+    return () => document.removeEventListener("mousedown", handleClickOutside);
+  }, [skillSuggestionsOpen]);
+
+  const booleanSearchError = useMemo(() => {
+    const trimmed = keywords.trim();
+    if (!trimmed) return null;
+
+    if (booleanSearchEnabled) {
+      const openParen = (trimmed.match(/\(/g) || []).length;
+      const closeParen = (trimmed.match(/\)/g) || []).length;
+      if (openParen !== closeParen) {
+        return `Unbalanced parentheses: ${openParen} opening vs ${closeParen} closing bracket.`;
+      }
+      const doubleOps = /\b(AND|OR|NOT)\s+(AND|OR|NOT)\b/i;
+      if (doubleOps.test(trimmed)) {
+        return "Consecutive boolean operators found (e.g. 'AND OR'). Please check operator syntax.";
+      }
+      const trailingOp = /\b(AND|OR|NOT)\s*$/i;
+      if (trailingOp.test(trimmed)) {
+        return "Query ends with an incomplete boolean operator (e.g. 'AND'). Add a search term after it.";
+      }
+    }
+    return null;
+  }, [keywords, booleanSearchEnabled]);
+
+  const activeFilterCount = useMemo(() => {
+    let count = 0;
+    if (expMin) count++;
+    if (expMax) count++;
+    if (curSalMin) count++;
+    if (curSalMax) count++;
+    if (expSalMax) count++;
+    if (noticePeriod) count++;
+    if (education) count++;
+    if (currentCompany) count++;
+    if (expType) count++;
+    if (skillTags.length > 0) count += skillTags.length;
+    return count;
+  }, [expMin, expMax, curSalMin, curSalMax, expSalMax, noticePeriod, education, currentCompany, expType, skillTags]);
+
+  const clearAllFilters = () => {
+    setExpMin(""); setExpMax(""); setCurSalMin(""); setCurSalMax(""); setExpSalMax("");
+    setNoticePeriod(""); setEducation(""); setCurrentCompany(""); setExpType(""); setSkillTags([]);
+  };
+
+  const calculateMatchScore = (candidate: DBCandidate): number => {
+    let score = 1;
+    const { tokens, isOr, notTokens } = parseSearchTokens(keywords);
+
+    const fullCandidateText = [
+      candidate.first_name, candidate.last_name, candidate.headline, candidate.current_title,
+      candidate.current_company, candidate.location, candidate.about, candidate.experience_type,
+      candidate.total_experience, ...(candidate.skills || []),
+      ...(candidate.work_experience || []).map(w => `${w.company} ${w.title} ${w.description}`),
+      ...(candidate.education || []).map(e => `${e.institution} ${e.degree} ${e.field}`),
+    ].filter(Boolean).join(" ").toLowerCase();
+
+    if (notTokens.length > 0 && notTokens.some(nt => fullCandidateText.includes(nt))) return 0;
+
+    if (tokens.length > 0) {
+      if (isOr) {
+        const matchesCount = tokens.filter(t => fullCandidateText.includes(t.toLowerCase())).length;
+        if (matchesCount === 0) return 0;
+        score += Math.min( matchesCount * 15, 30 );
+      } else {
+        const allMatch = tokens.every(t => fullCandidateText.includes(t.toLowerCase()));
+        if (!allMatch) return 0;
+        score += 30;
+      }
+    }
+
+    if (location.trim()) {
+      if (candidate.location && candidate.location.toLowerCase().includes(location.trim().toLowerCase())) score += 10;
+    }
+    return score;
+  };
+
+  const filteredAndSortedResults = useMemo(() => {
+    let list = results.filter(c => calculateMatchScore(c) > 0);
+
+    // Apply experience type filter (fresher vs experienced)
+    if (expType) {
+      list = list.filter(c => {
+        const yrs = parseExp(c);
+        if (expType === "fresher") return yrs <= 1;
+        return yrs > 1 || c.experience_type === "experienced";
+      });
+    }
+
+    // Apply experience min/max years filter
+    if (expMin || expMax) {
+      list = list.filter(c => {
+        const yrs = parseExp(c);
+        if (expMin && yrs < parseInt(expMin)) return false;
+        if (expMax && yrs > parseInt(expMax)) return false;
+        return true;
+      });
+    }
+
+    // Apply notice period filter
+    if (noticePeriod) {
+      list = list.filter(c => {
+        if (!c.notice_period) return false;
+        return c.notice_period.toLowerCase().includes(noticePeriod.toLowerCase());
+      });
+    }
+
+    // Apply current company filter
+    if (currentCompany.trim()) {
+      list = list.filter(c => {
+        if (!c.current_company) return false;
+        return c.current_company.toLowerCase().includes(currentCompany.trim().toLowerCase());
+      });
+    }
+
+    // Apply skill tags filter
+    if (skillTags.length > 0) {
+      list = list.filter(c => {
+        const candidateSkills = (c.skills || []).map(s => s.toLowerCase());
+        return skillTags.every(tag => candidateSkills.some(cs => cs.includes(tag.toLowerCase())));
+      });
+    }
+
+    if (sortBy === "exp") {
+      list.sort((a, b) => parseExp(b) - parseExp(a));
+    } else if (sortBy === "salary") {
+      list.sort((a, b) => parseSal(b) - parseSal(a));
+    } else {
+      list.sort((a, b) => calculateMatchScore(b) - calculateMatchScore(a));
+    }
+    return list;
+  }, [results, sortBy, keywords, location, booleanSearchEnabled, expMin, expMax, expType, noticePeriod, currentCompany, skillTags]);
+
+  // Predefined Templates (RhirePro styled)
+  const EMAIL_TEMPLATES: Record<string, { name: string; subject: string; body: string }> = {
+    job_invitation: {
+      name: "RhirePro Job Invitation Card",
+      subject: "Job Invitation: {{job_title}} at {{company_name}}",
+      body: `Hi {{candidate_name}},
+
+You're invited to apply for the {{job_title}} role at {{company_name}}.
+
+Job Highlights:
+📍 Location: {{job_location}}
+💼 Experience: {{job_experience}}
+💰 Offered CTC: {{job_salary}}
+🏢 Work Mode: {{work_mode}}
+🏷️ Key Skills: {{key_skills}}
+
+Click the link below to view job details & apply on RhirePro:
+{{apply_url}}
+
+Best regards,
+{{recruiter_name}}
+{{company_name}}`,
+    },
+    resume_request: {
+      name: "Resume & Portfolio Request",
+      subject: "Request for Updated Resume / Portfolio - {{company_name}}",
+      body: `Hi {{candidate_name}},
+
+We reviewed your profile and were impressed by your experience. We currently have active positions at {{company_name}} that align well with your background.
+
+Could you please share your latest updated resume and portfolio/work samples?
+
+Looking forward to connecting!
+
+Best regards,
+{{recruiter_name}}
+{{company_name}}`,
+    },
+    interview_invite: {
+      name: "Interview Invitation",
+      subject: "Interview Invitation: Opportunity at {{company_name}}",
+      body: `Hi {{candidate_name}},
+
+Great news! Following a review of your profile, we would love to invite you for an introductory interview at {{company_name}}.
+
+Please reply with your availability over the upcoming days for a brief 30-minute call.
+
+Best regards,
+{{recruiter_name}}
+{{company_name}}`,
+    },
+    status_update: {
+      name: "Application Shortlisted Notification",
+      subject: "Good news regarding your candidacy with {{company_name}}",
+      body: `Hi {{candidate_name}},
+
+We are pleased to inform you that your profile has been Shortlisted for further consideration at {{company_name}}!
+
+Our talent acquisition team will reach out shortly regarding the next steps in the process.
+
+Best regards,
+{{recruiter_name}}
+{{company_name}}`,
+    },
+    opportunity_inquiry: {
+      name: "General Opportunity Outreach",
+      subject: "Exciting Career Opportunity at {{company_name}}",
+      body: `Hi {{candidate_name}},
+
+I came across your profile and noticed your strong background in your industry.
+
+We have open roles at {{company_name}} that align closely with your skillset. If you are open to exploring new career opportunities, we would love to connect.
+
+Best regards,
+{{recruiter_name}}
+{{company_name}}`,
+    },
+    custom: {
+      name: "Custom Blank Email",
+      subject: "Direct Inquiry from {{company_name}}",
+      body: `Hi {{candidate_name}},
+
+[Type your message here...]
+
+Best regards,
+{{recruiter_name}}
+{{company_name}}`,
+    },
+  };
+
+  useEffect(() => {
+    if (emailTemplateKey && EMAIL_TEMPLATES[emailTemplateKey]) {
+      setSubject(EMAIL_TEMPLATES[emailTemplateKey].subject);
+      setBody(EMAIL_TEMPLATES[emailTemplateKey].body);
+    }
+  }, [emailTemplateKey]);
+
+  // Handle job selection changes: auto-fill search & template or reset search filters
+  const handleSelectJobForInvite = (jobId: string) => {
+    setSelectedJobId(jobId);
+
+    if (jobId === "none") {
+      setKeywords("");
+      setLocation("");
+      setExpMin("");
+      setExpMax("");
+      setCurSalMin("");
+      setCurSalMax("");
+      setExpSalMax("");
+      setNoticePeriod("");
+      setEducation("");
+      setIndustry("");
+      setCurrentCompany("");
+      setExpType("");
+      setSkillTags([]);
+      setResults([]);
+      setSearched(false);
+      setEmailTemplateKey("resume_request");
+      return;
+    }
+
+    const targetJob = recruiterJobs.find(j => j.id === jobId);
+    if (targetJob) {
+      setEmailTemplateKey("job_invitation");
+      setKeywords(targetJob.title || "");
+      setLocation(targetJob.location || "");
+      setExpMin(targetJob.experience_min !== undefined ? String(targetJob.experience_min) : "");
+      setExpMax(targetJob.experience_max !== undefined ? String(targetJob.experience_max) : "");
+      setCurrentCompany("");
+      setNoticePeriod("");
+      setEducation("");
+      setSkillTags([]);
+    }
+  };
+
+  const resetComposerState = (key: string = emailTemplateKey) => {
+    const t = EMAIL_TEMPLATES[key] || EMAIL_TEMPLATES["job_invitation"];
+    if (t) {
+      setSubject(t.subject);
+      setBody(t.body);
+    }
+  };
+
+  const handleOpenSingleEmail = (candidate: DBCandidate) => {
+    setSelectedCandidatesMap(new Map([[candidate.id, candidate]]));
+    resetComposerState();
+    setIsComposerOpen(true);
+  };
+
+  const toggleSelectCandidate = (candidate: DBCandidate) => {
+    setSelectedCandidatesMap(prev => {
+      const next = new Map(prev);
+      if (next.has(candidate.id)) {
+        next.delete(candidate.id);
+      } else {
+        next.set(candidate.id, candidate);
+      }
+      return next;
+    });
+  };
+
+  const toggleSelectAll = () => {
+    const allSelectedOnPage = filteredAndSortedResults.length > 0 && filteredAndSortedResults.every(c => selectedCandidatesMap.has(c.id));
+    setSelectedCandidatesMap(prev => {
+      const next = new Map(prev);
+      if (allSelectedOnPage) {
+        filteredAndSortedResults.forEach(c => next.delete(c.id));
+      } else {
+        filteredAndSortedResults.forEach(c => next.set(c.id, c));
+      }
+      return next;
+    });
+  };
+
+  const removeCandidateFromBatch = (id: string) => {
+    setSelectedCandidatesMap(prev => {
+      const next = new Map(prev);
+      next.delete(id);
+      return next;
+    });
+  };
+
+  const subjectInputRef = useRef<HTMLInputElement>(null);
+  const bodyTextareaRef = useRef<HTMLTextAreaElement>(null);
+  const lastFocusedFieldRef = useRef<"subject" | "body">("body");
+  const subjectCaretPosRef = useRef<{ start: number; end: number }>({ start: -1, end: -1 });
+  const bodyCaretPosRef = useRef<{ start: number; end: number }>({ start: -1, end: -1 });
+
+  const recordSubjectCaret = (el: HTMLInputElement | null) => {
+    if (el && typeof el.selectionStart === "number" && typeof el.selectionEnd === "number") {
+      subjectCaretPosRef.current = { start: el.selectionStart, end: el.selectionEnd };
+    }
+  };
+
+  const recordBodyCaret = (el: HTMLTextAreaElement | null) => {
+    if (el && typeof el.selectionStart === "number" && typeof el.selectionEnd === "number") {
+      bodyCaretPosRef.current = { start: el.selectionStart, end: el.selectionEnd };
+    }
+  };
+
+  const insertTag = (tag: string) => {
+    const isSubject = lastFocusedFieldRef.current === "subject";
+    
+    if (isSubject && subjectInputRef.current) {
+      const el = subjectInputRef.current;
+      let start = subjectCaretPosRef.current.start >= 0 ? subjectCaretPosRef.current.start : (el.selectionStart ?? subject.length);
+      let end = subjectCaretPosRef.current.end >= 0 ? subjectCaretPosRef.current.end : (el.selectionEnd ?? start);
+      if (start > subject.length) start = subject.length;
+      if (end > subject.length) end = subject.length;
+
+      const updated = subject.slice(0, start) + tag + subject.slice(end);
+      setSubject(updated);
+      const newPos = start + tag.length;
+      subjectCaretPosRef.current = { start: newPos, end: newPos };
+      setTimeout(() => {
+        if (subjectInputRef.current) {
+          subjectInputRef.current.focus();
+          subjectInputRef.current.setSelectionRange(newPos, newPos);
+        }
+      }, 0);
+    } else if (bodyTextareaRef.current) {
+      const el = bodyTextareaRef.current;
+      let start = bodyCaretPosRef.current.start >= 0 ? bodyCaretPosRef.current.start : (el.selectionStart ?? body.length);
+      let end = bodyCaretPosRef.current.end >= 0 ? bodyCaretPosRef.current.end : (el.selectionEnd ?? start);
+      if (start > body.length) start = body.length;
+      if (end > body.length) end = body.length;
+
+      const updated = body.slice(0, start) + tag + body.slice(end);
+      setBody(updated);
+      const newPos = start + tag.length;
+      bodyCaretPosRef.current = { start: newPos, end: newPos };
+      setTimeout(() => {
+        if (bodyTextareaRef.current) {
+          bodyTextareaRef.current.focus();
+          bodyTextareaRef.current.setSelectionRange(newPos, newPos);
+        }
+      }, 0);
+    } else {
+      setBody(prev => prev + " " + tag);
+    }
+  };
+
+  // Dynamic interpolation helper for merge tags
+  const getRenderedText = (text: string, candidate?: DBCandidate) => {
+    const candidateName = candidate ? getCandidateDisplayName(candidate) : "Candidate";
+    
+    // Only resolve job attributes if a specific job is selected (NOT "none")
+    const job = (selectedJobId && selectedJobId !== "none")
+      ? (recruiterJobs.find(j => j.id === selectedJobId) || null)
+      : null;
+
+    const jobTitle = job?.title || (selectedJobId === "none" ? "open" : (candidate?.current_title || candidate?.headline || "Software Developer"));
+    const compName = recruiterProfile?.company_name || job?.company_name || "RhirePro Client";
+    const recruiterName = recruiterProfile?.recruiter_name || "Talent Acquisition Team";
+    const jobLoc = job?.location || (selectedJobId === "none" ? "As discussed / Flexible" : (candidate?.location || "As discussed"));
+
+    let jobExp = "As per role requirements";
+    if (job) {
+      if (job.experience_min !== undefined && job.experience_min !== null && job.experience_max !== undefined && job.experience_max !== null) {
+        jobExp = `${job.experience_min} - ${job.experience_max} yrs`;
+      } else if (job.experience_min !== undefined && job.experience_min !== null) {
+        jobExp = `${job.experience_min}+ yrs`;
+      }
+    }
+
+    let jobSal = "As per industry standards";
+    if (job) {
+      if (job.salary_min && job.salary_max) {
+        jobSal = `${job.salary_min} - ${job.salary_max} ${job.salary_type || "LPA"}`;
+      } else if (job.salary_min) {
+        jobSal = `${job.salary_min} ${job.salary_type || "LPA"}`;
+      }
+    }
+
+    const workMode = job?.work_mode || job?.employment_type || "Full-time / Remote";
+    const skillsList = (job?.skills && job.skills.length > 0)
+      ? job.skills.join(", ")
+      : (selectedJobId === "none" ? "As per job requirements" : ((candidate?.skills && candidate.skills.length > 0) ? candidate.skills.slice(0, 5).join(", ") : "Relevant Technical Skills"));
+    const applyUrl = job?.id ? `${window.location.origin}/job/${job.id}` : `${window.location.origin}/jobs`;
+
+    let rendered = text
+      .replaceAll("{{candidate_name}}", candidateName)
+      .replaceAll("{{job_title}}", jobTitle)
+      .replaceAll("{{company_name}}", compName)
+      .replaceAll("{{recruiter_name}}", recruiterName)
+      .replaceAll("{{job_location}}", jobLoc)
+      .replaceAll("{{job_experience}}", jobExp)
+      .replaceAll("{{job_salary}}", jobSal)
+      .replaceAll("{{work_mode}}", workMode)
+      .replaceAll("{{key_skills}}", skillsList)
+      .replaceAll("{{apply_url}}", applyUrl);
+
+    // If user typed custom text inside braces like {{job_dev}} or {{comdoodley_name}}, preserve the inner word
+    rendered = rendered.replace(/\{\{([^}]+)\}\}/g, '$1');
+
+    // If batch contains multiple candidates, automatically swap any other candidate's name for candidate's actual name
+    if (candidate && selectedCandidates.length > 0) {
+      for (const otherCandidate of selectedCandidates) {
+        if (otherCandidate.id !== candidate.id) {
+          const otherFullName = getCandidateDisplayName(otherCandidate);
+          if (otherFullName && otherFullName !== "Candidate" && otherFullName.length > 2 && rendered.includes(otherFullName)) {
+            rendered = rendered.replaceAll(otherFullName, candidateName);
+          }
+          if (otherCandidate.first_name && otherCandidate.first_name.trim().length > 2 && rendered.includes(otherCandidate.first_name.trim())) {
+            const candFirstName = candidate.first_name?.trim() || candidateName.split(" ")[0] || candidateName;
+            rendered = rendered.replaceAll(otherCandidate.first_name.trim(), candFirstName);
+          }
+        }
+      }
+    }
+
+    return rendered;
+  };
+
+  const handleSearch = async () => {
+    if (booleanSearchError) {
+      setSearched(false);
+      setResults([]);
+      setSearching(false);
+      setSkillSuggestionsOpen(false);
+      return;
+    }
+    const activeKeywords = keywords.trim();
+    if (!activeKeywords && !location && !currentCompany && skillTags.length === 0) {
+      setSearching(false);
+      setSearched(false);
+      setResults([]);
+      setSkillSuggestionsOpen(false);
+      return;
+    }
+
+    setSearching(true);
+    setSearched(true);
+    setSkillSuggestionsOpen(false);
+
+    try {
+      let raw: DBCandidate[] = [];
+      let esSuccess = false;
+
+      try {
+        const apiUrl = import.meta.env.VITE_API_URL || "http://localhost:8000";
+        const esUrl = `${apiUrl}/candidates/search?q=${encodeURIComponent(activeKeywords)}` +
+          `&boolean_mode=${booleanSearchEnabled}` +
+          `&location=${encodeURIComponent(location)}` +
+          `&current_company=${encodeURIComponent(currentCompany)}` +
+          `&skills=${encodeURIComponent(skillTags.join(","))}` +
+          `&experience_min=${encodeURIComponent(expMin)}` +
+          `&experience_max=${encodeURIComponent(expMax)}`;
+        const esRes = await fetch(esUrl);
+        if (esRes.ok) {
+          const data = await esRes.json();
+          const matchedIds = data.candidates.map((c: any) => c.id);
+          if (matchedIds.length > 0) {
+            const { data: hydratedData } = await supabase
+              .from("profiles")
+              .select(`
+                id, first_name, last_name, avatar_url, headline, current_title, current_company, location, experience_type, total_experience, skills, about, email, phone,
+                work_experience(id, company, title, start_date, end_date, description, is_current),
+                education(id, institution, degree, field, start_year, end_year)
+              `)
+              .in("id", matchedIds);
+            if (hydratedData) {
+              const idToMap = new Map(hydratedData.map((c: any) => [c.id, c]));
+              raw = matchedIds.map((id: string) => idToMap.get(id)).filter(Boolean) as DBCandidate[];
+            }
+          }
+          esSuccess = true;
+        }
+      } catch (e) {
+        console.warn("ES candidate search fallback:", e);
+      }
+
+      if (!esSuccess) {
+        let q = supabase
+          .from("profiles")
+          .select(`
+            id, first_name, last_name, avatar_url, headline, current_title, current_company, location, experience_type, total_experience, skills, about, email, phone,
+            work_experience(id, company, title, start_date, end_date, description, is_current),
+            education(id, institution, degree, field, start_year, end_year)
+          `);
+
+        if (activeKeywords.trim()) {
+          const { tokens: rawTokens, isOr: rawIsOr } = parseSearchTokens(activeKeywords);
+          const searchTokens = rawTokens.length > 0 ? rawTokens : [activeKeywords.trim()];
+          const isOrQuery = booleanSearchEnabled ? rawIsOr : true;
+
+          if (isOrQuery) {
+            const clauses = searchTokens.flatMap(term => [
+              `first_name.ilike.%${term}%`,
+              `last_name.ilike.%${term}%`,
+              `headline.ilike.%${term}%`,
+              `current_title.ilike.%${term}%`,
+              `current_company.ilike.%${term}%`,
+              `about.ilike.%${term}%`
+            ]);
+            if (clauses.length > 0) {
+              q = q.or(clauses.join(","));
+            }
+          } else {
+            searchTokens.forEach(token => {
+              q = q.or(
+                `first_name.ilike.%${token}%,last_name.ilike.%${token}%,` +
+                `headline.ilike.%${token}%,current_title.ilike.%${token}%,` +
+                `current_company.ilike.%${token}%,about.ilike.%${token}%`
+              );
+            });
+          }
+        }
+
+        if (location.trim()) {
+          const locLower = location.trim().toLowerCase();
+          const locVars = [locLower];
+          if (locLower === "bangalore") locVars.push("bengaluru");
+          if (locLower === "bengaluru") locVars.push("bangalore");
+          if (locLower === "gurgaon") locVars.push("gurugram");
+          if (locLower === "gurugram") locVars.push("gurgaon");
+          if (locLower === "mumbai") locVars.push("bombay");
+          if (locLower === "delhi") locVars.push("ncr");
+
+          const locClauses = locVars.map(v => `location.ilike.%${v}%`);
+          q = q.or(locClauses.join(","));
+        }
+
+        if (currentCompany.trim()) q = q.ilike("current_company", `%${currentCompany.trim()}%`);
+        const { data, error } = await q.limit(200);
+        if (error) throw error;
+        raw = (data as unknown as DBCandidate[]) || [];
+
+        if (activeKeywords.trim() || skillTags.length > 0) {
+          const { tokens: skillSearchTokens } = parseSearchTokens(activeKeywords.toLowerCase());
+          const allSkillTerms = Array.from(new Set([
+            ...skillTags.map(s => s.toLowerCase()),
+            ...skillSearchTokens.flatMap(token => getSkillSearchTerms(token))
+          ])).slice(0, 30);
+
+          if (allSkillTerms.length > 0) {
+            const { data: skillMatches } = await supabase
+              .from("profiles")
+              .select(`
+                id, first_name, last_name, avatar_url, headline, current_title, current_company, location, experience_type, total_experience, skills, about, email, phone,
+                work_experience(id, company, title, start_date, end_date, description, is_current),
+                education(id, institution, degree, field, start_year, end_year)
+              `)
+              .overlaps("skills", allSkillTerms);
+            if (skillMatches) {
+              const ids = new Set(raw.map(r => r.id));
+              (skillMatches as unknown as DBCandidate[]).forEach(sm => { if (!ids.has(sm.id)) raw.push(sm); });
+            }
+          }
+        }
+      }
+
+      setResults(raw);
+    } catch (err: any) {
+      console.error("Failed to search candidates:", err);
+      setResults([]);
+    } finally {
+      setSearching(false);
+    }
+  };
+
+  const handleSendEmails = async () => {
+    if (selectedCandidates.length === 0) return;
+    setSendingEmail(true);
+
+    try {
+      const recipients = selectedCandidates.map(c => ({
+        email: c.email || `${c.id}@candidate.recruiter`,
+        name: getCandidateDisplayName(c),
+        subject: getRenderedText(subject, c),
+        body: getRenderedText(body, c),
+      }));
+
+      for (const candidate of selectedCandidates) {
+        const candidateSubject = getRenderedText(subject, candidate);
+        const candidateBody = getRenderedText(body, candidate);
+
+        if (candidate.id) {
+          const { error: notifErr } = await supabase.from("notifications").insert({
+            user_id: candidate.id,
+            user_type: "jobseeker",
+            type: "message",
+            title: candidateSubject,
+            message: candidateBody.slice(0, 150) + "...",
+            is_read: false,
+          });
+          if (notifErr) {
+            console.error("Supabase Notification insert failed:", notifErr.message);
+          }
+        }
+      }
+
+      await sendRecruiterCandidateEmail({
+        recipients,
+        subject,
+        body,
+        templateName: EMAIL_TEMPLATES[emailTemplateKey]?.name,
+      });
+
+      const count = selectedCandidates.length;
+      setToastMessage(`🎉 Successfully sent email to ${count} candidate${count > 1 ? "s" : ""}!`);
+      setTimeout(() => setToastMessage(null), 5000);
+
+      setIsComposerOpen(false);
+      setSelectedCandidatesMap(new Map());
+    } catch (err: any) {
+      alert("Failed to send emails: " + (err.message || "Unknown error"));
+    } finally {
+      setSendingEmail(false);
+    }
+  };
+
+  return (
+    <div className="p-4 sm:p-6 lg:p-8 max-w-7xl mx-auto space-y-6 pb-28">
+      {/* Toast Banner */}
+      {toastMessage && (
+        <div className="fixed top-20 right-6 z-[100] bg-emerald-600 text-white px-5 py-3 rounded-xl shadow-2xl flex items-center gap-3 animate-in fade-in slide-in-from-top-4">
+          <CheckCircle className="h-5 w-5" />
+          <span className="font-medium text-sm">{toastMessage}</span>
+          <button onClick={() => setToastMessage(null)} className="ml-2 hover:opacity-80">
+            <X className="h-4 w-4" />
+          </button>
+        </div>
+      )}
+
+      {/* Header */}
+      <div className="flex flex-col sm:flex-row sm:items-center justify-between gap-4 border-b border-gray-200 pb-5">
+        <div>
+          <h1 className="text-2xl font-bold text-[#3A1F1F] flex items-center gap-2">
+            <Mail className="h-7 w-7 text-[#FF2B2B]" />
+            Candidate Search & Email Broadcast
+          </h1>
+          <p className="text-sm text-[#8A8A8A] mt-1">
+            Search candidates using Boolean filters or select a posted job to broadcast RhirePro job invitation cards directly to candidates' inboxes.
+          </p>
+        </div>
+        <Badge variant="outline" className="w-fit bg-[#FFF0F0] text-[#FF2B2B] border-[#FF2B2B]/20 text-xs px-3 py-1 font-semibold rounded-full flex items-center gap-1.5">
+          <Zap className="h-3.5 w-3.5" /> RhirePro Job Invites Active
+        </Badge>
+      </div>
+
+      {/* Job Broadcast Selector Bar */}
+      {recruiterJobs.length > 0 && (
+        <div className="bg-gradient-to-r from-[#3A1F1F] to-[#201010] text-white p-4 rounded-2xl shadow-md flex flex-col sm:flex-row items-start sm:items-center justify-between gap-4">
+          <div className="flex items-center gap-3">
+            <div className="h-10 w-10 rounded-xl bg-[#FF2B2B]/20 border border-[#FF2B2B]/40 flex items-center justify-center flex-shrink-0 text-[#FF2B2B]">
+              <Briefcase className="h-5 w-5" />
+            </div>
+            <div>
+              <h3 className="text-sm font-bold text-white flex items-center gap-2">
+                Select Posted Job to Invite Candidates
+              </h3>
+              <p className="text-xs text-gray-300">
+                Automatically auto-fills job details & RhirePro invitation card template
+              </p>
+            </div>
+          </div>
+
+          <div className="w-full sm:w-72">
+            <Select value={selectedJobId} onValueChange={handleSelectJobForInvite}>
+              <SelectTrigger className="bg-white/10 border-white/20 text-white rounded-xl text-xs h-9 font-medium">
+                <SelectValue placeholder="Choose a posted job..." />
+              </SelectTrigger>
+              <SelectContent>
+                <SelectItem value="none" className="text-xs">-- Custom Outreach (No Job Linked) --</SelectItem>
+                {recruiterJobs.map(j => (
+                  <SelectItem key={j.id} value={j.id} className="text-xs">
+                    {j.title} ({j.location || "Remote"})
+                  </SelectItem>
+                ))}
+              </SelectContent>
+            </Select>
+          </div>
+        </div>
+      )}
+
+      {/* Main Search Panel */}
+      <div className="bg-white border border-gray-200 rounded-2xl p-5 shadow-sm space-y-4">
+        {booleanSearchError && (
+          <div className="bg-amber-50 border border-amber-200 text-amber-800 px-4 py-2.5 rounded-xl text-xs font-medium flex items-start gap-2">
+            <AlertCircle className="h-4 w-4 text-amber-600 flex-shrink-0 mt-0.5" />
+            <div>
+              <strong>Syntax Warning:</strong> {booleanSearchError}
+            </div>
+          </div>
+        )}
+
+        <div className="flex flex-col md:flex-row gap-3">
+          <div className="flex-1 relative" ref={searchKeywordRef}>
+            <div className="relative">
+              <Search className="absolute left-3 top-1/2 -translate-y-1/2 h-4 w-4 text-[#8A8A8A]" />
+              <Input
+                ref={keywordInputRef}
+                value={keywords}
+                onFocus={() => setSkillSuggestionsOpen(true)}
+                onChange={e => {
+                  setKeywords(e.target.value);
+                  setSkillSuggestionsOpen(true);
+                }}
+                onKeyDown={e => {
+                  if (e.key === "ArrowDown" && hasSuggestions) {
+                    e.preventDefault();
+                    setHighlightedIndex(prev => (prev < flatSuggestionsList.length - 1 ? prev + 1 : 0));
+                  } else if (e.key === "ArrowUp" && hasSuggestions) {
+                    e.preventDefault();
+                    setHighlightedIndex(prev => (prev > 0 ? prev - 1 : flatSuggestionsList.length - 1));
+                  } else if (e.key === "Enter") {
+                    if (highlightedIndex >= 0 && flatSuggestionsList[highlightedIndex]) {
+                      e.preventDefault();
+                      selectSuggestion(flatSuggestionsList[highlightedIndex].value);
+                    } else {
+                      handleSearch();
+                    }
+                  } else if (e.key === "Escape") {
+                    setSkillSuggestionsOpen(false);
+                  }
+                }}
+                placeholder={booleanSearchEnabled ? "e.g. React AND (Node OR Python) NOT Java" : "Enter keywords, skill, role (comma separated)..."}
+                className="pl-9 pr-4 bg-[#F6F6F6] border-gray-200 rounded-xl"
+              />
+            </div>
+
+            {/* Suggestions Autocomplete Dropdown */}
+            {skillSuggestionsOpen && hasSuggestions && (
+              <div
+                ref={dropdownContainerRef}
+                className="absolute left-0 right-0 top-full z-50 mt-1 overflow-hidden rounded-xl border border-gray-200 bg-white shadow-xl"
+              >
+                <div className="max-h-72 overflow-y-auto">
+                  {filteredSuggestions.skills.length > 0 && (
+                    <div>
+                      <div className="px-3 py-1.5 text-[10px] font-bold text-gray-400 bg-gray-50 uppercase tracking-wider">Skills</div>
+                      {filteredSuggestions.skills.map(skill => {
+                        const globalIndex = flatSuggestionsList.findIndex(item => item.value === skill && item.type === "skill");
+                        const isHighlighted = globalIndex === highlightedIndex;
+                        return (
+                          <button
+                            key={`skill-${skill}`}
+                            type="button"
+                            onClick={() => selectSuggestion(skill)}
+                            onMouseEnter={() => setHighlightedIndex(globalIndex)}
+                            className={`flex w-full items-center px-3 py-2 text-left text-sm transition-colors ${
+                              isHighlighted ? "bg-[#FFF0F0] text-[#FF2B2B] font-medium" : "text-[#3A1F1F] hover:bg-gray-50"
+                            }`}
+                          >
+                            <Tag className="h-3.5 w-3.5 mr-2 opacity-60 text-[#FF2B2B]" />
+                            <span>{skill}</span>
+                          </button>
+                        );
+                      })}
+                    </div>
+                  )}
+
+                  {filteredSuggestions.designations.length > 0 && (
+                    <div>
+                      <div className="px-3 py-1.5 text-[10px] font-bold text-gray-400 bg-gray-50 uppercase tracking-wider">Roles / Designations</div>
+                      {filteredSuggestions.designations.map(role => {
+                        const globalIndex = flatSuggestionsList.findIndex(item => item.value === role && item.type === "designation");
+                        const isHighlighted = globalIndex === highlightedIndex;
+                        return (
+                          <button
+                            key={`role-${role}`}
+                            type="button"
+                            onClick={() => selectSuggestion(role)}
+                            onMouseEnter={() => setHighlightedIndex(globalIndex)}
+                            className={`flex w-full items-center px-3 py-2 text-left text-sm transition-colors ${
+                              isHighlighted ? "bg-[#FFF0F0] text-[#FF2B2B] font-medium" : "text-[#3A1F1F] hover:bg-gray-50"
+                            }`}
+                          >
+                            <Briefcase className="h-3.5 w-3.5 mr-2 opacity-60 text-emerald-600" />
+                            <span>{role}</span>
+                          </button>
+                        );
+                      })}
+                    </div>
+                  )}
+                </div>
+              </div>
+            )}
+          </div>
+
+          <LocationAutocomplete
+            value={location}
+            onChange={setLocation}
+            onEnter={handleSearch}
+            placeholder="Location"
+            className="min-w-[170px]"
+          />
+
+          <Button
+            onClick={handleSearch}
+            disabled={searching || !!booleanSearchError}
+            className="bg-[#FF2B2B] hover:bg-[#D92323] text-white rounded-xl px-6 font-semibold text-sm flex items-center justify-center gap-2"
+          >
+            {searching ? <Loader2 className="h-4 w-4 animate-spin" /> : <Search className="h-4 w-4" />}
+            Search
+          </Button>
+        </div>
+
+        {/* Quick experience chips */}
+        <div className="flex gap-2 mt-3 flex-wrap items-center">
+          <span className="text-xs text-[#8A8A8A] font-medium">Quick:</span>
+          {[["Fresher", "", "1"], ["1-3 yrs", "1", "3"], ["3-5 yrs", "3", "5"], ["5-8 yrs", "5", "8"], ["8-12 yrs", "8", "12"], ["12+ yrs", "12", "99"]].map(([label, min, max]) => (
+            <button
+              key={label}
+              type="button"
+              onClick={() => {
+                setExpMin(min);
+                setExpMax(max === "1" ? "1" : max);
+                if (min === "") setExpType("fresher"); else setExpType("experienced");
+              }}
+              className={`px-3 py-1 rounded-full text-xs border transition-colors ${
+                expMin === min && expMax === max ? "bg-[#FF2B2B] text-white border-[#FF2B2B]" : "border-gray-200 text-[#5A5A5A] hover:border-[#FF2B2B]"
+              }`}
+            >
+              {label}
+            </button>
+          ))}
+        </div>
+
+        {/* Boolean Toggle */}
+        <div className="flex items-center gap-6 mt-3 pt-2 border-t border-gray-100">
+          <label className="flex items-center gap-2 text-xs font-medium text-[#5A5A5A] cursor-pointer select-none">
+            <span>Boolean Search Mode</span>
+            <div 
+              onClick={() => {
+                const nextState = !booleanSearchEnabled;
+                setBooleanSearchEnabled(nextState);
+                if (nextState) {
+                  setKeywords(prev => prev.replace(/,/g, " ").replace(/\s+/g, " "));
+                } else {
+                  setKeywords(prev => prev.replace(/\b(?:and|or|not)\b/gi, " ").replace(/\s+/g, " "));
+                }
+              }}
+              className={`w-9 h-5 flex items-center rounded-full p-0.5 transition-colors cursor-pointer ${booleanSearchEnabled ? "bg-[#FF2B2B]" : "bg-gray-300"}`}
+            >
+              <div className={`bg-white w-4 h-4 rounded-full shadow-md transform transition-transform ${booleanSearchEnabled ? "translate-x-4" : "translate-x-0"}`} />
+            </div>
+          </label>
+        </div>
+      </div>
+
+      {/* Main Grid: Sidebar Filters + Candidate Cards */}
+      <div className="flex gap-5 items-start">
+        {/* Filter Sidebar */}
+        <div className="w-64 flex-shrink-0 space-y-0 bg-white rounded-2xl shadow-sm border border-gray-200 overflow-hidden">
+          <div className="flex items-center justify-between px-4 py-3 border-b border-gray-100">
+            <h3 className="text-sm font-bold text-[#3A1F1F]">Refine Results</h3>
+            {activeFilterCount > 0 && (
+              <button onClick={clearAllFilters} className="text-xs text-[#FF2B2B] hover:underline font-medium">Clear all ({activeFilterCount})</button>
+            )}
+          </div>
+
+          <div className="px-4 py-3 border-b border-gray-100">
+            <p className="text-xs font-semibold text-[#3A1F1F] mb-2 uppercase tracking-wide">Experience</p>
+            <div className="flex gap-2 items-center">
+              <Select value={expMin || "any"} onValueChange={v => setExpMin(v === "any" ? "" : v)}>
+                <SelectTrigger className="bg-[#F6F6F6] border-gray-200 rounded-lg text-xs h-8 flex-1"><SelectValue placeholder="Min" /></SelectTrigger>
+                <SelectContent>
+                  <SelectItem value="any">Any</SelectItem>
+                  {[0, 1, 2, 3, 4, 5, 6, 7, 8, 10, 12, 15].map(y => <SelectItem key={y} value={String(y)}>{y} yr</SelectItem>)}
+                </SelectContent>
+              </Select>
+              <span className="text-[#8A8A8A] text-xs">–</span>
+              <Select value={expMax || "any"} onValueChange={v => setExpMax(v === "any" ? "" : v)}>
+                <SelectTrigger className="bg-[#F6F6F6] border-gray-200 rounded-lg text-xs h-8 flex-1"><SelectValue placeholder="Max" /></SelectTrigger>
+                <SelectContent>
+                  <SelectItem value="any">Any</SelectItem>
+                  {[1, 2, 3, 5, 7, 10, 12, 15, 20, 25].map(y => <SelectItem key={y} value={String(y)}>{y} yr</SelectItem>)}
+                </SelectContent>
+              </Select>
+            </div>
+          </div>
+
+          <div className="px-4 py-3 border-b border-gray-100">
+            <p className="text-xs font-semibold text-[#3A1F1F] mb-2 uppercase tracking-wide">Current Company</p>
+            <Input value={currentCompany} onChange={e => setCurrentCompany(e.target.value)} className="bg-[#F6F6F6] border-gray-200 rounded-lg text-xs h-8" placeholder="Company name" />
+          </div>
+
+          <div className="px-4 py-3 border-b border-gray-100">
+            <p className="text-xs font-semibold text-[#3A1F1F] mb-2 uppercase tracking-wide">Notice Period</p>
+            <Select value={noticePeriod || "any"} onValueChange={v => setNoticePeriod(v === "any" ? "" : v)}>
+              <SelectTrigger className="bg-[#F6F6F6] border-gray-200 rounded-lg text-xs h-8"><SelectValue placeholder="Any" /></SelectTrigger>
+              <SelectContent>
+                <SelectItem value="any">Any Notice</SelectItem>
+                <SelectItem value="immediate">Immediate Joiner</SelectItem>
+                <SelectItem value="15">≤ 15 days</SelectItem>
+                <SelectItem value="30">≤ 30 days</SelectItem>
+                <SelectItem value="60">≤ 60 days</SelectItem>
+              </SelectContent>
+            </Select>
+          </div>
+        </div>
+
+        {/* Right Candidate List */}
+        <div className="flex-1 space-y-4">
+          {searched && (
+            <div className="flex items-center justify-between bg-white px-4 py-3 border border-gray-200 rounded-xl shadow-xs">
+              <div className="flex items-center gap-3">
+                {filteredAndSortedResults.length > 0 && (
+                  <label className="flex items-center gap-2 text-xs font-semibold text-[#3A1F1F] cursor-pointer">
+                    <input
+                      type="checkbox"
+                      checked={selectedCandidateIds.size > 0 && selectedCandidateIds.size === filteredAndSortedResults.length}
+                      onChange={toggleSelectAll}
+                      className="rounded border-gray-300 text-[#FF2B2B] focus:ring-[#FF2B2B] h-4 w-4"
+                    />
+                    Select All ({filteredAndSortedResults.length})
+                  </label>
+                )}
+                <span className="text-xs text-[#8A8A8A]">
+                  Found <strong className="text-[#3A1F1F]">{filteredAndSortedResults.length}</strong> matching candidate{filteredAndSortedResults.length === 1 ? "" : "s"}
+                </span>
+              </div>
+
+              <div className="flex items-center gap-3">
+                <Select value={sortBy} onValueChange={setSortBy}>
+                  <SelectTrigger className="bg-[#F6F6F6] border-gray-200 rounded-lg text-xs h-8 w-36">
+                    <SelectValue placeholder="Sort by" />
+                  </SelectTrigger>
+                  <SelectContent>
+                    <SelectItem value="relevant">Most Relevant</SelectItem>
+                    <SelectItem value="exp">Most Experienced</SelectItem>
+                    <SelectItem value="salary">Highest Salary</SelectItem>
+                  </SelectContent>
+                </Select>
+
+                {selectedCandidateIds.size > 0 && (
+                  <Badge className="bg-[#FFF0F0] text-[#FF2B2B] border-[#FF2B2B]/20 text-xs font-semibold px-2.5 py-0.5 rounded-full">
+                    {selectedCandidateIds.size} Selected
+                  </Badge>
+                )}
+              </div>
+            </div>
+          )}
+
+          {searching && (
+            <div className="py-16 text-center bg-white border border-gray-200 rounded-2xl">
+              <Loader2 className="h-8 w-8 text-[#FF2B2B] animate-spin mx-auto mb-3" />
+              <p className="text-sm font-medium text-[#3A1F1F]">Searching candidate database...</p>
+            </div>
+          )}
+
+          {!searching && searched && filteredAndSortedResults.length === 0 && (
+            <div className="py-16 text-center bg-white border border-gray-200 rounded-2xl p-6">
+              <User className="h-12 w-12 text-gray-300 mx-auto mb-3" />
+              <h3 className="text-base font-semibold text-[#3A1F1F]">No candidates found</h3>
+              <p className="text-xs text-[#8A8A8A] mt-1 max-w-sm mx-auto">
+                Try broadening your search keywords, location, or experience filters.
+              </p>
+            </div>
+          )}
+
+          {!searching && filteredAndSortedResults.length > 0 && (
+            <div className="grid grid-cols-1 gap-4">
+              {filteredAndSortedResults.map((candidate) => {
+                const isSelected = selectedCandidateIds.has(candidate.id);
+                const displayName = getCandidateDisplayName(candidate);
+                const initials = getCandidateInitials(displayName);
+                const score = calculateMatchScore(candidate);
+
+                return (
+                  <div
+                    key={candidate.id}
+                    className={`bg-white border rounded-2xl p-5 shadow-xs transition-all relative flex flex-col justify-between ${
+                      isSelected ? "border-[#FF2B2B] bg-[#FFF8F8]/40 ring-1 ring-[#FF2B2B]/30" : "border-gray-200 hover:border-gray-300"
+                    }`}
+                  >
+                    <div>
+                      <div className="flex items-start gap-3">
+                        <input
+                          type="checkbox"
+                          checked={isSelected}
+                          onChange={() => toggleSelectCandidate(candidate)}
+                          className="mt-1 rounded border-gray-300 text-[#FF2B2B] focus:ring-[#FF2B2B] h-4 w-4 cursor-pointer"
+                        />
+
+                        <div className="h-11 w-11 rounded-full bg-[#FFF0F0] text-[#FF2B2B] font-bold text-sm flex items-center justify-center flex-shrink-0 border border-[#FF2B2B]/20">
+                          {candidate.avatar_url ? (
+                            <img src={candidate.avatar_url} alt={displayName} className="h-11 w-11 rounded-full object-cover" />
+                          ) : (
+                            initials
+                          )}
+                        </div>
+
+                        <div className="min-w-0 flex-1">
+                          <div className="flex items-center justify-between gap-2">
+                            <a
+                              href={`/recruiter/candidate/${candidate.id}/profile`}
+                              target="_blank"
+                              rel="noopener noreferrer"
+                              className="font-bold text-sm text-[#3A1F1F] hover:text-[#FF2B2B] cursor-pointer truncate"
+                              onClick={() => {
+                                if (candidate?.id) {
+                                  void supabase.rpc("increment_profile_views", { target_profile_id: candidate.id });
+                                }
+                              }}
+                            >
+                              {displayName}
+                            </a>
+                            <div className="flex items-center gap-2">
+                              <Badge variant="outline" className="text-[10px] bg-gray-50 text-gray-600 rounded-md">
+                                {candidate.experience_type || "Experienced"}
+                              </Badge>
+                            </div>
+                          </div>
+
+                          <p className="text-xs text-[#8A8A8A] font-medium truncate mt-0.5">
+                            {candidate.current_title || candidate.headline || "Candidate Profile"}
+                          </p>
+
+                          <div className="flex flex-wrap items-center gap-3 text-[11px] text-[#8A8A8A] mt-2">
+                            {candidate.location && (
+                              <span className="flex items-center gap-1">
+                                <MapPin className="h-3 w-3 text-gray-400" /> {candidate.location}
+                              </span>
+                            )}
+                            {candidate.total_experience && (
+                              <span className="flex items-center gap-1">
+                                <Briefcase className="h-3 w-3 text-gray-400" /> {candidate.total_experience}
+                              </span>
+                            )}
+                            {candidate.email && (
+                              <span className="flex items-center gap-1 text-gray-600 truncate">
+                                <Mail className="h-3 w-3 text-gray-400" /> {candidate.email}
+                              </span>
+                            )}
+                          </div>
+                        </div>
+                      </div>
+
+                      {Array.isArray(candidate.skills) && candidate.skills.length > 0 && (
+                        <div className="flex flex-wrap gap-1.5 mt-3 pt-3 border-t border-gray-100">
+                          {candidate.skills.slice(0, 6).map((skill, idx) => (
+                            <Badge key={idx} variant="secondary" className="bg-[#F6F6F6] text-gray-700 text-[10px] rounded-md border-0">
+                              {skill}
+                            </Badge>
+                          ))}
+                        </div>
+                      )}
+                    </div>
+
+                    <div className="flex items-center justify-between gap-2 mt-4 pt-3 border-t border-gray-100">
+                      <Button
+                        size="sm"
+                        variant="outline"
+                        asChild
+                        className="text-xs rounded-xl border-gray-200 hover:bg-gray-50 text-[#3A1F1F]"
+                      >
+                        <a
+                          href={`/recruiter/candidate/${candidate.id}/profile`}
+                          target="_blank"
+                          rel="noopener noreferrer"
+                          onClick={() => {
+                            if (candidate?.id) {
+                              void supabase.rpc("increment_profile_views", { target_profile_id: candidate.id });
+                            }
+                          }}
+                        >
+                          <Eye className="h-3.5 w-3.5 mr-1" /> View Profile
+                        </a>
+                      </Button>
+
+                      <Button
+                        size="sm"
+                        onClick={() => handleOpenSingleEmail(candidate)}
+                        className="text-xs bg-[#FF2B2B] hover:bg-[#D92323] text-white rounded-xl font-medium flex items-center gap-1.5"
+                      >
+                        <Mail className="h-3.5 w-3.5" /> Email Candidate
+                      </Button>
+                    </div>
+                  </div>
+                );
+              })}
+            </div>
+          )}
+        </div>
+      </div>
+
+      {/* Floating Action Bar */}
+      {selectedCandidateIds.size > 0 && (
+        <div className="fixed bottom-6 left-1/2 -translate-x-1/2 z-50 bg-[#3A1F1F] text-white px-6 py-3.5 rounded-2xl shadow-2xl flex items-center gap-4 border border-white/10 animate-in fade-in slide-in-from-bottom-5 max-w-lg w-full">
+          <div className="flex items-center gap-2 min-w-0">
+            <span className="h-2.5 w-2.5 rounded-full bg-[#FF2B2B] animate-pulse" />
+            <span className="text-sm font-semibold truncate">
+              {selectedCandidateIds.size} Candidate{selectedCandidateIds.size > 1 ? "s" : ""} Selected
+            </span>
+          </div>
+
+          <div className="flex items-center gap-2 ml-auto">
+            <Button
+              size="sm"
+              variant="ghost"
+              onClick={() => setSelectedCandidatesMap(new Map())}
+              className="text-xs border border-white/30 text-white hover:bg-white/20 hover:text-white rounded-xl transition-all cursor-pointer"
+            >
+              Clear Selection
+            </Button>
+
+            <Button
+              size="sm"
+              onClick={() => setIsComposerOpen(true)}
+              className="bg-[#FF2B2B] hover:bg-[#D92323] text-white font-semibold text-xs rounded-xl flex items-center gap-1.5 px-4"
+            >
+              <Mail className="h-3.5 w-3.5" /> Compose Bulk Email
+            </Button>
+          </div>
+        </div>
+      )}
+
+      {/* Email Composer Modal Dialog */}
+      <Dialog open={isComposerOpen} onOpenChange={setIsComposerOpen}>
+        <DialogContent className="max-w-2xl bg-white rounded-2xl p-6 max-h-[90vh] overflow-y-auto">
+          <DialogHeader>
+            <DialogTitle className="text-xl font-bold text-[#3A1F1F] flex items-center gap-2">
+              <Mail className="h-5 w-5 text-[#FF2B2B]" />
+              Compose Email to Candidates
+            </DialogTitle>
+          </DialogHeader>
+
+          <div className="space-y-4 mt-2">
+            {/* Recipients list */}
+            <div>
+              <label className="text-xs font-semibold text-[#3A1F1F] mb-1.5 block">
+                Recipients ({selectedCandidates.length})
+              </label>
+              <div className="flex flex-wrap gap-1.5 p-2 bg-[#F6F6F6] rounded-xl border border-gray-200 max-h-24 overflow-y-auto">
+                {selectedCandidates.map(c => (
+                  <Badge
+                    key={c.id}
+                    variant="secondary"
+                    className="bg-white border border-gray-200 text-[#3A1F1F] text-xs py-1 px-2.5 rounded-lg flex items-center gap-1.5 shadow-xs"
+                  >
+                    <span>{getCandidateDisplayName(c)}</span>
+                    <button
+                      type="button"
+                      onClick={() => removeCandidateFromBatch(c.id)}
+                      className="text-gray-400 hover:text-red-500 rounded-full"
+                    >
+                      <X className="h-3 w-3" />
+                    </button>
+                  </Badge>
+                ))}
+              </div>
+            </div>
+
+            {/* Template Selector */}
+            <div className="grid grid-cols-1 sm:grid-cols-2 gap-3">
+              <div>
+                <label className="text-xs font-semibold text-[#3A1F1F] mb-1.5 block">Select Predefined Template</label>
+                <Select value={emailTemplateKey} onValueChange={setEmailTemplateKey}>
+                  <SelectTrigger className="bg-[#F6F6F6] border-gray-200 rounded-xl text-sm font-medium">
+                    <SelectValue placeholder="Choose email template" />
+                  </SelectTrigger>
+                  <SelectContent>
+                    {Object.entries(EMAIL_TEMPLATES).map(([key, t]) => (
+                      <SelectItem key={key} value={key} className="text-sm font-medium">
+                        {t.name}
+                      </SelectItem>
+                    ))}
+                  </SelectContent>
+                </Select>
+              </div>
+
+              {/* Linked Job Picker */}
+              <div>
+                <label className="text-xs font-semibold text-[#3A1F1F] mb-1.5 block">Link Posted Job (Optional)</label>
+                <Select value={selectedJobId} onValueChange={handleSelectJobForInvite}>
+                  <SelectTrigger className="bg-[#F6F6F6] border-gray-200 rounded-xl text-sm font-medium">
+                    <SelectValue placeholder="Select posted job" />
+                  </SelectTrigger>
+                  <SelectContent>
+                    <SelectItem value="none">No Specific Job Linked</SelectItem>
+                    {recruiterJobs.map(j => (
+                      <SelectItem key={j.id} value={j.id}>
+                        {j.title} ({j.location || "Remote"})
+                      </SelectItem>
+                    ))}
+                  </SelectContent>
+                </Select>
+              </div>
+            </div>
+
+            {/* Merge Tag Chips */}
+            <div>
+              <label className="text-[11px] font-semibold text-[#8A8A8A] mb-1 block">Insert Dynamic Variables</label>
+              <div className="flex flex-wrap gap-1.5">
+                {[
+                  "{{candidate_name}}", "{{job_title}}", "{{company_name}}", "{{recruiter_name}}",
+                  "{{job_location}}", "{{job_experience}}", "{{job_salary}}", "{{work_mode}}", "{{key_skills}}", "{{apply_url}}"
+                ].map(tag => (
+                  <button
+                    key={tag}
+                    type="button"
+                    onMouseDown={e => e.preventDefault()}
+                    onClick={() => insertTag(tag)}
+                    className="text-[11px] font-medium bg-[#FFF0F0] text-[#FF2B2B] hover:bg-[#FFE5E5] px-2.5 py-1 rounded-md border border-[#FF2B2B]/20 transition-colors cursor-pointer"
+                  >
+                    + {tag}
+                  </button>
+                ))}
+              </div>
+            </div>
+
+            {/* Tabs Header */}
+            <div className="flex border-b border-gray-200 pt-2">
+              <button
+                type="button"
+                onClick={() => setComposerTab("edit")}
+                className={`pb-2 px-4 text-xs font-semibold border-b-2 transition-colors ${
+                  composerTab === "edit" ? "border-[#FF2B2B] text-[#FF2B2B]" : "border-transparent text-gray-500 hover:text-gray-700"
+                }`}
+              >
+                Edit Message
+              </button>
+              <button
+                type="button"
+                onClick={() => setComposerTab("preview")}
+                className={`pb-2 px-4 text-xs font-semibold border-b-2 transition-colors ${
+                  composerTab === "preview" ? "border-[#FF2B2B] text-[#FF2B2B]" : "border-transparent text-gray-500 hover:text-gray-700"
+                }`}
+              >
+                Live Preview (Candidate View)
+              </button>
+            </div>
+
+            {/* Edit Content */}
+            {composerTab === "edit" && (
+              <div className="space-y-3 pt-1">
+                <div>
+                  <label className="text-xs font-semibold text-[#3A1F1F] mb-1 block">Subject</label>
+                  <Input
+                    ref={subjectInputRef}
+                    value={subject}
+                    onFocus={e => {
+                      lastFocusedFieldRef.current = "subject";
+                      recordSubjectCaret(e.currentTarget);
+                    }}
+                    onClick={e => {
+                      lastFocusedFieldRef.current = "subject";
+                      recordSubjectCaret(e.currentTarget);
+                    }}
+                    onSelect={e => recordSubjectCaret(e.currentTarget)}
+                    onChange={e => {
+                      setSubject(e.target.value);
+                      recordSubjectCaret(e.target);
+                    }}
+                    className="bg-[#F6F6F6] border-gray-200 rounded-xl text-sm"
+                  />
+                </div>
+                <div>
+                  <label className="text-xs font-semibold text-[#3A1F1F] mb-1 block">Email Body</label>
+                  <Textarea
+                    ref={bodyTextareaRef}
+                    rows={9}
+                    value={body}
+                    onFocus={e => {
+                      lastFocusedFieldRef.current = "body";
+                      recordBodyCaret(e.currentTarget);
+                    }}
+                    onClick={e => {
+                      lastFocusedFieldRef.current = "body";
+                      recordBodyCaret(e.currentTarget);
+                    }}
+                    onSelect={e => recordBodyCaret(e.currentTarget)}
+                    onChange={e => {
+                      setBody(e.target.value);
+                      recordBodyCaret(e.target);
+                    }}
+                    className="bg-[#F6F6F6] border-gray-200 rounded-xl text-sm font-sans"
+                  />
+                </div>
+              </div>
+            )}
+
+            {/* Live Preview Content (RhirePro Styled HTML Card) */}
+            {composerTab === "preview" && (
+              <div className="bg-[#F6F6F6] border border-gray-200 rounded-2xl p-5 space-y-4">
+                <div className="flex items-center justify-between text-xs text-[#8A8A8A] border-b border-gray-200 pb-2">
+                  <span><strong>Candidate Preview:</strong> {selectedCandidates[0] ? getCandidateDisplayName(selectedCandidates[0]) : "Rahul Sharma"}</span>
+                  <Badge variant="outline" className="bg-[#FFF0F0] text-[#FF2B2B] border-[#FF2B2B]/20 text-[10px]">
+                    RhirePro HTML Template
+                  </Badge>
+                </div>
+
+                <div>
+                  <div className="text-[11px] font-bold text-gray-500 uppercase tracking-wider">Subject Line</div>
+                  <div className="text-sm font-bold text-[#3A1F1F] mt-0.5">
+                    {getRenderedText(subject, selectedCandidates[0])}
+                  </div>
+                </div>
+                <div>
+                  <div className="text-xs font-bold text-gray-600 mb-1">Body Preview:</div>
+                  <div className="bg-white border border-gray-200 rounded-lg p-3 text-sm text-gray-800 whitespace-pre-wrap font-sans leading-relaxed">
+                    {getRenderedText(body, selectedCandidates[0])}
+                  </div>
+                </div>
+              </div>
+            )}
+
+            <div className="flex items-center justify-end gap-3 pt-4 border-t border-gray-100">
+              <Button
+                variant="outline"
+                onClick={() => setIsComposerOpen(false)}
+                className="rounded-xl text-xs border-gray-200"
+              >
+                Cancel
+              </Button>
+              <Button
+                onClick={handleSendEmails}
+                disabled={sendingEmail || selectedCandidates.length === 0}
+                className="bg-[#FF2B2B] hover:bg-[#D92323] text-white font-semibold text-xs rounded-xl px-5 flex items-center gap-2"
+              >
+                {sendingEmail ? (
+                  <>
+                    <Loader2 className="h-4 w-4 animate-spin" /> Sending...
+                  </>
+                ) : (
+                  <>
+                    <Send className="h-4 w-4" /> Send Email ({selectedCandidates.length})
+                  </>
+                )}
+              </Button>
+            </div>
+          </div>
+        </DialogContent>
+      </Dialog>
+    </div>
+  );
 }
 
 function ApplicantsPage() {

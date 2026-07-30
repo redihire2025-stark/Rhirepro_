@@ -98,8 +98,19 @@ export interface RecruiterInvitation {
 export interface RecruiterArticle {
   id: string;
   recruiter_id: string;
+  /**
+   * Organization ID associated with this article.
+   * - `string`: Belongs to a team under the specified Org Admin.
+   * - `null` or `undefined` (omitted): Belongs directly to an individual recruiter account.
+   */
+  org_id?: string | null;
   title: string;
   category: string;
+  /**
+   * Optional list of article tag strings (e.g. ["#hiring", "#remote"]).
+   * Null/undefined or empty array indicates no extra tags attached.
+   */
+  tags?: string[] | null;
   summary: string | null;
   key_takeaway: string | null;
   content: string;
@@ -112,6 +123,20 @@ export interface RecruiterArticle {
   published_at: string | null;
   recruiter?: Pick<RecruiterProfile, "company_name" | "recruiter_name" | "logo_url"> | null;
 }
+
+/**
+ * Predefined set of seed article titles used to filter out legacy sample articles
+ * from dynamic recruiter blog listings. Expandable as new seed articles are configured.
+ */
+export const PREDEFINED_SEED_TITLES = new Set([
+  "building a strong employer brand for better hiring",
+  "why remote work continues to grow in 2026",
+  "top interview mistakes candidates should avoid",
+  "how companies are adapting to hiring challenges",
+  "how to make your resume stand out in 2026",
+  "why soft skills matter more than ever",
+  "how companies are battling talent shortages",
+]);
 
 export interface Job {
   id: string;

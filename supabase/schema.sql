@@ -158,8 +158,8 @@ create index if not exists recruiter_articles_public_feed_idx
 -- update jobs set deadline = created_at + interval '15 days' where deadline is null;
 -- alter table jobs drop constraint if exists jobs_deadline_time_check;
 -- alter table jobs add constraint jobs_deadline_time_check check (deadline_time is null or deadline_time ~ '^([01][0-9]|2[0-3]):[0-5][0-9]$');
--- alter table jobs drop constraint if exists jobs_status_check;
--- alter table jobs add constraint jobs_status_check check (status in ('Active','Paused','Closed','Expired'));
+alter table jobs drop constraint if exists jobs_status_check;
+alter table jobs add constraint jobs_status_check check (status in ('Active','Paused','Closed','Expired'));
 
 -- ── 6. APPLICATIONS ──────────────────────────────────────────
 create table if not exists applications (

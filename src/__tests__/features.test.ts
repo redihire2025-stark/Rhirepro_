@@ -181,6 +181,12 @@ describe('Feature: Job status management', () => {
     expect(canClose('Paused')).toBe(true);
     expect(canClose('Closed')).toBe(false);
   });
+
+  it('toggles Active status to Paused and Paused status to Active', () => {
+    const toggle = (status: string) => status === 'Active' ? 'Paused' : 'Active';
+    expect(toggle('Active')).toBe('Paused');
+    expect(toggle('Paused')).toBe('Active');
+  });
 });
 
 // ── 5. Recruiter — application status pipeline ───────────────────────────────

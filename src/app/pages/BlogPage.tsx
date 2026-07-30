@@ -1,11 +1,39 @@
-import { useEffect, useMemo, useState } from "react";
+import { useEffect, useMemo, useState, useRef } from "react";
 import { Menu, ChevronRight, Facebook, Instagram, Twitter, Bell, Star, ArrowRight, MapPin, BookOpen } from "lucide-react";
 import { Button } from "../components/ui/button";
 import { Input } from "../components/ui/input";
 import { Sheet, SheetContent, SheetTrigger, SheetTitle, SheetDescription } from "../components/ui/sheet";
 import { useNavigate, useSearchParams } from "react-router";
 import logoImage from "../../logo/logo.png";
-import { supabase, RecruiterArticle } from "../../lib/supabase";
+import { supabase, RecruiterArticle, PREDEFINED_SEED_TITLES } from "../../lib/supabase";
+import { ImageWithFallback } from "../components/figma/ImageWithFallback";
+
+export interface BlogPageItem {
+  id: string;
+  title: string;
+  description: string;
+  date: string;
+  category: string;
+  tags: string[];
+  image: string;
+}
+
+const getCategoryFallbackImage = (category: string = "") => {
+  const cat = category.toLowerCase();
+  if (cat.includes("career") || cat.includes("resume") || cat.includes("interview")) {
+    return "https://images.unsplash.com/photo-1434030216411-0b793f4b4173?auto=format&fit=crop&w=800&q=80";
+  }
+  if (cat.includes("industry") || cat.includes("trend") || cat.includes("hiring")) {
+    return "https://images.unsplash.com/photo-1522071820081-009f0129c71c?auto=format&fit=crop&w=800&q=80";
+  }
+  if (cat.includes("employer") || cat.includes("culture") || cat.includes("leadership")) {
+    return "https://images.unsplash.com/photo-1531482615713-2afd69097998?auto=format&fit=crop&w=800&q=80";
+  }
+  if (cat.includes("remote")) {
+    return "https://images.unsplash.com/photo-1626065838283-d338b7702fed?auto=format&fit=crop&w=800&q=80";
+  }
+  return "https://images.unsplash.com/photo-1573496359142-b8d87734a5a2?auto=format&fit=crop&w=800&q=80";
+};
 
 const ARTICLE_CATEGORY_OPTIONS = [
   "Career Tips",
@@ -43,51 +71,14 @@ export default function BlogPage() {
   const [searchParams] = useSearchParams();
   const selectedCategory = searchParams.get("category") || "";
 
-  const blogs = [
-    {
-      id: 1,
-      title: "Why Soft Skills Matter More Than Ever",
-      description: "Explore why employers are prioritizing soft skills such as communication, teamwork, and adaptability, and learn how to showcase yours effectively in interviews and on your resume.",
-      date: "March 1, 2026",
-      category: "Career Tips"
-    },
-    {
-      id: 2,
-      title: "How Companies Are Battling Talent Shortages",
-      description: "Discover innovative strategies companies are using to attract and retain top talent in competitive markets, from flexible work arrangements to enhanced benefits packages.",
-      date: "February 28, 2026",
-      category: "Industry Insights"
-    },
-    {
-      id: 3,
-      title: "Recruiters Now Focus on Candidate Experience",
-      description: "Learn how the recruitment landscape is shifting to prioritize candidate satisfaction and engagement throughout the hiring process, creating better outcomes for all.",
-      date: "February 25, 2026",
-      category: "Trends"
-    },
-    {
-      id: 4,
-      title: "How to Stand Out in a Competitive Market",
-      description: "Expert advice on differentiating yourself from other candidates in today's job market through personal branding and networking strategies.",
-      date: "February 20, 2026",
-      category: "Job Search"
-    },
-    {
-      id: 5,
-      title: "Why Employer Branding Matters in 2026",
-      description: "Understanding the impact of company culture and reputation more than ever before, and how it influences top talent decision-making.",
-      date: "February 15, 2026",
-      category: "Employer Tips"
-    },
-    {
-      id: 6,
-      title: "Remote Work Continues to Dominate",
-      description: "Analyzing the lasting impact of remote work and hybrid models on the job market and what it means for job seekers and employers alike.",
-      date: "February 10, 2026",
-      category: "Work Trends"
-    },
-  ];
   const [publishedArticles, setPublishedArticles] = useState<RecruiterArticle[]>([]);
+  const isMountedRef = useRef(true);
+
+  useEffect(() => {
+    return () => {
+      isMountedRef.current = false;
+    };
+  }, []);
 
   useEffect(() => {
     async function loadPublishedArticles() {
@@ -98,34 +89,36 @@ export default function BlogPage() {
         .order("published_at", { ascending: false, nullsFirst: false })
         .order("created_at", { ascending: false });
 
-      if (data) setPublishedArticles(data as RecruiterArticle[]);
+      if (isMountedRef.current && data) setPublishedArticles(data as RecruiterArticle[]);
     }
 
     void loadPublishedArticles();
   }, []);
 
-  const realBlogs = publishedArticles.map((article) => ({
-      id: article.id,
-      title: article.title,
-      description: article.summary || article.content,
-      date: new Date(article.published_at || article.created_at).toLocaleDateString("en-US", { month: "long", day: "numeric", year: "numeric" }),
-      category: article.category,
-      image: article.cover_image_url || "",
-      isDatabaseArticle: true,
-    }));
+  const realBlogs = useMemo<BlogPageItem[]>(() => {
+    return publishedArticles
+      .filter((article) => {
+        if (article.status !== "Published") return false;
+        const cleanTitle = (article.title || "").trim().toLowerCase();
+        return !PREDEFINED_SEED_TITLES.has(cleanTitle);
+      })
+      .map((article) => ({
+        id: article.id,
+        title: article.title,
+        description: article.summary || article.content,
+        date: new Date(article.published_at || article.created_at).toLocaleDateString("en-US", { month: "long", day: "numeric", year: "numeric" }),
+        category: article.category,
+        tags: Array.isArray(article.tags) ? article.tags.filter((t) => t.toLowerCase() !== "blog") : [],
+        image: article.cover_image_url ?? getCategoryFallbackImage(article.category),
+      }));
+  }, [publishedArticles]);
+
   const visibleBlogs = selectedCategory
-    ? realBlogs.filter((blog) => blog.category === selectedCategory)
-    : realBlogs.length > 0
-      ? realBlogs
-      : blogs.map((blog) => ({ ...blog, id: String(blog.id), image: "", isDatabaseArticle: false }));
+    ? realBlogs.filter((blog) => blog.category.toLowerCase() === selectedCategory.toLowerCase())
+    : realBlogs;
   const availableCategories = useMemo(
-    () => shuffleItems(Array.from(
-      new Set([
-        ...ARTICLE_CATEGORY_OPTIONS,
-        ...publishedArticles.map((article) => article.category).filter(Boolean),
-      ])
-    )),
-    [publishedArticles]
+    () => Array.from(new Set(realBlogs.map((article) => article.category).filter(Boolean))),
+    [realBlogs]
   );
 
   return (
@@ -210,9 +203,17 @@ export default function BlogPage() {
                 Blog updates with industry news, educational trends, and company updates. Insights that keep you informed.
               </p>
             </div>
-            <div className="grid grid-cols-2 gap-4">
-              <div className="bg-gray-300 rounded-2xl h-40 w-48"></div>
-              <div className="bg-gray-400 rounded-2xl h-32 w-32 mt-8"></div>
+            <div className="flex gap-4 items-center">
+              <ImageWithFallback
+                src="https://images.unsplash.com/photo-1522071820081-009f0129c71c?auto=format&fit=crop&w=600&q=80"
+                alt="Recruitment Trends"
+                className="rounded-2xl h-40 w-48 object-cover shadow-md border border-gray-100"
+              />
+              <ImageWithFallback
+                src="https://images.unsplash.com/photo-1531482615713-2afd69097998?auto=format&fit=crop&w=600&q=80"
+                alt="Industry Insights"
+                className="rounded-2xl h-32 w-32 mt-6 object-cover shadow-md border border-gray-100"
+              />
             </div>
           </div>
         </div>
@@ -223,31 +224,36 @@ export default function BlogPage() {
         <div className="container mx-auto px-4">
           <div className="text-center mb-12">
             <span className="inline-block bg-[#FF2B2B] text-white px-4 py-1 rounded-full text-sm mb-4">
-              {selectedCategory ? selectedCategory : "LATEST ARTICLE"}
+              {selectedCategory ? selectedCategory : "LATEST BLOGS"}
             </span>
             <h2 className="text-4xl md:text-5xl font-bold text-[#3A1F1F] mb-4">
-              {selectedCategory ? `Articles in ${selectedCategory}` : "Discover What's New in Recruitment"}
+              {selectedCategory ? `Blogs in ${selectedCategory}` : "Explore Our Latest Blogs"}
             </h2>
             <p className="text-lg text-[#8A8A8A] max-w-3xl mx-auto">
-              Stay informed with the latest updates, trends, and insights in the recruitment industry that keep you informed.
+              Browse curated guides, tips, and insights published by our partner organizations.
             </p>
           </div>
           
           {visibleBlogs.length > 0 ? (
             <div className="grid md:grid-cols-3 gap-8">
-              {visibleBlogs.map((blog, index) => (
-              <div key={index} className="bg-white rounded-2xl overflow-hidden shadow-md hover:shadow-xl transition-shadow border border-gray-100">
-                {blog.image ? (
-                  <img src={blog.image} alt={blog.title} className="h-56 w-full object-cover" />
-                ) : (
-                  <div className="bg-[#ECECF4] h-56 flex items-center justify-center">
-                    <BookOpen className="h-10 w-10 text-[#FF2B2B]" />
-                  </div>
-                )}
+              {visibleBlogs.map((blog) => (
+              <div key={blog.id} className="bg-white rounded-2xl overflow-hidden shadow-md hover:shadow-xl transition-shadow border border-gray-100">
+                <ImageWithFallback
+                  src={blog.image}
+                  alt={blog.title}
+                  className="h-56 w-full object-cover"
+                />
                 <div className="p-6">
-                  <span className="inline-block bg-[#ECECF4] text-[#3A1F1F] px-3 py-1 rounded-full text-sm mb-3">
-                    {blog.category}
-                  </span>
+                  <div className="flex flex-wrap gap-2 items-center mb-3">
+                    <span className="inline-block bg-[#ECECF4] text-[#3A1F1F] px-3 py-1 rounded-full text-xs font-semibold">
+                      {blog.category}
+                    </span>
+                    {Array.isArray(blog.tags) && blog.tags.map((tag: string, tidx: number) => (
+                      <span key={tidx} className="bg-red-50 text-[#FF2B2B] px-2 py-0.5 rounded-full text-[11px] font-medium">
+                        #{tag}
+                      </span>
+                    ))}
+                  </div>
                   <h3 className="text-xl font-bold text-[#3A1F1F] mb-3">{blog.title}</h3>
                   <p className="text-[#8A8A8A] mb-4 line-clamp-3">{blog.description}</p>
                   <Button
@@ -264,9 +270,9 @@ export default function BlogPage() {
           ) : (
             <div className="bg-[#ECECF4] rounded-2xl p-10 text-center">
               <BookOpen className="h-10 w-10 text-[#FF2B2B] mx-auto mb-3" />
-              <h3 className="text-xl font-bold text-[#3A1F1F] mb-2">No articles available</h3>
+              <h3 className="text-xl font-bold text-[#3A1F1F] mb-2">No blogs available</h3>
               <p className="text-[#8A8A8A]">
-                No articles have been posted under {selectedCategory} yet.
+                {selectedCategory ? `No blogs published under "${selectedCategory}" category yet.` : "No blogs have been published by organization admins yet."}
               </p>
             </div>
           )}

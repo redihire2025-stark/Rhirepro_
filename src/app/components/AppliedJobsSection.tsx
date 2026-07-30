@@ -14,7 +14,7 @@ import { Dialog, DialogContent, DialogHeader, DialogTitle } from "./ui/dialog";
 import { AppliedJobWithJob, getAppliedJobs } from "../services/jobService";
 import { supabase } from "../../lib/supabase";
 
-const JOBS_PER_PAGE = 12;
+const JOBS_PER_PAGE = 6;
 
 interface AppliedJobsSectionProps {
   userId?: string;

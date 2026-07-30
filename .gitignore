@@ -57,4 +57,5 @@ pnpm-debug.log*
 .temp/
 *.local
 /Lib/
-/Scripts/
+/venv/Scripts/
+!/scripts/
