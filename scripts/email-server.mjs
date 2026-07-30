@@ -267,6 +267,130 @@ const server = http.createServer(async (req, res) => {
     return;
   }
 
+  // ── POST /api/send-recruiter-email  (Recruiter candidate email broadcast via Resend) ──
+  if (req.method === "POST" && req.url === "/api/send-recruiter-email") {
+    const { recipients, subject, body, templateName } = await readBody(req);
+    try {
+      if (!Array.isArray(recipients) || recipients.length === 0) {
+        return fail(400, "No recipients provided.");
+      }
+
+      const resendKey = process.env.RESEND_API_KEY;
+      const senderEmail = process.env.RESEND_SENDER_EMAIL || "onboarding@resend.dev";
+      const senderName = process.env.RESEND_SENDER_NAME || "RhirePro";
+
+      let sentCount = 0;
+
+      for (const r of recipients) {
+        const emailAddr = (r.email || "").trim();
+        if (!emailAddr || emailAddr.endsWith("@candidate.recruiter") || !emailAddr.includes("@")) {
+          console.warn("[send-recruiter-email] Skipping recipient without valid email address:", r.name, emailAddr);
+          continue;
+        }
+
+        try {
+          const candidateName = r.name || "Candidate";
+          let recipientSubject = (r.subject || subject || "").replaceAll("{{candidate_name}}", candidateName);
+          let recipientBody = (r.body || body || "").replaceAll("{{candidate_name}}", candidateName);
+
+          // If recipients batch contains another candidate's name, swap it for this recipient's name
+          for (const other of recipients) {
+            if (other.email !== r.email && other.name && other.name !== "Candidate" && other.name.length > 2) {
+              const otherName = other.name.trim();
+              if (recipientSubject.includes(otherName)) recipientSubject = recipientSubject.replaceAll(otherName, candidateName);
+              if (recipientBody.includes(otherName)) recipientBody = recipientBody.replaceAll(otherName, candidateName);
+
+              const otherFirstName = otherName.split(" ")[0];
+              const candFirstName = candidateName.split(" ")[0];
+              if (otherFirstName && otherFirstName.length > 2 && candFirstName) {
+                if (recipientSubject.includes(otherFirstName)) recipientSubject = recipientSubject.replaceAll(otherFirstName, candFirstName);
+                if (recipientBody.includes(otherFirstName)) recipientBody = recipientBody.replaceAll(otherFirstName, candFirstName);
+              }
+            }
+          }
+
+          const formattedHtml = `
+            <div style="font-family: Arial, sans-serif; background-color: #f6f6f6; padding: 24px;">
+              <div style="max-width: 600px; margin: 0 auto; background: #ffffff; border-radius: 16px; overflow: hidden; box-shadow: 0 4px 12px rgba(0,0,0,0.05); border: 1px solid #e5e7eb;">
+                <div style="background-color: #3A1F1F; color: #ffffff; padding: 16px 24px; display: flex; align-items: center; justify-content: space-between;">
+                  <span style="font-weight: bold; font-size: 18px; color: #ffffff;">RhirePro</span>
+                  <span style="background-color: #FF2B2B; color: #ffffff; padding: 4px 10px; border-radius: 99px; font-size: 11px; font-weight: bold;">Recruiter Message</span>
+                </div>
+                <div style="padding: 24px; color: #3A1F1F; font-size: 14px; line-height: 1.6;">
+                  <div style="white-space: pre-wrap;">${recipientBody.replace(/\n/g, "<br/>")}</div>
+                </div>
+                <div style="background-color: #f9fafb; border-top: 1px solid #f3f4f6; padding: 16px 24px; text-align: center; font-size: 12px; color: #8A8A8A;">
+                  Sent via RhirePro Talent Acquisition Platform • <a href="https://rhirepro.com" style="color: #FF2B2B; text-decoration: none; font-weight: bold;">RhirePro</a>
+                </div>
+              </div>
+            </div>
+          `;
+
+          let lastError = null;
+
+          if (resendKey) {
+            try {
+              const res = await fetch("https://api.resend.com/emails", {
+                method: "POST",
+                headers: {
+                  "Content-Type": "application/json",
+                  "Authorization": `Bearer ${resendKey}`,
+                },
+                body: JSON.stringify({
+                  from: `${senderName} <${senderEmail}>`,
+                  to: [emailAddr],
+                  subject: recipientSubject,
+                  html: formattedHtml,
+                }),
+              });
+              if (!res.ok) {
+                const errText = await res.text();
+                console.error("[send-recruiter-email] Resend error for", emailAddr, errText);
+                lastError = `Resend: ${errText}`;
+                // Fall back to Brevo if Resend fails (e.g. testing restriction on onboarding@resend.dev)
+                try {
+                  await sendBrevoEmail(emailAddr, r.name, recipientSubject, formattedHtml, "recruiter_candidate_outreach");
+                  console.log(`[send-recruiter-email] ✅ Delivered via Brevo fallback to ${r.name} <${emailAddr}>`);
+                  sentCount++;
+                  lastError = null;
+                } catch (bErr) {
+                  console.error("[send-recruiter-email] Brevo fallback also failed:", bErr.message);
+                  lastError = `Resend & Brevo failed: ${bErr.message}`;
+                }
+              } else {
+                console.log(`[send-recruiter-email] ✅ Successfully delivered email to ${r.name} <${emailAddr}> via Resend`);
+                sentCount++;
+              }
+            } catch (fetchErr) {
+              console.error("[send-recruiter-email] Resend fetch error:", fetchErr.message);
+              // Fall back to Brevo
+              try {
+                await sendBrevoEmail(emailAddr, r.name, recipientSubject, formattedHtml, "recruiter_candidate_outreach");
+                console.log(`[send-recruiter-email] ✅ Delivered via Brevo fallback to ${r.name} <${emailAddr}>`);
+                sentCount++;
+              } catch (bErr) {
+                console.error("[send-recruiter-email] Brevo fallback also failed:", bErr.message);
+              }
+            }
+          } else {
+            await sendBrevoEmail(emailAddr, r.name, recipientSubject, formattedHtml, "recruiter_candidate_outreach");
+            console.log(`[send-recruiter-email] ✅ Successfully delivered email to ${r.name} <${emailAddr}> via Brevo`);
+            sentCount++;
+          }
+        } catch (rErr) {
+          console.error("[send-recruiter-email] Failed to send email to", emailAddr, rErr.message);
+        }
+      }
+
+      if (sentCount === 0) {
+        return fail(400, "Could not deliver email to recipients. Please verify candidate email address or check server configuration.");
+      }
+
+      ok({ success: true, count: sentCount });
+    } catch (err) { fail(500, err.message); }
+    return;
+  }
+
   // ── POST /api/super-admin-login  (mirrors netlify/functions/super-admin-login.mjs) ─
   if (req.method === "POST" && req.url === "/api/super-admin-login") {
     const { email: rawEmail, password } = await readBody(req);
