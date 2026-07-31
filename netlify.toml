@@ -8,8 +8,15 @@
 [functions]
   directory = "netlify/functions"
 
+# Route /api/* calls directly to Netlify serverless functions
+[[redirects]]
+  from = "/api/*"
+  to = "/.netlify/functions/:splat"
+  status = 200
+
 # SPA fallback — all routes served from index.html
 [[redirects]]
   from = "/*"
   to = "/index.html"
   status = 200
+
