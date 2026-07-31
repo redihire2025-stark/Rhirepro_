@@ -13,8 +13,10 @@ import {
   PaginationPrevious,
   PaginationEllipsis,
 } from "./ui/pagination";
-import { getSavedJobs, removeSavedJob, SavedJobWithJob } from "../services/jobService";
+import { getAppliedJobs, getSavedJobs, removeSavedJob, SavedJobWithJob } from "../services/jobService";
 import { formatJobSalary } from "../../lib/jobs";
+import { supabase, Job } from "../../lib/supabase";
+import { useAuth } from "../../lib/auth-context";
 
 const JOBS_PER_PAGE = 12;
 const MAX_COMPARE_JOBS = 3;
@@ -24,6 +26,8 @@ interface SavedJobsSectionProps {
   compact?: boolean;
   appliedJobIds?: string[];
   onJobsLoaded?: (jobs: SavedJobWithJob[]) => void;
+  onJobSelect?: (job: SavedJobWithJob) => void;
+  selectedJobId?: string | null;
   showComparisonControls?: boolean;
   onCompareRequested?: (state: {
     fromSavedJobs: true;
@@ -57,18 +61,55 @@ export default function SavedJobsSection({
   compact = false,
   appliedJobIds = [],
   onJobsLoaded,
+  onJobSelect,
+  selectedJobId,
   showComparisonControls = true,
   onCompareRequested,
 }: SavedJobsSectionProps) {
   const location = useLocation();
   const navigate = useNavigate();
+  const { profile } = useAuth();
   const [savedJobs, setSavedJobs] = useState<SavedJobWithJob[]>([]);
+  const [fetchedAppliedJobIds, setFetchedAppliedJobIds] = useState<string[]>([]);
+  const [applyingId, setApplyingId] = useState<string | null>(null);
   const [loading, setLoading] = useState(true);
   const [error, setError] = useState("");
   const [currentPage, setCurrentPage] = useState(1);
   const [compareJobIds, setCompareJobIds] = useState<string[]>([]);
   const [compareError, setCompareError] = useState("");
-  const appliedJobIdSet = useMemo(() => new Set(appliedJobIds), [appliedJobIds]);
+
+  async function handleApplyDirectly(job: Job) {
+    const currentUserId = userId || profile?.id;
+    if (!currentUserId || !job?.id) return;
+    const jobIdStr = String(job.id);
+    setApplyingId(jobIdStr);
+    try {
+      const { error: applyErr } = await supabase.from("applications").insert({
+        job_id: job.id,
+        profile_id: currentUserId,
+        recruiter_id: job.recruiter_id,
+        status: "New",
+        resume_url: profile?.resume_url || null,
+      });
+      if (!applyErr) {
+        setFetchedAppliedJobIds((prev) => [...prev, jobIdStr]);
+      }
+    } catch (e) {
+      console.error("Apply error:", e);
+    } finally {
+      setApplyingId(null);
+    }
+  }
+
+  const appliedJobIdSet = useMemo(() => {
+    const set = new Set<string>();
+    [...appliedJobIds, ...fetchedAppliedJobIds].forEach((id) => {
+      if (id) {
+        set.add(String(id));
+      }
+    });
+    return set;
+  }, [appliedJobIds, fetchedAppliedJobIds]);
 
   // Scroll to top of window when page changes
   useEffect(() => {
@@ -79,6 +120,7 @@ export default function SavedJobsSection({
     const currentUserId = userId;
     if (!currentUserId) {
       setSavedJobs([]);
+      setFetchedAppliedJobIds([]);
       setLoading(false);
       return;
     }
@@ -88,10 +130,19 @@ export default function SavedJobsSection({
       setLoading(true);
       setError("");
       try {
-        const jobs = await getSavedJobs(resolvedUserId);
+        const [jobs, applied] = await Promise.all([
+          getSavedJobs(resolvedUserId),
+          getAppliedJobs(resolvedUserId).catch(() => []),
+        ]);
         if (cancelled) return;
         setSavedJobs(jobs);
         onJobsLoaded?.(jobs);
+
+        const appliedIds = (applied || []).flatMap((app) => [
+          String(app.job_id),
+          app.job?.id ? String(app.job.id) : null,
+        ].filter(Boolean) as string[]);
+        setFetchedAppliedJobIds(appliedIds);
       } catch {
         if (!cancelled) {
           setError("Unable to load saved jobs right now.");
@@ -231,58 +282,92 @@ export default function SavedJobsSection({
     <div id="saved-jobs-pagination" className="space-y-4">
       {paginatedJobs.map((savedJob) => {
         if (!savedJob.job) return null;
+        const currentJobId = String(savedJob.job_id || savedJob.job.id);
+        const isSelected = selectedJobId === currentJobId;
 
         return (
-          <div key={savedJob.id} className={`rounded-2xl border border-gray-100 bg-white shadow-[0_2px_8px_rgba(16,24,40,0.08)] transition-shadow hover:shadow-[0_6px_16px_rgba(16,24,40,0.10)] ${compact ? "p-4" : "p-5"}`}>
+          <div
+            key={savedJob.id}
+            onClick={() => onJobSelect?.(savedJob)}
+            className={`rounded-2xl border border-gray-100 bg-white shadow-[0_2px_8px_rgba(16,24,40,0.08)] transition-all hover:shadow-[0_6px_16px_rgba(16,24,40,0.10)] cursor-pointer ${compact ? "p-4" : "p-5"} ${isSelected ? "ring-2 ring-[#FF2B2B]" : ""}`}
+          >
             <div className="flex flex-col gap-4 md:flex-row md:items-start md:justify-between">
               <div>
-              <h3 className={`font-semibold text-[#3A1F1F] ${compact ? "text-base" : ""}`}>{savedJob.job.title}</h3>
-              <p className="text-[#7C8593] text-sm">{savedJob.job.company_name} · {formatLocation(savedJob.job)}</p>
-              <div className="flex flex-wrap items-center gap-3 mt-1 text-xs text-[#7C8593]">
-                <span className="flex items-center gap-1"><DollarSign className="h-3 w-3" />{formatSalary(savedJob.job)}</span>
-                <span>Saved {formatDate(savedJob.saved_at)}</span>
+                <h3
+                  className="font-semibold text-[#3A1F1F] cursor-pointer hover:text-[#FF2B2B] transition-colors"
+                  onClick={(e) => {
+                    e.stopPropagation();
+                    onJobSelect?.(savedJob);
+                  }}
+                >
+                  {savedJob.job.title}
+                </h3>
+                <p className="text-[#7C8593] text-sm">{savedJob.job.company_name} · {formatLocation(savedJob.job)}</p>
+                <div className="flex flex-wrap items-center gap-3 mt-1 text-xs text-[#7C8593]">
+                  <span className="flex items-center gap-1"><DollarSign className="h-3 w-3" />{formatSalary(savedJob.job)}</span>
+                  <span>Saved {formatDate(savedJob.saved_at)}</span>
+                </div>
               </div>
-            </div>
-            <div className="flex flex-wrap items-center gap-2 shrink-0">
-              {typeof savedJob.job_id === "string" && savedJob.job_id.length > 0 ? (
-                <>
-                  {appliedJobIdSet.has(savedJob.job_id) && (
-                    <Badge className="bg-emerald-100 text-emerald-700 text-xs rounded-full px-3 py-1">Applied</Badge>
-                  )}
-                  {showComparisonControls && (
-                    <label className="inline-flex items-center gap-2 rounded-full border border-gray-200 bg-[#F8FAFC] px-3 py-1.5 text-xs text-[#3A1F1F]">
-                      <Checkbox
-                        checked={compareJobIds.includes(savedJob.job_id)}
-                        onCheckedChange={() => toggleCompare(savedJob.job_id)}
-                        disabled={compareJobIds.length >= MAX_COMPARE_JOBS && !compareJobIds.includes(savedJob.job_id)}
-                      />
-                      Compare
-                    </label>
-                  )}
-                  <Button
-                    size="sm"
-                    className={`rounded-full text-xs ${appliedJobIdSet.has(savedJob.job_id) ? "bg-emerald-500 hover:bg-emerald-500 text-white cursor-default" : "bg-[#FF2B2B] hover:bg-[#e02525] text-white"}`}
-                    onClick={() => {
-                      if (!appliedJobIdSet.has(savedJob.job_id)) navigate(`/job/${savedJob.job_id}`);
-                    }}
-                    disabled={appliedJobIdSet.has(savedJob.job_id)}
-                  >
-                    {appliedJobIdSet.has(savedJob.job_id) ? "Applied" : "Apply Now"}
-                  </Button>
-                  <Button
-                    size="sm"
-                    variant="ghost"
-                    className="text-[#8A8A8A] hover:text-red-500 rounded-full hover:bg-red-50"
-                    onClick={() => handleRemove(savedJob.job_id)}
-                  >
-                    <Trash2 className="h-4 w-4" />
-                  </Button>
-                </>
-              ) : (
-                <Button size="sm" variant="ghost" className="text-[#8A8A8A] rounded-full" disabled>
-                  <Trash2 className="h-4 w-4" />
-                </Button>
-              )}
+              <div className="flex flex-wrap items-center gap-2 shrink-0">
+                {(() => {
+                  const targetJobId = savedJob.job_id ? String(savedJob.job_id) : (savedJob.job?.id ? String(savedJob.job.id) : "");
+                  if (!targetJobId) return null;
+                  const isApplied = Boolean(
+                    (savedJob.job_id && appliedJobIdSet.has(String(savedJob.job_id))) ||
+                    (savedJob.job?.id && appliedJobIdSet.has(String(savedJob.job.id)))
+                  );
+
+                  return (
+                    <>
+                      {showComparisonControls && (
+                        <label
+                          className="inline-flex items-center gap-2 rounded-full border border-gray-200 bg-[#F8FAFC] px-3 py-1.5 text-xs text-[#3A1F1F]"
+                          onClick={(e) => e.stopPropagation()}
+                        >
+                          <Checkbox
+                            checked={compareJobIds.includes(targetJobId)}
+                            onCheckedChange={() => toggleCompare(targetJobId)}
+                            disabled={compareJobIds.length >= MAX_COMPARE_JOBS && !compareJobIds.includes(targetJobId)}
+                          />
+                          Compare
+                        </label>
+                      )}
+                      {isApplied ? (
+                        <Badge className="bg-emerald-100 text-emerald-700 text-xs rounded-full px-3.5 py-1.5 font-medium border-0">
+                          Applied
+                        </Badge>
+                      ) : (
+                        <Button
+                          size="sm"
+                          className="rounded-full text-xs bg-[#FF2B2B] hover:bg-[#e02525] text-white flex items-center gap-1"
+                          disabled={applyingId === targetJobId}
+                          onClick={(e) => {
+                            e.stopPropagation();
+                            onJobSelect?.(savedJob);
+                            if (savedJob.job) void handleApplyDirectly(savedJob.job);
+                          }}
+                        >
+                          {applyingId === targetJobId ? (
+                            <>
+                              <Loader2 className="h-3 w-3 animate-spin mr-1" />
+                              Applying...
+                            </>
+                          ) : (
+                            "Apply Now"
+                          )}
+                        </Button>
+                      )}
+                    <Button
+                      size="sm"
+                      variant="ghost"
+                      className="text-[#8A8A8A] hover:text-red-500 rounded-full hover:bg-red-50"
+                      onClick={() => handleRemove(targetJobId)}
+                    >
+                      <Trash2 className="h-4 w-4" />
+                    </Button>
+                  </>
+                );
+              })()}
               </div>
             </div>
           </div>

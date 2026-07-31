@@ -75,7 +75,7 @@ export default function JobDetailPage() {
   const [loadError, setLoadError] = useState("");
   const navigate = useNavigate();
   const { id } = useParams();
-  const { role } = useAuth();
+  const { role, profile, signOut } = useAuth();
 
   useEffect(() => {
     let mounted = true;
@@ -199,7 +199,7 @@ export default function JobDetailPage() {
       {/* Header */}
       <header className="sticky top-0 z-50 bg-white shadow-sm">
         <div className="container mx-auto px-4 py-4 flex items-center justify-between">
-          <div className="flex items-center gap-3 cursor-pointer" onClick={() => navigate('/')}>
+          <div className="flex items-center gap-3 cursor-pointer" onClick={() => navigate(profile ? '/jobseeker/dashboard' : '/')}>
             <img src={logoImage} alt="RhirePro Logo" className="w-10 h-10" />
             <div className="text-xl font-bold text-[#3A1F1F]">
               Rhire<span className="text-[#FF2B2B]">Pro</span>
@@ -207,23 +207,48 @@ export default function JobDetailPage() {
           </div>
 
           {/* Desktop Navigation */}
-          <nav className="hidden md:flex items-center gap-8">
-            <button onClick={() => navigate('/')} className="text-[#3A1F1F] hover:text-[#FF2B2B] transition-colors">
-              Home
-            </button>
-            <button onClick={() => navigate('/')} className="text-[#3A1F1F] hover:text-[#FF2B2B] transition-colors">
-              About Us
-            </button>
-            <Button
-              onClick={() => navigate('/jobs')}
-              className="bg-[#FF2B2B] hover:bg-[#e02525] text-white rounded-full px-6"
-            >
-              Jobs
-            </Button>
-            <button onClick={() => navigate('/')} className="text-[#3A1F1F] hover:text-[#FF2B2B] transition-colors">
-              Contact Us
-            </button>
-          </nav>
+          {profile ? (
+            <nav className="hidden md:flex items-center gap-4">
+              <button onClick={() => navigate('/jobseeker/dashboard')} className="text-[#3A1F1F] hover:text-[#FF2B2B] font-medium text-sm px-3 py-1.5 transition-colors">
+                Find a Job
+              </button>
+              <button onClick={() => navigate('/jobseeker/dashboard/profile')} className="text-[#3A1F1F] hover:text-[#FF2B2B] font-medium text-sm px-3 py-1.5 transition-colors">
+                Profile
+              </button>
+              <button onClick={() => navigate('/jobseeker/dashboard/analytics')} className="bg-[#FF2B2B] text-white font-medium text-sm px-4 py-1.5 rounded-full transition-colors">
+                Job Analytics
+              </button>
+              <button onClick={() => navigate('/jobseeker/dashboard/insights')} className="text-[#3A1F1F] hover:text-[#FF2B2B] font-medium text-sm px-3 py-1.5 transition-colors">
+                Career Insights
+              </button>
+              <Button
+                variant="outline"
+                size="sm"
+                onClick={() => void signOut()}
+                className="rounded-full border-gray-200 text-[#3A1F1F] hover:bg-gray-50 text-xs ml-2"
+              >
+                Sign Out
+              </Button>
+            </nav>
+          ) : (
+            <nav className="hidden md:flex items-center gap-8">
+              <button onClick={() => navigate('/')} className="text-[#3A1F1F] hover:text-[#FF2B2B] transition-colors">
+                Home
+              </button>
+              <button onClick={() => navigate('/')} className="text-[#3A1F1F] hover:text-[#FF2B2B] transition-colors">
+                About Us
+              </button>
+              <Button
+                onClick={() => navigate('/jobs')}
+                className="bg-[#FF2B2B] hover:bg-[#e02525] text-white rounded-full px-6"
+              >
+                Jobs
+              </Button>
+              <button onClick={() => navigate('/')} className="text-[#3A1F1F] hover:text-[#FF2B2B] transition-colors">
+                Contact Us
+              </button>
+            </nav>
+          )}
 
           {/* Hamburger Menu */}
           <Sheet open={isMenuOpen} onOpenChange={setIsMenuOpen}>
@@ -235,22 +260,38 @@ export default function JobDetailPage() {
             <SheetContent side="right" className="w-80 bg-white">
               <SheetTitle className="sr-only">Navigation Menu</SheetTitle>
               <SheetDescription className="sr-only">
-                Sign in options for job seekers and recruiters
+                Navigation options
               </SheetDescription>
               <div className="flex flex-col gap-6 mt-8">
                 <h3 className="text-xl font-semibold text-[#3A1F1F]">Welcome to RhirePro</h3>
-                <Button 
-                  className="w-full bg-[#FF2B2B] hover:bg-[#e02525] text-white rounded-full"
-                  onClick={() => navigate('/signin')}
-                >
-                  Job Seeker Sign In
-                </Button>
-                <Button 
-                  className="w-full bg-[#FF2B2B] hover:bg-[#e02525] text-white rounded-full"
-                  onClick={() => navigate('/signin')}
-                >
-                  Recruiter Sign In
-                </Button>
+                {profile ? (
+                  <>
+                    <Button className="w-full bg-[#FF2B2B] text-white rounded-full" onClick={() => { setIsMenuOpen(false); navigate('/jobseeker/dashboard'); }}>
+                      Find a Job
+                    </Button>
+                    <Button className="w-full bg-[#FF2B2B] text-white rounded-full" onClick={() => { setIsMenuOpen(false); navigate('/jobseeker/dashboard/analytics'); }}>
+                      Job Analytics
+                    </Button>
+                    <Button variant="outline" className="w-full rounded-full" onClick={() => { setIsMenuOpen(false); void signOut(); }}>
+                      Sign Out
+                    </Button>
+                  </>
+                ) : (
+                  <>
+                    <Button 
+                      className="w-full bg-[#FF2B2B] hover:bg-[#e02525] text-white rounded-full"
+                      onClick={() => navigate('/signin')}
+                    >
+                      Job Seeker Sign In
+                    </Button>
+                    <Button 
+                      className="w-full bg-[#FF2B2B] hover:bg-[#e02525] text-white rounded-full"
+                      onClick={() => navigate('/signin')}
+                    >
+                      Recruiter Sign In
+                    </Button>
+                  </>
+                )}
               </div>
             </SheetContent>
           </Sheet>

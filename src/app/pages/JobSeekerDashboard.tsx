@@ -4744,9 +4744,36 @@ function AnalyticsPage() {
   const [savedJobs, setSavedJobs] = useState<SavedJobWithJob[]>([]);
   const [selectedInterviewJob, setSelectedInterviewJob] = useState<AppliedJobWithJob | null>(null);
   const [selectedOfferJob, setSelectedOfferJob] = useState<AppliedJobWithJob | null>(null);
+  const [selectedSavedJob, setSelectedSavedJob] = useState<SavedJobWithJob | null>(null);
+  const [applyingId, setApplyingId] = useState<string | null>(null);
   const [selectedOfferDetails, setSelectedOfferDetails] = useState<OfferPanelDetails | null>(null);
   const [analyticsLoading, setAnalyticsLoading] = useState(true);
   const [appliedJobsFilter, setAppliedJobsFilter] = useState<string | undefined>(undefined);
+
+  const handleApplyFromSaved = async (job: Job) => {
+    if (!profile?.id || !job?.id) return;
+    const jobIdStr = String(job.id);
+    const alreadyApplied = appliedJobs.some(a => String(a.job_id) === jobIdStr || String(a.job?.id) === jobIdStr);
+    if (alreadyApplied) return;
+    setApplyingId(jobIdStr);
+    try {
+      const { error: applyErr } = await supabase.from("applications").insert({
+        job_id: job.id,
+        profile_id: profile.id,
+        recruiter_id: job.recruiter_id,
+        status: "New",
+        resume_url: profile.resume_url || null,
+      });
+      if (!applyErr) {
+        const freshApplied = await getAppliedJobs(profile.id).catch(() => []);
+        setAppliedJobs(freshApplied);
+      }
+    } catch (err) {
+      console.error("Error applying from saved:", err);
+    } finally {
+      setApplyingId(null);
+    }
+  };
   const [compareState, setCompareState] = useState<{
     fromSavedJobs: true;
     selectedJobIds: string[];
@@ -4882,6 +4909,12 @@ function AnalyticsPage() {
     }
     setSelectedOfferJob(latest);
   }, [appliedJobs, selectedOfferJob]);
+
+  useEffect(() => {
+    if (selectedInterviewJob || selectedOfferJob) {
+      window.scrollTo({ top: 180, behavior: "smooth" });
+    }
+  }, [selectedInterviewJob?.id, selectedOfferJob?.id]);
 
   useEffect(() => {
     if (!selectedOfferJob || !profile?.id) {
@@ -5183,6 +5216,7 @@ function AnalyticsPage() {
                 key={key}
                 onClick={() => {
                   setActiveTab(key);
+                  setSelectedSavedJob(null);
                   if (key === "applied") {
                     setAppliedJobsFilter(undefined);
                   }
@@ -5212,14 +5246,24 @@ function AnalyticsPage() {
           )}
           {/* Saved Jobs */}
           {activeTab === "saved" && (
-            <SavedJobsSection userId={profile?.id} onJobsLoaded={setSavedJobs} showComparisonControls={false} />
+            <SavedJobsSection
+              userId={profile?.id}
+              appliedJobIds={appliedJobs.flatMap(a => [String(a.job_id), a.job?.id ? String(a.job.id) : null]).filter(Boolean) as string[]}
+              onJobsLoaded={setSavedJobs}
+              onJobSelect={setSelectedSavedJob}
+              selectedJobId={selectedSavedJob ? String(selectedSavedJob.job_id || selectedSavedJob.job?.id) : null}
+              showComparisonControls={false}
+            />
           )}
           {/* Job Comparison */}
           {activeTab === "compare" && (
             <div className="space-y-6">
               <SavedJobsSection
                 userId={profile?.id}
+                appliedJobIds={appliedJobs.flatMap(a => [String(a.job_id), a.job?.id ? String(a.job.id) : null]).filter(Boolean) as string[]}
                 onJobsLoaded={setSavedJobs}
+                onJobSelect={setSelectedSavedJob}
+                selectedJobId={selectedSavedJob ? String(selectedSavedJob.job_id || selectedSavedJob.job?.id) : null}
                 showComparisonControls
                 onCompareRequested={setCompareState}
               />
@@ -5231,6 +5275,130 @@ function AnalyticsPage() {
         {/* Right Sidebar — hidden when compare is active */}
         {activeTab !== "compare" && !analyticsLoading && (
           <div className="lg:col-span-1 space-y-4 sticky top-6 self-start">
+            {/* Saved Job Details Panel */}
+            {selectedSavedJob && selectedSavedJob.job && (
+              <div className="bg-white rounded-2xl border border-gray-100 p-5 shadow-[0_2px_8px_rgba(16,24,40,0.08)] space-y-4 max-h-[calc(100vh-120px)] overflow-y-auto custom-scrollbar">
+                <div className="flex items-start justify-between gap-3">
+                  <div className="flex items-center gap-3">
+                    {selectedSavedJob.job.recruiter?.logo_url ? (
+                      <img src={selectedSavedJob.job.recruiter.logo_url} alt="" className="w-10 h-10 rounded-xl object-cover border border-gray-200" />
+                    ) : (
+                      <div className="w-10 h-10 rounded-xl bg-red-50 flex items-center justify-center text-[#FF2B2B] font-bold text-base border border-gray-200">
+                        {(selectedSavedJob.job.company_name || "C")[0].toUpperCase()}
+                      </div>
+                    )}
+                    <div>
+                      <span className="text-[10px] font-semibold text-green-700 bg-green-50 border border-green-100 px-2 py-0.5 rounded-full inline-block mb-0.5">Verified Company</span>
+                      <p className="text-xs font-semibold text-[#3A1F1F]">{selectedSavedJob.job.company_name}</p>
+                    </div>
+                  </div>
+                  <button
+                    type="button"
+                    onClick={() => setSelectedSavedJob(null)}
+                    className="text-[#8A8A8A] hover:text-[#3A1F1F] transition-colors p-1"
+                    aria-label="Close details"
+                  >
+                    <X className="h-4 w-4" />
+                  </button>
+                </div>
+
+                <div>
+                  <h2 className="text-lg font-bold text-[#3A1F1F]">{selectedSavedJob.job.title}</h2>
+                  {selectedSavedJob.job.created_at && (
+                    <p className="text-xs text-[#8A8A8A] mt-0.5">
+                      Posted {new Date(selectedSavedJob.job.created_at).toLocaleDateString('en-US', { day: 'numeric', month: 'short', year: 'numeric' })}
+                    </p>
+                  )}
+                </div>
+
+                <div className="grid grid-cols-2 gap-2.5 p-3 bg-[#F8FAFC] rounded-xl text-xs text-[#3A1F1F]">
+                  <div>
+                    <span className="text-[#8A8A8A] block mb-0.5 text-[11px]">Location</span>
+                    <span className="font-semibold">{selectedSavedJob.job.location || selectedSavedJob.job.work_mode || "India"}</span>
+                  </div>
+                  <div>
+                    <span className="text-[#8A8A8A] block mb-0.5 text-[11px]">Salary</span>
+                    <span className="font-semibold">{formatJobSalary(selectedSavedJob.job)}</span>
+                  </div>
+                  <div>
+                    <span className="text-[#8A8A8A] block mb-0.5 text-[11px]">Experience</span>
+                    <span className="font-semibold">
+                      {selectedSavedJob.job.experience_min != null
+                        ? `${selectedSavedJob.job.experience_min}${selectedSavedJob.job.experience_max ? `–${selectedSavedJob.job.experience_max}` : "+"} years`
+                        : selectedSavedJob.job.experience || "Not specified"}
+                    </span>
+                  </div>
+                  {selectedSavedJob.job.preferred_joining_time && (
+                    <div>
+                      <span className="text-[#8A8A8A] block mb-0.5 text-[11px]">Joining Time</span>
+                      <span className="font-semibold">{selectedSavedJob.job.preferred_joining_time}</span>
+                    </div>
+                  )}
+                </div>
+
+                {/* Action Buttons */}
+                <div className="flex items-center gap-2 pt-1">
+                  {(() => {
+                    const targetId = String(selectedSavedJob.job_id || selectedSavedJob.job.id);
+                    const isApplied = appliedJobs.some(a => String(a.job_id) === targetId || String(a.job?.id) === targetId);
+                    return isApplied ? (
+                      <Badge className="bg-emerald-100 text-emerald-700 text-xs rounded-full px-4 py-2 font-medium border-0">
+                        <CheckCircle className="h-4 w-4 mr-1.5" /> Applied
+                      </Badge>
+                    ) : (
+                      <Button
+                        size="sm"
+                        className="rounded-full text-xs bg-[#FF2B2B] hover:bg-[#e02525] text-white px-5 py-2 flex items-center gap-1.5"
+                        disabled={applyingId === targetId}
+                        onClick={() => {
+                          if (selectedSavedJob.job) void handleApplyFromSaved(selectedSavedJob.job);
+                        }}
+                      >
+                        {applyingId === targetId ? (
+                          <>
+                            <Loader2 className="h-3.5 w-3.5 animate-spin" />
+                            Applying...
+                          </>
+                        ) : (
+                          "Apply Now"
+                        )}
+                      </Button>
+                    );
+                  })()}
+                </div>
+
+                {/* Description / Roles / Requirements */}
+                {selectedSavedJob.job.description && (
+                  <div className="pt-2 border-t border-gray-100">
+                    <h4 className="text-xs font-bold text-[#3A1F1F] mb-1.5">About the Role :</h4>
+                    <SafeHtml
+                      content={selectedSavedJob.job.description}
+                      className="rich-text-content text-[#8A8A8A] text-xs leading-relaxed"
+                    />
+                  </div>
+                )}
+
+                {selectedSavedJob.job.roles_responsibilities && (
+                  <div className="pt-2 border-t border-gray-100">
+                    <h4 className="text-xs font-bold text-[#3A1F1F] mb-1.5">Roles & Responsibilities :</h4>
+                    <SafeHtml
+                      content={selectedSavedJob.job.roles_responsibilities}
+                      className="rich-text-content text-[#8A8A8A] text-xs leading-relaxed"
+                    />
+                  </div>
+                )}
+
+                {selectedSavedJob.job.requirements && (
+                  <div className="pt-2 border-t border-gray-100">
+                    <h4 className="text-xs font-bold text-[#3A1F1F] mb-1.5">Requirements / Qualifications :</h4>
+                    <SafeHtml
+                      content={selectedSavedJob.job.requirements}
+                      className="rich-text-content text-[#8A8A8A] text-xs leading-relaxed"
+                    />
+                  </div>
+                )}
+              </div>
+            )}
             {activeTab === "applied" && selectedOfferJob && (
               <div className="bg-white rounded-2xl border border-gray-100 p-5 shadow-[0_2px_8px_rgba(16,24,40,0.08)]">
                 <div className="flex items-start justify-between gap-3">
