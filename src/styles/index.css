@@ -1,3 +1,9 @@
 @import './fonts.css';
 @import './tailwind.css';
 @import './theme.css';
+
+/* Hide browser native password reveal toggle icon (e.g. Edge / IE) */
+input::-ms-reveal,
+input::-ms-clear {
+  display: none;
+}

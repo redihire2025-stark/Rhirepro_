@@ -1,11 +1,32 @@
 import { useState } from "react";
-import { MapPin, Bell, Star, Facebook, Instagram, Twitter, ArrowRight } from "lucide-react";
+import { MapPin, Bell, Star, Facebook, Instagram, Twitter, ArrowRight, CheckCircle2 } from "lucide-react";
 import { Button } from "./ui/button";
 import { Input } from "./ui/input";
 import { Link } from "react-router";
+import { subscribeNewsletter } from "../../lib/newsletter";
 
 export default function PublicFooter() {
   const [email, setEmail] = useState("");
+  const [isSubscribed, setIsSubscribed] = useState(false);
+  const [status, setStatus] = useState<{ type: "idle" | "success" | "error"; message: string }>({ type: "idle", message: "" });
+  const [isLoading, setIsLoading] = useState(false);
+
+  const handleSubscribe = async (e: React.FormEvent) => {
+    e.preventDefault();
+    setIsLoading(true);
+
+    const result = await subscribeNewsletter(email);
+    setIsLoading(false);
+
+    if (!result.success) {
+      setStatus({ type: "error", message: result.message });
+      return;
+    }
+
+    setIsSubscribed(true);
+    setEmail("");
+    setStatus({ type: "success", message: "Successfully subscribed!" });
+  };
 
   return (
     <footer className="bg-[#FF2B2B] text-white py-16">
@@ -66,17 +87,41 @@ export default function PublicFooter() {
         </div>
 
         {/* Newsletter */}
-        <div className="bg-white rounded-full p-2 flex items-center gap-2 max-w-xl">
-          <Input
-            type="email"
-            value={email}
-            onChange={(e) => setEmail(e.target.value)}
-            className="bg-transparent border-0 text-[#3A1F1F] placeholder:text-gray-400 flex-1 focus-visible:ring-0"
-            placeholder="Email"
-          />
-          <Button className="bg-[#FF2B2B] hover:bg-[#e02525] text-white rounded-full px-8">
-            Subscribe Now <ArrowRight className="ml-2 h-4 w-4" />
-          </Button>
+        <div className="max-w-xl">
+          <form
+            onSubmit={handleSubscribe}
+            className={`rounded-full p-2 flex items-center gap-2 transition-colors duration-300 ${
+              isSubscribed
+                ? "bg-emerald-50/90 text-emerald-800 border border-emerald-200/50 shadow-sm"
+                : "bg-white"
+            }`}
+          >
+            <Input
+              type="text"
+              value={isSubscribed ? "Successfully subscribed!" : email}
+              disabled={isSubscribed || isLoading}
+              onChange={(e) => {
+                setEmail(e.target.value);
+                if (status.type === "error") setStatus({ type: "idle", message: "" });
+              }}
+              className={`bg-transparent border-0 flex-1 focus-visible:ring-0 font-semibold ${
+                isSubscribed
+                  ? "text-emerald-800 placeholder:text-emerald-800 text-center md:text-left text-base"
+                  : "text-[#3A1F1F] placeholder:text-gray-400"
+              }`}
+              placeholder="Enter your email"
+            />
+            {!isSubscribed && (
+              <Button type="submit" disabled={isLoading} className="bg-[#FF2B2B] hover:bg-[#e02525] text-white rounded-full px-8">
+                {isLoading ? "Subscribing..." : "Subscribe Now"} <ArrowRight className="ml-2 h-4 w-4" />
+              </Button>
+            )}
+          </form>
+          {status.message && status.type === "error" && (
+            <p className="mt-2 text-sm px-4 text-yellow-200 font-medium">
+              {status.message}
+            </p>
+          )}
         </div>
 
         <div className="border-t border-white/20 mt-12 pt-8 flex flex-col md:flex-row justify-between items-center gap-4 text-white/80 text-sm">

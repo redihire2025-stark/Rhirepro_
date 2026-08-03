@@ -6,6 +6,8 @@ import { Sheet, SheetContent, SheetTrigger, SheetTitle, SheetDescription } from 
 import { useNavigate, useParams } from "react-router";
 import logoImage from "../../logo/logo.png";
 import { supabase, type RecruiterArticle } from "../../lib/supabase";
+import PublicFooter from "../components/PublicFooter";
+import { subscribeNewsletter } from "../../lib/newsletter";
 
 const articles = [
   {
@@ -261,6 +263,8 @@ const shuffleArticles = <T,>(items: T[]) => {
 export default function BlogDetailPage() {
   const [isMenuOpen, setIsMenuOpen] = useState(false);
   const [email, setEmail] = useState("");
+  const [isSubscribed, setIsSubscribed] = useState(false);
+  const [subscribeStatus, setSubscribeStatus] = useState<{ type: "idle" | "success" | "error"; message: string }>({ type: "idle", message: "" });
   const navigate = useNavigate();
   const { id } = useParams();
   const [databaseArticle, setDatabaseArticle] = useState<RecruiterArticle | null>(null);
@@ -339,18 +343,35 @@ export default function BlogDetailPage() {
     })),
     conclusion: databaseArticle.key_takeaway || fallbackKeyTakeaway,
   } : staticArticle;
-  const moreArticles: MoreArticle[] = useMemo(
-    () => shuffleArticles(publishedArticles)
-      .filter((publishedArticle) => publishedArticle.id !== databaseArticle?.id)
-      .slice(0, 4)
-      .map((publishedArticle) => ({
-        id: publishedArticle.id,
-        title: publishedArticle.title,
-        category: publishedArticle.category,
-        date: formatArticleDate(publishedArticle),
-        readTime: `${publishedArticle.read_time} min read`,
-      })),
-    [databaseArticle?.id, publishedArticles]
+  const moreArticles = useMemo(
+    () => {
+      const realMore = shuffleArticles(publishedArticles)
+        .filter((publishedArticle) => publishedArticle.id !== databaseArticle?.id)
+        .slice(0, 4)
+        .map((publishedArticle) => ({
+          id: publishedArticle.id,
+          title: publishedArticle.title,
+          category: publishedArticle.category,
+          date: formatArticleDate(publishedArticle),
+          readTime: `${publishedArticle.read_time} min read`,
+          image: publishedArticle.cover_image_url || "",
+        }));
+
+      if (realMore.length > 0) return realMore;
+
+      return articles
+        .filter((a) => a.id !== numericArticleId)
+        .slice(0, 4)
+        .map((a) => ({
+          id: String(a.id),
+          title: a.title,
+          category: a.category,
+          date: a.date,
+          readTime: a.readTime,
+          image: "https://images.unsplash.com/photo-1522071820081-009f0129c71c?crop=entropy&cs=tinysrgb&fit=max&fm=jpg&q=80&w=400",
+        }));
+    },
+    [databaseArticle?.id, publishedArticles, numericArticleId]
   );
   const relatedCategories = useMemo(
     () => {
@@ -603,16 +624,21 @@ export default function BlogDetailPage() {
                   {moreArticles.length > 0 ? moreArticles.map(a => (
                     <div
                       key={a.id}
-                      className="cursor-pointer hover:bg-[#F6F6F6] p-3 rounded-xl transition-colors"
+                      className="cursor-pointer hover:bg-[#F6F6F6] p-3 rounded-xl transition-colors flex gap-3 items-center"
                       onClick={() => navigate(`/blog/${a.id}`)}
                     >
-                      <span className="inline-block bg-[#ECECF4] text-[#3A1F1F] px-2 py-0.5 rounded-full text-xs mb-1">
-                        {a.category}
-                      </span>
-                      <p className="text-sm font-semibold text-[#3A1F1F] leading-snug hover:text-[#FF2B2B] transition-colors">
-                        {a.title}
-                      </p>
-                      <p className="text-xs text-[#8A8A8A] mt-1">{a.readTime} · {a.date}</p>
+                      {a.image ? (
+                        <img src={a.image} alt={a.title} className="w-14 h-14 rounded-lg object-cover flex-shrink-0" />
+                      ) : null}
+                      <div className="flex-1 min-w-0">
+                        <span className="inline-block bg-[#ECECF4] text-[#3A1F1F] px-2 py-0.5 rounded-full text-xs mb-1">
+                          {a.category}
+                        </span>
+                        <p className="text-sm font-semibold text-[#3A1F1F] leading-snug hover:text-[#FF2B2B] transition-colors line-clamp-2">
+                          {a.title}
+                        </p>
+                        <p className="text-xs text-[#8A8A8A] mt-1">{a.readTime} · {a.date}</p>
+                      </div>
                     </div>
                   )) : (
                     <p className="text-sm text-[#8A8A8A] p-3">
@@ -651,69 +677,55 @@ export default function BlogDetailPage() {
               </div>
 
               {/* Newsletter */}
-              <div className="bg-[#3A1F1F] rounded-2xl p-6 text-white shadow-md">
+              <form
+                onSubmit={async (e) => {
+                  e.preventDefault();
+                  const result = await subscribeNewsletter(email);
+                  if (!result.success) {
+                    setSubscribeStatus({ type: "error", message: result.message });
+                    return;
+                  }
+                  setIsSubscribed(true);
+                  setEmail("");
+                  setSubscribeStatus({ type: "success", message: "Successfully subscribed!" });
+                }}
+                className="bg-[#3A1F1F] rounded-2xl p-6 text-white shadow-md"
+              >
                 <h3 className="text-lg font-bold mb-2">Stay Updated</h3>
                 <p className="text-white/80 text-sm mb-4">Get the latest articles delivered to your inbox.</p>
                 <Input
-                  type="email"
-                  value={email}
-                  onChange={(e) => setEmail(e.target.value)}
-                  className="bg-white/10 border-white/20 text-white placeholder:text-white/50 rounded-xl mb-3 focus-visible:ring-[#FF2B2B]"
+                  type="text"
+                  value={isSubscribed ? "Successfully subscribed!" : email}
+                  disabled={isSubscribed}
+                  onChange={(e) => {
+                    setEmail(e.target.value);
+                    if (subscribeStatus.type === "error") setSubscribeStatus({ type: "idle", message: "" });
+                  }}
+                  className={`rounded-xl mb-3 transition-colors ${
+                    isSubscribed
+                      ? "bg-emerald-500/20 border border-emerald-400/40 text-emerald-300 font-semibold text-center"
+                      : "bg-white/10 border-white/20 text-white placeholder:text-white/50 focus-visible:ring-[#FF2B2B]"
+                  }`}
                   placeholder="Your email"
                 />
-                <Button className="w-full bg-[#FF2B2B] hover:bg-[#e02525] text-white rounded-full">
-                  Subscribe <ArrowRight className="ml-2 h-4 w-4" />
-                </Button>
-              </div>
+                {!isSubscribed && (
+                  <Button type="submit" className="w-full bg-[#FF2B2B] hover:bg-[#e02525] text-white rounded-full">
+                    Subscribe Now <ArrowRight className="ml-2 h-4 w-4" />
+                  </Button>
+                )}
+                {subscribeStatus.message && subscribeStatus.type === "error" && (
+                  <p className="mt-2 text-xs text-center text-red-300 font-medium">
+                    {subscribeStatus.message}
+                  </p>
+                )}
+              </form>
             </div>
           </div>
         </div>
       </section>
 
       {/* Footer */}
-      <footer className="bg-[#FF2B2B] text-white py-10">
-        <div className="container mx-auto px-4">
-          <div className="grid md:grid-cols-3 gap-8 mb-6">
-            <div>
-              <h2 className="text-2xl font-bold mb-4">Work With Purpose.<br />Grow With Us.</h2>
-              <div className="space-y-2 text-white/90 text-sm mb-4">
-                <p className="flex items-center gap-2"><MapPin className="h-4 w-4" /> ID 123/201</p>
-                <p className="flex items-center gap-2"><Bell className="h-4 w-4" /> www.RhirePro.com</p>
-                <p className="flex items-center gap-2"><Star className="h-4 w-4" /> 0120 - 3532 - 510</p>
-              </div>
-              <div className="flex gap-3">
-                {[Facebook, Instagram, Twitter].map((Icon, i) => (
-                  <div key={i} className="w-9 h-9 bg-white rounded-full flex items-center justify-center">
-                    <Icon className="h-4 w-4 text-[#FF2B2B]" />
-                  </div>
-                ))}
-              </div>
-            </div>
-            <div>
-              <h4 className="font-bold mb-3 text-sm">Company</h4>
-              <ul className="space-y-2 text-white/80 text-sm">
-                <li><a href="/" className="hover:text-white transition-colors">Home</a></li>
-                <li><a href="/blog" className="hover:text-white transition-colors">Blog</a></li>
-                <li><a href="/jobs" className="hover:text-white transition-colors">Jobs</a></li>
-                <li><a href="/services" className="hover:text-white transition-colors">Services</a></li>
-              </ul>
-            </div>
-            <div>
-              <h4 className="font-bold mb-3 text-sm">Services</h4>
-              <ul className="space-y-2 text-white/80 text-sm">
-                <li><a href="#" className="hover:text-white transition-colors">Talent Sourcing</a></li>
-                <li><a href="#" className="hover:text-white transition-colors">Executive Search</a></li>
-                <li><a href="#" className="hover:text-white transition-colors">Career Coaching</a></li>
-                <li><a href="#" className="hover:text-white transition-colors">Job Matching</a></li>
-              </ul>
-            </div>
-          </div>
-          <div className="border-t border-white/20 pt-6 flex flex-col md:flex-row justify-between items-center gap-3 text-white/80 text-xs">
-            <p>Copyright © 2025 RhirePro. All Rights Reserved.</p>
-            <p>Privacy and Policy</p>
-          </div>
-        </div>
-      </footer>
+      <PublicFooter />
     </div>
   );
 }
