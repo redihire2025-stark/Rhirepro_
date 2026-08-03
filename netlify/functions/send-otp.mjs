@@ -44,37 +44,13 @@ export default async (request) => {
     return new Response("Method Not Allowed", { status: 405 });
   }
 
-  const { to_email, to_name, otp_code, expiry_minutes, check_signup } = await request.json();
+  const { to_email, to_name, otp_code, expiry_minutes } = await request.json();
 
   const apiKey = process.env.BREVO_API_KEY;
   const senderEmail = process.env.BREVO_SENDER_EMAIL;
   const senderName = process.env.BREVO_SENDER_NAME || "RhirePro";
   const supabaseUrl = process.env.VITE_SUPABASE_URL;
   const serviceKey = process.env.SUPABASE_SERVICE_ROLE_KEY;
-
-  if (check_signup && supabaseUrl && serviceKey) {
-    const cleanEmail = (to_email || "").trim().toLowerCase();
-    try {
-      const [pRes, rRes] = await Promise.all([
-        fetch(`${supabaseUrl}/rest/v1/profiles?email=ilike.${encodeURIComponent(cleanEmail)}&select=id`, {
-          headers: { apikey: serviceKey, Authorization: `Bearer ${serviceKey}` },
-        }),
-        fetch(`${supabaseUrl}/rest/v1/recruiters?email=ilike.${encodeURIComponent(cleanEmail)}&select=id`, {
-          headers: { apikey: serviceKey, Authorization: `Bearer ${serviceKey}` },
-        }),
-      ]);
-      const pData = pRes.ok ? await pRes.json() : [];
-      const rData = rRes.ok ? await rRes.json() : [];
-      if ((pData && pData.length > 0) || (rData && rData.length > 0)) {
-        return new Response(JSON.stringify({ error: "An account with this email already exists. Please sign in." }), {
-          status: 400,
-          headers: { "Content-Type": "application/json" },
-        });
-      }
-    } catch (checkErr) {
-      console.warn("[send-otp] Email check failed:", checkErr.message);
-    }
-  }
 
   if (!apiKey || !senderEmail) {
     return new Response(JSON.stringify({ error: "Email service not configured" }), {

@@ -72,14 +72,6 @@ export default function JobSeekerSignUp() {
 
     setLoading(true);
     try {
-      // 1. Pre-check if an account with this email already exists
-      const emailExists = await checkIfEmailExists(formData.email);
-      if (emailExists) {
-        setError("An account with this email already exists. Please sign in.");
-        setLoading(false);
-        return;
-      }
-
       const generatedOTP = generateOTP();
       await sendOTPEmail(formData.email, generatedOTP, [formData.firstName, formData.lastName].filter(Boolean).join(" "));
 
@@ -88,7 +80,7 @@ export default function JobSeekerSignUp() {
       setStep("otp");
     } catch (err: unknown) {
       const message = err instanceof Error ? err.message : "Failed to send OTP.";
-      if (message.includes("already registered") || message.includes("already exists")) {
+      if (message.includes("already registered")) {
         setError("An account with this email already exists. Please sign in.");
       } else {
         setError(message);

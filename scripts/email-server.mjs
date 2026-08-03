@@ -143,48 +143,10 @@ const server = http.createServer(async (req, res) => {
     res.writeHead(status, { "Content-Type": "application/json" }); res.end(JSON.stringify({ error: msg }));
   };
 
-  // ── POST /api/check-email  (Check if email already exists in Supabase Auth / DB) ─────
-  if (req.method === "POST" && req.url === "/api/check-email") {
-    const { email } = await readBody(req);
-    try {
-      const cleanEmail = (email || "").trim().toLowerCase();
-      if (!cleanEmail) return ok({ exists: false });
-
-      const admin = adminClient();
-      const [{ data: profs }, { data: recs }, authRes] = await Promise.all([
-        admin.from("profiles").select("id").ilike("email", cleanEmail).limit(1),
-        admin.from("recruiters").select("id").ilike("email", cleanEmail).limit(1),
-        admin.auth.admin.listUsers().catch(() => ({ data: { users: [] } })),
-      ]);
-
-      const authUser = authRes?.data?.users?.find(u => (u.email || "").toLowerCase() === cleanEmail);
-      const exists = !!((profs && profs.length > 0) || (recs && recs.length > 0) || authUser);
-
-      ok({ exists });
-    } catch (err) { fail(500, err.message); }
-    return;
-  }
-
-  // ── POST /api/send-otp  (Login/Signup OTP — generated client-side) ─────────────────
+  // ── POST /api/send-otp  (Login OTP — generated client-side) ─────────────────
   if (req.method === "POST" && req.url === "/api/send-otp") {
-    const { to_email, to_name, otp_code, expiry_minutes, check_signup } = await readBody(req);
+    const { to_email, to_name, otp_code, expiry_minutes } = await readBody(req);
     try {
-      if (check_signup) {
-        const cleanEmail = (to_email || "").trim().toLowerCase();
-        const admin = adminClient();
-        const [{ data: profs }, { data: recs }, authRes] = await Promise.all([
-          admin.from("profiles").select("id").ilike("email", cleanEmail).limit(1),
-          admin.from("recruiters").select("id").ilike("email", cleanEmail).limit(1),
-          admin.auth.admin.listUsers().catch(() => ({ data: { users: [] } })),
-        ]);
-
-        const authUser = authRes?.data?.users?.find(u => (u.email || "").toLowerCase() === cleanEmail);
-
-        if ((profs && profs.length > 0) || (recs && recs.length > 0) || authUser) {
-          return fail(400, "An account with this email already exists. Please sign in.");
-        }
-      }
-
       await sendBrevoEmail(
         to_email, to_name,
         `RhirePro Login OTP: ${otp_code}`,
@@ -343,23 +305,7 @@ const server = http.createServer(async (req, res) => {
       let sentCount = 0;
 
       for (const r of recipients) {
-        let emailAddr = (r.email || "").trim();
-
-        if ((!emailAddr || emailAddr.endsWith("@candidate.recruiter")) && r.id && admin) {
-          try {
-            const [{ data: prof }, { data: rec }, authRes] = await Promise.all([
-              admin.from("profiles").select("email").eq("id", r.id).maybeSingle(),
-              admin.from("recruiters").select("email").eq("id", r.id).maybeSingle(),
-              admin.auth.admin.getUserById(r.id).catch(() => null),
-            ]);
-            if (prof && prof.email) emailAddr = prof.email.trim();
-            else if (rec && rec.email) emailAddr = rec.email.trim();
-            else if (authRes?.data?.user?.email) emailAddr = authRes.data.user.email.trim();
-          } catch (pErr) {
-            console.warn("[send-recruiter-email] Admin email resolution fallback failed:", pErr.message);
-          }
-        }
-
+        const emailAddr = (r.email || "").trim();
         if (!emailAddr || emailAddr.endsWith("@candidate.recruiter") || !emailAddr.includes("@")) {
           console.warn("[send-recruiter-email] Skipping recipient without valid email address:", r.name, emailAddr);
           continue;
