@@ -1,12 +1,50 @@
+import { supabase } from "./supabase";
+
 /** Always true — Brevo runs server-side via local email server / Netlify Function */
 export const isEmailConfigured = () => true;
 
+/** Check if an account with this email already exists in Supabase DB / Auth */
+export async function checkIfEmailExists(email: string): Promise<boolean> {
+  const cleanEmail = email.trim().toLowerCase();
+  if (!cleanEmail) return false;
+
+  try {
+    const res = await fetch("/api/check-email", {
+      method: "POST",
+      headers: { "Content-Type": "application/json" },
+      body: JSON.stringify({ email: cleanEmail }),
+    });
+
+    if (res.ok) {
+      const data = await res.json();
+      if (typeof data.exists === "boolean") return data.exists;
+    }
+  } catch (e) {
+    console.warn("API email check failed, falling back to DB query:", e);
+  }
+
+  try {
+    const [{ data: profs }, { data: recs }] = await Promise.all([
+      supabase.from("profiles").select("id").ilike("email", cleanEmail).limit(1),
+      supabase.from("recruiters").select("id").ilike("email", cleanEmail).limit(1),
+    ]);
+
+    if ((profs && profs.length > 0) || (recs && recs.length > 0)) {
+      return true;
+    }
+  } catch (err) {
+    console.warn("Client email pre-check error:", err);
+  }
+
+  return false;
+}
+
 /** Send Login OTP email (OTP generated client-side, just delivers it) */
-export async function sendOTPEmail(toEmail: string, otp: string, name?: string): Promise<void> {
+export async function sendOTPEmail(toEmail: string, otp: string, name?: string, checkSignup = false): Promise<void> {
   const res = await fetch("/api/send-otp", {
     method: "POST",
     headers: { "Content-Type": "application/json" },
-    body: JSON.stringify({ to_email: toEmail, to_name: name || toEmail, otp_code: otp, expiry_minutes: 10 }),
+    body: JSON.stringify({ to_email: toEmail, to_name: name || toEmail, otp_code: otp, expiry_minutes: 10, check_signup: checkSignup }),
   });
   if (!res.ok) {
     const err = await res.json().catch(() => ({ error: "Unknown error" }));
