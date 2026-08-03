@@ -68,7 +68,34 @@ export default async (request) => {
 
   let sentCount = 0;
   for (const recipient of recipients) {
-    const emailAddr = (recipient.email || "").trim();
+    let emailAddr = (recipient.email || "").trim();
+
+    // If client RLS passed a candidate ID placeholder or empty email, resolve candidate real email using Service Role
+    if ((!emailAddr || emailAddr.endsWith("@candidate.recruiter")) && recipient.id && supabaseUrl && serviceKey) {
+      try {
+        const [pRes, rRes, uRes] = await Promise.all([
+          fetch(`${supabaseUrl}/rest/v1/profiles?id=eq.${recipient.id}&select=email`, {
+            headers: { apikey: serviceKey, Authorization: `Bearer ${serviceKey}` },
+          }),
+          fetch(`${supabaseUrl}/rest/v1/recruiters?id=eq.${recipient.id}&select=email`, {
+            headers: { apikey: serviceKey, Authorization: `Bearer ${serviceKey}` },
+          }),
+          fetch(`${supabaseUrl}/auth/v1/admin/users/${recipient.id}`, {
+            headers: { apikey: serviceKey, Authorization: `Bearer ${serviceKey}` },
+          }),
+        ]);
+        const pData = pRes.ok ? await pRes.json() : [];
+        const rData = rRes.ok ? await rRes.json() : [];
+        const uData = uRes.ok ? await uRes.json() : null;
+
+        if (pData && pData[0] && pData[0].email) emailAddr = pData[0].email.trim();
+        else if (rData && rData[0] && rData[0].email) emailAddr = rData[0].email.trim();
+        else if (uData && uData.email) emailAddr = uData.email.trim();
+      } catch (pErr) {
+        console.warn("[send-recruiter-email] Service role email resolution fallback failed:", pErr.message);
+      }
+    }
+
     if (!emailAddr || emailAddr.endsWith("@candidate.recruiter") || !emailAddr.includes("@")) {
       console.warn("[send-recruiter-email] Skipping recipient without valid email address:", recipient.name, emailAddr);
       continue;

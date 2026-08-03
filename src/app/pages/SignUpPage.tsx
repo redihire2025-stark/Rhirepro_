@@ -6,7 +6,7 @@ import { Checkbox } from "../components/ui/checkbox";
 import { User, Briefcase, Mail, Lock, UserCircle, Building2, Phone, Eye, EyeOff, Loader2, CheckCircle, RefreshCw, ShieldCheck } from "lucide-react";
 const logoImage = new URL("../../logo/logo.png", import.meta.url).href;
 import { supabase } from "../../lib/supabase";
-import { sendOTPEmail } from "../../lib/email";
+import { sendOTPEmail, checkIfEmailExists } from "../../lib/email";
 
 function generateOTP() {
   return Math.floor(100000 + Math.random() * 900000).toString();
@@ -67,6 +67,14 @@ export default function SignUpPage() {
 
     setLoading(true);
     try {
+      // 1. Pre-check if an account with this email already exists
+      const emailExists = await checkIfEmailExists(formData.email);
+      if (emailExists) {
+        setError("An account with this email already exists. Please sign in.");
+        setLoading(false);
+        return;
+      }
+
       const generatedOTP = generateOTP();
       await sendOTPEmail(formData.email, generatedOTP, formData.name);
 
@@ -76,7 +84,7 @@ export default function SignUpPage() {
       setStep("otp");
     } catch (err: unknown) {
       const message = err instanceof Error ? err.message : "Failed to send OTP.";
-      setError(message.includes("already registered") ? "An account with this email already exists. Please sign in." : message);
+      setError(message.includes("already registered") || message.includes("already exists") ? "An account with this email already exists. Please sign in." : message);
     } finally {
       setLoading(false);
     }
