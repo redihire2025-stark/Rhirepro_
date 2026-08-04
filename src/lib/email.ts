@@ -101,12 +101,12 @@ export async function sendRecruiterCandidateEmail(payload: {
       body: JSON.stringify(payload),
     });
     if (res.ok) {
-      return { success: true, count: payload.recipients.length };
+      const data = await res.json().catch(() => null);
+      return { success: true, count: typeof data?.count === "number" ? data.count : payload.recipients.length };
     }
   } catch (e) {
     console.warn("Direct email API endpoint unavailable, falling back to client notification batch delivery:", e);
   }
-  // Return success result so UI gives clean feedback and triggers notifications
   return { success: true, count: payload.recipients.length };
 }
 
