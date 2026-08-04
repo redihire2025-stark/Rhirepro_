@@ -72,6 +72,14 @@ export default function JobSeekerSignUp() {
 
     setLoading(true);
     try {
+      // 1. Pre-check if an account with this email already exists
+      const emailExists = await checkIfEmailExists(formData.email);
+      if (emailExists) {
+        setError("An account with this email already exists. Please sign in.");
+        setLoading(false);
+        return;
+      }
+
       const generatedOTP = generateOTP();
       await sendOTPEmail(formData.email, generatedOTP, [formData.firstName, formData.lastName].filter(Boolean).join(" "));
 
@@ -80,7 +88,7 @@ export default function JobSeekerSignUp() {
       setStep("otp");
     } catch (err: unknown) {
       const message = err instanceof Error ? err.message : "Failed to send OTP.";
-      if (message.includes("already registered")) {
+      if (message.includes("already registered") || message.includes("already exists")) {
         setError("An account with this email already exists. Please sign in.");
       } else {
         setError(message);
@@ -195,7 +203,7 @@ export default function JobSeekerSignUp() {
 
   if (success) {
     return (
-      <div className="min-h-screen bg-gradient-to-br from-[#F6F6F6] to-[#FFE8E8] flex items-center justify-center p-4">
+      <div className="min-h-screen bg-gradient-to-br from-[#F6F6F6] to-[#ECECF4] flex items-center justify-center p-4">
         <div className="bg-white rounded-2xl p-10 shadow-xl text-center max-w-md w-full">
           <div className="w-20 h-20 bg-green-50 rounded-full flex items-center justify-center mx-auto mb-4">
             <CheckCircle className="h-10 w-10 text-green-500" />
@@ -298,7 +306,7 @@ export default function JobSeekerSignUp() {
   }
 
   return (
-    <div className="min-h-screen bg-gradient-to-br from-[#F6F6F6] to-[#FFE8E8] flex items-center justify-center p-4">
+    <div className="min-h-screen bg-gradient-to-br from-[#F6F6F6] to-[#ECECF4] flex items-center justify-center p-4">
       <div className="w-full max-w-md">
         <div className="text-center mb-8">
           <Link to="/" className="inline-flex flex-col items-center gap-1">

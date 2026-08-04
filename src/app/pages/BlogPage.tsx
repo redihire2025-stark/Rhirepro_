@@ -7,6 +7,7 @@ import { useNavigate, useSearchParams } from "react-router";
 import logoImage from "../../logo/logo.png";
 import { supabase, RecruiterArticle, PREDEFINED_SEED_TITLES } from "../../lib/supabase";
 import { ImageWithFallback } from "../components/figma/ImageWithFallback";
+import PublicFooter from "../components/PublicFooter";
 
 export interface BlogPageItem {
   id: string;
@@ -67,6 +68,7 @@ const shuffleItems = <T,>(items: T[]) => {
 export default function BlogPage() {
   const [isMenuOpen, setIsMenuOpen] = useState(false);
   const [email, setEmail] = useState("");
+  const [subscribeStatus, setSubscribeStatus] = useState<{ type: "idle" | "success" | "error"; message: string }>({ type: "idle", message: "" });
   const navigate = useNavigate();
   const [searchParams] = useSearchParams();
   const selectedCategory = searchParams.get("category") || "";
@@ -288,18 +290,42 @@ export default function BlogPage() {
           <p className="text-white/90 mb-8 text-lg max-w-2xl mx-auto">
             Get the latest recruitment insights, career tips, and industry news delivered directly to your inbox.
           </p>
-          <div className="bg-white rounded-full p-2 flex items-center gap-2 max-w-xl mx-auto">
-            <Input
-              type="email"
-              value={email}
-              onChange={(e) => setEmail(e.target.value)}
-              className="bg-transparent border-0 text-[#3A1F1F] placeholder:text-gray-400 flex-1 focus-visible:ring-0"
-              placeholder="Enter your email"
-            />
-            <Button className="bg-[#FF2B2B] hover:bg-[#e02525] text-white rounded-full px-8">
-              Subscribe <ArrowRight className="ml-2 h-4 w-4" />
-            </Button>
-          </div>
+          <form
+            onSubmit={(e) => {
+              e.preventDefault();
+              const cleanEmail = email.trim();
+              const emailRegex = /^[^\s@]+@[^\s@]+\.[^\s@]+$/;
+              if (!cleanEmail || !emailRegex.test(cleanEmail)) {
+                setSubscribeStatus({ type: "error", message: "Please enter a valid email address." });
+                return;
+              }
+              setSubscribeStatus({ type: "success", message: "Thank you for subscribing to our newsletter!" });
+              setEmail("");
+              setTimeout(() => setSubscribeStatus({ type: "idle", message: "" }), 4000);
+            }}
+            className="max-w-xl mx-auto"
+          >
+            <div className="bg-white rounded-full p-2 flex items-center gap-2">
+              <Input
+                type="email"
+                value={email}
+                onChange={(e) => {
+                  setEmail(e.target.value);
+                  if (subscribeStatus.type === "error") setSubscribeStatus({ type: "idle", message: "" });
+                }}
+                className="bg-transparent border-0 text-[#3A1F1F] placeholder:text-gray-400 flex-1 focus-visible:ring-0"
+                placeholder="Enter your email"
+              />
+              <Button type="submit" className="bg-[#FF2B2B] hover:bg-[#e02525] text-white rounded-full px-8">
+                Subscribe <ArrowRight className="ml-2 h-4 w-4" />
+              </Button>
+            </div>
+            {subscribeStatus.message && (
+              <p className={`mt-3 text-sm ${subscribeStatus.type === "error" ? "text-red-300 font-medium" : "text-emerald-300 font-medium"}`}>
+                {subscribeStatus.message}
+              </p>
+            )}
+          </form>
         </div>
       </section>
 
@@ -331,83 +357,7 @@ export default function BlogPage() {
       </section>
 
       {/* Footer */}
-      <footer className="bg-[#FF2B2B] text-white py-16">
-        <div className="container mx-auto px-4">
-          <div className="grid md:grid-cols-2 gap-12 mb-12">
-            <div>
-              <h2 className="text-4xl md:text-5xl font-bold mb-6">
-                Work With Purpose.<br />Grow With Us.
-              </h2>
-              <div className="space-y-3 text-white/90">
-                <p className="flex items-center gap-2">
-                  <MapPin className="h-5 w-5" />
-                  ID 123/201
-                </p>
-                <p className="flex items-center gap-2">
-                  <Bell className="h-5 w-5" />
-                  www.RhirePro.com
-                </p>
-                <p className="flex items-center gap-2">
-                  <Star className="h-5 w-5" />
-                  0120 - 3532 - 510
-                </p>
-              </div>
-              <div className="flex gap-4 mt-6">
-                <div className="w-10 h-10 bg-white rounded-full flex items-center justify-center">
-                  <Facebook className="h-5 w-5 text-[#FF2B2B]" />
-                </div>
-                <div className="w-10 h-10 bg-white rounded-full flex items-center justify-center">
-                  <Instagram className="h-5 w-5 text-[#FF2B2B]" />
-                </div>
-                <div className="w-10 h-10 bg-white rounded-full flex items-center justify-center">
-                  <Twitter className="h-5 w-5 text-[#FF2B2B]" />
-                </div>
-              </div>
-            </div>
-            <div className="grid grid-cols-2 gap-8">
-              <div>
-                <h4 className="font-bold mb-4">Company</h4>
-                <ul className="space-y-2 text-white/80">
-                  <li><a href="/" className="hover:text-white transition-colors">Home</a></li>
-                  <li><a href="/" className="hover:text-white transition-colors">About Us</a></li>
-                  <li><a href="/services" className="hover:text-white transition-colors">Services</a></li>
-                  <li><a href="/" className="hover:text-white transition-colors">Contact Us</a></li>
-                </ul>
-              </div>
-              <div>
-                <h4 className="font-bold mb-4">Services</h4>
-                <ul className="space-y-2 text-white/80">
-                  <li><a href="#" className="hover:text-white transition-colors">Talent Sourcing</a></li>
-                  <li><a href="#" className="hover:text-white transition-colors">Executive Search</a></li>
-                  <li><a href="#" className="hover:text-white transition-colors">Project-Based Hiring</a></li>
-                  <li><a href="#" className="hover:text-white transition-colors">Career Coaching</a></li>
-                  <li><a href="#" className="hover:text-white transition-colors">Job Matching</a></li>
-                  <li><a href="#" className="hover:text-white transition-colors">Branding Support</a></li>
-                </ul>
-              </div>
-            </div>
-          </div>
-
-          {/* Newsletter */}
-          <div className="bg-white rounded-full p-2 flex items-center gap-2 max-w-xl">
-            <Input
-              type="email"
-              value={email}
-              onChange={(e) => setEmail(e.target.value)}
-              className="bg-transparent border-0 text-[#3A1F1F] placeholder:text-gray-400 flex-1 focus-visible:ring-0"
-              placeholder="Email"
-            />
-            <Button className="bg-[#FF2B2B] hover:bg-[#e02525] text-white rounded-full px-8">
-              Subscribe Now <ArrowRight className="ml-2 h-4 w-4" />
-            </Button>
-          </div>
-
-          <div className="border-t border-white/20 mt-12 pt-8 flex flex-col md:flex-row justify-between items-center gap-4 text-white/80 text-sm">
-            <p>Copyright © 2025 RhirePro. All Rights Reserved.</p>
-            <p>Privacy and Policy</p>
-          </div>
-        </div>
-      </footer>
+      <PublicFooter />
     </div>
   );
 }

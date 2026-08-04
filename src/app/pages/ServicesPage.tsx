@@ -1,7 +1,7 @@
 import { useState, useEffect } from "react";
 import { ChevronRight, ArrowRight, Users, Award, Briefcase, TrendingUp, CheckCircle2, Clock, Star } from "lucide-react";
 import { Button } from "../components/ui/button";
-import { useNavigate } from "react-router";
+import { useNavigate, Link } from "react-router";
 import PublicHeader from "../components/PublicHeader";
 import PublicFooter from "../components/PublicFooter";
 import { PLANS, calculateGst } from "../../lib/plans";
@@ -134,21 +134,21 @@ export default function ServicesPage() {
       <PublicHeader />
 
       {/* Hero Section */}
-      <section className="bg-white py-16">
+      <section className="bg-gradient-to-b from-white to-[#F6F6F6] py-16 animate-in fade-in slide-in-from-top-4 duration-500">
         <div className="container mx-auto px-4">
-          <div className="flex flex-col md:flex-row justify-between items-start md:items-center">
-            <div className="mb-6 md:mb-0 flex-1">
+          <div className="flex flex-col md:flex-row justify-between items-start md:items-center gap-8">
+            <div className="mb-6 md:mb-0 flex-1 transform transition-all duration-500">
               <div className="flex items-center gap-2 text-sm text-[#8A8A8A] mb-4">
-                <a href="/" className="hover:text-[#FF2B2B]">Home</a>
-                <ChevronRight className="h-4 w-4" />
-                <span className="text-[#FF2B2B] border border-[#FF2B2B] px-3 py-1 rounded-full">
+                <Link to="/" className="hover:text-[#FF2B2B] transition-colors">Home</Link>
+                <ChevronRight className="h-4 w-4 text-[#8A8A8A]" />
+                <span className="text-[#FF2B2B] bg-[#FF2B2B]/10 border border-[#FF2B2B]/30 px-3 py-1 rounded-full font-medium">
                   Services
                 </span>
               </div>
-              <h1 className="text-4xl md:text-5xl font-bold text-[#3A1F1F] mb-4">
+              <h1 className="text-4xl md:text-5xl font-bold text-[#3A1F1F] mb-4 leading-tight">
                 Expert Services for Talent & Employers
               </h1>
-              <p className="text-[#8A8A8A] max-w-lg">
+              <p className="text-[#8A8A8A] max-w-lg text-lg">
                 Discover our comprehensive range of recruitment services designed to connect talent with opportunity.
               </p>
             </div>
@@ -156,12 +156,12 @@ export default function ServicesPage() {
               <img
                 src="https://images.unsplash.com/photo-1573497019940-1c28c88b4f3e?w=400&q=80"
                 alt="Expert Services"
-                className="rounded-2xl h-40 w-48 object-cover shadow-md"
+                className="rounded-2xl h-40 w-48 object-cover shadow-lg transform hover:scale-105 transition-transform duration-300"
               />
               <img
                 src="https://images.unsplash.com/photo-1522071820081-009f0129c71c?w=400&q=80"
                 alt="Recruitment Team"
-                className="rounded-2xl h-32 w-32 mt-8 object-cover shadow-md"
+                className="rounded-2xl h-32 w-32 mt-8 object-cover shadow-lg transform hover:scale-105 transition-transform duration-300"
               />
             </div>
           </div>
@@ -221,8 +221,10 @@ export default function ServicesPage() {
           <p className="text-white/90 mb-8 text-lg max-w-2xl mx-auto">
             Join thousands of professionals who have found their dream jobs through RhirePro
           </p>
-          <Button onClick={() => navigate("/jobs")} className="bg-[#FF2B2B] hover:bg-[#e02525] text-white rounded-full px-8 py-6 text-lg">
-            Explore <ArrowRight className="ml-2 h-5 w-5" />
+          <Button asChild className="bg-[#FF2B2B] hover:bg-[#e02525] text-white rounded-full px-8 py-6 text-lg cursor-pointer">
+            <Link to="/jobs" onClick={() => window.scrollTo({ top: 0, behavior: "smooth" })}>
+              Explore <ArrowRight className="ml-2 h-5 w-5 inline-block" />
+            </Link>
           </Button>
         </div>
       </section>
@@ -264,7 +266,7 @@ export default function ServicesPage() {
                   Choose Plan <ArrowRight className="ml-2 h-5 w-5" />
                 </Button>
                 <ul className="space-y-3">
-                  {plan.features.map((feature, idx) => (
+                  {plan.features.map((feature: string, idx: number) => (
                     <li key={idx} className="flex items-start gap-3">
                       <CheckCircle2 className="h-5 w-5 text-[#FF2B2B] flex-shrink-0 mt-0.5" />
                       <span className="text-[#8A8A8A]">{feature}</span>

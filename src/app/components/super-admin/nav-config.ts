@@ -10,6 +10,7 @@ import {
   Receipt,
   MessagesSquare,
   Mail,
+  Newspaper,
   Bell,
   FileBarChart,
   BarChart3,
@@ -110,6 +111,13 @@ export const superAdminNavGroups: SuperAdminNavGroup[] = [
         icon: Mail,
         status: "active",
         description: "Delivery logs and templates for every transactional email sent through Brevo.",
+      },
+      {
+        label: "Newsletter",
+        path: "/super-admin/newsletter",
+        icon: Newspaper,
+        status: "active",
+        description: "View newsletter subscribers and manage email campaigns.",
       },
       {
         label: "Notifications",

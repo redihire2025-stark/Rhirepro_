@@ -56,8 +56,12 @@ pnpm-debug.log*
 .cache/
 .temp/
 *.local
+# Python & virtual environment
+__pycache__/
+*.pyc
+venv/
+.venv/
 /Lib/
 /venv/Scripts/
 !/scripts/
-
 .env

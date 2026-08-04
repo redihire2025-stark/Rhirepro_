@@ -365,3 +365,9 @@ export interface PromoCode {
   is_active: boolean;
   created_at: string;
 }
+
+export interface NewsletterSubscriber {
+  id: string;
+  email: string;
+  created_at: string;
+}

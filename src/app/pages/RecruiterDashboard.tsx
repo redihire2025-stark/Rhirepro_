@@ -6137,7 +6137,11 @@ Best regards,
   };
 
   const handleOpenSingleEmail = (candidate: DBCandidate) => {
-    setSelectedCandidatesMap(new Map([[candidate.id, candidate]]));
+    setSelectedCandidatesMap(prev => {
+      const next = new Map(prev);
+      next.set(candidate.id, candidate);
+      return next;
+    });
     resetComposerState();
     setIsComposerOpen(true);
   };
@@ -6460,6 +6464,7 @@ Best regards,
 
     try {
       const recipients = selectedCandidates.map(c => ({
+        id: c.id,
         email: c.email || `${c.id}@candidate.recruiter`,
         name: getCandidateDisplayName(c),
         subject: getRenderedText(subject, c),
