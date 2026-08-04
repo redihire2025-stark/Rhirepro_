@@ -329,13 +329,72 @@ export function RichTextEditor({
   };
 
   const toggleHeading = (tag: "h2" | "h3") => {
-    const isActive = tag === "h2" ? activeFormats.h2 : activeFormats.h3;
-    if (isActive) {
-      // Already in this heading — revert to normal paragraph
-      document.execCommand("formatBlock", false, "<div>");
-    } else {
-      document.execCommand("formatBlock", false, `<${tag}>`);
+    const sel = window.getSelection();
+    if (!sel || !editorRef.current) return;
+
+    // Detect if caret/selection is currently inside an H2 or H3 element
+    let currentHeadingTag = "";
+    let headingElement: HTMLElement | null = null;
+    let node: Node | null = sel.anchorNode;
+    while (node && node !== editorRef.current) {
+      if (node.nodeType === Node.ELEMENT_NODE) {
+        const elTag = (node as HTMLElement).tagName.toLowerCase();
+        if (elTag === "h2" || elTag === "h3") {
+          currentHeadingTag = elTag;
+          headingElement = node as HTMLElement;
+          break;
+        }
+      }
+      node = node.parentNode;
     }
+
+    const isCurrentlyActive = currentHeadingTag === tag;
+
+    if (isCurrentlyActive && headingElement) {
+      // UNDO: Revert heading back to standard paragraph
+      if (sel.isCollapsed || headingElement.textContent?.trim() === sel.toString().trim()) {
+        document.execCommand("formatBlock", false, "<p>");
+      } else {
+        const parent = headingElement.parentNode;
+        if (parent) {
+          while (headingElement.firstChild) {
+            parent.insertBefore(headingElement.firstChild, headingElement);
+          }
+          parent.removeChild(headingElement);
+        }
+      }
+    } else {
+      // DO: Apply heading
+      if (!sel.isCollapsed) {
+        // Selection is not collapsed (user highlighted specific text/word)
+        try {
+          const range = sel.getRangeAt(0);
+          const parentEl = range.commonAncestorContainer.nodeType === Node.ELEMENT_NODE
+            ? (range.commonAncestorContainer as HTMLElement)
+            : range.commonAncestorContainer.parentElement;
+
+          const isFullBlockSelected = parentEl && parentEl.textContent?.trim() === sel.toString().trim();
+          if (isFullBlockSelected) {
+            document.execCommand("formatBlock", false, `<${tag}>`);
+          } else {
+            // Apply heading style to the selected word/phrase only
+            const headingSpan = document.createElement(tag);
+            headingSpan.className = tag === "h2" ? "inline-block font-bold text-base text-[#3A1F1F]" : "inline-block font-bold text-sm text-[#3A1F1F]";
+            try {
+              range.surroundContents(headingSpan);
+            } catch {
+              document.execCommand("formatBlock", false, `<${tag}>`);
+            }
+          }
+        } catch {
+          document.execCommand("formatBlock", false, `<${tag}>`);
+        }
+      } else {
+        // Selection is collapsed (cursor blinking)
+        document.execCommand("formatBlock", false, `<${tag}>`);
+      }
+    }
+
     handleInput();
   };
 

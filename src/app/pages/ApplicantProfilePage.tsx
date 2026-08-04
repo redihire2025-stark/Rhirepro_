@@ -9,6 +9,7 @@ import {
 } from "lucide-react";
 import { Button } from "../components/ui/button";
 import { Badge } from "../components/ui/badge";
+import { SafeHtml } from "../components/ui/safe-html";
 import { getStorageObjectFromUrl, buildPreviewUrl, getResumePreviewKind } from "../components/ResumePreviewDialog";
 
 // Singleton promise for loading pdfjs — prevents race conditions when multiple instances load simultaneously
@@ -640,9 +641,16 @@ export default function ApplicantProfilePage() {
             {/* Professional Summary */}
             <div className="bg-white rounded-2xl p-6 shadow-md">
               <h3 className="text-lg font-bold text-[#3A1F1F] mb-3">Professional Summary</h3>
-              <p className="text-[#8A8A8A] leading-relaxed text-sm whitespace-pre-wrap">
-                {profile?.about || <span className="italic text-gray-400">No professional summary added.</span>}
-              </p>
+              {profile?.about ? (
+                <SafeHtml
+                  content={profile.about}
+                  className="text-[#8A8A8A] leading-relaxed text-sm [&_ul]:list-disc [&_ul]:pl-5 [&_ol]:list-decimal [&_ol]:pl-5 [&_h2]:text-[#3A1F1F] [&_h2]:font-bold [&_h2]:mt-2 [&_h2]:mb-1 [&_h3]:text-[#3A1F1F] [&_h3]:font-bold [&_h3]:mt-1.5 [&_h3]:mb-1 [&_a]:text-[#FF2B2B] [&_a]:underline"
+                />
+              ) : (
+                <p className="text-[#8A8A8A] leading-relaxed text-sm">
+                  <span className="italic text-gray-400">No professional summary added.</span>
+                </p>
+              )}
             </div>
 
             {/* Key Skills */}
@@ -673,7 +681,12 @@ export default function ApplicantProfilePage() {
                       <p className="text-[#8A8A8A] text-xs mt-0.5">
                         {exp.startMonth} {exp.startYear} – {exp.current ? "Present" : `${exp.endMonth} ${exp.endYear}`}
                       </p>
-                      {exp.description && <p className="text-[#8A8A8A] text-sm mt-2 leading-relaxed whitespace-pre-wrap">{exp.description}</p>}
+                      {exp.description && (
+                        <SafeHtml
+                          content={exp.description}
+                          className="text-[#8A8A8A] text-sm mt-2 leading-relaxed [&_ul]:list-disc [&_ul]:pl-5 [&_ol]:list-decimal [&_ol]:pl-5 [&_h2]:text-[#3A1F1F] [&_h2]:font-bold [&_h2]:mt-2 [&_h2]:mb-1 [&_h3]:text-[#3A1F1F] [&_h3]:font-bold [&_h3]:mt-1.5 [&_h3]:mb-1 [&_a]:text-[#FF2B2B] [&_a]:underline"
+                        />
+                      )}
                     </div>
                   ))
                 ) : (

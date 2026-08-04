@@ -691,7 +691,12 @@ function CareerTimeline({ experience, education }: { experience: Experience[]; e
                       </div>
                     </div>
                   </div>
-                  <p className="text-xs text-[#5A5A5A] mt-2 leading-relaxed">{exp.description}</p>
+                  {exp.description && (
+                    <SafeHtml
+                      content={exp.description}
+                      className="text-xs text-[#5A5A5A] mt-2 leading-relaxed [&_ul]:list-disc [&_ul]:pl-5 [&_ol]:list-decimal [&_ol]:pl-5 [&_h2]:text-sm [&_h2]:font-bold [&_h2]:mt-2 [&_h2]:mb-1 [&_h3]:text-xs [&_h3]:font-bold [&_h3]:mt-1.5 [&_h3]:mb-1 [&_a]:text-[#FF2B2B] [&_a]:underline"
+                    />
+                  )}
                 </div>
               </div>
             ))}
@@ -827,7 +832,10 @@ function CandidateProfileModal({ candidate, open, onClose }: { candidate: Candid
                 {candidate.about && (
                   <div className="bg-[#F6F6F6] rounded-xl p-4">
                     <h4 className="font-semibold text-[#3A1F1F] mb-2 text-sm">Professional Summary</h4>
-                    <p className="text-sm text-[#5A5A5A] leading-relaxed">{candidate.about}</p>
+                    <SafeHtml
+                      content={candidate.about}
+                      className="text-sm text-[#5A5A5A] leading-relaxed [&_ul]:list-disc [&_ul]:pl-5 [&_ol]:list-decimal [&_ol]:pl-5 [&_h2]:text-[#3A1F1F] [&_h2]:font-bold [&_h2]:mt-2 [&_h2]:mb-1 [&_h3]:text-[#3A1F1F] [&_h3]:font-bold [&_h3]:mt-1.5 [&_h3]:mb-1 [&_a]:text-[#FF2B2B] [&_a]:underline"
+                    />
                   </div>
                 )}
                 <div className="bg-[#F6F6F6] rounded-xl p-4">
@@ -2879,12 +2887,10 @@ function PostJobPage() {
             <input type="hidden" value={formData.skills} required />
           </div>
 
-          {/* Job Description & Requirements */}
+          {/* Job Details */}
           <div className="border-b pb-6">
-            <h2 className="text-lg font-semibold text-[#3A1F1F] mb-4">Job Description & Requirements</h2>
-            <div>
-              <label className="block mb-1.5 text-sm font-medium text-[#3A1F1F]">Job Details *</label>
-              <UnifiedJobDetailsEditor
+            <h2 className="text-lg font-semibold text-[#3A1F1F] mb-4">Job Details *</h2>
+            <UnifiedJobDetailsEditor
                 description={formData.jobDescription}
                 onChangeDescription={val => setFormData(prev => ({ ...prev, jobDescription: val }))}
                 rolesResponsibilities={formData.rolesResponsibilities}
@@ -2892,7 +2898,6 @@ function PostJobPage() {
                 requirements={formData.requirements}
                 onChangeRequirements={val => setFormData(prev => ({ ...prev, requirements: val }))}
               />
-            </div>
           </div>
 
           {/* Perks */}
@@ -3881,7 +3886,10 @@ function SearchCandidateProfileModal({
               {candidate.about && (
                 <div>
                   <h3 className="text-sm font-bold text-[#3A1F1F] mb-2 flex items-center gap-2"><User className="h-4 w-4 text-[#FF2B2B]" /> Profile Summary</h3>
-                  <p className="text-sm text-[#5A5A5A] leading-relaxed bg-[#F6F6F6] rounded-xl p-3 border-l-4 border-[#FF2B2B]">{candidate.about}</p>
+                  <SafeHtml
+                    content={candidate.about}
+                    className="text-sm text-[#5A5A5A] leading-relaxed bg-[#F6F6F6] rounded-xl p-3 border-l-4 border-[#FF2B2B] [&_ul]:list-disc [&_ul]:pl-5 [&_ol]:list-decimal [&_ol]:pl-5 [&_h2]:text-[#3A1F1F] [&_h2]:font-bold [&_h2]:mt-2 [&_h2]:mb-1 [&_h3]:text-[#3A1F1F] [&_h3]:font-bold [&_h3]:mt-1.5 [&_h3]:mb-1 [&_a]:text-[#FF2B2B] [&_a]:underline"
+                  />
                 </div>
               )}
 
@@ -5547,7 +5555,12 @@ function SearchCandidatesPage() {
                             })()}
 
                             {/* About — clamped to 2 lines */}
-                            {c.about && <p className="mt-1.5 text-xs text-[#5A5A5A] line-clamp-2 leading-relaxed overflow-hidden">{c.about}</p>}
+                            {c.about && (
+                              <SafeHtml
+                                content={c.about}
+                                className="mt-1.5 text-xs text-[#5A5A5A] line-clamp-2 leading-relaxed overflow-hidden"
+                              />
+                            )}
                           </div>
                         </div>
 
@@ -6226,6 +6239,11 @@ Best regards,
   };
 
   const handleOpenSingleEmail = (candidate: DBCandidate) => {
+    setSelectedCandidatesMap(prev => {
+      const next = new Map(prev);
+      next.set(candidate.id, candidate);
+      return next;
+    });
     setSelectedCandidatesMap(prev => {
       const next = new Map(prev);
       next.set(candidate.id, candidate);
@@ -8361,7 +8379,10 @@ function ApplicantsPage() {
 
                           {/* Summary */}
                           {p?.about && (
-                            <p className="mt-2.5 text-xs text-[#5A5A5A] leading-relaxed line-clamp-2">{p.about}</p>
+                            <SafeHtml
+                              content={p.about}
+                              className="mt-2.5 text-xs text-[#5A5A5A] leading-relaxed line-clamp-2"
+                            />
                           )}
                         </div>
                       </div>

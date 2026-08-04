@@ -32,6 +32,7 @@ import {
 import { Textarea } from "../components/ui/textarea";
 import { Select, SelectContent, SelectItem, SelectTrigger, SelectValue } from "../components/ui/select";
 import { SafeHtml } from "../components/ui/safe-html";
+import { RichTextEditor } from "../components/ui/rich-text-editor";
 import { BarChart, Bar, XAxis, YAxis, CartesianGrid, Tooltip, ResponsiveContainer } from "recharts";
 import { Badge } from "../components/ui/badge";
 import FeedbackPopup from "../components/FeedbackPopup";
@@ -3519,7 +3520,7 @@ function ProfilePage({ onPendingPrefsChange }: { onPendingPrefsChange?: (pending
           <div className="mt-3 flex flex-wrap gap-2 text-xs text-[#8A8A8A]">
             {[
               { label: "Basic Info", done: !!(basicInfo.name && basicInfo.phone && basicInfo.email && basicInfo.location) },
-              { label: "Summary", done: summary.length > 20 },
+              { label: "Summary", done: summary.trim().length > 20 },
               { label: "Skills (3+)", done: skills.length >= 3 },
               { label: "Experience", done: experiences.length > 0 },
               { label: "Education", done: education.length > 0 },
@@ -3753,7 +3754,7 @@ function ProfilePage({ onPendingPrefsChange }: { onPendingPrefsChange?: (pending
               </div>
             </div>
           ) : (
-            <p className="text-[#8A8A8A] leading-relaxed">{summary || <span className="italic text-gray-400">No summary added yet.</span>}</p>
+            <p className="text-[#8A8A8A] leading-relaxed whitespace-pre-wrap">{summary || <span className="italic text-gray-400">No summary added yet.</span>}</p>
           )}
         </div>
 
@@ -3886,7 +3887,12 @@ function ProfilePage({ onPendingPrefsChange }: { onPendingPrefsChange?: (pending
                       <p className="text-[#8A8A8A] text-xs mt-0.5">
                         {exp.startMonth} {exp.startYear} – {exp.current ? "Present" : `${exp.endMonth} ${exp.endYear}`}
                       </p>
-                      {exp.description && <p className="text-[#8A8A8A] text-sm mt-2">{exp.description}</p>}
+                      {exp.description && (
+                        <SafeHtml
+                          content={exp.description}
+                          className="text-[#8A8A8A] text-sm mt-2 [&_ul]:list-disc [&_ul]:pl-5 [&_ol]:list-decimal [&_ol]:pl-5 [&_h2]:text-[#3A1F1F] [&_h2]:font-bold [&_h2]:mt-2 [&_h2]:mb-1 [&_h3]:text-[#3A1F1F] [&_h3]:font-bold [&_h3]:mt-1.5 [&_h3]:mb-1 [&_a]:text-[#FF2B2B] [&_a]:underline"
+                        />
+                      )}
                     </div>
                     <div className="flex gap-1 shrink-0 ml-4">
                       <Button variant="ghost" size="icon" className="h-8 w-8 text-[#8A8A8A] hover:text-[#FF2B2B]" onClick={() => editExp(exp)}><Pencil className="h-4 w-4" /></Button>
@@ -4511,8 +4517,13 @@ function ExpForm({ form, setForm, onSave, onCancel }: {
         </div>
       </div>
       <div>
-        <label className="block text-sm text-[#3A1F1F] mb-1">Description</label>
-        <Textarea value={form.description} onChange={(e) => setForm({ ...form, description: e.target.value })} rows={3} className="bg-white border-gray-200 rounded-xl resize-none" placeholder="Describe your role and achievements..." />
+        <label className="block text-sm text-[#3A1F1F] mb-1">Roles & Responsibilities / Description</label>
+        <RichTextEditor
+          value={form.description}
+          onChange={(val) => setForm({ ...form, description: val })}
+          placeholder="Describe your role, responsibilities, key achievements, and tools used..."
+          minHeight="120px"
+        />
       </div>
       <div className="flex gap-3">
         <Button className="bg-[#FF2B2B] hover:bg-[#e02525] text-white rounded-full" onClick={onSave}>Save</Button>
