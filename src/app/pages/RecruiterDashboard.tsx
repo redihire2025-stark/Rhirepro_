@@ -917,17 +917,23 @@ export default function RecruiterDashboard() {
   // Subscription guard — redirect to plans if expired
   useEffect(() => {
     if (authLoading || loadingSub || !user || !recruiterProfile) return;
-    
+
     // Allow users to access the Plans page regardless of subscription status
     if (location.pathname === "/recruiter/dashboard/plans" || location.pathname === "/recruiter/dashboard/plans/") {
       return;
     }
 
-    const isExpired = activeSub === null;
-    if (isExpired) {
+    const hasPaidAccess = Boolean(
+      activeSub ||
+      isOrgAdmin ||
+      recruiterProfile.org_role === "admin" ||
+      recruiterProfile.is_org_admin
+    );
+
+    if (!hasPaidAccess) {
       navigate("/recruiter/dashboard/plans", { replace: true });
     }
-  }, [authLoading, loadingSub, user, recruiterProfile, activeSub, location.pathname, navigate]);
+  }, [authLoading, loadingSub, user, recruiterProfile, activeSub, isOrgAdmin, location.pathname, navigate]);
 
   const [notificationsOpen, setNotificationsOpen] = useState(false);
   const [mobileNavOpen, setMobileNavOpen] = useState(false);
