@@ -92,9 +92,12 @@ function normalizeInterviewMode(raw: unknown): string | null {
 
 function jobMatchesInterviewModes(job: DBJob, preferredModes: string[]): boolean {
   if (preferredModes.length === 0) return true;
-  const jobMode = normalizeInterviewMode(job.interview_mode) || normalizeInterviewMode(job.work_mode);
-  if (!jobMode) return false;
-  return preferredModes.some((mode) => normalizeInterviewMode(mode) === jobMode);
+  const rawModes = (job.interview_mode || job.work_mode || "").split(",").map(m => m.trim().toLowerCase()).filter(Boolean);
+  if (rawModes.length === 0) return false;
+  return preferredModes.some((mode) => {
+    const target = mode.trim().toLowerCase();
+    return rawModes.some(m => m.includes(target) || target.includes(m));
+  });
 }
 
 export default function JobListingsPage() {

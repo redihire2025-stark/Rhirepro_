@@ -19,6 +19,15 @@ import { INDIA_CITY_OPTIONS } from "../../lib/locationData";
 import { SEARCH_SUGGESTION_DATASET, SKILL_OPTIONS, getSkillSearchTerms, skillsMatch, fuzzyMatch } from "../../lib/skillKeywords";
 import { useAuth } from "../../lib/auth-context";
 import { sendRecruiterCandidateEmail } from "../../lib/email";
+import {
+  INDUSTRY_OPTIONS,
+  PERKS_AND_BENEFITS_OPTIONS,
+  QUALIFICATION_OPTIONS,
+  QUALIFICATION_SPECIALIZATION_MAP,
+  INTERVIEW_MODE_OPTIONS,
+  getSpecializationsForQualification,
+  matchQualificationOption,
+} from "../../lib/jobMasterData";
 import logoImage from "../../logo/logo.png";
 import {
   Bell, LogOut, Plus, Edit, Pause, Trash2, User, Upload, Building2,
@@ -192,6 +201,8 @@ function LocationAutocomplete({
   className = "",
   inputClassName = "",
   onEnter,
+  clearOnSelect = false,
+  existingLocations = [],
 }: {
   value: string;
   onChange: (value: string) => void;
@@ -200,6 +211,8 @@ function LocationAutocomplete({
   className?: string;
   inputClassName?: string;
   onEnter?: () => void;
+  clearOnSelect?: boolean;
+  existingLocations?: string[];
 }) {
   const [open, setOpen] = useState(false);
   const [search, setSearch] = useState(value);
@@ -221,55 +234,95 @@ function LocationAutocomplete({
   }, [open]);
 
   const filteredCities = useMemo(() => {
-    const query = search.trim();
-    if (!query) return INDIA_CITY_OPTIONS.slice(0, 50);
-    const qLower = query.toLowerCase();
+    const query = search.replace(/,/g, "").trim();
+    const existingLower = existingLocations.map(l => l.toLowerCase().trim());
     const matches: string[] = [];
+
     for (let i = 0; i < INDIA_CITY_OPTIONS.length; i++) {
       const city = INDIA_CITY_OPTIONS[i];
-      if (city.toLowerCase().includes(qLower) || fuzzyMatch(query, city)) {
+      const cityLower = city.toLowerCase();
+      if (existingLower.includes(cityLower)) continue;
+
+      if (!query || cityLower.includes(query.toLowerCase()) || fuzzyMatch(query, city)) {
         matches.push(city);
         if (matches.length >= 50) break;
       }
     }
     return matches;
-  }, [search]);
+  }, [search, existingLocations]);
 
   const selectCity = (city: string, submit = false) => {
-    const next = city.trim();
-    onChange(next);
-    setSearch(next);
+    const cleaned = city.replace(/,/g, "").trim();
+    if (!cleaned) {
+      setSearch("");
+      setOpen(false);
+      return;
+    }
+
+    const isDuplicate = existingLocations.some(l => l.toLowerCase().trim() === cleaned.toLowerCase());
+    if (!isDuplicate) {
+      onChange(cleaned);
+    }
+
+    if (clearOnSelect) {
+      setSearch("");
+    } else {
+      setSearch(cleaned);
+    }
     setOpen(false);
     if (submit && onEnter) onEnter();
+  };
+
+  const handleTextChange = (val: string) => {
+    if (val.includes(",")) {
+      const parts = val.split(",");
+      const firstPart = parts[0].replace(/,/g, "").trim();
+      if (firstPart) {
+        selectCity(firstPart);
+      } else {
+        setSearch("");
+      }
+      return;
+    }
+    setSearch(val);
+    if (!clearOnSelect) {
+      onChange(val);
+    }
+    setOpen(true);
   };
 
   return (
     <div className={`relative ${className}`} ref={wrapperRef}>
       <div className="relative">
-        <MapPin className="absolute left-3 top-1/2 h-4 w-4 -translate-y-1/2 text-[#8A8A8A]" />
+        <MapPin className={`absolute left-3 top-1/2 h-4 w-4 -translate-y-1/2 transition-colors ${open ? "text-[#FF2B2B]" : "text-[#8A8A8A]"}`} />
         <Input
           value={search}
           required={required}
           onFocus={() => setOpen(true)}
-          onChange={(e) => {
-            setSearch(e.target.value);
-            onChange(e.target.value);
-            setOpen(true);
-          }}
+          onChange={(e) => handleTextChange(e.target.value)}
           onKeyDown={(e) => {
             if (e.key === "Enter") {
               e.preventDefault();
               selectCity(filteredCities[0] || search, true);
             }
+            if (e.key === ",") {
+              e.preventDefault();
+              const firstPart = search.replace(/,/g, "").trim();
+              if (firstPart) {
+                selectCity(firstPart);
+              } else {
+                setSearch("");
+              }
+            }
             if (e.key === "Escape") setOpen(false);
           }}
-          className={`bg-[#F6F6F6] border-gray-200 rounded-xl pl-9 pr-10 ${inputClassName}`}
+          className={`bg-[#F6F6F6] border-gray-200 focus:border-[#FF2B2B] focus:ring-1 focus:ring-[#FF2B2B] focus-visible:ring-[#FF2B2B] focus-visible:border-[#FF2B2B] rounded-xl pl-9 pr-10 text-[#3A1F1F] placeholder:text-[#8A8A8A] ${inputClassName}`}
           placeholder={placeholder}
         />
         <button
           type="button"
           onClick={() => setOpen(current => !current)}
-          className="absolute right-3 top-1/2 -translate-y-1/2 text-[#8A8A8A] hover:text-[#3A1F1F]"
+          className={`absolute right-3 top-1/2 -translate-y-1/2 transition-all ${open ? "text-[#FF2B2B] rotate-180" : "text-[#8A8A8A] hover:text-[#FF2B2B]"}`}
         >
           <ChevronDown className="h-4 w-4" />
         </button>
@@ -278,26 +331,362 @@ function LocationAutocomplete({
         <div className="absolute left-0 right-0 top-full z-[80] mt-2 overflow-hidden rounded-xl border border-gray-200 bg-white shadow-xl">
           <div className="max-h-72 overflow-y-auto p-1">
             {filteredCities.length === 0 ? (
-              <button
-                type="button"
-                onClick={() => selectCity(search)}
-                className="flex w-full items-center gap-2 rounded-lg px-3 py-2 text-left text-sm text-[#3A1F1F] hover:bg-[#FFF0F0]"
-              >
-                <Plus className="h-4 w-4 text-[#FF2B2B]" />
-                <span>Add "{search.trim()}"</span>
-              </button>
+              search.replace(/,/g, "").trim() ? (
+                <button
+                  type="button"
+                  onClick={() => selectCity(search)}
+                  className="flex w-full items-center gap-2 rounded-lg px-3 py-2 text-left text-sm text-[#3A1F1F] hover:bg-[#FFF0F0] hover:text-[#FF2B2B] transition-colors"
+                >
+                  <Plus className="h-4 w-4 text-[#FF2B2B]" />
+                  <span>Add "{search.replace(/,/g, "").trim()}"</span>
+                </button>
+              ) : (
+                <div className="px-3 py-2 text-xs text-[#8A8A8A] italic text-center">
+                  All matching cities added
+                </div>
+              )
             ) : (
               filteredCities.map((city) => {
-                const selected = value.toLowerCase() === city.toLowerCase();
+                const selected = value.toLowerCase().trim() === city.toLowerCase().trim() || existingLocations.some(l => l.toLowerCase().trim() === city.toLowerCase().trim());
                 return (
                   <button
                     key={city}
                     type="button"
                     onClick={() => selectCity(city)}
-                    className="flex w-full items-center gap-2 rounded-lg px-3 py-2 text-left text-sm text-[#3A1F1F] hover:bg-[#FFF0F0]"
+                    className="flex w-full items-center gap-2 rounded-lg px-3 py-2 text-left text-sm text-[#3A1F1F] hover:bg-[#FFF0F0] hover:text-[#FF2B2B] transition-colors"
                   >
                     <Check className={`h-4 w-4 ${selected ? "text-[#FF2B2B] opacity-100" : "opacity-0"}`} />
                     <span>{city}</span>
+                  </button>
+                );
+              })
+            )}
+          </div>
+        </div>
+      )}
+    </div>
+  );
+}
+
+function IndustryCombobox({
+  value,
+  onChange,
+  placeholder = "Select or type industry",
+}: {
+  value: string;
+  onChange: (value: string) => void;
+  placeholder?: string;
+}) {
+  const [open, setOpen] = useState(false);
+  const [search, setSearch] = useState(value);
+  const wrapperRef = useRef<HTMLDivElement>(null);
+
+  useEffect(() => {
+    setSearch(value);
+  }, [value]);
+
+  useEffect(() => {
+    if (!open) return;
+    const handleClickOutside = (event: MouseEvent) => {
+      if (!wrapperRef.current?.contains(event.target as Node)) {
+        setOpen(false);
+      }
+    };
+    document.addEventListener("mousedown", handleClickOutside);
+    return () => document.removeEventListener("mousedown", handleClickOutside);
+  }, [open]);
+
+  const filteredOptions = useMemo(() => {
+    const query = search.trim().toLowerCase();
+    const valNorm = value.trim().toLowerCase();
+    if (!query || query === valNorm) return INDUSTRY_OPTIONS;
+    return INDUSTRY_OPTIONS.filter(opt => opt.toLowerCase().includes(query));
+  }, [search, value]);
+
+  const handleInputChange = (e: React.ChangeEvent<HTMLInputElement>) => {
+    const val = e.target.value;
+    setSearch(val);
+    onChange(val);
+    if (!open) setOpen(true);
+  };
+
+  const selectOption = (opt: string) => {
+    if (opt === "Others" || opt === "Other") {
+      onChange("");
+      setSearch("");
+    } else {
+      onChange(opt);
+      setSearch(opt);
+    }
+    setOpen(false);
+  };
+
+  return (
+    <div className="relative w-full" ref={wrapperRef}>
+      <div className="relative">
+        <Input
+          value={search}
+          onFocus={() => setOpen(true)}
+          onChange={handleInputChange}
+          placeholder={placeholder}
+          className="bg-[#F6F6F6] border-gray-200 focus:border-[#FF2B2B] focus:ring-1 focus:ring-[#FF2B2B] focus-visible:ring-[#FF2B2B] focus-visible:border-[#FF2B2B] rounded-xl pr-10 text-[#3A1F1F] placeholder:text-[#8A8A8A]"
+        />
+        <button
+          type="button"
+          onClick={() => setOpen(prev => !prev)}
+          className={`absolute right-3 top-1/2 -translate-y-1/2 transition-all ${open ? "text-[#FF2B2B] rotate-180" : "text-[#8A8A8A] hover:text-[#FF2B2B]"}`}
+        >
+          <ChevronDown className="h-4 w-4" />
+        </button>
+      </div>
+
+      {open && (
+        <div className="absolute left-0 right-0 top-full z-[80] mt-2 overflow-hidden rounded-xl border border-gray-200 bg-white shadow-xl">
+          <div className="max-h-60 overflow-y-auto p-1">
+            {filteredOptions.length === 0 ? (
+              search.trim() ? (
+                <div className="px-3 py-2 text-xs text-[#8A8A8A] italic">
+                  Keep typing to enter "{search.trim()}"
+                </div>
+              ) : (
+                <div className="px-3 py-2 text-xs text-[#8A8A8A] italic text-center">No options found</div>
+              )
+            ) : (
+              filteredOptions.map((opt) => {
+                const isSelected = value.trim().toLowerCase() === opt.trim().toLowerCase();
+                return (
+                  <button
+                    key={opt}
+                    type="button"
+                    onClick={() => selectOption(opt)}
+                    className={`flex w-full items-center justify-between rounded-lg px-3 py-2 text-left text-sm transition-colors ${
+                      isSelected ? "bg-[#FFF0F0] text-[#FF2B2B] font-semibold" : "text-[#3A1F1F] hover:bg-[#FFF0F0] hover:text-[#FF2B2B]"
+                    }`}
+                  >
+                    <span>{opt}</span>
+                    {isSelected && <Check className="h-4 w-4 text-[#FF2B2B]" />}
+                  </button>
+                );
+              })
+            )}
+          </div>
+        </div>
+      )}
+    </div>
+  );
+}
+
+function QualificationCombobox({
+  value,
+  onChange,
+  placeholder = "Select or type qualification",
+}: {
+  value: string;
+  onChange: (value: string) => void;
+  placeholder?: string;
+}) {
+  const [open, setOpen] = useState(false);
+  const [search, setSearch] = useState(value);
+  const wrapperRef = useRef<HTMLDivElement>(null);
+
+  useEffect(() => {
+    setSearch(value);
+  }, [value]);
+
+  useEffect(() => {
+    if (!open) return;
+    const handleClickOutside = (event: MouseEvent) => {
+      if (!wrapperRef.current?.contains(event.target as Node)) {
+        setOpen(false);
+      }
+    };
+    document.addEventListener("mousedown", handleClickOutside);
+    return () => document.removeEventListener("mousedown", handleClickOutside);
+  }, [open]);
+
+  const filteredOptions = useMemo(() => {
+    const query = search.trim().toLowerCase();
+    const valNorm = value.trim().toLowerCase();
+    if (!query || query === valNorm) return QUALIFICATION_OPTIONS;
+    return QUALIFICATION_OPTIONS.filter(opt => opt.toLowerCase().includes(query));
+  }, [search, value]);
+
+  const handleInputChange = (e: React.ChangeEvent<HTMLInputElement>) => {
+    const val = e.target.value;
+    setSearch(val);
+    onChange(val);
+    if (!open) setOpen(true);
+  };
+
+  const selectOption = (opt: string) => {
+    if (opt === "Others" || opt === "Other") {
+      onChange("");
+      setSearch("");
+    } else {
+      onChange(opt);
+      setSearch(opt);
+    }
+    setOpen(false);
+  };
+
+  return (
+    <div className="relative w-full" ref={wrapperRef}>
+      <div className="relative">
+        <Input
+          value={search}
+          onFocus={() => setOpen(true)}
+          onChange={handleInputChange}
+          placeholder={placeholder}
+          className="bg-[#F6F6F6] border-gray-200 focus:border-[#FF2B2B] focus:ring-1 focus:ring-[#FF2B2B] focus-visible:ring-[#FF2B2B] focus-visible:border-[#FF2B2B] rounded-xl pr-10 text-[#3A1F1F] placeholder:text-[#8A8A8A]"
+        />
+        <button
+          type="button"
+          onClick={() => setOpen(prev => !prev)}
+          className={`absolute right-3 top-1/2 -translate-y-1/2 transition-all ${open ? "text-[#FF2B2B] rotate-180" : "text-[#8A8A8A] hover:text-[#FF2B2B]"}`}
+        >
+          <ChevronDown className="h-4 w-4" />
+        </button>
+      </div>
+
+      {open && (
+        <div className="absolute left-0 right-0 top-full z-[80] mt-2 overflow-hidden rounded-xl border border-gray-200 bg-white shadow-xl">
+          <div className="max-h-60 overflow-y-auto p-1">
+            {filteredOptions.length === 0 ? (
+              search.trim() ? (
+                <div className="px-3 py-2 text-xs text-[#8A8A8A] italic">
+                  Keep typing to enter "{search.trim()}"
+                </div>
+              ) : (
+                <div className="px-3 py-2 text-xs text-[#8A8A8A] italic text-center">No options found</div>
+              )
+            ) : (
+              filteredOptions.map((opt) => {
+                const isSelected = value.trim().toLowerCase() === opt.trim().toLowerCase();
+                return (
+                  <button
+                    key={opt}
+                    type="button"
+                    onClick={() => selectOption(opt)}
+                    className={`flex w-full items-center justify-between rounded-lg px-3 py-2 text-left text-sm transition-colors ${
+                      isSelected ? "bg-[#FFF0F0] text-[#FF2B2B] font-semibold" : "text-[#3A1F1F] hover:bg-[#FFF0F0] hover:text-[#FF2B2B]"
+                    }`}
+                  >
+                    <span>{opt}</span>
+                    {isSelected && <Check className="h-4 w-4 text-[#FF2B2B]" />}
+                  </button>
+                );
+              })
+            )}
+          </div>
+        </div>
+      )}
+    </div>
+  );
+}
+
+function SpecializationCombobox({
+  qualification,
+  value,
+  onChange,
+  placeholder = "Select or type specialization",
+}: {
+  qualification: string;
+  value: string;
+  onChange: (value: string) => void;
+  placeholder?: string;
+}) {
+  const [open, setOpen] = useState(false);
+  const [search, setSearch] = useState(value);
+  const wrapperRef = useRef<HTMLDivElement>(null);
+
+  const availableOptions = useMemo(() => {
+    return getSpecializationsForQualification(qualification);
+  }, [qualification]);
+
+  useEffect(() => {
+    setSearch(value);
+  }, [value]);
+
+  useEffect(() => {
+    if (!open) return;
+    const handleClickOutside = (event: MouseEvent) => {
+      if (!wrapperRef.current?.contains(event.target as Node)) {
+        setOpen(false);
+      }
+    };
+    document.addEventListener("mousedown", handleClickOutside);
+    return () => document.removeEventListener("mousedown", handleClickOutside);
+  }, [open]);
+
+  const filteredOptions = useMemo(() => {
+    const query = search.trim().toLowerCase();
+    const valNorm = value.trim().toLowerCase();
+    if (!query || query === valNorm) return availableOptions;
+    return availableOptions.filter(opt => opt.toLowerCase().includes(query));
+  }, [search, value, availableOptions]);
+
+  const handleInputChange = (e: React.ChangeEvent<HTMLInputElement>) => {
+    const val = e.target.value;
+    setSearch(val);
+    onChange(val);
+    if (!open) setOpen(true);
+  };
+
+  const selectOption = (opt: string) => {
+    if (opt === "Others" || opt === "Other") {
+      onChange("");
+      setSearch("");
+    } else {
+      onChange(opt);
+      setSearch(opt);
+    }
+    setOpen(false);
+  };
+
+  return (
+    <div className="relative w-full" ref={wrapperRef}>
+      <div className="relative">
+        <Input
+          value={search}
+          onFocus={() => setOpen(true)}
+          onChange={handleInputChange}
+          placeholder={qualification ? placeholder : "Select or type specialization"}
+          className="bg-[#F6F6F6] border-gray-200 focus:border-[#FF2B2B] focus:ring-1 focus:ring-[#FF2B2B] focus-visible:ring-[#FF2B2B] focus-visible:border-[#FF2B2B] rounded-xl pr-10 text-[#3A1F1F] placeholder:text-[#8A8A8A]"
+        />
+        <button
+          type="button"
+          onClick={() => setOpen(prev => !prev)}
+          className={`absolute right-3 top-1/2 -translate-y-1/2 transition-all ${open ? "text-[#FF2B2B] rotate-180" : "text-[#8A8A8A] hover:text-[#FF2B2B]"}`}
+        >
+          <ChevronDown className="h-4 w-4" />
+        </button>
+      </div>
+
+      {open && (
+        <div className="absolute left-0 right-0 top-full z-[80] mt-2 overflow-hidden rounded-xl border border-gray-200 bg-white shadow-xl">
+          <div className="max-h-60 overflow-y-auto p-1">
+            {filteredOptions.length === 0 ? (
+              search.trim() ? (
+                <div className="px-3 py-2 text-xs text-[#8A8A8A] italic">
+                  Keep typing to enter "{search.trim()}"
+                </div>
+              ) : (
+                <div className="px-3 py-2 text-xs text-[#8A8A8A] italic text-center">No options found</div>
+              )
+            ) : (
+              filteredOptions.map((opt) => {
+                const isSelected = value.trim().toLowerCase() === opt.trim().toLowerCase();
+                return (
+                  <button
+                    key={opt}
+                    type="button"
+                    onClick={() => selectOption(opt)}
+                    className={`flex w-full items-center justify-between rounded-lg px-3 py-2 text-left text-sm transition-colors ${
+                      isSelected ? "bg-[#FFF0F0] text-[#FF2B2B] font-semibold" : "text-[#3A1F1F] hover:bg-[#FFF0F0] hover:text-[#FF2B2B]"
+                    }`}
+                  >
+                    <span>{opt}</span>
+                    {isSelected && <Check className="h-4 w-4 text-[#FF2B2B]" />}
                   </button>
                 );
               })
@@ -2019,12 +2408,12 @@ function PostJobPage() {
   const departmentFieldRef = useRef<HTMLDivElement>(null);
   const [formData, setFormData] = useState({
     jobTitle: "", jobDescription: "", rolesResponsibilities: "", requirements: "",
-    location: "", workMode: "",
+    location: "", locations: [] as string[], locationInput: "", workMode: "",
     salaryMin: "", salaryMax: "",
     experienceMin: "", experienceMax: "",
-    skills: "", employmentType: "", industry: "",
-    openings: "1", education: "", perks: [] as string[], department: "",
-    interviewMode: "", preferredJoiningTime: "",
+    skills: "", employmentType: "", industry: "", customIndustry: "",
+    openings: "1", education: "", customEducation: "", specialization: "", customSpecialization: "", perks: [] as string[], customPerk: "", department: "",
+    interviewMode: "", interviewModes: [] as string[], preferredJoiningTime: "",
   });
 
   // Fetch active subscription and today's post count
@@ -2137,11 +2526,38 @@ function PostJobPage() {
     setFormData(prev => ({ ...prev, skills: updated.join(", ") }));
   };
 
-  const perkOptions = ["Health Insurance", "Work from Home", "Flexible Hours", "5 Days a Week", "Free Meals", "Stock Options", "Annual Bonus", "Paid Sick Leave"];
+  const perkOptions = PERKS_AND_BENEFITS_OPTIONS;
   const togglePerk = (p: string) => {
     setFormData(prev => ({
       ...prev,
       perks: prev.perks.includes(p) ? prev.perks.filter(x => x !== p) : [...prev.perks, p]
+    }));
+  };
+  const addCustomPerk = (perkName: string) => {
+    const trimmed = perkName.trim();
+    if (!trimmed) return;
+    if (!formData.perks.some(p => p.toLowerCase() === trimmed.toLowerCase())) {
+      setFormData(prev => ({ ...prev, perks: [...prev.perks, trimmed], customPerk: "" }));
+    }
+  };
+  const addLocation = (loc: string) => {
+    const cleaned = loc.replace(/,/g, "").trim();
+    if (!cleaned) return;
+    if (!formData.locations.some(l => l.toLowerCase().trim() === cleaned.toLowerCase())) {
+      setFormData(prev => ({ ...prev, locations: [...prev.locations, cleaned], locationInput: "" }));
+    } else {
+      setFormData(prev => ({ ...prev, locationInput: "" }));
+    }
+  };
+  const removeLocation = (loc: string) => {
+    setFormData(prev => ({ ...prev, locations: prev.locations.filter(l => l !== loc) }));
+  };
+  const toggleInterviewMode = (mode: string) => {
+    setFormData(prev => ({
+      ...prev,
+      interviewModes: prev.interviewModes.includes(mode)
+        ? prev.interviewModes.filter(m => m !== mode)
+        : [...prev.interviewModes, mode]
     }));
   };
 
@@ -2257,6 +2673,9 @@ function PostJobPage() {
     try {
       const deadline = buildJobExpiryTimestamp();
       const skillsArr = formData.skills.split(",").map(s => s.trim()).filter(Boolean);
+      const resolvedLocation = formData.locations.length > 0 ? formData.locations.join(", ") : formData.locationInput;
+      const resolvedInterviewMode = formData.interviewModes.length > 0 ? formData.interviewModes.join(", ") : formData.interviewMode;
+      const resolvedEducation = formData.specialization ? `${formData.education} - ${formData.specialization}` : formData.education;
       const insertPayload: Record<string, any> = {
         recruiter_id: recruiterProfile.id,
         title: formData.jobTitle,
@@ -2264,7 +2683,7 @@ function PostJobPage() {
         roles_responsibilities: formData.rolesResponsibilities || null,
         requirements: formData.requirements || null,
         company_name: recruiterProfile.company_name || "",
-        location: formData.location,
+        location: resolvedLocation,
         work_mode: formData.workMode,
         preferred_joining_time: formData.preferredJoiningTime || null,
         salary_min: Number(formData.salaryMin),
@@ -2277,8 +2696,9 @@ function PostJobPage() {
         department: formData.department,
         skills: skillsArr,
         perks: formData.perks,
-        education: formData.education,
-        interview_mode: formData.interviewMode,
+        education: resolvedEducation,
+        specialization: formData.specialization || null,
+        interview_mode: resolvedInterviewMode,
         openings: Number(formData.openings) || 1,
         deadline,
         deadline_time: null,
@@ -2295,7 +2715,7 @@ function PostJobPage() {
       setPostSuccess(true);
       setShowPreview(false);
       setTimeout(() => { setPostSuccess(false); navigate("/recruiter/dashboard/manage-jobs"); }, 2000);
-      setFormData({ jobTitle: "", jobDescription: "", rolesResponsibilities: "", requirements: "", location: "", workMode: "", salaryMin: "", salaryMax: "", experienceMin: "", experienceMax: "", skills: "", employmentType: "", industry: "", openings: "1", education: "", perks: [], department: "", interviewMode: "", preferredJoiningTime: "" });
+      setFormData({ jobTitle: "", jobDescription: "", rolesResponsibilities: "", requirements: "", location: "", locations: [], locationInput: "", workMode: "", salaryMin: "", salaryMax: "", experienceMin: "", experienceMax: "", skills: "", employmentType: "", industry: "", openings: "1", education: "", specialization: "", perks: [], customPerk: "", department: "", interviewMode: "", interviewModes: [], preferredJoiningTime: "" });
       setShowSkillInput(false);
       setSkillPickerOpen(false);
       setSkillSearch("");
@@ -2585,12 +3005,11 @@ function PostJobPage() {
               </div>
               <div>
                 <label className="block mb-1.5 text-sm font-medium text-[#3A1F1F]">Industry *</label>
-                <Select value={formData.industry} onValueChange={v => setFormData({ ...formData, industry: v })}>
-                  <SelectTrigger className="bg-[#F6F6F6] border-gray-200 rounded-xl"><SelectValue placeholder="Select industry" /></SelectTrigger>
-                  <SelectContent>
-                    {["IT / Software", "BFSI", "Manufacturing", "Healthcare", "Education", "E-commerce", "Consulting", "Media"].map(i => <SelectItem key={i} value={i}>{i}</SelectItem>)}
-                  </SelectContent>
-                </Select>
+                <IndustryCombobox
+                  value={formData.industry}
+                  onChange={v => setFormData({ ...formData, industry: v })}
+                  placeholder="Select or type industry"
+                />
               </div>
               <div>
                 <label className="block mb-1.5 text-sm font-medium text-[#3A1F1F]">Employment Type *</label>
@@ -2625,15 +3044,32 @@ function PostJobPage() {
           {/* Location & Openings */}
           <div className="border-b pb-6">
             <h2 className="text-lg font-semibold text-[#3A1F1F] mb-4">Location & Openings</h2>
-            <div className="grid md:grid-cols-2 gap-4">
+            <div className="grid md:grid-cols-2 gap-4 items-start">
               <div>
-                <label className="block mb-1.5 text-sm font-medium text-[#3A1F1F]">Location *</label>
+                <label className="block mb-1.5 text-sm font-medium text-[#3A1F1F]">Job Location(s) *</label>
                 <LocationAutocomplete
-                  value={formData.location}
-                  onChange={location => setFormData({ ...formData, location })}
-                  placeholder="Search Indian city"
-                  required
+                  value={formData.locationInput}
+                  onChange={loc => {
+                    if (loc) addLocation(loc);
+                  }}
+                  clearOnSelect={true}
+                  existingLocations={formData.locations}
+                  placeholder="Search city to add multiple locations"
                 />
+                {formData.locations.length > 0 && (
+                  <div className="flex flex-wrap gap-2 mt-2">
+                    {formData.locations.map(loc => (
+                      <span key={loc} className="flex items-center gap-1.5 bg-[#FF2B2B]/10 text-[#FF2B2B] border border-[#FF2B2B]/20 px-3 py-1.5 rounded-full text-xs font-semibold">
+                        <MapPin className="h-3 w-3" />
+                        {loc}
+                        <button type="button" onClick={() => removeLocation(loc)} className="hover:text-red-800 ml-1">
+                          <XCircle className="h-3.5 w-3.5" />
+                        </button>
+                      </span>
+                    ))}
+                  </div>
+                )}
+                <p className="text-xs text-[#8A8A8A] mt-1.5">Select multiple cities where candidates can be located</p>
               </div>
               <div>
                 <label className="block mb-1.5 text-sm font-medium text-[#3A1F1F]">Number of Openings</label>
@@ -2642,9 +3078,9 @@ function PostJobPage() {
             </div>
           </div>
 
-          {/* Salary & Experience */}
+          {/* Salary, Experience, Education & Interview Mode */}
           <div className="border-b pb-6">
-            <h2 className="text-lg font-semibold text-[#3A1F1F] mb-4">Salary & Experience</h2>
+            <h2 className="text-lg font-semibold text-[#3A1F1F] mb-4">Salary, Experience & Education</h2>
             <div className="grid md:grid-cols-2 gap-4">
               <div>
                 <label className="block mb-1.5 text-sm font-medium text-[#3A1F1F]">Salary Offered *</label>
@@ -2677,23 +3113,52 @@ function PostJobPage() {
                 )}
               </div>
               <div>
-                <label className="block mb-1.5 text-sm font-medium text-[#3A1F1F]">Minimum Education</label>
-                <Select value={formData.education} onValueChange={v => setFormData({ ...formData, education: v })}>
-                  <SelectTrigger className="bg-[#F6F6F6] border-gray-200 rounded-xl"><SelectValue placeholder="Select qualification" /></SelectTrigger>
-                  <SelectContent>
-                    {["10th Pass", "12th Pass", "Diploma", "B.Tech/B.E.", "B.Com/BA/B.Sc", "MBA/PGDM", "M.Tech/ME", "PhD"].map(e => <SelectItem key={e} value={e}>{e}</SelectItem>)}
-                  </SelectContent>
-                </Select>
+                <label className="block mb-1.5 text-sm font-medium text-[#3A1F1F]">Qualification / Degree</label>
+                <QualificationCombobox
+                  value={formData.education}
+                  onChange={v => {
+                    const validSpecs = getSpecializationsForQualification(v);
+                    const defaultSpec = validSpecs.length > 0 ? (validSpecs.includes("Any Specialization") ? "Any Specialization" : validSpecs[0]) : "";
+                    setFormData({ ...formData, education: v, specialization: defaultSpec });
+                  }}
+                  placeholder="Select or type qualification"
+                />
               </div>
               <div>
-                <label className="block mb-1.5 text-sm font-medium text-[#3A1F1F]">Interview Mode</label>
-                <Select value={formData.interviewMode} onValueChange={v => setFormData({ ...formData, interviewMode: v })}>
-                  <SelectTrigger className="bg-[#F6F6F6] border-gray-200 rounded-xl"><SelectValue placeholder="Select mode" /></SelectTrigger>
-                  <SelectContent>
-                    {["In-Person", "Video Call", "Telephonic", "Walk-in"].map(m => <SelectItem key={m} value={m}>{m}</SelectItem>)}
-                  </SelectContent>
-                </Select>
+                <label className="block mb-1.5 text-sm font-medium text-[#3A1F1F]">Specialization / Field of Study</label>
+                <SpecializationCombobox
+                  qualification={formData.education}
+                  value={formData.specialization}
+                  onChange={v => setFormData({ ...formData, specialization: v })}
+                  placeholder="Select or type specialization"
+                />
               </div>
+            </div>
+            
+            {/* Interview Mode Multi-select */}
+            <div className="mt-4 pt-4 border-t border-gray-100">
+              <label className="block mb-2 text-sm font-medium text-[#3A1F1F]">Interview Mode(s) *</label>
+              <div className="flex flex-wrap gap-2">
+                {INTERVIEW_MODE_OPTIONS.map(mode => {
+                  const selected = formData.interviewModes.includes(mode);
+                  return (
+                    <button
+                      key={mode}
+                      type="button"
+                      onClick={() => toggleInterviewMode(mode)}
+                      className={`px-4 py-2 rounded-full text-xs font-semibold border transition-all duration-200 flex items-center justify-center gap-1.5 text-center ${
+                        selected
+                          ? "bg-[#FF2B2B] text-white border-[#FF2B2B] shadow-sm"
+                          : "bg-white text-[#3A1F1F] border-gray-200 hover:border-[#FF2B2B]"
+                      }`}
+                    >
+                      {selected && <Check className="h-3.5 w-3.5 text-white" />}
+                      <span>{mode}</span>
+                    </button>
+                  );
+                })}
+              </div>
+              <p className="text-xs text-[#8A8A8A] mt-1.5">Select all interview formats allowed for this role</p>
             </div>
           </div>
 
@@ -2829,13 +3294,44 @@ function PostJobPage() {
           {/* Perks */}
           <div className="border-b pb-6">
             <h2 className="text-lg font-semibold text-[#3A1F1F] mb-4">Perks & Benefits</h2>
-            <div className="flex flex-wrap gap-2">
+            <div className="flex flex-wrap gap-2 mb-4">
               {perkOptions.map(p => (
                 <button key={p} type="button" onClick={() => togglePerk(p)}
-                  className={`px-3 py-1.5 rounded-full text-sm border transition-colors ${formData.perks.includes(p) ? "bg-[#FF2B2B] text-white border-[#FF2B2B]" : "bg-white text-[#3A1F1F] border-gray-200 hover:border-[#FF2B2B]"}`}>
+                  className={`px-3 py-1.5 rounded-full text-xs font-medium border transition-colors ${formData.perks.includes(p) ? "bg-[#FF2B2B] text-white border-[#FF2B2B]" : "bg-white text-[#3A1F1F] border-gray-200 hover:border-[#FF2B2B]"}`}>
                   {p}
                 </button>
               ))}
+              {formData.perks.filter(p => !perkOptions.includes(p as any)).map(custom => (
+                <span key={custom} className="flex items-center gap-1 bg-[#FF2B2B] text-white px-3 py-1.5 rounded-full text-xs font-medium border border-[#FF2B2B]">
+                  {custom}
+                  <button type="button" onClick={() => togglePerk(custom)} className="ml-1 hover:text-gray-200">
+                    <XCircle className="h-3 w-3" />
+                  </button>
+                </span>
+              ))}
+            </div>
+            <div className="flex max-w-md gap-2">
+              <Input
+                value={formData.customPerk}
+                onChange={e => setFormData({ ...formData, customPerk: e.target.value })}
+                placeholder="Add custom perk (e.g. Free Cab, Gym Membership)"
+                className="bg-[#F6F6F6] border-gray-200 rounded-xl text-xs"
+                onKeyDown={e => {
+                  if (e.key === "Enter") {
+                    e.preventDefault();
+                    addCustomPerk(formData.customPerk);
+                  }
+                }}
+              />
+              <Button
+                type="button"
+                variant="outline"
+                size="sm"
+                className="rounded-xl border-[#FF2B2B] text-[#FF2B2B] hover:bg-[#FF2B2B]/10 whitespace-nowrap"
+                onClick={() => addCustomPerk(formData.customPerk)}
+              >
+                + Add Perk
+              </Button>
             </div>
           </div>
 
@@ -2862,7 +3358,13 @@ function ManageJobsPage() {
   const [loading, setLoading] = useState(true);
   const [currentPage, setCurrentPage] = useState<number>(1);
   const [editingJob, setEditingJob] = useState<Job | null>(null);
-  const [editForm, setEditForm] = useState({ title: "", location: "", salaryMin: "", salaryMax: "", salaryType: "LPA", employmentType: "", workMode: "", preferredJoiningTime: "", openings: "1", skills: "" });
+  const [editForm, setEditForm] = useState({
+    title: "", location: "", locations: [] as string[], locationInput: "",
+    salaryMin: "", salaryMax: "", salaryType: "LPA", employmentType: "", workMode: "",
+    preferredJoiningTime: "", openings: "1", skills: "",
+    industry: "", customIndustry: "", education: "", customEducation: "", specialization: "", customSpecialization: "", interviewMode: "", interviewModes: [] as string[],
+    perks: [] as string[], customPerk: "",
+  });
   const [saving, setSaving] = useState(false);
   const [refreshingJobId, setRefreshingJobId] = useState<string | null>(null);
 
@@ -2872,9 +3374,22 @@ function ManageJobsPage() {
 
   const openEdit = (job: Job) => {
     setEditingJob(job);
+    const existingLocations = (job.location || "").split(",").map(s => s.trim()).filter(Boolean);
+    const existingModes = (job.interview_mode || "").split(",").map(s => s.trim()).filter(Boolean);
+    let eduCategory = job.education || "";
+    let spec = (job as any).specialization || "";
+    if (!spec && eduCategory.includes(" - ")) {
+      const parts = eduCategory.split(" - ");
+      eduCategory = parts[0].trim();
+      spec = parts[1].trim();
+    }
+    eduCategory = matchQualificationOption(eduCategory);
+
     setEditForm({
       title: job.title,
       location: job.location || "",
+      locations: existingLocations.length > 0 ? existingLocations : (job.location ? [job.location] : []),
+      locationInput: "",
       salaryMin: getSalaryFormValue(job.salary_min),
       salaryMax: getSalaryFormValue(job.salary_max),
       salaryType: "LPA",
@@ -2883,6 +3398,13 @@ function ManageJobsPage() {
       preferredJoiningTime: job.preferred_joining_time || "",
       openings: String(job.openings),
       skills: (job.skills || []).join(", "),
+      industry: job.industry || "",
+      education: eduCategory,
+      specialization: spec,
+      interviewMode: job.interview_mode || "",
+      interviewModes: existingModes,
+      perks: job.perks || [],
+      customPerk: "",
     });
   };
 
@@ -2892,9 +3414,13 @@ function ManageJobsPage() {
     if (isEditSalaryRangeInvalid) return;
     setSaving(true);
     const skillsArr = editForm.skills.split(",").map(s => s.trim()).filter(Boolean);
+    const resolvedLocation = editForm.locations.length > 0 ? editForm.locations.join(", ") : (editForm.locationInput || editForm.location);
+    const resolvedInterviewMode = editForm.interviewModes.length > 0 ? editForm.interviewModes.join(", ") : editForm.interviewMode;
+    const resolvedEducation = editForm.specialization ? `${editForm.education} - ${editForm.specialization}` : editForm.education;
+
     const updatePayload: Record<string, any> = {
       title: editForm.title,
-      location: editForm.location,
+      location: resolvedLocation,
       salary_min: Number(editForm.salaryMin),
       salary_max: Number(editForm.salaryMax),
       salary_type: "LPA",
@@ -2903,6 +3429,11 @@ function ManageJobsPage() {
       preferred_joining_time: editForm.preferredJoiningTime || null,
       openings: Number(editForm.openings) || 1,
       skills: skillsArr,
+      industry: editForm.industry || null,
+      education: resolvedEducation || null,
+      specialization: editForm.specialization || null,
+      interview_mode: resolvedInterviewMode || null,
+      perks: editForm.perks || [],
     };
     let { error } = await supabase.from("jobs").update(updatePayload).eq("id", editingJob.id);
     if (error && typeof error.message === "string" && (error.message.includes("preferred_joining_time") || error.code === "PGRST204" || error.message.includes("column"))) {
@@ -2910,12 +3441,22 @@ function ManageJobsPage() {
       await supabase.from("jobs").update(updatePayload).eq("id", editingJob.id);
     }
     setJobs(prev => prev.map(j => j.id === editingJob.id ? {
-      ...j, title: editForm.title, location: editForm.location,
+      ...j,
+      title: editForm.title,
+      location: resolvedLocation,
       salary_min: Number(editForm.salaryMin),
       salary_max: Number(editForm.salaryMax),
-      salary_type: "LPA", employment_type: editForm.employmentType,
-      work_mode: editForm.workMode, preferred_joining_time: editForm.preferredJoiningTime, openings: Number(editForm.openings) || 1,
+      salary_type: "LPA",
+      employment_type: editForm.employmentType,
+      work_mode: editForm.workMode,
+      preferred_joining_time: editForm.preferredJoiningTime,
+      openings: Number(editForm.openings) || 1,
       skills: skillsArr,
+      industry: editForm.industry,
+      education: resolvedEducation,
+      specialization: editForm.specialization,
+      interview_mode: resolvedInterviewMode,
+      perks: editForm.perks,
     } : j));
     setSaving(false);
     setEditingJob(null);
@@ -3428,22 +3969,24 @@ function ManageJobsPage() {
 
       {/* Edit Job Dialog */}
       <Dialog open={!!editingJob} onOpenChange={(o) => { if (!o) setEditingJob(null); }}>
-        <DialogContent className="max-w-lg">
+        <DialogContent className="max-w-xl max-h-[90vh] overflow-y-auto">
           <DialogHeader><DialogTitle>Edit Job</DialogTitle></DialogHeader>
           <div className="space-y-4 mt-2">
             <div>
               <label className="block text-sm font-medium text-[#3A1F1F] mb-1">Job Title *</label>
               <Input value={editForm.title} onChange={e => setEditForm(f => ({ ...f, title: e.target.value }))} className="bg-[#F6F6F6] border-gray-200 rounded-xl" />
             </div>
-            <div>
-              <label className="block text-sm font-medium text-[#3A1F1F] mb-1">Location</label>
-              <LocationAutocomplete
-                value={editForm.location}
-                onChange={location => setEditForm(f => ({ ...f, location }))}
-                placeholder="Search Indian city"
-              />
-            </div>
-            <div className="grid grid-cols-3 gap-3">
+
+            {/* Industry & Employment Type */}
+            <div className="grid grid-cols-2 gap-3">
+              <div>
+                <label className="block text-sm font-medium text-[#3A1F1F] mb-1">Industry</label>
+                <IndustryCombobox
+                  value={editForm.industry}
+                  onChange={v => setEditForm(f => ({ ...f, industry: v }))}
+                  placeholder="Select or type industry"
+                />
+              </div>
               <div>
                 <label className="block text-sm font-medium text-[#3A1F1F] mb-1">Employment Type</label>
                 <Select value={editForm.employmentType} onValueChange={v => setEditForm(f => ({ ...f, employmentType: v }))}>
@@ -3451,6 +3994,42 @@ function ManageJobsPage() {
                   <SelectContent>{["Full-time", "Part-time", "Contract", "Internship", "Freelance"].map(t => <SelectItem key={t} value={t}>{t}</SelectItem>)}</SelectContent>
                 </Select>
               </div>
+            </div>
+
+            {/* Multi-Location */}
+            <div>
+              <label className="block text-sm font-medium text-[#3A1F1F] mb-1">Job Location(s)</label>
+              <LocationAutocomplete
+                value={editForm.locationInput}
+                onChange={loc => {
+                  if (loc) {
+                    const cleaned = loc.replace(/,/g, "").trim();
+                    if (cleaned && !editForm.locations.some(l => l.toLowerCase().trim() === cleaned.toLowerCase())) {
+                      setEditForm(f => ({ ...f, locations: [...f.locations, cleaned], locationInput: "" }));
+                    }
+                  }
+                }}
+                clearOnSelect={true}
+                existingLocations={editForm.locations}
+                placeholder="Search city to add"
+              />
+              {editForm.locations.length > 0 && (
+                <div className="flex flex-wrap gap-1.5 mt-1.5">
+                  {editForm.locations.map(loc => (
+                    <span key={loc} className="flex items-center gap-1 bg-[#FF2B2B]/10 text-[#FF2B2B] border border-[#FF2B2B]/20 px-2.5 py-1 rounded-full text-xs font-medium">
+                      <MapPin className="h-3 w-3" />
+                      {loc}
+                      <button type="button" onClick={() => setEditForm(f => ({ ...f, locations: f.locations.filter(l => l !== loc) }))} className="hover:text-red-800 ml-1">
+                        <XCircle className="h-3.5 w-3.5" />
+                      </button>
+                    </span>
+                  ))}
+                </div>
+              )}
+            </div>
+
+            {/* Work Mode & Joining Time */}
+            <div className="grid grid-cols-2 gap-3">
               <div>
                 <label className="block text-sm font-medium text-[#3A1F1F] mb-1">Work Mode</label>
                 <Select value={editForm.workMode} onValueChange={v => setEditForm(f => ({ ...f, workMode: v }))}>
@@ -3466,6 +4045,63 @@ function ManageJobsPage() {
                 </Select>
               </div>
             </div>
+
+            {/* Qualification & Specialization Mapping */}
+            <div className="grid grid-cols-2 gap-3">
+              <div>
+                <label className="block text-sm font-medium text-[#3A1F1F] mb-1">Qualification</label>
+                <QualificationCombobox
+                  value={editForm.education}
+                  onChange={v => {
+                    const validSpecs = getSpecializationsForQualification(v);
+                    const defaultSpec = validSpecs.length > 0 ? (validSpecs.includes("Any Specialization") ? "Any Specialization" : validSpecs[0]) : "";
+                    setEditForm(f => ({ ...f, education: v, specialization: defaultSpec }));
+                  }}
+                  placeholder="Select or type qualification"
+                />
+              </div>
+              <div>
+                <label className="block text-sm font-medium text-[#3A1F1F] mb-1">Specialization</label>
+                <SpecializationCombobox
+                  qualification={editForm.education}
+                  value={editForm.specialization}
+                  onChange={v => setEditForm(f => ({ ...f, specialization: v }))}
+                  placeholder="Select or type specialization"
+                />
+              </div>
+            </div>
+
+            {/* Multi-Interview Modes */}
+            <div>
+              <label className="block text-sm font-medium text-[#3A1F1F] mb-1">Interview Mode(s)</label>
+              <div className="flex flex-wrap gap-1.5">
+                {INTERVIEW_MODE_OPTIONS.map(mode => {
+                  const selected = editForm.interviewModes.includes(mode);
+                  return (
+                    <button
+                      key={mode}
+                      type="button"
+                      onClick={() => {
+                        setEditForm(f => ({
+                          ...f,
+                          interviewModes: selected ? f.interviewModes.filter(m => m !== mode) : [...f.interviewModes, mode]
+                        }));
+                      }}
+                      className={`px-4 py-2 rounded-full text-xs font-semibold border transition-all duration-200 flex items-center justify-center gap-1.5 text-center ${
+                        selected
+                          ? "bg-[#FF2B2B] text-white border-[#FF2B2B] shadow-sm"
+                          : "bg-white text-[#3A1F1F] border-gray-200 hover:border-[#FF2B2B]"
+                      }`}
+                    >
+                      {selected && <Check className="h-3.5 w-3.5 text-white" />}
+                      <span>{mode}</span>
+                    </button>
+                  );
+                })}
+              </div>
+            </div>
+
+            {/* Salary Offered */}
             <div>
               <label className="block text-sm font-medium text-[#3A1F1F] mb-1">Salary Offered *</label>
               <div className="flex gap-2 items-center">
@@ -3485,14 +4121,19 @@ function ManageJobsPage() {
                 <p className="text-xs text-red-500 mt-1.5">Maximum salary must be greater than or equal to minimum salary.</p>
               )}
             </div>
-            <div>
-              <label className="block text-sm font-medium text-[#3A1F1F] mb-1">Number of Openings</label>
-              <Input type="number" min="1" value={editForm.openings} onChange={e => setEditForm(f => ({ ...f, openings: e.target.value }))} className="bg-[#F6F6F6] border-gray-200 rounded-xl w-24" />
+
+            {/* Openings & Skills */}
+            <div className="grid grid-cols-3 gap-3">
+              <div>
+                <label className="block text-sm font-medium text-[#3A1F1F] mb-1">Openings</label>
+                <Input type="number" min="1" value={editForm.openings} onChange={e => setEditForm(f => ({ ...f, openings: e.target.value }))} className="bg-[#F6F6F6] border-gray-200 rounded-xl" />
+              </div>
+              <div className="col-span-2">
+                <label className="block text-sm font-medium text-[#3A1F1F] mb-1">Key Skills (comma separated)</label>
+                <Input value={editForm.skills} onChange={e => setEditForm(f => ({ ...f, skills: e.target.value }))} className="bg-[#F6F6F6] border-gray-200 rounded-xl" placeholder="Enter required skills" />
+              </div>
             </div>
-            <div>
-              <label className="block text-sm font-medium text-[#3A1F1F] mb-1">Key Skills (comma separated)</label>
-              <Input value={editForm.skills} onChange={e => setEditForm(f => ({ ...f, skills: e.target.value }))} className="bg-[#F6F6F6] border-gray-200 rounded-xl" placeholder="Enter required skills" />
-            </div>
+
             <div className="flex gap-3 pt-2">
               <Button className="flex-1 bg-[#FF2B2B] hover:bg-[#e02525] text-white rounded-full" onClick={saveEdit} disabled={saving || !editForm.title || !editForm.salaryMin || !editForm.salaryMax || isEditSalaryRangeInvalid}>
                 {saving ? "Saving..." : "Save Changes"}
