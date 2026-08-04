@@ -377,9 +377,9 @@ const server = http.createServer(async (req, res) => {
         return fail(400, "No recipients provided.");
       }
 
-      const resendKey = process.env.RESEND_API_KEY;
-      const senderEmail = process.env.RESEND_SENDER_EMAIL || "onboarding@resend.dev";
-      const senderName = process.env.RESEND_SENDER_NAME || "RhirePro";
+      const resendKey = process.env.RESEND_API_KEY || process.env.VITE_RESEND_API_KEY || "";
+      const senderEmail = process.env.RESEND_SENDER_EMAIL || process.env.VITE_RESEND_SENDER_EMAIL || "support@rhirepro.com";
+      const senderName = process.env.RESEND_SENDER_NAME || process.env.VITE_RESEND_SENDER_NAME || "RhirePro";
       const admin = adminClient();
 
       let sentCount = 0;

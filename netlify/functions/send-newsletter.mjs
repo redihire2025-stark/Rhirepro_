@@ -45,15 +45,14 @@ export default async (request) => {
   const { recipients, subject, contentHtml } = await request.json();
 
   const resendKey = process.env.RESEND_API_KEY || process.env.VITE_RESEND_API_KEY || "";
-  const brevoKey = process.env.BREVO_API_KEY;
   const senderEmail = process.env.RESEND_SENDER_EMAIL || process.env.VITE_RESEND_SENDER_EMAIL || "support@rhirepro.com";
   const senderName = process.env.RESEND_SENDER_NAME || process.env.VITE_RESEND_SENDER_NAME || "RhirePro";
 
-  const supabaseUrl = process.env.VITE_SUPABASE_URL;
+  const supabaseUrl = process.env.SUPABASE_URL || process.env.VITE_SUPABASE_URL;
   const serviceKey = process.env.SUPABASE_SERVICE_ROLE_KEY;
 
-  if (!resendKey && !brevoKey) {
-    return new Response(JSON.stringify({ error: "Email service not configured" }), {
+  if (!resendKey) {
+    return new Response(JSON.stringify({ error: "Resend email service key is not configured" }), {
       status: 500,
       headers: { "Content-Type": "application/json" },
     });
@@ -72,36 +71,19 @@ export default async (request) => {
     if (!emailAddr || !emailAddr.includes("@")) continue;
 
     try {
-      let res;
-      if (resendKey) {
-        res = await fetch("https://api.resend.com/emails", {
-          method: "POST",
-          headers: {
-            "Content-Type": "application/json",
-            "Authorization": `Bearer ${resendKey}`,
-          },
-          body: JSON.stringify({
-            from: `${senderName} <${senderEmail}>`,
-            to: [emailAddr],
-            subject: subject,
-            html: contentHtml,
-          }),
-        });
-      } else {
-        res = await fetch("https://api.brevo.com/v3/smtp/email", {
-          method: "POST",
-          headers: {
-            "Content-Type": "application/json",
-            "api-key": brevoKey,
-          },
-          body: JSON.stringify({
-            sender: { name: senderName, email: senderEmail },
-            to: [{ email: emailAddr }],
-            subject: subject,
-            htmlContent: contentHtml,
-          }),
-        });
-      }
+      const res = await fetch("https://api.resend.com/emails", {
+        method: "POST",
+        headers: {
+          "Content-Type": "application/json",
+          "Authorization": `Bearer ${resendKey}`,
+        },
+        body: JSON.stringify({
+          from: `${senderName} <${senderEmail}>`,
+          to: [emailAddr],
+          subject: subject,
+          html: contentHtml,
+        }),
+      });
 
       if (!res.ok) {
         const errText = await res.text();
