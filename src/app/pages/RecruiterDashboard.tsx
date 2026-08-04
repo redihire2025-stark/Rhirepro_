@@ -17,6 +17,7 @@ import {
 import { PLANS, FREE_DAILY_POST_LIMIT, getPlanById, validatePromo, getPlanPriceBreakdown } from "../../lib/plans";
 import { INDIA_CITY_OPTIONS } from "../../lib/locationData";
 import { SEARCH_SUGGESTION_DATASET, SKILL_OPTIONS, getSkillSearchTerms, skillsMatch, fuzzyMatch } from "../../lib/skillKeywords";
+import { inferSkillSuggestions, extractTextFromHtml } from "../../lib/recruiterJobHelpers";
 import { useAuth } from "../../lib/auth-context";
 import { sendRecruiterCandidateEmail } from "../../lib/email";
 import logoImage from "../../logo/logo.png";
@@ -2012,6 +2013,8 @@ function PostJobPage() {
   const [showSkillInput, setShowSkillInput] = useState(false);
   const [skillPickerOpen, setSkillPickerOpen] = useState(false);
   const [skillSearch, setSkillSearch] = useState("");
+  const [suggestedSkills, setSuggestedSkills] = useState<string[]>([]);
+  const [mandatorySkills, setMandatorySkills] = useState<string[]>([]);
   const skillFieldRef = useRef<HTMLDivElement>(null);
   const skillInputRef = useRef<HTMLInputElement>(null);
   const [departmentPickerOpen, setDepartmentPickerOpen] = useState(false);
@@ -2066,6 +2069,7 @@ function PostJobPage() {
     () => formData.skills.split(",").map(s => s.trim()).filter(Boolean),
     [formData.skills],
   );
+  const mandatorySkillSet = useMemo(() => new Set(mandatorySkills), [mandatorySkills]);
   const isSalaryRangeInvalid =
     Boolean(formData.salaryMin && formData.salaryMax) &&
     Number(formData.salaryMax) < Number(formData.salaryMin);
@@ -2077,6 +2081,12 @@ function PostJobPage() {
     const options = query ? SEARCH_SUGGESTION_DATASET : SKILL_OPTIONS;
     return options.filter(skill => fuzzyMatch(query, skill)).slice(0, 120);
   }, [skillSearch]);
+
+  useEffect(() => {
+    const jobText = extractTextFromHtml(formData.jobDescription);
+    const nextSuggestions = inferSkillSuggestions(jobText, 8).filter(skill => !selectedSkills.some(existing => existing.toLowerCase() === skill.toLowerCase()));
+    setSuggestedSkills(nextSuggestions);
+  }, [formData.jobDescription, selectedSkills]);
   const filteredDepartmentOptions = useMemo(() => {
     const query = departmentSearch.trim().toLowerCase();
     if (!query) return DEPARTMENT_OPTIONS;
@@ -2116,15 +2126,23 @@ function PostJobPage() {
     setDepartmentSearch(formData.department);
   }, [formData.department]);
 
-  const addSkill = (skill: string) => {
+  const addSkill = (skill: string, markMandatory = false) => {
     const s = skill.trim();
     if (!s) return;
-    const alreadySelected = selectedSkills.some(existing => existing.toLowerCase() === s.toLowerCase());
-    if (alreadySelected) {
-      const updated = selectedSkills.filter(existing => existing.toLowerCase() !== s.toLowerCase());
-      setFormData(prev => ({ ...prev, skills: updated.join(", ") }));
+    const normalized = s.toLowerCase();
+    const alreadySelected = selectedSkills.some(existing => existing.toLowerCase() === normalized);
+    const nextSelected = alreadySelected
+      ? selectedSkills.filter(existing => existing.toLowerCase() !== normalized)
+      : [...selectedSkills, s];
+
+    if (!alreadySelected) {
+      setFormData(prev => ({ ...prev, skills: nextSelected.join(", ") }));
+      if (markMandatory || mandatorySkillSet.size < 3) {
+        setMandatorySkills(prev => (prev.some(existing => existing.toLowerCase() === normalized) ? prev : [...prev, s]));
+      }
     } else {
-      setFormData(prev => ({ ...prev, skills: [...selectedSkills, s].join(", ") }));
+      setFormData(prev => ({ ...prev, skills: nextSelected.join(", ") }));
+      setMandatorySkills(prev => prev.filter(existing => existing.toLowerCase() !== normalized));
     }
     setSkillSearch("");
     setTimeout(() => {
@@ -2133,8 +2151,19 @@ function PostJobPage() {
   };
 
   const removeSkill = (skill: string) => {
-    const updated = selectedSkills.filter(s => s !== skill);
+    const updated = selectedSkills.filter(s => s.toLowerCase() !== skill.toLowerCase());
     setFormData(prev => ({ ...prev, skills: updated.join(", ") }));
+    setMandatorySkills(prev => prev.filter(s => s.toLowerCase() !== skill.toLowerCase()));
+  };
+
+  const toggleMandatorySkill = (skill: string) => {
+    const normalized = skill.toLowerCase();
+    setMandatorySkills(prev => {
+      const exists = prev.some(existing => existing.toLowerCase() === normalized);
+      return exists
+        ? prev.filter(existing => existing.toLowerCase() !== normalized)
+        : [...prev, skill];
+    });
   };
 
   const perkOptions = ["Health Insurance", "Work from Home", "Flexible Hours", "5 Days a Week", "Free Meals", "Stock Options", "Annual Bonus", "Paid Sick Leave"];
@@ -2486,6 +2515,12 @@ function PostJobPage() {
             setSkillPickerOpen(true);
             return;
           }
+          if (mandatorySkills.length < 3) {
+            setPostError("Please mark at least three key skills as mandatory before publishing.");
+            setShowSkillInput(true);
+            setSkillPickerOpen(true);
+            return;
+          }
           if (!formData.salaryMin || !formData.salaryMax) {
             setPostError("Please select both minimum and maximum salary.");
             return;
@@ -2715,15 +2750,43 @@ function PostJobPage() {
               </Button>
             </div>
             <div className="flex flex-wrap gap-2 mb-3">
-              {selectedSkills.map((skill) => (
-                <span key={skill} className="flex items-center gap-1 bg-[#ECECF4] text-[#3A1F1F] px-3 py-1.5 rounded-full text-sm font-medium">
-                  {skill}
-                  <button type="button" onClick={() => removeSkill(skill)} className="ml-1 text-[#8A8A8A] hover:text-[#FF2B2B]">
-                    <XCircle className="h-3 w-3" />
-                  </button>
-                </span>
-              ))}
+              {selectedSkills.map((skill) => {
+                const isMandatory = mandatorySkillSet.has(skill.toLowerCase());
+                return (
+                  <span key={skill} className="flex items-center gap-1 bg-[#ECECF4] text-[#3A1F1F] px-3 py-1.5 rounded-full text-sm font-medium">
+                    <button type="button" onClick={() => toggleMandatorySkill(skill)} className={`mr-1 ${isMandatory ? "text-[#FF2B2B]" : "text-[#8A8A8A]"}`} title={isMandatory ? "Mandatory skill" : "Mark as mandatory"}>
+                      {isMandatory ? "★" : "☆"}
+                    </button>
+                    {skill}
+                    <button type="button" onClick={() => removeSkill(skill)} className="ml-1 text-[#8A8A8A] hover:text-[#FF2B2B]">
+                      <XCircle className="h-3 w-3" />
+                    </button>
+                  </span>
+                );
+              })}
             </div>
+            {suggestedSkills.length > 0 && (
+              <div className="mb-3 rounded-xl border border-[#FFE0E0] bg-[#FFF8F8] p-3">
+                <p className="text-[11px] font-semibold uppercase tracking-wide text-[#FF2B2B] mb-2">Suggested from Job Description</p>
+                <div className="flex flex-wrap gap-2">
+                  {suggestedSkills.map((skill) => {
+                    const alreadySelected = selectedSkills.some(existing => existing.toLowerCase() === skill.toLowerCase());
+                    return (
+                      <button
+                        key={skill}
+                        type="button"
+                        onClick={() => {
+                          addSkill(skill, true);
+                        }}
+                        className={`rounded-full border px-3 py-1 text-xs font-medium transition-colors ${alreadySelected ? "border-[#FF2B2B] bg-[#FF2B2B] text-white" : "border-[#FF2B2B] text-[#FF2B2B] hover:bg-[#FFF0F0]"}`}
+                      >
+                        {alreadySelected ? skill : `+ ${skill}`}
+                      </button>
+                    );
+                  })}
+                </div>
+              </div>
+            )}
             {showSkillInput && (
               <div className="flex max-w-xl gap-2">
                 <div className="relative flex-1" ref={skillFieldRef}>
@@ -2766,7 +2829,7 @@ function PostJobPage() {
                         {filteredSkillOptions.length === 0 ? (
                           <button
                             type="button"
-                            onClick={() => addSkill(skillSearch)}
+                            onClick={() => addSkill(skillSearch, true)}
                             className="flex w-full items-center gap-2 rounded-lg px-3 py-2 text-left text-sm text-[#3A1F1F] hover:bg-[#FFF0F0]"
                           >
                             <Plus className="h-4 w-4 text-[#FF2B2B]" />
@@ -2779,7 +2842,7 @@ function PostJobPage() {
                               <button
                                 key={skill}
                                 type="button"
-                                onClick={() => addSkill(skill)}
+                                onClick={() => addSkill(skill, true)}
                                 className="flex w-full items-center gap-2 rounded-lg px-3 py-2 text-left text-sm text-[#3A1F1F] hover:bg-[#FFF0F0]"
                               >
                                 <Check className={`h-4 w-4 ${selected ? "text-[#FF2B2B] opacity-100" : "opacity-0"}`} />
@@ -2806,7 +2869,7 @@ function PostJobPage() {
                 </Button>
               </div>
             )}
-            <p className="text-xs text-[#8A8A8A] mt-1">Candidates with these skills will be highlighted</p>
+            <p className="text-xs text-[#8A8A8A] mt-1">Mark at least 3 skills as mandatory; they will be treated as hiring blockers for checklist alignment.</p>
             <input type="hidden" value={formData.skills} required />
           </div>
 
@@ -3191,8 +3254,27 @@ function ManageJobsPage() {
               }
             }
 
+            const screeningDate = jobHistory.find((h: any) =>
+              ["Shortlisted", "Under Review", "Interview Scheduled", "Interview Completed", "Interview Selected", "Offered"].includes(h.new_status)
+            )?.changed_at ? new Date(jobHistory.find((h: any) =>
+              ["Shortlisted", "Under Review", "Interview Scheduled", "Interview Completed", "Interview Selected", "Offered"].includes(h.new_status)
+            )!.changed_at) : null;
+
+            const interviewDate = jobHistory.find((h: any) =>
+              ["Interview Scheduled", "Interview Completed", "Interview Selected"].includes(h.new_status)
+            )?.changed_at ? new Date(jobHistory.find((h: any) =>
+              ["Interview Scheduled", "Interview Completed", "Interview Selected"].includes(h.new_status)
+            )!.changed_at) : null;
+
             let timeToOfferStr = "Pending";
             let timeToHireStr = "Pending";
+            let timeToScreenStr = "Pending";
+
+            if (jobPostedDate && screeningDate) {
+              const diffTime = screeningDate.getTime() - jobPostedDate.getTime();
+              const diffDays = Math.max(0, Math.floor(diffTime / (1000 * 60 * 60 * 24)));
+              timeToScreenStr = `${diffDays} day${diffDays === 1 ? "" : "s"}`;
+            }
 
             if (jobPostedDate && offerReleasedDate) {
               const diffTime = offerReleasedDate.getTime() - jobPostedDate.getTime();
@@ -3272,23 +3354,13 @@ function ManageJobsPage() {
                   <div className="text-xs font-semibold text-[#3A1F1F] mb-3">Hiring Timeline</div>
 
                   <div className="relative flex items-center justify-between px-6 py-4 bg-gray-50/50 rounded-xl mb-3">
-                    {/* Connecting Line */}
                     <div className="absolute left-[16%] right-[16%] h-[2px] bg-gray-200 top-[28px] -translate-y-1/2 rounded-full z-0" />
-
-                    {/* Active/Completed Line Segment */}
                     <div
                       className="absolute left-[16%] h-[2px] bg-purple-500 top-[28px] -translate-y-1/2 rounded-full z-0 transition-all duration-500"
-                      style={{
-                        width: candidateJoinedDate
-                          ? "68%"
-                          : offerReleasedDate
-                            ? "34%"
-                            : "0%"
-                      }}
+                      style={{ width: candidateJoinedDate ? "84%" : offerReleasedDate ? "68%" : screeningDate ? "34%" : "0%" }}
                     />
 
-                    {/* Milestone 1: Job Posted */}
-                    <div className="relative z-10 flex flex-col items-center w-[30%]">
+                    <div className="relative z-10 flex flex-col items-center w-[22%]">
                       <div className="flex items-center justify-center w-7 h-7 rounded-full bg-purple-50 text-purple-600 shadow-sm mb-1">
                         <Briefcase className="h-3.5 w-3.5" />
                       </div>
@@ -3299,52 +3371,63 @@ function ManageJobsPage() {
                       </span>
                     </div>
 
-                    {/* Milestone 2: Offer Released */}
-                    <div className="relative z-10 flex flex-col items-center w-[30%]">
-                      <div className={`flex items-center justify-center w-7 h-7 rounded-full shadow-sm mb-1 transition-all ${offerReleasedDate ? "bg-purple-50 text-purple-600" : "bg-gray-100 text-gray-400"
-                        }`}>
-                        <Mail className="h-3.5 w-3.5" />
+                    <div className="relative z-10 flex flex-col items-center w-[22%]">
+                      <div className={`flex items-center justify-center w-7 h-7 rounded-full shadow-sm mb-1 transition-all ${screeningDate ? "bg-purple-50 text-purple-600" : "bg-gray-100 text-gray-400"}`}>
+                        <Search className="h-3.5 w-3.5" />
                       </div>
-                      <div className={`w-2 h-2 bg-white border-2 rotate-45 mb-1 shadow-sm transition-all ${offerReleasedDate ? "border-purple-500" : "border-gray-300"
-                        }`} />
-                      <span className="text-[10px] font-bold text-[#3A1F1F] text-center whitespace-nowrap">Offer Released</span>
+                      <div className={`w-2 h-2 bg-white border-2 rotate-45 mb-1 shadow-sm transition-all ${screeningDate ? "border-purple-500" : "border-gray-300"}`} />
+                      <span className="text-[10px] font-bold text-[#3A1F1F] text-center whitespace-nowrap">Screening</span>
                       <span className="text-[9px] text-[#8A8A8A] mt-0.5 text-center whitespace-nowrap">
-                        {offerReleasedDate
-                          ? offerReleasedDate.toLocaleDateString(undefined, { month: 'short', day: 'numeric', year: 'numeric' })
-                          : "Pending"}
+                        {screeningDate ? screeningDate.toLocaleDateString(undefined, { month: 'short', day: 'numeric', year: 'numeric' }) : "Pending"}
                       </span>
                     </div>
 
-                    {/* Milestone 3: Candidate Joined */}
-                    <div className="relative z-10 flex flex-col items-center w-[30%]">
-                      <div className={`flex items-center justify-center w-7 h-7 rounded-full shadow-sm mb-1 transition-all ${candidateJoinedDate ? "bg-purple-50 text-purple-600" : "bg-gray-100 text-gray-400"
-                        }`}>
+                    <div className="relative z-10 flex flex-col items-center w-[22%]">
+                      <div className={`flex items-center justify-center w-7 h-7 rounded-full shadow-sm mb-1 transition-all ${interviewDate ? "bg-purple-50 text-purple-600" : "bg-gray-100 text-gray-400"}`}>
+                        <Video className="h-3.5 w-3.5" />
+                      </div>
+                      <div className={`w-2 h-2 bg-white border-2 rotate-45 mb-1 shadow-sm transition-all ${interviewDate ? "border-purple-500" : "border-gray-300"}`} />
+                      <span className="text-[10px] font-bold text-[#3A1F1F] text-center whitespace-nowrap">Interview</span>
+                      <span className="text-[9px] text-[#8A8A8A] mt-0.5 text-center whitespace-nowrap">
+                        {interviewDate ? interviewDate.toLocaleDateString(undefined, { month: 'short', day: 'numeric', year: 'numeric' }) : "Pending"}
+                      </span>
+                    </div>
+
+                    <div className="relative z-10 flex flex-col items-center w-[22%]">
+                      <div className={`flex items-center justify-center w-7 h-7 rounded-full shadow-sm mb-1 transition-all ${offerReleasedDate ? "bg-purple-50 text-purple-600" : "bg-gray-100 text-gray-400"}`}>
+                        <Mail className="h-3.5 w-3.5" />
+                      </div>
+                      <div className={`w-2 h-2 bg-white border-2 rotate-45 mb-1 shadow-sm transition-all ${offerReleasedDate ? "border-purple-500" : "border-gray-300"}`} />
+                      <span className="text-[10px] font-bold text-[#3A1F1F] text-center whitespace-nowrap">Offer</span>
+                      <span className="text-[9px] text-[#8A8A8A] mt-0.5 text-center whitespace-nowrap">
+                        {offerReleasedDate ? offerReleasedDate.toLocaleDateString(undefined, { month: 'short', day: 'numeric', year: 'numeric' }) : "Pending"}
+                      </span>
+                    </div>
+
+                    <div className="relative z-10 flex flex-col items-center w-[22%]">
+                      <div className={`flex items-center justify-center w-7 h-7 rounded-full shadow-sm mb-1 transition-all ${candidateJoinedDate ? "bg-purple-50 text-purple-600" : "bg-gray-100 text-gray-400"}`}>
                         <Check className="h-3.5 w-3.5" />
                       </div>
-                      <div className={`w-2 h-2 bg-white border-2 rotate-45 mb-1 shadow-sm transition-all ${candidateJoinedDate ? "border-purple-500" : "border-gray-300"
-                        }`} />
-                      <span className="text-[10px] font-bold text-[#3A1F1F] text-center whitespace-nowrap">Candidate Joined</span>
+                      <div className={`w-2 h-2 bg-white border-2 rotate-45 mb-1 shadow-sm transition-all ${candidateJoinedDate ? "border-purple-500" : "border-gray-300"}`} />
+                      <span className="text-[10px] font-bold text-[#3A1F1F] text-center whitespace-nowrap">Joined</span>
                       <span className="text-[9px] text-[#8A8A8A] mt-0.5 text-center whitespace-nowrap">
-                        {candidateJoinedDate
-                          ? candidateJoinedDate.toLocaleDateString(undefined, { month: 'short', day: 'numeric', year: 'numeric' })
-                          : "Pending"}
+                        {candidateJoinedDate ? candidateJoinedDate.toLocaleDateString(undefined, { month: 'short', day: 'numeric', year: 'numeric' }) : "Pending"}
                       </span>
                     </div>
                   </div>
 
-                  {/* Duration Metrics */}
                   <div className="flex justify-between items-center px-1 text-xs">
                     <div className="text-[#5A5A5A] flex items-center gap-1">
+                      <span>Time to Screen:</span>
+                      <span className={`font-semibold ${screeningDate ? "text-purple-600" : "text-[#8A8A8A]"}`}>{timeToScreenStr}</span>
+                    </div>
+                    <div className="text-[#5A5A5A] flex items-center gap-1">
                       <span>Time to Offer:</span>
-                      <span className={`font-semibold ${offerReleasedDate ? "text-purple-600" : "text-[#8A8A8A]"}`}>
-                        {timeToOfferStr}
-                      </span>
+                      <span className={`font-semibold ${offerReleasedDate ? "text-purple-600" : "text-[#8A8A8A]"}`}>{timeToOfferStr}</span>
                     </div>
                     <div className="text-[#5A5A5A] flex items-center gap-1">
                       <span>Time to Hire:</span>
-                      <span className={`font-semibold ${candidateJoinedDate ? "text-purple-600" : "text-[#8A8A8A]"}`}>
-                        {timeToHireStr}
-                      </span>
+                      <span className={`font-semibold ${candidateJoinedDate ? "text-purple-600" : "text-[#8A8A8A]"}`}>{timeToHireStr}</span>
                     </div>
                   </div>
                 </div>
@@ -7316,7 +7399,16 @@ function ApplicantsPage() {
   }, [recruiterProfile?.id, fetchApplicants]);
 
   const statuses = ["All", ...PIPELINE_STAGES];
-  const jobTitles = ["All", ...Array.from(new Set(applicants.map(a => a.job?.title).filter(Boolean)))];
+  const jobTitles = [
+    "All",
+    ...Array.from(
+      new Set(
+        applicants
+          .map(a => a.job?.title)
+          .filter((title): title is string => Boolean(title))
+      )
+    )
+  ];
 
   const filteredFilterSkillOptions = useMemo(() => {
     const query = skillInput.trim();
@@ -7931,10 +8023,10 @@ function ApplicantsPage() {
     );
   };
 
-  const statusCounts = statuses.slice(1).reduce((acc, s) => ({
-    ...acc,
-    [s]: applicants.filter(a => mapApplicationStatusToPipelineStage(a.status) === s).length
-  }), {} as Record<string, number>);
+  const statusCounts = statuses.slice(1).reduce<Record<string, number>>((acc, s) => {
+    acc[s] = applicants.filter(a => mapApplicationStatusToPipelineStage(a.status) === s).length;
+    return acc;
+  }, {});
 
   const exportCSV = () => {
     const rows = [
@@ -10222,4 +10314,3 @@ function PlansPage({ activeSub, loading }: { activeSub: RecruiterSubscription | 
     </div>
   );
 }
-
