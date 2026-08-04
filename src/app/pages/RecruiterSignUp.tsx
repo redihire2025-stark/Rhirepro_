@@ -7,7 +7,7 @@ import { Button } from "../components/ui/button";
 import { Input } from "../components/ui/input";
 import { Select, SelectContent, SelectItem, SelectTrigger, SelectValue } from "../components/ui/select";
 import { supabase } from "../../lib/supabase";
-import { sendOTPEmail } from "../../lib/email";
+import { sendOTPEmail, checkIfEmailExists } from "../../lib/email";
 
 function generateOTP() {
   return Math.floor(100000 + Math.random() * 900000).toString();
@@ -60,6 +60,14 @@ export default function RecruiterSignUp() {
 
     setLoading(true);
     try {
+      // 1. Pre-check if an account with this email already exists
+      const emailExists = await checkIfEmailExists(formData.email);
+      if (emailExists) {
+        setError("An account with this email already exists. Please sign in.");
+        setLoading(false);
+        return;
+      }
+
       const generatedOTP = generateOTP();
       await sendOTPEmail(formData.email, generatedOTP, formData.recruiterName);
 
@@ -68,7 +76,7 @@ export default function RecruiterSignUp() {
       setStep("otp");
     } catch (err: unknown) {
       const message = err instanceof Error ? err.message : "Sign up failed.";
-      setError(message.includes("already registered") ? "An account with this email already exists." : message);
+      setError(message.includes("already registered") || message.includes("already exists") ? "An account with this email already exists. Please sign in." : message);
     } finally {
       setLoading(false);
     }

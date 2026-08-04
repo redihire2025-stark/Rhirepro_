@@ -45,7 +45,7 @@ import {
   CarouselPrevious,
   type CarouselApi,
 } from "../components/ui/carousel";
-import { useNavigate, useLocation } from "react-router";
+import { useNavigate, useLocation, Link } from "react-router";
 import { ImageWithFallback } from "../components/figma/ImageWithFallback";
 import { useAuth } from "../../lib/auth-context";
 import JobShareButton from "../components/JobShareButton";
@@ -1129,8 +1129,10 @@ export default function LandingPage() {
             Join thousands of professionals who have found their
             dream jobs through RhirePro
           </p>
-          <Button onClick={() => navigate("/jobs")} className="bg-[#FF2B2B] hover:bg-[#e02525] text-white rounded-full px-8 py-6 text-lg">
-            Explore <ArrowRight className="ml-2 h-5 w-5" />
+          <Button asChild className="bg-[#FF2B2B] hover:bg-[#e02525] text-white rounded-full px-8 py-6 text-lg cursor-pointer">
+            <Link to="/jobs" onClick={() => window.scrollTo({ top: 0, behavior: "smooth" })}>
+              Explore <ArrowRight className="ml-2 h-5 w-5 inline-block" />
+            </Link>
           </Button>
         </div>
       </section>

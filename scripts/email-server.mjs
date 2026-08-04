@@ -96,6 +96,48 @@ async function sendBrevoEmail(to_email, to_name, subject, htmlContent, emailType
   }
 }
 
+async function sendResendEmail(to_email, subject, htmlContent, emailType = "newsletter") {
+  const admin = adminClient();
+  const resendKey = (process.env.RESEND_API_KEY || process.env.VITE_RESEND_API_KEY || "").trim();
+  const senderEmail = (process.env.RESEND_SENDER_EMAIL || process.env.VITE_RESEND_SENDER_EMAIL || "support@rhirepro.com").trim();
+  const senderName = (process.env.RESEND_SENDER_NAME || process.env.VITE_RESEND_SENDER_NAME || "RhirePro").trim();
+
+  if (!resendKey) {
+    console.error("[newsletter] RESEND_API_KEY is missing, falling back to mock send");
+    await logEmail(admin, { recipient_email: to_email, email_type: emailType, subject, status: "sent (dev_mock)" });
+    return;
+  }
+
+  try {
+    const res = await fetch("https://api.resend.com/emails", {
+      method: "POST",
+      headers: {
+        "Content-Type": "application/json",
+        "Authorization": `Bearer ${resendKey}`,
+      },
+      body: JSON.stringify({
+        from: `${senderName} <${senderEmail}>`,
+        to: [to_email],
+        subject,
+        html: htmlContent,
+      }),
+    });
+
+    if (!res.ok) {
+      const errText = await res.text();
+      console.error("[newsletter] Resend error for", to_email, errText);
+      await logEmail(admin, { recipient_email: to_email, email_type: emailType, subject, status: "failed", error_message: errText });
+      throw new Error(errText);
+    }
+
+    console.log(`[newsletter] ✅ Delivered newsletter via Resend to <${to_email}> from ${senderName} <${senderEmail}>`);
+    await logEmail(admin, { recipient_email: to_email, email_type: emailType, subject, status: "sent" });
+  } catch (err) {
+    console.error("[newsletter] Exception sending email via Resend:", err.message);
+    throw err;
+  }
+}
+
 function otpHtml(toName, toEmail, otpCode, expiryMinutes, type) {
   const isReset = type === "reset";
   const label = isReset ? "Password Reset OTP" : "Login OTP";
@@ -143,10 +185,48 @@ const server = http.createServer(async (req, res) => {
     res.writeHead(status, { "Content-Type": "application/json" }); res.end(JSON.stringify({ error: msg }));
   };
 
-  // ── POST /api/send-otp  (Login OTP — generated client-side) ─────────────────
-  if (req.method === "POST" && req.url === "/api/send-otp") {
-    const { to_email, to_name, otp_code, expiry_minutes } = await readBody(req);
+  // ── POST /api/check-email  (Check if email already exists in Supabase Auth / DB) ─────
+  if (req.method === "POST" && req.url === "/api/check-email") {
+    const { email } = await readBody(req);
     try {
+      const cleanEmail = (email || "").trim().toLowerCase();
+      if (!cleanEmail) return ok({ exists: false });
+
+      const admin = adminClient();
+      const [{ data: profs }, { data: recs }, authRes] = await Promise.all([
+        admin.from("profiles").select("id").ilike("email", cleanEmail).limit(1),
+        admin.from("recruiters").select("id").ilike("email", cleanEmail).limit(1),
+        admin.auth.admin.listUsers().catch(() => ({ data: { users: [] } })),
+      ]);
+
+      const authUser = authRes?.data?.users?.find(u => (u.email || "").toLowerCase() === cleanEmail);
+      const exists = !!((profs && profs.length > 0) || (recs && recs.length > 0) || authUser);
+
+      ok({ exists });
+    } catch (err) { fail(500, err.message); }
+    return;
+  }
+
+  // ── POST /api/send-otp  (Login/Signup OTP — generated client-side) ─────────────────
+  if (req.method === "POST" && req.url === "/api/send-otp") {
+    const { to_email, to_name, otp_code, expiry_minutes, check_signup } = await readBody(req);
+    try {
+      if (check_signup) {
+        const cleanEmail = (to_email || "").trim().toLowerCase();
+        const admin = adminClient();
+        const [{ data: profs }, { data: recs }, authRes] = await Promise.all([
+          admin.from("profiles").select("id").ilike("email", cleanEmail).limit(1),
+          admin.from("recruiters").select("id").ilike("email", cleanEmail).limit(1),
+          admin.auth.admin.listUsers().catch(() => ({ data: { users: [] } })),
+        ]);
+
+        const authUser = authRes?.data?.users?.find(u => (u.email || "").toLowerCase() === cleanEmail);
+
+        if ((profs && profs.length > 0) || (recs && recs.length > 0) || authUser) {
+          return fail(400, "An account with this email already exists. Please sign in.");
+        }
+      }
+
       await sendBrevoEmail(
         to_email, to_name,
         `RhirePro Login OTP: ${otp_code}`,
@@ -305,7 +385,23 @@ const server = http.createServer(async (req, res) => {
       let sentCount = 0;
 
       for (const r of recipients) {
-        const emailAddr = (r.email || "").trim();
+        let emailAddr = (r.email || "").trim();
+
+        if ((!emailAddr || emailAddr.endsWith("@candidate.recruiter")) && r.id && admin) {
+          try {
+            const [{ data: prof }, { data: rec }, authRes] = await Promise.all([
+              admin.from("profiles").select("email").eq("id", r.id).maybeSingle(),
+              admin.from("recruiters").select("email").eq("id", r.id).maybeSingle(),
+              admin.auth.admin.getUserById(r.id).catch(() => null),
+            ]);
+            if (prof && prof.email) emailAddr = prof.email.trim();
+            else if (rec && rec.email) emailAddr = rec.email.trim();
+            else if (authRes?.data?.user?.email) emailAddr = authRes.data.user.email.trim();
+          } catch (pErr) {
+            console.warn("[send-recruiter-email] Admin email resolution fallback failed:", pErr.message);
+          }
+        }
+
         if (!emailAddr || emailAddr.endsWith("@candidate.recruiter") || !emailAddr.includes("@")) {
           console.warn("[send-recruiter-email] Skipping recipient without valid email address:", r.name, emailAddr);
           continue;
@@ -539,6 +635,38 @@ const server = http.createServer(async (req, res) => {
       ok({ success: true, temp_password: tempPassword });
     } catch (err) {
       fail(500, err.message || "Unexpected error");
+    }
+    return;
+  }
+
+  // ── POST /api/send-newsletter  (Super Admin Newsletter Broadcast) ───────────
+  if (req.method === "POST" && req.url === "/api/send-newsletter") {
+    const { subject, contentHtml, recipients } = await readBody(req);
+    try {
+      if (!subject || !contentHtml) return fail(400, "Subject and content are required.");
+      const admin = adminClient();
+
+      let emailList = Array.isArray(recipients) && recipients.length > 0 ? recipients : [];
+      if (emailList.length === 0) {
+        const { data: subscribers } = await admin.from("newsletter_subscribers").select("email");
+        emailList = (subscribers ?? []).map(s => s.email?.trim()).filter(e => Boolean(e) && e.includes("@"));
+      }
+
+      if (emailList.length === 0) return fail(400, "No subscribers found to send newsletter.");
+
+      let sentCount = 0;
+      for (const recipientEmail of emailList) {
+        try {
+          await sendResendEmail(recipientEmail, subject, contentHtml, "newsletter");
+          sentCount++;
+        } catch (err) {
+          console.error(`[newsletter] Failed sending to ${recipientEmail}:`, err);
+        }
+      }
+
+      ok({ success: true, sent_count: sentCount });
+    } catch (err) {
+      fail(500, err.message || "Newsletter broadcast failed");
     }
     return;
   }
