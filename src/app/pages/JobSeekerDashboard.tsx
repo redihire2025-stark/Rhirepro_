@@ -4750,7 +4750,7 @@ function AnalyticsPage() {
   const [analyticsLoading, setAnalyticsLoading] = useState(true);
   const [appliedJobsFilter, setAppliedJobsFilter] = useState<string | undefined>(undefined);
 
-  const handleApplyFromSaved = async (job: Job) => {
+  const handleApplyFromSaved = async (job: DBJob) => {
     if (!profile?.id || !job?.id) return;
     const jobIdStr = String(job.id);
     const alreadyApplied = appliedJobs.some(a => String(a.job_id) === jobIdStr || String(a.job?.id) === jobIdStr);
@@ -5325,7 +5325,7 @@ function AnalyticsPage() {
                     <span className="font-semibold">
                       {selectedSavedJob.job.experience_min != null
                         ? `${selectedSavedJob.job.experience_min}${selectedSavedJob.job.experience_max ? `–${selectedSavedJob.job.experience_max}` : "+"} years`
-                        : selectedSavedJob.job.experience || "Not specified"}
+                        : "Not specified"}
                     </span>
                   </div>
                   {selectedSavedJob.job.preferred_joining_time && (
