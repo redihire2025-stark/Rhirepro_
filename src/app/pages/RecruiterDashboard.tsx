@@ -2538,6 +2538,7 @@ function PostJobPage() {
             formData.jobTitle,
             formData.jobDescription,
             selectedSkills,
+            suggestedSkills,
           );
 
           if (relevantSelectedSkills.length < 3) {

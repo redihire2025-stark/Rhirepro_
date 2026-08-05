@@ -9,7 +9,12 @@ export function extractTextFromHtml(value: string): string {
     .trim();
 }
 
-export function getRelevantSkillsForJobContext(jobTitle: string, jobDescription: string, selectedSkills: string[]): string[] {
+export function getRelevantSkillsForJobContext(
+  jobTitle: string,
+  jobDescription: string,
+  selectedSkills: string[],
+  suggestedSkills: string[] = [],
+): string[] {
   const titleText = extractTextFromHtml(jobTitle).toLowerCase();
   const descriptionText = extractTextFromHtml(jobDescription).toLowerCase();
   const contextText = `${titleText} ${descriptionText}`.trim();
@@ -27,6 +32,8 @@ export function getRelevantSkillsForJobContext(jobTitle: string, jobDescription:
       .filter((token) => token.length > 2),
   );
 
+  const suggestionPool = Array.from(new Set(suggestedSkills.map((skill) => skill.trim()).filter(Boolean)));
+
   return selectedSkills.filter((skill) => {
     const normalizedSkill = skill.trim();
     if (!normalizedSkill) return false;
@@ -34,15 +41,24 @@ export function getRelevantSkillsForJobContext(jobTitle: string, jobDescription:
     const skillText = normalizedSkill.toLowerCase().replace(/[^a-z0-9\s]/g, " ").replace(/\s+/g, " ").trim();
     if (!skillText) return false;
 
-    if (normalizedContext.includes(skillText)) return true;
-
     const skillTerms = getSkillSearchTerms(normalizedSkill)
       .map((term) => term.toLowerCase().replace(/[^a-z0-9\s]/g, " ").replace(/\s+/g, " ").trim())
       .filter(Boolean);
 
+    if (normalizedContext.includes(skillText)) return true;
     if (skillTerms.some((term) => contextTokens.has(term))) return true;
     if (skillTerms.some((term) => normalizedContext.includes(term))) return true;
     if (skillsMatch(normalizedSkill, titleText) || skillsMatch(normalizedSkill, descriptionText)) return true;
+    if (suggestionPool.some((suggestion) => {
+      const suggestionText = suggestion.toLowerCase().replace(/[^a-z0-9\s]/g, " ").replace(/\s+/g, " ").trim();
+      if (!suggestionText) return false;
+
+      return skillsMatch(normalizedSkill, suggestionText)
+        || skillsMatch(suggestionText, normalizedSkill)
+        || fuzzyMatch(suggestionText, normalizedSkill)
+        || fuzzyMatch(normalizedSkill, suggestionText)
+        || skillTerms.some((term) => getSkillSearchTerms(suggestion).some((suggestionTerm) => suggestionTerm.includes(term)));
+    })) return true;
     if (fuzzyMatch(normalizedContext, normalizedSkill)) return true;
 
     return false;
