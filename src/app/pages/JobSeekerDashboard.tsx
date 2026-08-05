@@ -4761,6 +4761,9 @@ function AnalyticsPage() {
   const [analyticsLoading, setAnalyticsLoading] = useState(true);
   const [appliedJobsFilter, setAppliedJobsFilter] = useState<string | undefined>(undefined);
 
+  // Saved-job payloads are normalized to the canonical shared DB schema, so the
+  // apply flow should consume the same `DBJob` contract used by the rest of the
+  // dashboard rather than a one-off ad-hoc type.
   const handleApplyFromSaved = async (job: DBJob) => {
     if (!profile?.id || !job?.id) return;
     const jobIdStr = String(job.id);

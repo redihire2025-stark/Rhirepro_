@@ -84,15 +84,16 @@ export function UnifiedJobDetailsEditor({
 
   // Sync initial content
   useEffect(() => {
-    if (editorRef.current && document.activeElement !== editorRef.current) {
-      const currentHTML = editorRef.current.innerHTML;
+    const editorNode = editorRef.current;
+    if (editorNode && document.activeElement !== editorNode) {
+      const currentHTML = editorNode.innerHTML;
       const combined = formatInitialHtml(description, rolesResponsibilities, requirements);
       if (isFirstMount.current || (currentHTML !== combined && currentHTML !== description)) {
-        editorRef.current.innerHTML = combined || description || "";
+        editorNode.innerHTML = combined || description || "";
         isFirstMount.current = false;
       }
     }
-  }, [description, rolesResponsibilities, requirements]);
+  }, [description, rolesResponsibilities, requirements, editorRef.current]);
 
   const updateActiveFormats = useCallback(() => {
     const sel = window.getSelection();
