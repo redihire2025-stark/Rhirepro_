@@ -2084,12 +2084,16 @@ function PostJobPage() {
     [formData.skills],
   );
   const mandatorySkillSet = useMemo(() => new Set(mandatorySkills), [mandatorySkills]);
-  const isSalaryRangeInvalid =
-    Boolean(formData.salaryMin && formData.salaryMax) &&
-    Number(formData.salaryMax) < Number(formData.salaryMin);
-  const isExperienceRangeInvalid =
-    Boolean(formData.experienceMin && formData.experienceMax) &&
-    Number(formData.experienceMax) < Number(formData.experienceMin);
+  const isSalaryRangeInvalid = useMemo(() => {
+    const minSalary = Number(formData.salaryMin);
+    const maxSalary = Number(formData.salaryMax);
+    return formData.salaryMin !== "" && formData.salaryMax !== "" && !Number.isNaN(minSalary) && !Number.isNaN(maxSalary) && maxSalary < minSalary;
+  }, [formData.salaryMin, formData.salaryMax]);
+  const isExperienceRangeInvalid = useMemo(() => {
+    const minExp = Number(formData.experienceMin);
+    const maxExp = Number(formData.experienceMax);
+    return formData.experienceMin !== "" && formData.experienceMax !== "" && !Number.isNaN(minExp) && !Number.isNaN(maxExp) && maxExp < minExp;
+  }, [formData.experienceMin, formData.experienceMax]);
   const filteredSkillOptions = useMemo(() => {
     const query = skillSearch.trim();
     const options = query ? SEARCH_SUGGESTION_DATASET : SKILL_OPTIONS;

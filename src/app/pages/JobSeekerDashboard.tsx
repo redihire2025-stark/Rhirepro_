@@ -5336,7 +5336,8 @@ function AnalyticsPage() {
                     <span className="font-semibold">
                       {selectedSavedJob.job.experience_min != null
                         ? `${selectedSavedJob.job.experience_min}${selectedSavedJob.job.experience_max ? `–${selectedSavedJob.job.experience_max}` : "+"} years`
-                        : "Not specified"}
+                        : /* Canonical DB jobs expose experience through min/max numeric fields. */
+                          "Not specified"}
                     </span>
                   </div>
                   {selectedSavedJob.job.preferred_joining_time && (
