@@ -39,7 +39,12 @@ export async function checkIfEmailExists(email: string): Promise<boolean> {
   return false;
 }
 
-/** Send Login OTP email (OTP generated client-side, just delivers it) */
+/** Send Login OTP email (OTP generated client-side, just delivers it).
+ *
+ * `checkSignup` tells the email API whether this OTP flow is being used during
+ * signup validation, so downstream handlers can decide whether to enforce the
+ * "account already exists" branch or the normal login flow.
+ */
 export async function sendOTPEmail(toEmail: string, otp: string, name?: string, checkSignup = false): Promise<void> {
   const res = await fetch("/api/send-otp", {
     method: "POST",

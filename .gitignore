@@ -62,7 +62,7 @@ __pycache__/
 venv/
 .venv/
 /Lib/
-/Scripts/
-/scripts/
-*.exe
-
+/venv/Scripts/
+!/scripts/
+.env
+.exe

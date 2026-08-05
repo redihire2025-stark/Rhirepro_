@@ -1,4 +1,5 @@
-import { useEffect, useState, useCallback } from "react";
+import { useEffect, useState, useCallback, useMemo } from "react";
+import DOMPurify from "dompurify";
 import {
   Newspaper,
   Users,
@@ -111,6 +112,13 @@ export default function SuperAdminNewsletter() {
       setFeedback({ type: "error", message: result.message });
     }
   };
+
+  const previewHtml = useMemo(() => {
+    const rawHtml = wrapNewsletterHtml(subject, content, selectedTemplateId);
+    return DOMPurify.sanitize(rawHtml, {
+      USE_PROFILES: { html: true },
+    });
+  }, [subject, content, selectedTemplateId]);
 
   const columns: DataTableColumn<NewsletterSubscriber>[] = [
     {
@@ -250,7 +258,7 @@ export default function SuperAdminNewsletter() {
                 <div className="border border-border rounded-lg bg-muted/30 overflow-hidden min-h-[400px]">
                   <iframe
                     title="Newsletter Live Preview"
-                    srcDoc={wrapNewsletterHtml(subject, content, selectedTemplateId)}
+                    srcDoc={previewHtml}
                     className="w-full h-[520px] border-0"
                   />
                 </div>

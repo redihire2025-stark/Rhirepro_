@@ -4761,7 +4761,10 @@ function AnalyticsPage() {
   const [analyticsLoading, setAnalyticsLoading] = useState(true);
   const [appliedJobsFilter, setAppliedJobsFilter] = useState<string | undefined>(undefined);
 
-  const handleApplyFromSaved = async (job: Job) => {
+  // Saved-job payloads are normalized to the canonical shared DB schema, so the
+  // apply flow should consume the same `DBJob` contract used by the rest of the
+  // dashboard rather than a one-off ad-hoc type.
+  const handleApplyFromSaved = async (job: DBJob) => {
     if (!profile?.id || !job?.id) return;
     const jobIdStr = String(job.id);
     const alreadyApplied = appliedJobs.some(a => String(a.job_id) === jobIdStr || String(a.job?.id) === jobIdStr);
@@ -5336,7 +5339,8 @@ function AnalyticsPage() {
                     <span className="font-semibold">
                       {selectedSavedJob.job.experience_min != null
                         ? `${selectedSavedJob.job.experience_min}${selectedSavedJob.job.experience_max ? `–${selectedSavedJob.job.experience_max}` : "+"} years`
-                        : selectedSavedJob.job.experience || "Not specified"}
+                        : /* Canonical DB jobs expose experience through min/max numeric fields. */
+                          "Not specified"}
                     </span>
                   </div>
                   {selectedSavedJob.job.preferred_joining_time && (
