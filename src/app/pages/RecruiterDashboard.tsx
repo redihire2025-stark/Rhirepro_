@@ -2083,6 +2083,14 @@ function PostJobPage() {
     () => formData.skills.split(",").map(s => s.trim()).filter(Boolean),
     [formData.skills],
   );
+  const relevantSelectedSkills = useMemo(
+    () => getRelevantSkillsForJobContext(formData.jobTitle, formData.jobDescription, selectedSkills, suggestedSkills),
+    [formData.jobTitle, formData.jobDescription, selectedSkills, suggestedSkills],
+  );
+  const nonRelevantSelectedSkills = useMemo(
+    () => selectedSkills.filter(skill => !relevantSelectedSkills.some(related => related.toLowerCase() === skill.toLowerCase())),
+    [selectedSkills, relevantSelectedSkills],
+  );
   const mandatorySkillSet = useMemo(() => new Set(mandatorySkills), [mandatorySkills]);
   const isSalaryRangeInvalid = useMemo(() => {
     const minSalary = Number(formData.salaryMin);
@@ -2785,8 +2793,17 @@ function PostJobPage() {
             <div className="flex flex-wrap gap-2 mb-3">
               {selectedSkills.map((skill) => {
                 const isMandatory = mandatorySkillSet.has(skill.toLowerCase());
+                const isOffRole = nonRelevantSelectedSkills.some(existing => existing.toLowerCase() === skill.toLowerCase());
                 return (
-                  <span key={skill} className="flex items-center gap-1 bg-[#ECECF4] text-[#3A1F1F] px-3 py-1.5 rounded-full text-sm font-medium">
+                  <span
+                    key={skill}
+                    className={`flex items-center gap-1 px-3 py-1.5 rounded-full text-sm font-medium border ${
+                      isOffRole
+                        ? "border-[#FF2B2B] bg-[#FFF0F0] text-[#A61B1B]"
+                        : "border-transparent bg-[#ECECF4] text-[#3A1F1F]"
+                    }`}
+                    title={isOffRole ? "This skill is not aligned with the job title/JD." : "Role-aligned skill"}
+                  >
                     <button type="button" onClick={() => toggleMandatorySkill(skill)} className={`mr-1 ${isMandatory ? "text-[#FF2B2B]" : "text-[#8A8A8A]"}`} title={isMandatory ? "Mandatory skill" : "Mark as mandatory"}>
                       {isMandatory ? "★" : "☆"}
                     </button>
@@ -2798,6 +2815,11 @@ function PostJobPage() {
                 );
               })}
             </div>
+            {nonRelevantSelectedSkills.length > 0 && (
+              <div className="mb-3 rounded-xl border border-[#FFB4B4] bg-[#FFF6F6] px-3 py-2 text-xs text-[#B42318]">
+                <span className="font-semibold">Skill alignment warning:</span> {nonRelevantSelectedSkills.join(", ")} {nonRelevantSelectedSkills.length === 1 ? "does not" : "do not"} match the job title / JD context. Keep at least 3 role-aligned skills from the JD suggestions or close variants before publishing.
+              </div>
+            )}
             {suggestedSkills.length > 0 && (
               <div className="mb-3 rounded-xl border border-[#FFE0E0] bg-[#FFF8F8] p-3">
                 <p className="text-[11px] font-semibold uppercase tracking-wide text-[#FF2B2B] mb-2">Suggested from Job Description</p>
