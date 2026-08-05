@@ -8,6 +8,7 @@ import { Input } from "../components/ui/input";
 import { Select, SelectContent, SelectItem, SelectTrigger, SelectValue } from "../components/ui/select";
 import { supabase } from "../../lib/supabase";
 import { sendOTPEmail, checkIfEmailExists } from "../../lib/email";
+import { INDUSTRY_OPTIONS } from "../../lib/jobMasterData";
 
 function generateOTP() {
   return Math.floor(100000 + Math.random() * 900000).toString();
@@ -312,8 +313,8 @@ export default function RecruiterSignUp() {
                 <label className="block mb-1.5 text-sm font-medium text-[#3A1F1F]">Industry</label>
                 <Select value={formData.industry} onValueChange={v => setFormData({ ...formData, industry: v })}>
                   <SelectTrigger className="bg-[#F6F6F6] border-gray-200 rounded-xl"><SelectValue placeholder="Select" /></SelectTrigger>
-                  <SelectContent>
-                    {["IT / Software","BFSI","Manufacturing","Healthcare","Education","E-commerce","Consulting","Media"].map(i => <SelectItem key={i} value={i}>{i}</SelectItem>)}
+                  <SelectContent className="max-h-60 overflow-y-auto">
+                    {INDUSTRY_OPTIONS.map(i => <SelectItem key={i} value={i}>{i}</SelectItem>)}
                   </SelectContent>
                 </Select>
               </div>

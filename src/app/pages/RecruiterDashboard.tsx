@@ -2697,7 +2697,6 @@ function PostJobPage() {
         skills: skillsArr,
         perks: formData.perks,
         education: resolvedEducation,
-        specialization: formData.specialization || null,
         interview_mode: resolvedInterviewMode,
         openings: Number(formData.openings) || 1,
         deadline,
@@ -2706,8 +2705,9 @@ function PostJobPage() {
       };
 
       let { error } = await supabase.from("jobs").insert(insertPayload);
-      if (error && typeof error.message === "string" && (error.message.includes("preferred_joining_time") || error.code === "PGRST204" || error.message.includes("column"))) {
+      if (error && typeof error.message === "string" && (error.message.includes("preferred_joining_time") || error.message.includes("specialization") || error.code === "PGRST204" || error.message.includes("column"))) {
         delete insertPayload.preferred_joining_time;
+        delete insertPayload.specialization;
         const retryRes = await supabase.from("jobs").insert(insertPayload);
         error = retryRes.error;
       }
@@ -2720,7 +2720,8 @@ function PostJobPage() {
       setSkillPickerOpen(false);
       setSkillSearch("");
     } catch (err: unknown) {
-      setPostError(err instanceof Error ? err.message : "Failed to post job.");
+      const errMsg = (err as any)?.message || (err as any)?.error_description || (typeof err === "string" ? err : "") || "Failed to post job.";
+      setPostError(errMsg);
     } finally {
       setPosting(false);
     }
@@ -3431,13 +3432,13 @@ function ManageJobsPage() {
       skills: skillsArr,
       industry: editForm.industry || null,
       education: resolvedEducation || null,
-      specialization: editForm.specialization || null,
       interview_mode: resolvedInterviewMode || null,
       perks: editForm.perks || [],
     };
     let { error } = await supabase.from("jobs").update(updatePayload).eq("id", editingJob.id);
-    if (error && typeof error.message === "string" && (error.message.includes("preferred_joining_time") || error.code === "PGRST204" || error.message.includes("column"))) {
+    if (error && typeof error.message === "string" && (error.message.includes("preferred_joining_time") || error.message.includes("specialization") || error.code === "PGRST204" || error.message.includes("column"))) {
       delete updatePayload.preferred_joining_time;
+      delete updatePayload.specialization;
       await supabase.from("jobs").update(updatePayload).eq("id", editingJob.id);
     }
     setJobs(prev => prev.map(j => j.id === editingJob.id ? {
