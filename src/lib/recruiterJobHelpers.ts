@@ -1,4 +1,4 @@
-import { SEARCH_SUGGESTION_DATASET, SKILL_OPTIONS, fuzzyMatch } from "./skillKeywords";
+import { SEARCH_SUGGESTION_DATASET, SKILL_OPTIONS, fuzzyMatch, getSkillSearchTerms, skillsMatch } from "./skillKeywords";
 
 export function extractTextFromHtml(value: string): string {
   if (!value) return "";
@@ -7,6 +7,46 @@ export function extractTextFromHtml(value: string): string {
   return (temp.textContent || "")
     .replace(/\s+/g, " ")
     .trim();
+}
+
+export function getRelevantSkillsForJobContext(jobTitle: string, jobDescription: string, selectedSkills: string[]): string[] {
+  const titleText = extractTextFromHtml(jobTitle).toLowerCase();
+  const descriptionText = extractTextFromHtml(jobDescription).toLowerCase();
+  const contextText = `${titleText} ${descriptionText}`.trim();
+
+  if (!contextText || selectedSkills.length === 0) return [];
+
+  const normalizedContext = contextText
+    .replace(/[^a-z0-9\s]/g, " ")
+    .replace(/\s+/g, " ")
+    .trim();
+  const contextTokens = new Set(
+    normalizedContext
+      .split(/\s+/)
+      .filter(Boolean)
+      .filter((token) => token.length > 2),
+  );
+
+  return selectedSkills.filter((skill) => {
+    const normalizedSkill = skill.trim();
+    if (!normalizedSkill) return false;
+
+    const skillText = normalizedSkill.toLowerCase().replace(/[^a-z0-9\s]/g, " ").replace(/\s+/g, " ").trim();
+    if (!skillText) return false;
+
+    if (normalizedContext.includes(skillText)) return true;
+
+    const skillTerms = getSkillSearchTerms(normalizedSkill)
+      .map((term) => term.toLowerCase().replace(/[^a-z0-9\s]/g, " ").replace(/\s+/g, " ").trim())
+      .filter(Boolean);
+
+    if (skillTerms.some((term) => contextTokens.has(term))) return true;
+    if (skillTerms.some((term) => normalizedContext.includes(term))) return true;
+    if (skillsMatch(normalizedSkill, titleText) || skillsMatch(normalizedSkill, descriptionText)) return true;
+    if (fuzzyMatch(normalizedContext, normalizedSkill)) return true;
+
+    return false;
+  });
 }
 
 export function inferSkillSuggestions(description: string, limit = 6): string[] {

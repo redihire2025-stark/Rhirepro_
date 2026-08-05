@@ -17,7 +17,7 @@ import {
 import { PLANS, FREE_DAILY_POST_LIMIT, getPlanById, validatePromo, getPlanPriceBreakdown } from "../../lib/plans";
 import { INDIA_CITY_OPTIONS } from "../../lib/locationData";
 import { SEARCH_SUGGESTION_DATASET, SKILL_OPTIONS, getSkillSearchTerms, skillsMatch, fuzzyMatch } from "../../lib/skillKeywords";
-import { inferSkillSuggestions, extractTextFromHtml } from "../../lib/recruiterJobHelpers";
+import { inferSkillSuggestions, extractTextFromHtml, getRelevantSkillsForJobContext } from "../../lib/recruiterJobHelpers";
 import { useAuth } from "../../lib/auth-context";
 import { sendRecruiterCandidateEmail } from "../../lib/email";
 import logoImage from "../../logo/logo.png";
@@ -2533,6 +2533,20 @@ function PostJobPage() {
             setSkillPickerOpen(true);
             return;
           }
+
+          const relevantSelectedSkills = getRelevantSkillsForJobContext(
+            formData.jobTitle,
+            formData.jobDescription,
+            selectedSkills,
+          );
+
+          if (relevantSelectedSkills.length < 3) {
+            setPostError("Please add at least 3 skills relevant to the job title and JD before publishing.");
+            setShowSkillInput(true);
+            setSkillPickerOpen(true);
+            return;
+          }
+
           if (mandatorySkills.length < 3) {
             setPostError("Please mark at least three key skills as mandatory before publishing.");
             setShowSkillInput(true);
