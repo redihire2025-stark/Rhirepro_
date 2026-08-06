@@ -152,10 +152,20 @@ export default function SignUpPage() {
         recruiter_name: formData.name,
         company_name: formData.company,
         phone: formData.phone,
+        verification_status: "Pending",
       }, { onConflict: "id", ignoreDuplicates: true });
       if (profileError && profileError.code !== "23505") {
         console.warn("Recruiter profile insert (non-fatal):", profileError.message);
       }
+
+      // Notify Super Admin about new company registration
+      void supabase.from("notifications").insert({
+        title: "🔔 New company registered",
+        message: `${formData.company || "A new company"} - Awaiting verification.`,
+        type: "company_registration",
+        user_type: "super_admin",
+        is_read: false,
+      });
     }
 
     const { data: { session } } = await supabase.auth.getSession();

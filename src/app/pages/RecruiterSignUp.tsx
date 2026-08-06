@@ -113,11 +113,21 @@ export default function RecruiterSignUp() {
         industry: formData.industry,
         company_size: formData.companySize,
         phone: formData.phone,
+        verification_status: "Pending",
       }, { onConflict: "id", ignoreDuplicates: true });
 
       if (profileError && profileError.code !== "23505") {
         throw profileError;
       }
+
+      // Notify Super Admin about new company registration
+      void supabase.from("notifications").insert({
+        title: "🔔 New company registered",
+        message: `${formData.companyName || "A new company"} - Awaiting verification.`,
+        type: "company_registration",
+        user_type: "super_admin",
+        is_read: false,
+      });
 
       const { data: { session } } = await supabase.auth.getSession();
       if (session) {

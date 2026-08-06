@@ -8,6 +8,17 @@
 [functions]
   directory = "netlify/functions"
 
+# Route /admin/companies API calls directly to Netlify serverless function
+[[redirects]]
+  from = "/admin/companies/*"
+  to = "/.netlify/functions/admin-companies"
+  status = 200
+
+[[redirects]]
+  from = "/admin/companies"
+  to = "/.netlify/functions/admin-companies"
+  status = 200
+
 # Route /api/* calls directly to Netlify serverless functions
 [[redirects]]
   from = "/api/*"

@@ -589,6 +589,14 @@ export default function OrgAdminPanel() {
 
   const handleInvite = async () => {
     if (!inviteEmail.trim() || !user || !recruiterProfile) return;
+    if (recruiterProfile.verification_status === "Pending") {
+      setInviteError("Your company verification is pending. You cannot invite team members until your company is verified by Super Admin.");
+      return;
+    }
+    if (recruiterProfile.verification_status === "Rejected") {
+      setInviteError("Your company verification was rejected. Team invitations are disabled.");
+      return;
+    }
     setInviteLoading(true);
     setInviteError("");
     try {
@@ -973,6 +981,40 @@ export default function OrgAdminPanel() {
       {renderHeader()}
 
       <div className="container mx-auto px-4 py-8 max-w-7xl">
+        {recruiterProfile?.verification_status === "Pending" && (
+          <div className="mb-6 p-4 bg-amber-50 border border-amber-200 dark:bg-amber-950/40 dark:border-amber-900 rounded-2xl flex items-start gap-3 text-amber-900 dark:text-amber-200 shadow-sm">
+            <div className="size-9 rounded-xl bg-amber-100 dark:bg-amber-900/60 flex items-center justify-center flex-shrink-0 mt-0.5">
+              <Clock className="size-5 text-amber-600 dark:text-amber-400 animate-pulse" />
+            </div>
+            <div className="flex-1 text-sm">
+              <h4 className="font-bold text-amber-900 dark:text-amber-100 text-base">Your company verification is pending</h4>
+              <p className="mt-1 text-amber-800 dark:text-amber-300">
+                Our team is reviewing your company. Expected verification time: 24 hours.
+              </p>
+              <p className="mt-1 text-xs text-amber-700 dark:text-amber-400 font-medium">
+                Recruiter invitations and job publishing are restricted during pending verification.
+              </p>
+            </div>
+          </div>
+        )}
+
+        {recruiterProfile?.verification_status === "Rejected" && (
+          <div className="mb-6 p-4 bg-rose-50 border border-rose-200 dark:bg-rose-950/40 dark:border-rose-900 rounded-2xl flex items-start gap-3 text-rose-900 dark:text-rose-200 shadow-sm">
+            <div className="size-9 rounded-xl bg-rose-100 dark:bg-rose-900/60 flex items-center justify-center flex-shrink-0 mt-0.5">
+              <X className="size-5 text-rose-600 dark:text-rose-400" />
+            </div>
+            <div className="flex-1 text-sm">
+              <h4 className="font-bold text-rose-900 dark:text-rose-100 text-base">Your company verification has been rejected</h4>
+              <p className="mt-1 text-rose-700 dark:text-rose-300">
+                <strong>Reason:</strong> {recruiterProfile?.rejection_reason || "Verification rejected by platform administrator."}
+              </p>
+              <p className="mt-1 text-xs text-rose-600 dark:text-rose-400">
+                Please contact support to update your company details. All hiring features are currently disabled.
+              </p>
+            </div>
+          </div>
+        )}
+
         {/* Summary cards */}
         <div className="grid grid-cols-2 md:grid-cols-4 gap-4 mb-8">
           <SummaryCard icon={<Users className="h-5 w-5 text-[#FF2B2B]" />} label="Team Members" value={`${activeCount} active`} sub={`${members.length} total`} onClick={() => setActiveTab("team")} />

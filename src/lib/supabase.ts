@@ -72,6 +72,12 @@ export interface RecruiterProfile {
   org_id: string | null;
   is_disabled: boolean;
   last_login_at: string | null;
+  verification_status?: "Pending" | "Verified" | "Rejected" | null;
+  rejection_reason?: string | null;
+  rejected_at?: string | null;
+  rejected_by?: string | null;
+  verified_at?: string | null;
+  verified_by?: string | null;
   created_at: string;
   // Org admin fields
   org_role: "admin" | "member" | null;
