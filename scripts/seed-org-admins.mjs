@@ -5,11 +5,16 @@
  * Run: node scripts/seed-org-admins.mjs
  */
 
+import path from "path";
+import { fileURLToPath } from "url";
+import dotenv from "dotenv";
 import { createClient } from "@supabase/supabase-js";
 
-const SUPABASE_URL  = "https://juvrnftgsxxvnitwtkun.supabase.co";
-const SERVICE_KEY   = "eyJhbGciOiJIUzI1NiIsInR5cCI6IkpXVCJ9.eyJpc3MiOiJzdXBhYmFzZSIsInJlZiI6Imp1dnJuZnRnc3h4dm5pdHd0a3VuIiwicm9sZSI6InNlcnZpY2Vfcm9sZSIsImlhdCI6MTc3MjkxMDQzMCwiZXhwIjoyMDg4NDg2NDMwfQ.IsTyTMATNCjeyCnwOhna1Eug_FQ5Zxixcn9Gp0AfioE";
-const ADMIN_PASSWORD = "AdminRhire@2025";
+dotenv.config({ path: path.resolve(path.dirname(fileURLToPath(import.meta.url)), "../.env") });
+
+const SUPABASE_URL  = process.env.VITE_SUPABASE_URL || "https://juvrnftgsxxvnitwtkun.supabase.co";
+const SERVICE_KEY   = process.env.SUPABASE_SERVICE_ROLE_KEY;
+const ADMIN_PASSWORD = process.env.SUPER_ADMIN_PASSWORD || "AdminRhire@2025";
 
 const supabase = createClient(SUPABASE_URL, SERVICE_KEY, {
   auth: { autoRefreshToken: false, persistSession: false },

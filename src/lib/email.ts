@@ -1,6 +1,6 @@
 import { supabase } from "./supabase";
 
-/** Always true — Brevo runs server-side via local email server / Netlify Function */
+/** Always true — Resend runs server-side via local email server / Netlify Function */
 export const isEmailConfigured = () => true;
 
 /** Check if an account with this email already exists in Supabase DB / Auth */

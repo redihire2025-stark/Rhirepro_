@@ -46,10 +46,10 @@ export default async (request) => {
 
   const { to_email, to_name, otp_code, expiry_minutes, check_signup } = await request.json();
 
-  const apiKey = process.env.BREVO_API_KEY;
-  const senderEmail = process.env.BREVO_SENDER_EMAIL;
-  const senderName = process.env.BREVO_SENDER_NAME || "RhirePro";
-  const supabaseUrl = process.env.VITE_SUPABASE_URL;
+  const resendKey = process.env.RESEND_API_KEY || process.env.VITE_RESEND_API_KEY;
+  const senderEmail = process.env.RESEND_SENDER_EMAIL || process.env.VITE_RESEND_SENDER_EMAIL || "support@rhirepro.com";
+  const senderName = process.env.RESEND_SENDER_NAME || process.env.VITE_RESEND_SENDER_NAME || "RhirePro";
+  const supabaseUrl = process.env.VITE_SUPABASE_URL || process.env.SUPABASE_URL;
   const serviceKey = process.env.SUPABASE_SERVICE_ROLE_KEY;
 
   if (check_signup && supabaseUrl && serviceKey) {
@@ -76,24 +76,24 @@ export default async (request) => {
     }
   }
 
-  if (!apiKey || !senderEmail) {
-    return new Response(JSON.stringify({ error: "Email service not configured" }), {
+  if (!resendKey) {
+    return new Response(JSON.stringify({ error: "Resend email service key is not configured" }), {
       status: 500,
       headers: { "Content-Type": "application/json" },
     });
   }
 
-  const res = await fetch("https://api.brevo.com/v3/smtp/email", {
+  const res = await fetch("https://api.resend.com/emails", {
     method: "POST",
     headers: {
       "Content-Type": "application/json",
-      "api-key": apiKey,
+      "Authorization": `Bearer ${resendKey}`,
     },
     body: JSON.stringify({
-      sender: { name: senderName, email: senderEmail },
-      to: [{ email: to_email, name: to_name || to_email }],
+      from: `${senderName} <${senderEmail}>`,
+      to: [to_email],
       subject: `Your RhirePro OTP: ${otp_code}`,
-      htmlContent: `
+      html: `
         <div style="font-family:sans-serif;max-width:480px;margin:0 auto;padding:32px;">
           <h2 style="color:#FF2B2B;margin-bottom:8px;">RhirePro</h2>
           <p style="color:#333;">Hi <strong>${to_name || to_email}</strong>,</p>

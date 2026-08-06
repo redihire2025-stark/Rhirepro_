@@ -30,7 +30,7 @@ export default function SuperAdminCommunications() {
       label: "Email",
       icon: Mail,
       status: "live" as const,
-      description: `${emailsToday ?? "…"} sent today via Brevo`,
+      description: `${emailsToday ?? "…"} sent today via Resend`,
       onClick: () => navigate("/super-admin/emails"),
     },
     {

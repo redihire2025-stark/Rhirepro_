@@ -110,7 +110,7 @@ export const superAdminNavGroups: SuperAdminNavGroup[] = [
         path: "/super-admin/emails",
         icon: Mail,
         status: "active",
-        description: "Delivery logs and templates for every transactional email sent through Brevo.",
+        description: "Delivery logs and templates for every transactional email sent through Resend.",
       },
       {
         label: "Newsletter",

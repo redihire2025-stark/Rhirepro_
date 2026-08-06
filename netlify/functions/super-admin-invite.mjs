@@ -20,11 +20,11 @@ export default async (request) => {
     return new Response("Method Not Allowed", { status: 405 });
   }
 
-  const SUPABASE_URL = process.env.VITE_SUPABASE_URL;
+  const SUPABASE_URL = process.env.VITE_SUPABASE_URL || process.env.SUPABASE_URL;
   const SERVICE_KEY = process.env.SUPABASE_SERVICE_ROLE_KEY;
-  const brevoKey = process.env.BREVO_API_KEY;
-  const senderEmail = process.env.BREVO_SENDER_EMAIL;
-  const senderName = process.env.BREVO_SENDER_NAME || "RhirePro";
+  const resendKey = process.env.RESEND_API_KEY || process.env.VITE_RESEND_API_KEY;
+  const senderEmail = process.env.RESEND_SENDER_EMAIL || process.env.VITE_RESEND_SENDER_EMAIL || "support@rhirepro.com";
+  const senderName = process.env.RESEND_SENDER_NAME || process.env.VITE_RESEND_SENDER_NAME || "RhirePro";
 
   if (!SUPABASE_URL || !SERVICE_KEY) {
     return new Response(JSON.stringify({ error: "Server not configured" }), {
@@ -134,7 +134,7 @@ export default async (request) => {
     });
   }
 
-  if (brevoKey && senderEmail) {
+  if (resendKey && senderEmail) {
     const subject = "You've been added as a RhirePro Super Admin";
     const html = `
       <div style="font-family:sans-serif;max-width:480px;margin:0 auto;padding:32px;">
@@ -150,14 +150,14 @@ export default async (request) => {
         <p style="color:#aaa;font-size:12px;">— The RhirePro Team</p>
       </div>
     `;
-    const emailRes = await fetch("https://api.brevo.com/v3/smtp/email", {
+    const emailRes = await fetch("https://api.resend.com/emails", {
       method: "POST",
-      headers: { "Content-Type": "application/json", "api-key": brevoKey },
+      headers: { "Content-Type": "application/json", "Authorization": `Bearer ${resendKey}` },
       body: JSON.stringify({
-        sender: { name: senderName, email: senderEmail },
-        to: [{ email }],
+        from: `${senderName} <${senderEmail}>`,
+        to: [email],
         subject,
-        htmlContent: html,
+        html,
       }),
     });
     await logEmail(admin, {

@@ -12,8 +12,8 @@ dotenv.config({
 
 const PORT = 3001;
 
-console.log("  ✉  BREVO_API_KEY  :", process.env.BREVO_API_KEY?.slice(0, 18) + "...");
-console.log("  ✉  SENDER EMAIL   :", process.env.BREVO_SENDER_EMAIL);
+console.log("  ✉  RESEND_API_KEY :", (process.env.RESEND_API_KEY || process.env.VITE_RESEND_API_KEY)?.slice(0, 18) + "...");
+console.log("  ✉  SENDER EMAIL   :", process.env.RESEND_SENDER_EMAIL || process.env.VITE_RESEND_SENDER_EMAIL || "support@rhirepro.com");
 console.log("  ✉  SERVICE KEY    :", process.env.SUPABASE_SERVICE_ROLE_KEY?.slice(0, 20) + "...");
 
 function adminClient() {
@@ -50,60 +50,19 @@ async function logEmail(admin, { recipient_email, email_type, subject, status, e
   }
 }
 
-async function sendBrevoEmail(to_email, to_name, subject, htmlContent, emailType = "other") {
-  const admin = adminClient();
-  const apiKey = (process.env.BREVO_API_KEY || "").trim();
-
-  if (!apiKey || apiKey.includes("your_brevo_api_key")) {
-    console.log(`[DEV MODE OTP/EMAIL] 🔑 Simulated email to ${to_email}: ${subject}`);
-    await logEmail(admin, { recipient_email: to_email, email_type: emailType, subject, status: "sent (dev_mock)" });
-    return;
-  }
-
-  try {
-    const res = await fetch("https://api.brevo.com/v3/smtp/email", {
-      method: "POST",
-      headers: {
-        "Content-Type": "application/json",
-        "api-key": apiKey,
-      },
-      body: JSON.stringify({
-        sender: { name: process.env.BREVO_SENDER_NAME || "RhirePro", email: process.env.BREVO_SENDER_EMAIL },
-        to: [{ email: to_email, name: to_name || to_email }],
-        subject,
-        htmlContent,
-      }),
-    });
-
-    if (!res.ok) {
-      const err = await res.text();
-      console.error("[email] Brevo error:", err);
-      if (err.includes("Key not found") || err.includes("unauthorized") || res.status === 401 || res.status === 403) {
-        console.warn(`[DEV FALLBACK] Brevo key invalid/unauthorized. Simulating email to ${to_email}: ${subject}`);
-        await logEmail(admin, { recipient_email: to_email, email_type: emailType, subject, status: "sent (dev_fallback)", error_message: err });
-        return;
-      }
-      await logEmail(admin, { recipient_email: to_email, email_type: emailType, subject, status: "failed", error_message: err });
-      throw new Error(err);
-    }
-    await logEmail(admin, { recipient_email: to_email, email_type: emailType, subject, status: "sent" });
-  } catch (err) {
-    if (err.message.includes("Key not found") || err.message.includes("unauthorized")) {
-      console.warn(`[DEV FALLBACK] Brevo key error handled: ${err.message}`);
-      return;
-    }
-    throw err;
-  }
+async function sendTransactionalEmail(to_email, subject, htmlContent, emailType = "transactional") {
+  // Direct all transactional email dispatches through Resend API using support@rhirepro.com
+  return sendResendEmail(to_email, subject, htmlContent, emailType);
 }
 
-async function sendResendEmail(to_email, subject, htmlContent, emailType = "newsletter") {
+async function sendResendEmail(to_email, subject, htmlContent, emailType = "transactional") {
   const admin = adminClient();
   const resendKey = (process.env.RESEND_API_KEY || process.env.VITE_RESEND_API_KEY || "").trim();
   const senderEmail = (process.env.RESEND_SENDER_EMAIL || process.env.VITE_RESEND_SENDER_EMAIL || "support@rhirepro.com").trim();
   const senderName = (process.env.RESEND_SENDER_NAME || process.env.VITE_RESEND_SENDER_NAME || "RhirePro").trim();
 
   if (!resendKey) {
-    console.error("[newsletter] RESEND_API_KEY is missing, falling back to mock send");
+    console.error(`[${emailType}] RESEND_API_KEY is missing, falling back to mock send`);
     await logEmail(admin, { recipient_email: to_email, email_type: emailType, subject, status: "sent (dev_mock)" });
     return;
   }
@@ -125,15 +84,15 @@ async function sendResendEmail(to_email, subject, htmlContent, emailType = "news
 
     if (!res.ok) {
       const errText = await res.text();
-      console.error("[newsletter] Resend error for", to_email, errText);
+      console.error(`[${emailType}] Resend error for`, to_email, errText);
       await logEmail(admin, { recipient_email: to_email, email_type: emailType, subject, status: "failed", error_message: errText });
       throw new Error(errText);
     }
 
-    console.log(`[newsletter] ✅ Delivered newsletter via Resend to <${to_email}> from ${senderName} <${senderEmail}>`);
+    console.log(`[${emailType}] ✅ Delivered email via Resend to <${to_email}> from ${senderName} <${senderEmail}>`);
     await logEmail(admin, { recipient_email: to_email, email_type: emailType, subject, status: "sent" });
   } catch (err) {
-    console.error("[newsletter] Exception sending email via Resend:", err.message);
+    console.error(`[${emailType}] Exception sending email via Resend:`, err.message);
     throw err;
   }
 }
@@ -227,8 +186,8 @@ const server = http.createServer(async (req, res) => {
         }
       }
 
-      await sendBrevoEmail(
-        to_email, to_name,
+      await sendResendEmail(
+        to_email,
         `RhirePro Login OTP: ${otp_code}`,
         otpHtml(to_name, to_email, otp_code, expiry_minutes, "login"),
         "otp"
@@ -259,8 +218,8 @@ const server = http.createServer(async (req, res) => {
       if (storeErr) throw new Error("Failed to store OTP: " + storeErr.message);
 
       const name = user[nameCol] || email;
-      await sendBrevoEmail(
-        email, name,
+      await sendResendEmail(
+        email,
         `RhirePro Password Reset OTP: ${otp}`,
         otpHtml(name, email, otp, 10, "reset"),
         "reset_otp"
@@ -356,8 +315,7 @@ const server = http.createServer(async (req, res) => {
           <p style="color:#aaa;font-size:12px;">— The RhirePro Team</p>
         </div>`;
 
-      await sendBrevoEmail(
-        invited_email,
+      await sendResendEmail(
         invited_email,
         `You're invited to join ${company_name} on RhirePro`,
         html,
@@ -617,8 +575,8 @@ const server = http.createServer(async (req, res) => {
       if (upsertErr) return fail(500, upsertErr.message);
 
       const subject = "You've been added as a RhirePro Super Admin";
-      await sendBrevoEmail(
-        email, fullName || email, subject,
+      await sendResendEmail(
+        email, subject,
         `<div style="font-family:sans-serif;max-width:480px;margin:0 auto;padding:32px;">
           <h2 style="color:#FF2B2B;margin-bottom:8px;">RhirePro</h2>
           <p style="color:#333;">Hi ${fullName || email},</p>
