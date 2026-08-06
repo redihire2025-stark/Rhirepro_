@@ -48,14 +48,17 @@ export interface Profile {
 }
 
 export interface RecruiterProfile {
+  // Identity & Account
   id: string;
   email: string;
   recruiter_name: string | null;
+  phone: string | null;
+
+  // Company Profile & Details
   company_name: string | null;
   company_size: string | null;
-  industry: string | null;
   company_type: string | null;
-  phone: string | null;
+  industry: string | null;
   company_description: string | null;
   website: string | null;
   location: string | null;
@@ -66,24 +69,31 @@ export interface RecruiterProfile {
   linkedin_url: string | null;
   cin: string | null;
   founded: string | null;
+
+  // Verification & Workflow
+  verification_status: "Pending" | "Verified" | "Rejected";
+  rejection_reason: string | null;
+  rejected_at: string | null;
+  rejected_by: string | null;
+  verified_at: string | null;
+  verified_by: string | null;
+
+  // Auth & Security State
   otp_code: string | null;
   otp_expires_at: string | null;
-  is_org_admin: boolean;
-  org_id: string | null;
   is_disabled: boolean;
   last_login_at: string | null;
-  verification_status?: "Pending" | "Verified" | "Rejected" | null;
-  rejection_reason?: string | null;
-  rejected_at?: string | null;
-  rejected_by?: string | null;
-  verified_at?: string | null;
-  verified_by?: string | null;
   created_at: string;
-  // Org admin fields
+
+  // Org Admin & Team Settings
+  is_org_admin: boolean;
+  org_id: string | null;
   org_role: "admin" | "member" | null;
   org_admin_id: string | null;
   is_active: boolean | null;
   max_seats: number | null;
+
+  // Usage Metrics
   resumes_used?: number;
   keywords_used?: number;
   profiles_viewed?: number;
