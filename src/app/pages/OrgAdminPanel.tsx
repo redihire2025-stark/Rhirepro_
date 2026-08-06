@@ -2,6 +2,7 @@ import { useState, useEffect, useCallback, useRef, useMemo } from "react";
 import { Link, useNavigate, useParams } from "react-router";
 import { supabase, type RecruiterArticle } from "../../lib/supabase";
 import { useAuth } from "../../lib/auth-context";
+import { orgAdminService } from "../services/orgAdminService";
 import logoImage from "../../logo/logo.png";
 import {
   Users, UserX, UserCheck, Crown, Building2, Mail, Briefcase,
@@ -543,29 +544,21 @@ export default function OrgAdminPanel() {
   }, [blogTitle, blogContent, blogTags, blogCategory, blogSummary, blogCoverUrl, blogStatus, user?.id, recruiterProfile?.org_id, editingBlog, loadData]);
 
   const handleTogglePublishStatus = useCallback(async (blog: RecruiterArticle) => {
-    const newStatus = blog.status === "Published" ? "Draft" : "Published";
-    try {
-      await supabase
-        .from("recruiter_articles")
-        .update({
-          status: newStatus,
-          published_at: newStatus === "Published" ? new Date().toISOString() : blog.published_at,
-        })
-        .eq("id", blog.id);
-
+    const res = await orgAdminService.toggleArticlePublishStatus(blog);
+    if (res.success) {
       await loadData(true);
-    } catch (err) {
-      console.error("Failed to toggle status", err);
+    } else {
+      console.error("Failed to toggle status:", res.error);
     }
   }, [loadData]);
 
   const handleDeleteBlog = useCallback(async (blogId: string) => {
-    try {
-      await supabase.from("recruiter_articles").delete().eq("id", blogId);
+    const res = await orgAdminService.deleteArticle(blogId);
+    if (res.success) {
       setDeleteBlogId(null);
       await loadData(true);
-    } catch (err) {
-      console.error("Failed to delete blog", err);
+    } else {
+      console.error("Failed to delete blog:", res.error);
     }
   }, [loadData]);
 
@@ -587,57 +580,23 @@ export default function OrgAdminPanel() {
 
   // ── Invite handler ──────────────────────────────────────────
 
+  // ── Invite handler ──────────────────────────────────────────
+
   const handleInvite = async () => {
     if (!inviteEmail.trim() || !user || !recruiterProfile) return;
-    if (recruiterProfile.verification_status === "Pending") {
-      setInviteError("Your company verification is pending. You cannot invite team members until your company is verified by Super Admin.");
-      return;
-    }
-    if (recruiterProfile.verification_status === "Rejected") {
-      setInviteError("Your company verification was rejected. Team invitations are disabled.");
-      return;
-    }
     setInviteLoading(true);
     setInviteError("");
-    try {
-      const activeCount = members.filter(m => m.is_active).length;
-      const maxSeats = recruiterProfile.max_seats || 5;
-      if (activeCount >= maxSeats) {
-        setInviteError(`Seat limit reached (${maxSeats} seats). Upgrade your plan to add more.`);
-        return;
-      }
-      const pending = invitations.find(
-        i => i.invited_email === inviteEmail.trim().toLowerCase() && i.status === "pending"
-      );
-      if (pending) {
-        setInviteError("A pending invitation already exists for this email.");
-        return;
-      }
 
-      const adminDomain = recruiterProfile.email?.split("@")[1]?.toLowerCase();
-      const inviteDomain = inviteEmail.trim().split("@")[1]?.toLowerCase();
-      if (!adminDomain || !inviteDomain || adminDomain !== inviteDomain) {
-        setInviteError(`You can only invite members with a matching email domain (@${adminDomain || ""}).`);
-        return;
-      }
+    const activeCount = members.filter((m) => m.is_active).length;
+    const res = await orgAdminService.sendTeamInvitation({
+      inviteEmail,
+      recruiterProfile,
+      userId: user.id,
+      activeCount,
+      existingInvitations: invitations,
+    });
 
-      const res = await fetch("/api/send-invite", {
-        method: "POST",
-        headers: { "Content-Type": "application/json" },
-        body: JSON.stringify({
-          org_admin_id: user.id,
-          company_name: recruiterProfile.company_name || "",
-          invited_email: inviteEmail.trim().toLowerCase(),
-          invited_by_name:
-            recruiterProfile.recruiter_name || recruiterProfile.company_name || "Admin",
-        }),
-      });
-
-      if (!res.ok) {
-        const err = await res.json().catch(() => ({ error: "Failed to send invitation" }));
-        throw new Error(err.error || "Failed to send invitation");
-      }
-
+    if (res.success) {
       setInviteSuccess(true);
       setInviteEmail("");
       await loadData();
@@ -645,11 +604,10 @@ export default function OrgAdminPanel() {
         setInviteSuccess(false);
         setInviteOpen(false);
       }, 2500);
-    } catch (err: unknown) {
-      setInviteError(err instanceof Error ? err.message : "Failed to send invitation");
-    } finally {
-      setInviteLoading(false);
+    } else {
+      setInviteError(res.error || "Failed to send invitation");
     }
+    setInviteLoading(false);
   };
 
   // ── Member actions ──────────────────────────────────────────
@@ -660,17 +618,12 @@ export default function OrgAdminPanel() {
   ) => {
     setActionLoading(memberId);
     try {
-      if (action === "deactivate") {
-        await supabase.from("recruiter_profiles").update({ is_active: false }).eq("id", memberId);
-      } else if (action === "activate") {
-        await supabase.from("recruiter_profiles").update({ is_active: true }).eq("id", memberId);
-      } else if (action === "remove") {
-        await supabase
-          .from("recruiter_profiles")
-          .update({ org_admin_id: null, org_role: "admin" })
-          .eq("id", memberId);
+      const res = await orgAdminService.updateMemberStatus(memberId, action);
+      if (res.success) {
+        await loadData();
+      } else if (res.error) {
+        console.error("Member action failed:", res.error);
       }
-      await loadData();
     } finally {
       setActionLoading(null);
     }
@@ -718,20 +671,11 @@ export default function OrgAdminPanel() {
     return matchesStatus && matchesSearch;
   }), [teamBlogs, blogStatusFilter, blogSearchQuery]);
 
-  // Overview tab KPIs — derived from data already fetched for the other tabs, no extra queries.
-  const todayStr = new Date().toDateString();
-  const overviewKpis = useMemo(() => ({
-    totalRecruiters: members.length,
-    activeRecruiters: activeCount,
-    totalJobs: teamJobs.length,
-    activeJobs: teamJobs.filter(j => j.status === "Active").length,
-    closedJobs: teamJobs.filter(j => j.status === "Closed").length,
-    totalCandidates: new Set(teamApps.map(a => a.profile_id)).size,
-    applicationsToday: teamApps.filter(a => new Date(a.applied_at).toDateString() === todayStr).length,
-    interviewsScheduled: teamApps.filter(a => a.status === "Interview Scheduled").length,
-    offersReleased: teamApps.filter(a => a.status === "Offered").length,
-    successfulHires: teamApps.filter(a => ["Hired", "Joined"].includes(a.status)).length,
-  }), [members.length, activeCount, teamJobs, teamApps, todayStr]);
+  // Overview tab KPIs — derived via orgAdminService business logic helper
+  const overviewKpis = useMemo(
+    () => orgAdminService.calculateOverviewKpis(members, teamJobs, teamApps),
+    [members, teamJobs, teamApps]
+  );
 
   // ── Header Render Helper ────────────────────────────────────
   const renderHeader = () => (
