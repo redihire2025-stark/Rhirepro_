@@ -1,11 +1,9 @@
-import { useEffect, useMemo, useState } from "react";
+import { useEffect, useMemo, useState, useCallback } from "react";
 import {
   Building2,
   CheckCircle2,
   XCircle,
   Eye,
-  Search,
-  Filter,
   Calendar,
   Mail,
   Phone,
@@ -31,7 +29,7 @@ import {
   DialogDescription,
   DialogFooter,
 } from "../../components/ui/dialog";
-import { supabase } from "../../../lib/supabase";
+import { supabase, RecruiterProfile } from "../../../lib/supabase";
 import { logAdminAction } from "../../../lib/admin-audit";
 
 export interface CompanyRow {
@@ -60,6 +58,45 @@ export interface CompanyRow {
 
 const PAGE_SIZE = 15;
 
+// Helper: Aggregate fallback profile data if RPC is unavailable
+function aggregateFallbackProfiles(profiles: RecruiterProfile[]): CompanyRow[] {
+  const aggregated: Record<string, CompanyRow> = {};
+  for (const p of profiles) {
+    const cName = p.company_name?.trim() || "Unaffiliated";
+    if (!aggregated[cName]) {
+      aggregated[cName] = {
+        company_name: cName,
+        verification_status: p.verification_status || "Pending",
+        rejection_reason: p.rejection_reason || null,
+        rejected_at: p.rejected_at || null,
+        rejected_by: p.rejected_by || null,
+        verified_at: p.verified_at || null,
+        verified_by: p.verified_by || null,
+        recruiter_count: 1,
+        jobs_count: 0,
+        applications_count: 0,
+        industry: p.industry || null,
+        location: p.location || null,
+        logo_url: p.logo_url || null,
+        email: p.email || null,
+        phone: p.phone || null,
+        website: p.website || null,
+        address: p.location || null,
+        gst: p.cin || null,
+        subscription_plan: "Free Trial",
+        payment_status: "Active",
+        latest_created_at: p.created_at,
+      };
+    } else {
+      aggregated[cName].recruiter_count += 1;
+      if (new Date(p.created_at) > new Date(aggregated[cName].latest_created_at)) {
+        aggregated[cName].latest_created_at = p.created_at;
+      }
+    }
+  }
+  return Object.values(aggregated);
+}
+
 export default function SuperAdminCompanies() {
   const [rows, setRows] = useState<CompanyRow[]>([]);
   const [loading, setLoading] = useState(true);
@@ -76,78 +113,49 @@ export default function SuperAdminCompanies() {
   const [detailCompany, setDetailCompany] = useState<CompanyRow | null>(null);
   const [actionLoading, setActionLoading] = useState(false);
 
-  const fetchCompanies = async () => {
+  // Modularized company fetcher
+  const fetchCompanies = useCallback(async () => {
     setLoading(true);
     const { data, error } = await supabase.rpc("get_super_admin_companies");
     if (!error && data) {
       setRows(data as CompanyRow[]);
     } else {
-      // Fallback direct query if RPC needs fallback
       const { data: profiles } = await supabase.from("recruiter_profiles").select("*");
       if (profiles) {
-        const aggregated: Record<string, CompanyRow> = {};
-        for (const p of profiles) {
-          const cName = p.company_name?.trim() || "Unaffiliated";
-          if (!aggregated[cName]) {
-            aggregated[cName] = {
-              company_name: cName,
-              verification_status: p.verification_status || "Pending",
-              rejection_reason: p.rejection_reason || null,
-              rejected_at: p.rejected_at || null,
-              rejected_by: p.rejected_by || null,
-              verified_at: p.verified_at || null,
-              verified_by: p.verified_by || null,
-              recruiter_count: 1,
-              jobs_count: 0,
-              applications_count: 0,
-              industry: p.industry || null,
-              location: p.location || null,
-              logo_url: p.logo_url || null,
-              email: p.email || null,
-              phone: p.phone || null,
-              website: p.website || null,
-              address: p.location || null,
-              gst: p.cin || null,
-              subscription_plan: "Free Trial",
-              payment_status: "Active",
-              latest_created_at: p.created_at,
-            };
-          } else {
-            aggregated[cName].recruiter_count += 1;
-            if (new Date(p.created_at) > new Date(aggregated[cName].latest_created_at)) {
-              aggregated[cName].latest_created_at = p.created_at;
-            }
-          }
-        }
-        setRows(Object.values(aggregated));
+        setRows(aggregateFallbackProfiles(profiles as RecruiterProfile[]));
       }
     }
     setLoading(false);
-  };
+  }, []);
 
   useEffect(() => {
     fetchCompanies();
+  }, [fetchCompanies, verifyTarget, rejectTarget]);
+
+  // Memoize counts calculation callback
+  const getCounts = useCallback((companyRows: CompanyRow[]) => {
+    let pending = 0;
+    let verified = 0;
+    let rejected = 0;
+    for (let i = 0; i < companyRows.length; i++) {
+      const st = companyRows[i].verification_status;
+      if (st === "Pending") pending++;
+      else if (st === "Verified") verified++;
+      else if (st === "Rejected") rejected++;
+    }
+    return { all: companyRows.length, pending, verified, rejected };
   }, []);
 
-  // Compute status counts
-  const counts = useMemo(() => {
-    const all = rows.length;
-    const pending = rows.filter((r) => r.verification_status === "Pending").length;
-    const verified = rows.filter((r) => r.verification_status === "Verified").length;
-    const rejected = rows.filter((r) => r.verification_status === "Rejected").length;
-    return { all, pending, verified, rejected };
-  }, [rows]);
+  const counts = useMemo(() => getCounts(rows), [rows, getCounts]);
 
   // Filter & Sort
   const filtered = useMemo(() => {
     let result = rows;
 
-    // Filter by status tab
     if (statusFilter !== "All") {
       result = result.filter((r) => r.verification_status === statusFilter);
     }
 
-    // Filter by search query
     if (search.trim()) {
       const term = search.trim().toLowerCase();
       result = result.filter(
@@ -159,11 +167,9 @@ export default function SuperAdminCompanies() {
       );
     }
 
-    // Sort
     const dir = sortDir === "asc" ? 1 : -1;
     return [...result].sort((a, b) => {
       if (sortKey === "verification_status") {
-        // Order: Pending (0) -> Verified (1) -> Rejected (2)
         const rank = { Pending: 0, Verified: 1, Rejected: 2 };
         const rankA = rank[a.verification_status] ?? 3;
         const rankB = rank[b.verification_status] ?? 3;
@@ -180,11 +186,13 @@ export default function SuperAdminCompanies() {
     });
   }, [rows, statusFilter, search, sortKey, sortDir]);
 
-  const pageRows = filtered.slice((page - 1) * PAGE_SIZE, page * PAGE_SIZE);
+  const pageRows = useMemo(() => {
+    return filtered.slice((page - 1) * PAGE_SIZE, page * PAGE_SIZE);
+  }, [filtered, page]);
 
   useEffect(() => setPage(1), [search, statusFilter]);
 
-  // Actions
+  // Parametrized & safe verify handler
   const handleVerifyConfirm = async () => {
     if (!verifyTarget) return;
     setActionLoading(true);
@@ -193,6 +201,7 @@ export default function SuperAdminCompanies() {
       const adminId = userRes.user?.id || null;
       const now = new Date().toISOString();
 
+      // Parametrized query using exact equality match (.eq) to prevent pattern injection
       const { error } = await supabase
         .from("recruiter_profiles")
         .update({
@@ -201,7 +210,7 @@ export default function SuperAdminCompanies() {
           verified_by: adminId,
           rejection_reason: null,
         })
-        .ilike("company_name", verifyTarget.company_name);
+        .eq("company_name", verifyTarget.company_name);
 
       if (error) {
         console.error("Failed to verify company:", error);
@@ -213,7 +222,6 @@ export default function SuperAdminCompanies() {
           afterValue: { verification_status: "Verified", verified_at: now },
         });
 
-        // Update local state instantly
         setRows((prev) =>
           prev.map((r) =>
             r.company_name === verifyTarget.company_name
@@ -234,6 +242,7 @@ export default function SuperAdminCompanies() {
     }
   };
 
+  // Parametrized & safe reject handler
   const handleRejectConfirm = async () => {
     if (!rejectTarget) return;
     setActionLoading(true);
@@ -243,6 +252,7 @@ export default function SuperAdminCompanies() {
       const adminId = userRes.user?.id || null;
       const now = new Date().toISOString();
 
+      // Parametrized query using exact equality match (.eq) to prevent pattern injection
       const { error } = await supabase
         .from("recruiter_profiles")
         .update({
@@ -251,7 +261,7 @@ export default function SuperAdminCompanies() {
           rejected_at: now,
           rejected_by: adminId,
         })
-        .ilike("company_name", rejectTarget.company_name);
+        .eq("company_name", rejectTarget.company_name);
 
       if (error) {
         console.error("Failed to reject company:", error);
@@ -263,7 +273,6 @@ export default function SuperAdminCompanies() {
           afterValue: { verification_status: "Rejected", rejection_reason: reason, rejected_at: now },
         });
 
-        // Update local state instantly
         setRows((prev) =>
           prev.map((r) =>
             r.company_name === rejectTarget.company_name
@@ -313,7 +322,7 @@ export default function SuperAdminCompanies() {
     }
   };
 
-  const columns: DataTableColumn<CompanyRow>[] = [
+  const columns: DataTableColumn<CompanyRow>[] = useMemo(() => [
     {
       key: "serial",
       header: "#",
@@ -416,7 +425,7 @@ export default function SuperAdminCompanies() {
         </div>
       ),
     },
-  ];
+  ], [pageRows, page]);
 
   return (
     <div className="space-y-6">
