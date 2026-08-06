@@ -160,6 +160,7 @@ export interface Job {
   skills: string[] | null;
   perks: string[] | null;
   education: string | null;
+  specialization?: string | null;
   preferred_joining_time?: string | null;
   openings: number;
   views?: number | null;
