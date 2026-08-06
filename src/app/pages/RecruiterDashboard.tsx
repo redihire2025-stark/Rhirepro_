@@ -2692,6 +2692,14 @@ function PostJobPage() {
     if (e) e.preventDefault();
     setPostError("");
     if (!recruiterProfile?.id) { setPostError("Please sign in as a recruiter."); return; }
+    if (recruiterProfile?.verification_status === "Pending") {
+      setPostError("Your company verification is pending. Our team is reviewing your company. Expected verification time: 24 hours.");
+      return;
+    }
+    if (recruiterProfile?.verification_status === "Rejected") {
+      setPostError(`Your company verification was rejected. Reason: ${recruiterProfile?.rejection_reason || "Please contact support."}`);
+      return;
+    }
     if (isLimitReached) {
       setPostError(
         activeSub
@@ -2770,7 +2778,7 @@ function PostJobPage() {
       setPostSuccess(true);
       setShowPreview(false);
       setTimeout(() => { setPostSuccess(false); navigate("/recruiter/dashboard/manage-jobs"); }, 2000);
-      setFormData({ jobTitle: "", jobDescription: "", rolesResponsibilities: "", requirements: "", location: "", locations: [], locationInput: "", workMode: "", salaryMin: "", salaryMax: "", experienceMin: "", experienceMax: "", skills: "", employmentType: "", industry: "", openings: "1", education: "", specialization: "", perks: [], customPerk: "", department: "", interviewMode: "", interviewModes: [], preferredJoiningTime: "" });
+      setFormData({ jobTitle: "", jobDescription: "", rolesResponsibilities: "", requirements: "", location: "", locations: [], locationInput: "", workMode: "", salaryMin: "", salaryMax: "", experienceMin: "", experienceMax: "", skills: "", employmentType: "", industry: "", customIndustry: "", openings: "1", education: "", customEducation: "", specialization: "", customSpecialization: "", perks: [], customPerk: "", department: "", interviewMode: "", interviewModes: [], preferredJoiningTime: "" });
       setShowSkillInput(false);
       setSkillPickerOpen(false);
       setSkillSearch("");
@@ -3515,8 +3523,11 @@ function ManageJobsPage() {
       openings: String(job.openings),
       skills: (job.skills || []).join(", "),
       industry: job.industry || "",
+      customIndustry: "",
       education: eduCategory,
+      customEducation: "",
       specialization: spec,
+      customSpecialization: "",
       interviewMode: job.interview_mode || "",
       interviewModes: existingModes,
       perks: job.perks || [],
