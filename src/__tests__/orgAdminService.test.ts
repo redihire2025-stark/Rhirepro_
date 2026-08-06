@@ -29,6 +29,26 @@ describe("orgAdminService Business Logic", () => {
     expect(res.allowed).toBe(true);
   });
 
+  it("prevents sending invitation if active link_opened invitation exists", async () => {
+    const mockProfile: Partial<RecruiterProfile> = {
+      verification_status: "Verified",
+      email: "admin@company.com",
+      company_name: "Company Inc",
+      max_seats: 5,
+    };
+
+    const res = await orgAdminService.sendTeamInvitation({
+      inviteEmail: "user@company.com",
+      recruiterProfile: mockProfile as RecruiterProfile,
+      userId: "admin-id",
+      activeCount: 1,
+      existingInvitations: [{ invited_email: "user@company.com", status: "link_opened" }],
+    });
+
+    expect(res.success).toBe(false);
+    expect(res.error).toContain("already exists");
+  });
+
   it("calculates overview KPIs accurately", () => {
     const members = [{ is_active: true }, { is_active: false }, { is_active: true }];
     const teamJobs = [{ status: "Active" }, { status: "Active" }, { status: "Closed" }];

@@ -182,6 +182,24 @@ export default function OrgAdminPanel() {
   const [blogStatusFilter, setBlogStatusFilter] = useState<"all" | "Published" | "Draft">("all");
   const [deleteBlogId, setDeleteBlogId] = useState<string | null>(null);
 
+  // Sub-User Job Control State
+  const [editingSubUserJob, setEditingSubUserJob] = useState<OrgJob | null>(null);
+  const [editJobForm, setEditJobForm] = useState({
+    title: "",
+    location: "",
+    workMode: "Hybrid",
+    employmentType: "Full-Time",
+    salaryMin: "",
+    salaryMax: "",
+    description: "",
+    requirements: "",
+  });
+  const [jobSaving, setJobSaving] = useState(false);
+  const [deleteJobTarget, setDeleteJobTarget] = useState<OrgJob | null>(null);
+  const [reassignJobTarget, setReassignJobTarget] = useState<OrgJob | null>(null);
+  const [reassignRecruiterId, setReassignRecruiterId] = useState("");
+  const [jobActionLoading, setJobActionLoading] = useState(false);
+
   // Recruiter Details & Keywords dialog
   const [selectedMember, setSelectedMember] = useState<OrgMember | null>(null);
   const [memberKeywords, setMemberKeywords] = useState<{ keyword: string; created_at: string }[]>([]);
@@ -346,10 +364,10 @@ export default function OrgAdminPanel() {
       membersList.forEach(m => { nameMap[m.id] = m.recruiter_name || m.email; });
       nameMap[user.id] = recruiterProfile.recruiter_name || recruiterProfile.email;
 
-      // Pending invitations
+      // Pending & opened invitations
       const { data: invData } = await supabase
         .from("recruiter_invitations")
-        .select("id, invited_email, role, status, created_at, expires_at")
+        .select("id, invited_email, role, status, token, last_opened_at, opened_count, created_at, expires_at")
         .eq("org_admin_id", user.id)
         .order("created_at", { ascending: false });
       setInvitations(invData || []);
@@ -363,7 +381,7 @@ export default function OrgAdminPanel() {
       );
       const { data: jobsData } = await supabase
         .from("jobs")
-        .select("id, title, status, recruiter_id, company_name, location, created_at, deadline, views, openings")
+        .select("id, title, status, recruiter_id, company_name, location, created_at, deadline, views, openings, description, roles_responsibilities, requirements, work_mode, employment_type, salary_min, salary_max")
         .in("recruiter_id", allIds)
         .order("created_at", { ascending: false });
       const mappedJobs = (jobsData || []).map(j => ({
@@ -630,11 +648,114 @@ export default function OrgAdminPanel() {
   };
 
   const handleRevokeInvitation = async (inviteId: string) => {
-    await supabase
-      .from("recruiter_invitations")
-      .update({ status: "revoked" })
-      .eq("id", inviteId);
-    await loadData();
+    setActionLoading(inviteId);
+    try {
+      const res = await orgAdminService.revokeInvitation(inviteId);
+      if (res.success) {
+        await loadData();
+      }
+    } finally {
+      setActionLoading(null);
+    }
+  };
+
+  const handleResendInvitation = async (inv: OrgInvitation) => {
+    setActionLoading(inv.id);
+    try {
+      const res = await orgAdminService.sendTeamInvitation({
+        inviteEmail: inv.invited_email,
+        recruiterProfile: recruiterProfile!,
+        userId: user!.id,
+        activeCount: members.filter((m) => m.is_active).length,
+        existingInvitations: invitations.filter((i) => i.id !== inv.id),
+      });
+      if (res.success) {
+        await loadData();
+      }
+    } finally {
+      setActionLoading(null);
+    }
+  };
+
+  // ── Sub-User Job Control Handlers ───────────────────────────
+
+  const handleEditSubUserJob = (job: OrgJob) => {
+    setEditingSubUserJob(job);
+    setEditJobForm({
+      title: job.title || "",
+      location: job.location || "",
+      workMode: job.work_mode || "Hybrid",
+      employmentType: job.employment_type || "Full-Time",
+      salaryMin: job.salary_min ? String(job.salary_min) : "",
+      salaryMax: job.salary_max ? String(job.salary_max) : "",
+      description: job.description || "",
+      requirements: job.requirements || "",
+    });
+  };
+
+  const handleSaveSubUserJob = async () => {
+    if (!editingSubUserJob) return;
+    setJobSaving(true);
+    try {
+      const res = await orgAdminService.updateSubUserJob(editingSubUserJob.id, {
+        title: editJobForm.title,
+        location: editJobForm.location,
+        work_mode: editJobForm.workMode,
+        employment_type: editJobForm.employmentType,
+        salary_min: editJobForm.salaryMin ? Number(editJobForm.salaryMin) : null,
+        salary_max: editJobForm.salaryMax ? Number(editJobForm.salaryMax) : null,
+        description: editJobForm.description,
+        requirements: editJobForm.requirements,
+      });
+
+      if (res.success) {
+        setEditingSubUserJob(null);
+        await loadData();
+      }
+    } finally {
+      setJobSaving(false);
+    }
+  };
+
+  const handleToggleSubUserJobStatus = async (job: OrgJob) => {
+    setJobActionLoading(true);
+    try {
+      const res = await orgAdminService.toggleSubUserJobStatus(job.id, job.status);
+      if (res.success) {
+        await loadData();
+      }
+    } finally {
+      setJobActionLoading(false);
+    }
+  };
+
+  const handleDeleteSubUserJobConfirm = async () => {
+    if (!deleteJobTarget) return;
+    setJobActionLoading(true);
+    try {
+      const res = await orgAdminService.deleteSubUserJob(deleteJobTarget.id);
+      if (res.success) {
+        setDeleteJobTarget(null);
+        await loadData();
+      }
+    } finally {
+      setJobActionLoading(false);
+    }
+  };
+
+  const handleReassignSubUserJobConfirm = async () => {
+    if (!reassignJobTarget || !reassignRecruiterId) return;
+    setJobActionLoading(true);
+    try {
+      const res = await orgAdminService.reassignJobRecruiter(reassignJobTarget.id, reassignRecruiterId);
+      if (res.success) {
+        setReassignJobTarget(null);
+        setReassignRecruiterId("");
+        await loadData();
+      }
+    } finally {
+      setJobActionLoading(false);
+    }
   };
 
   const handleSignOut = async () => {
@@ -1177,13 +1298,16 @@ export default function OrgAdminPanel() {
               </div>
             )}
 
-            {/* Pending invitations */}
-            {pendingInvitations.length > 0 && (
+            {/* Invitation Tracking Table */}
+            {invitations.length > 0 && (
               <div className="bg-white rounded-2xl shadow-sm overflow-hidden">
-                <div className="px-6 py-4 border-b border-gray-100">
+                <div className="px-6 py-4 border-b border-gray-100 flex items-center justify-between">
                   <h3 className="font-semibold text-[#3A1F1F]">
-                    Pending Invitations <span className="text-[#8A8A8A] font-normal">({pendingInvitations.length})</span>
+                    Invitation Status Tracking <span className="text-[#8A8A8A] font-normal">({invitations.length})</span>
                   </h3>
+                  <span className="text-xs text-muted-foreground">
+                    Tracks when recipients open invite links prior to registration
+                  </span>
                 </div>
                 <div className="overflow-x-auto">
                   <table className="w-full">
@@ -1191,33 +1315,84 @@ export default function OrgAdminPanel() {
                       <tr className="bg-[#F6F6F6] text-xs text-[#8A8A8A] font-medium uppercase tracking-wide">
                         <th className="text-left px-6 py-3">Email</th>
                         <th className="text-left px-6 py-3">Role</th>
+                        <th className="text-left px-6 py-3">Invitation Status</th>
                         <th className="text-left px-6 py-3">Sent</th>
+                        <th className="text-left px-6 py-3">Last Opened</th>
                         <th className="text-left px-6 py-3">Expires</th>
                         <th className="text-right px-6 py-3">Action</th>
                       </tr>
                     </thead>
                     <tbody className="divide-y divide-gray-50">
-                      {pendingInvitations.map(inv => (
+                      {invitations.map((inv) => (
                         <tr key={inv.id} className="hover:bg-[#FFF8F8] transition-colors">
-                          <td className="px-6 py-4 text-sm text-[#3A1F1F]">{inv.invited_email}</td>
+                          <td className="px-6 py-4 text-sm font-medium text-[#3A1F1F]">{inv.invited_email}</td>
                           <td className="px-6 py-4">
                             <Badge variant="secondary" className="text-xs capitalize">{inv.role}</Badge>
                           </td>
+                          <td className="px-6 py-4">
+                            {inv.status === "link_opened" ? (
+                              <Badge className="bg-blue-100 text-blue-800 border border-blue-300 dark:bg-blue-950/40 dark:text-blue-300 dark:border-blue-800 gap-1.5 font-medium px-2.5 py-0.5">
+                                <Eye className="size-3 text-blue-600 dark:text-blue-400" />
+                                Link Opened
+                              </Badge>
+                            ) : inv.status === "accepted" ? (
+                              <Badge className="bg-emerald-100 text-emerald-800 border border-emerald-300 dark:bg-emerald-950/40 dark:text-emerald-300 dark:border-emerald-800 gap-1.5 font-medium px-2.5 py-0.5">
+                                <CheckCircle className="size-3 text-emerald-600 dark:text-emerald-400" />
+                                Accepted
+                              </Badge>
+                            ) : inv.status === "revoked" ? (
+                              <Badge variant="outline" className="text-xs text-gray-500">
+                                Revoked
+                              </Badge>
+                            ) : (
+                              <Badge className="bg-amber-100 text-amber-800 border border-amber-300 dark:bg-amber-950/40 dark:text-amber-300 dark:border-amber-800 gap-1.5 font-medium px-2.5 py-0.5">
+                                <Clock className="size-3 text-amber-600 dark:text-amber-400" />
+                                Pending
+                              </Badge>
+                            )}
+                          </td>
                           <td className="px-6 py-4 text-xs text-[#8A8A8A]">{fmtDate(inv.created_at)}</td>
+                          <td className="px-6 py-4 text-xs font-mono text-[#3A1F1F]">
+                            {inv.last_opened_at ? (
+                              <span className="text-blue-700 dark:text-blue-400 font-semibold flex items-center gap-1">
+                                <Eye className="size-3" />
+                                {fmtDate(inv.last_opened_at)}
+                              </span>
+                            ) : (
+                              <span className="text-muted-foreground">— (Unopened)</span>
+                            )}
+                          </td>
                           <td className="px-6 py-4 text-xs text-[#8A8A8A]">
                             <span className="flex items-center gap-1">
                               <Clock className="h-3 w-3" /> {fmtDate(inv.expires_at)}
                             </span>
                           </td>
                           <td className="px-6 py-4 text-right">
-                            <Button
-                              variant="ghost"
-                              size="sm"
-                              className="text-red-500 hover:text-red-600 text-xs h-7"
-                              onClick={() => handleRevokeInvitation(inv.id)}
-                            >
-                              Revoke
-                            </Button>
+                            <div className="flex items-center justify-end gap-2">
+                              {(inv.status === "pending" || inv.status === "link_opened") && (
+                                <>
+                                  <Button
+                                    variant="outline"
+                                    size="sm"
+                                    className="text-xs h-7 gap-1"
+                                    onClick={() => handleResendInvitation(inv)}
+                                    disabled={actionLoading === inv.id}
+                                  >
+                                    <Send className="size-3 text-blue-600" />
+                                    Resend
+                                  </Button>
+                                  <Button
+                                    variant="ghost"
+                                    size="sm"
+                                    className="text-red-500 hover:text-red-600 text-xs h-7"
+                                    onClick={() => handleRevokeInvitation(inv.id)}
+                                    disabled={actionLoading === inv.id}
+                                  >
+                                    Revoke
+                                  </Button>
+                                </>
+                              )}
+                            </div>
                           </td>
                         </tr>
                       ))}
@@ -1254,6 +1429,7 @@ export default function OrgAdminPanel() {
                         <th className="text-left px-6 py-3">Views</th>
                         <th className="text-left px-6 py-3">Posted</th>
                         <th className="text-left px-6 py-3">Deadline</th>
+                        <th className="text-right px-6 py-3">Control Actions</th>
                       </tr>
                     </thead>
                     <tbody className="divide-y divide-gray-50">
@@ -1278,11 +1454,46 @@ export default function OrgAdminPanel() {
                           <td className="px-6 py-4 text-xs text-[#8A8A8A]">
                             {job.deadline ? fmtDate(job.deadline) : "—"}
                           </td>
+                          <td className="px-6 py-4 text-right">
+                            <DropdownMenu>
+                              <DropdownMenuTrigger asChild>
+                                <Button variant="ghost" size="sm" className="h-8 w-8 p-0 rounded-full">
+                                  <MoreVertical className="h-4 w-4 text-gray-500" />
+                                </Button>
+                              </DropdownMenuTrigger>
+                              <DropdownMenuContent align="end" className="w-48">
+                                <DropdownMenuItem onClick={() => handleEditSubUserJob(job)}>
+                                  <Edit3 className="mr-2 h-4 w-4 text-blue-600" /> Edit Job Post
+                                </DropdownMenuItem>
+                                <DropdownMenuItem onClick={() => handleToggleSubUserJobStatus(job)}>
+                                  {job.status === "Active" ? (
+                                    <>
+                                      <Clock className="mr-2 h-4 w-4 text-amber-500" /> Pause Posting
+                                    </>
+                                  ) : (
+                                    <>
+                                      <CheckCircle className="mr-2 h-4 w-4 text-emerald-600" /> Resume Posting
+                                    </>
+                                  )}
+                                </DropdownMenuItem>
+                                <DropdownMenuItem onClick={() => setReassignJobTarget(job)}>
+                                  <Users className="mr-2 h-4 w-4 text-purple-600" /> Reassign Recruiter
+                                </DropdownMenuItem>
+                                <DropdownMenuSeparator />
+                                <DropdownMenuItem
+                                  onClick={() => setDeleteJobTarget(job)}
+                                  className="text-red-600 focus:text-red-600"
+                                >
+                                  <Trash2 className="mr-2 h-4 w-4 text-red-600" /> Delete Job
+                                </DropdownMenuItem>
+                              </DropdownMenuContent>
+                            </DropdownMenu>
+                          </td>
                         </tr>
                       ))}
                       {filteredJobs.length === 0 && (
                         <tr>
-                          <td colSpan={7} className="px-6 py-12 text-center text-[#8A8A8A] text-sm">
+                          <td colSpan={8} className="px-6 py-12 text-center text-[#8A8A8A] text-sm">
                             No jobs found.
                           </td>
                         </tr>
@@ -1449,40 +1660,82 @@ export default function OrgAdminPanel() {
           <TabsContent value="subscription_usage">
             {dataLoading ? <LoadingCard /> : (
               <>
-                {/* Summary cards */}
-                <div className="grid grid-cols-1 md:grid-cols-5 gap-4 mb-6">
-                  <div className="bg-white rounded-2xl p-5 shadow-sm border border-gray-100 text-center">
-                    <p className="text-sm text-[#8A8A8A] font-bold mb-2">Current Plan</p>
-                    <p className="text-2xl font-bold text-[#FF2B2B] capitalize">
-                      {activeSub ? activeSub.plan_id.replace(/[_-]/g, " ") : "Premium Plan"}
-                    </p>
-                  </div>
-                  <div className="bg-white rounded-2xl p-5 shadow-sm border border-gray-100 text-center">
-                    <p className="text-sm text-[#8A8A8A] font-bold mb-2">Expires On</p>
-                    <p className="text-2xl font-bold text-[#3A1F1F]">
-                      {activeSub 
-                        ? fmtDate(activeSub.expires_at) 
-                        : fmtDate(new Date(Date.now() + 30 * 24 * 60 * 60 * 1000).toISOString())
-                      }
-                    </p>
-                  </div>
-                  <div className="bg-white rounded-2xl p-5 shadow-sm border border-gray-100 text-center">
-                    <p className="text-sm text-[#8A8A8A] font-bold mb-2">Total Profiles Viewed</p>
-                    <p className="text-2xl font-bold text-[#3A1F1F]">
-                      {members.reduce((acc, m) => acc + (m.profiles_viewed || 0), 0)}
-                    </p>
-                  </div>
-                  <div className="bg-white rounded-2xl p-5 shadow-sm border border-gray-100 text-center">
-                    <p className="text-sm text-[#8A8A8A] font-bold mb-2">Total Resumes Watched</p>
-                    <p className="text-2xl font-bold text-[#3A1F1F]">
-                      {members.reduce((acc, m) => acc + (m.resumes_used || 0), 0)}
-                    </p>
-                  </div>
-                  <div className="bg-white rounded-2xl p-5 shadow-sm border border-gray-100 text-center">
-                    <p className="text-sm text-[#8A8A8A] font-bold mb-2">Total Search Keywords</p>
-                    <p className="text-2xl font-bold text-[#3A1F1F]">
-                      {members.reduce((acc, m) => acc + (m.keywords_used || 0), 0)}
-                    </p>
+                {/* Organization Usage Meters */}
+                <div className="bg-white rounded-2xl p-6 shadow-sm border border-gray-100 mb-6">
+                  <h3 className="font-semibold text-[#3A1F1F] text-lg mb-4 flex items-center gap-2">
+                    <BarChart2 className="h-5 w-5 text-[#FF2B2B]" /> Organization Usage & Quotas
+                  </h3>
+                  
+                  <div className="grid grid-cols-1 md:grid-cols-4 gap-6">
+                    {/* Seats Meter */}
+                    <div className="bg-[#F9FAFB] rounded-xl p-4 border border-gray-200">
+                      <div className="flex justify-between items-center mb-2">
+                        <span className="text-xs font-semibold text-gray-600 uppercase">Recruiter Seats</span>
+                        <span className="text-xs font-bold text-[#FF2B2B]">{activeCount} / {maxSeats}</span>
+                      </div>
+                      <div className="w-full bg-gray-200 h-2.5 rounded-full overflow-hidden mb-2">
+                        <div
+                          className="bg-[#FF2B2B] h-full transition-all duration-300"
+                          style={{ width: `${seatPct}%` }}
+                        />
+                      </div>
+                      <p className="text-[11px] text-gray-500">
+                        {maxSeats - activeCount} seat{maxSeats - activeCount !== 1 ? "s" : ""} available
+                      </p>
+                    </div>
+
+                    {/* Job Post Quota Meter */}
+                    <div className="bg-[#F9FAFB] rounded-xl p-4 border border-gray-200">
+                      <div className="flex justify-between items-center mb-2">
+                        <span className="text-xs font-semibold text-gray-600 uppercase">Active Jobs</span>
+                        <span className="text-xs font-bold text-green-600">
+                          {teamJobs.filter(j => j.status === "Active").length} Active
+                        </span>
+                      </div>
+                      <div className="w-full bg-gray-200 h-2.5 rounded-full overflow-hidden mb-2">
+                        <div
+                          className="bg-green-500 h-full transition-all duration-300"
+                          style={{ width: `${Math.min((teamJobs.filter(j => j.status === "Active").length / 20) * 100, 100)}%` }}
+                        />
+                      </div>
+                      <p className="text-[11px] text-gray-500">
+                        {teamJobs.length} total job postings created
+                      </p>
+                    </div>
+
+                    {/* Profile Search Keywords Meter */}
+                    <div className="bg-[#F9FAFB] rounded-xl p-4 border border-gray-200">
+                      <div className="flex justify-between items-center mb-2">
+                        <span className="text-xs font-semibold text-gray-600 uppercase">Keywords Searched</span>
+                        <span className="text-xs font-bold text-purple-600">
+                          {members.reduce((acc, m) => acc + (m.keywords_used || 0), 0)}
+                        </span>
+                      </div>
+                      <div className="w-full bg-gray-200 h-2.5 rounded-full overflow-hidden mb-2">
+                        <div
+                          className="bg-purple-500 h-full transition-all duration-300"
+                          style={{ width: `${Math.min((members.reduce((acc, m) => acc + (m.keywords_used || 0), 0) / 100) * 100, 100)}%` }}
+                        />
+                      </div>
+                      <p className="text-[11px] text-gray-500">Search queries executed across org</p>
+                    </div>
+
+                    {/* Resumes Watched Meter */}
+                    <div className="bg-[#F9FAFB] rounded-xl p-4 border border-gray-200">
+                      <div className="flex justify-between items-center mb-2">
+                        <span className="text-xs font-semibold text-gray-600 uppercase">Resumes Watched</span>
+                        <span className="text-xs font-bold text-blue-600">
+                          {members.reduce((acc, m) => acc + (m.resumes_used || 0), 0)}
+                        </span>
+                      </div>
+                      <div className="w-full bg-gray-200 h-2.5 rounded-full overflow-hidden mb-2">
+                        <div
+                          className="bg-blue-500 h-full transition-all duration-300"
+                          style={{ width: `${Math.min((members.reduce((acc, m) => acc + (m.resumes_used || 0), 0) / 100) * 100, 100)}%` }}
+                        />
+                      </div>
+                      <p className="text-[11px] text-gray-500">Total resume downloads & views</p>
+                    </div>
                   </div>
                 </div>
 
@@ -2003,6 +2256,165 @@ export default function OrgAdminPanel() {
               </div>
             </div>
           )}
+        </DialogContent>
+      </Dialog>
+
+      {/* Edit Sub-User Job Dialog */}
+      <Dialog open={!!editingSubUserJob} onOpenChange={() => setEditingSubUserJob(null)}>
+        <DialogContent className="max-w-xl max-h-[90vh] overflow-y-auto">
+          <DialogHeader>
+            <DialogTitle className="text-[#3A1F1F] flex items-center gap-2">
+              <Edit3 className="h-5 w-5 text-blue-600" /> Edit Sub-User Job Post
+            </DialogTitle>
+          </DialogHeader>
+          <div className="space-y-4 py-2">
+            <div>
+              <label className="text-xs font-semibold text-[#3A1F1F] block mb-1">Job Title</label>
+              <Input
+                value={editJobForm.title}
+                onChange={e => setEditJobForm(prev => ({ ...prev, title: e.target.value }))}
+                className="rounded-xl bg-[#F6F6F6] border-gray-200 text-xs"
+              />
+            </div>
+            <div className="grid grid-cols-2 gap-3">
+              <div>
+                <label className="text-xs font-semibold text-[#3A1F1F] block mb-1">Location</label>
+                <Input
+                  value={editJobForm.location}
+                  onChange={e => setEditJobForm(prev => ({ ...prev, location: e.target.value }))}
+                  className="rounded-xl bg-[#F6F6F6] border-gray-200 text-xs"
+                />
+              </div>
+              <div>
+                <label className="text-xs font-semibold text-[#3A1F1F] block mb-1">Work Mode</label>
+                <select
+                  value={editJobForm.workMode}
+                  onChange={e => setEditJobForm(prev => ({ ...prev, workMode: e.target.value }))}
+                  className="w-full h-9 rounded-xl bg-[#F6F6F6] border border-gray-200 text-xs px-3"
+                >
+                  <option value="In-Office">In-Office</option>
+                  <option value="Remote">Remote</option>
+                  <option value="Hybrid">Hybrid</option>
+                </select>
+              </div>
+            </div>
+            <div className="grid grid-cols-2 gap-3">
+              <div>
+                <label className="text-xs font-semibold text-[#3A1F1F] block mb-1">Salary Min (LPA)</label>
+                <Input
+                  type="number"
+                  value={editJobForm.salaryMin}
+                  onChange={e => setEditJobForm(prev => ({ ...prev, salaryMin: e.target.value }))}
+                  className="rounded-xl bg-[#F6F6F6] border-gray-200 text-xs"
+                />
+              </div>
+              <div>
+                <label className="text-xs font-semibold text-[#3A1F1F] block mb-1">Salary Max (LPA)</label>
+                <Input
+                  type="number"
+                  value={editJobForm.salaryMax}
+                  onChange={e => setEditJobForm(prev => ({ ...prev, salaryMax: e.target.value }))}
+                  className="rounded-xl bg-[#F6F6F6] border-gray-200 text-xs"
+                />
+              </div>
+            </div>
+            <div>
+              <label className="text-xs font-semibold text-[#3A1F1F] block mb-1">Description</label>
+              <textarea
+                rows={4}
+                value={editJobForm.description}
+                onChange={e => setEditJobForm(prev => ({ ...prev, description: e.target.value }))}
+                className="w-full p-3 rounded-xl bg-[#F6F6F6] border border-gray-200 text-xs text-[#3A1F1F]"
+              />
+            </div>
+            <div>
+              <label className="text-xs font-semibold text-[#3A1F1F] block mb-1">Requirements</label>
+              <textarea
+                rows={3}
+                value={editJobForm.requirements}
+                onChange={e => setEditJobForm(prev => ({ ...prev, requirements: e.target.value }))}
+                className="w-full p-3 rounded-xl bg-[#F6F6F6] border border-gray-200 text-xs text-[#3A1F1F]"
+              />
+            </div>
+            <div className="flex gap-3 pt-3 border-t">
+              <Button variant="outline" className="flex-1 rounded-full" onClick={() => setEditingSubUserJob(null)}>
+                Cancel
+              </Button>
+              <Button className="flex-1 bg-[#FF2B2B] hover:bg-[#e02525] rounded-full" onClick={handleSaveSubUserJob} disabled={jobSaving}>
+                {jobSaving ? <Loader2 className="h-4 w-4 animate-spin mr-2" /> : "Save Changes"}
+              </Button>
+            </div>
+          </div>
+        </DialogContent>
+      </Dialog>
+
+      {/* Reassign Job Recruiter Dialog */}
+      <Dialog open={!!reassignJobTarget} onOpenChange={() => setReassignJobTarget(null)}>
+        <DialogContent className="max-w-md">
+          <DialogHeader>
+            <DialogTitle className="text-[#3A1F1F] flex items-center gap-2">
+              <Users className="h-5 w-5 text-purple-600" /> Reassign Recruiter Ownership
+            </DialogTitle>
+          </DialogHeader>
+          <div className="py-3 space-y-4">
+            <p className="text-sm text-[#8A8A8A]">
+              Reassign ownership of job <strong>{reassignJobTarget?.title}</strong> to another team member in your organization.
+            </p>
+            <div>
+              <label className="text-xs font-semibold text-[#3A1F1F] block mb-1">Select New Recruiter</label>
+              <select
+                value={reassignRecruiterId}
+                onChange={e => setReassignRecruiterId(e.target.value)}
+                className="w-full h-10 rounded-xl bg-[#F6F6F6] border border-gray-200 text-xs px-3"
+              >
+                <option value="">-- Choose Recruiter --</option>
+                <option value={user?.id}>Me ({recruiterProfile?.recruiter_name || "Org Admin"})</option>
+                {members.filter(m => m.id !== user?.id && m.is_active).map(m => (
+                  <option key={m.id} value={m.id}>{m.recruiter_name || m.email}</option>
+                ))}
+              </select>
+            </div>
+            <div className="flex gap-3 pt-2">
+              <Button variant="outline" className="flex-1 rounded-full" onClick={() => setReassignJobTarget(null)}>
+                Cancel
+              </Button>
+              <Button
+                className="flex-1 bg-purple-600 hover:bg-purple-700 text-white rounded-full"
+                onClick={handleReassignSubUserJobConfirm}
+                disabled={!reassignRecruiterId || jobActionLoading}
+              >
+                {jobActionLoading ? <Loader2 className="h-4 w-4 animate-spin mr-2" /> : "Reassign Job"}
+              </Button>
+            </div>
+          </div>
+        </DialogContent>
+      </Dialog>
+
+      {/* Delete Job Confirmation Dialog */}
+      <Dialog open={!!deleteJobTarget} onOpenChange={() => setDeleteJobTarget(null)}>
+        <DialogContent className="max-w-md">
+          <DialogHeader>
+            <DialogTitle className="text-[#3A1F1F] flex items-center gap-2">
+              <Trash2 className="h-5 w-5 text-red-600" /> Delete Sub-User Job
+            </DialogTitle>
+          </DialogHeader>
+          <div className="py-3">
+            <p className="text-sm text-[#8A8A8A]">
+              Are you sure you want to delete <strong>{deleteJobTarget?.title}</strong> posted by {deleteJobTarget?.recruiter_name}? This action cannot be undone.
+            </p>
+          </div>
+          <div className="flex gap-3 pt-2">
+            <Button variant="outline" className="flex-1 rounded-full" onClick={() => setDeleteJobTarget(null)}>
+              Cancel
+            </Button>
+            <Button
+              className="flex-1 bg-red-600 hover:bg-red-700 text-white rounded-full"
+              onClick={handleDeleteSubUserJobConfirm}
+              disabled={jobActionLoading}
+            >
+              {jobActionLoading ? <Loader2 className="h-4 w-4 animate-spin mr-2" /> : "Confirm Delete"}
+            </Button>
+          </div>
         </DialogContent>
       </Dialog>
     </div>
