@@ -1,6 +1,7 @@
 import { useState, useEffect } from "react";
 import { useParams, useNavigate, Link } from "react-router";
 import { supabase } from "../../lib/supabase";
+import { orgAdminService } from "../services/orgAdminService";
 import { Eye, EyeOff, Loader2, CheckCircle, Building2, ShieldCheck, XCircle, Clock } from "lucide-react";
 import { Button } from "../components/ui/button";
 import { Input } from "../components/ui/input";
@@ -66,6 +67,9 @@ export default function RecruiterInviteAccept() {
 
       setInvite(data[0] as InviteDetails);
       setTokenState("valid");
+
+      // Record invitation link opened event for Org Admin audit tracking
+      void orgAdminService.markInvitationOpened(token!);
     }
 
     validate();

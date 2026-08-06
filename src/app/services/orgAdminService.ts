@@ -1,4 +1,4 @@
-import { supabase, RecruiterProfile, RecruiterArticle } from "../../lib/supabase";
+import { supabase, RecruiterProfile, RecruiterArticle, Job } from "../../lib/supabase";
 
 export interface OverviewKpis {
   totalRecruiters: number;
@@ -89,10 +89,10 @@ export const orgAdminService = {
 
     // 3. Pending invitation check
     const pendingExists = existingInvitations.some(
-      (inv) => inv.invited_email.toLowerCase() === trimmedEmail && inv.status === "pending"
+      (inv) => inv.invited_email.toLowerCase() === trimmedEmail && (inv.status === "pending" || inv.status === "link_opened")
     );
     if (pendingExists) {
-      return { success: false, error: "A pending invitation already exists for this email." };
+      return { success: false, error: "An active invitation already exists for this email." };
     }
 
     // 4. Domain matching check
@@ -123,6 +123,43 @@ export const orgAdminService = {
   },
 
   /**
+   * Marks an invitation token as link_opened when a candidate accesses the invite URL.
+   */
+  async markInvitationOpened(token: string): Promise<{ success: boolean; error?: string }> {
+    try {
+      const { data, error } = await supabase.rpc("mark_invitation_opened", { p_token: token });
+      if (error) {
+        // Fallback direct update
+        await supabase
+          .from("recruiter_invitations")
+          .update({ status: "link_opened", last_opened_at: new Date().toISOString() })
+          .eq("token", token)
+          .eq("status", "pending");
+      }
+      return { success: true };
+    } catch (err: unknown) {
+      return { success: false, error: err instanceof Error ? err.message : "Failed to record invitation opening." };
+    }
+  },
+
+  /**
+   * Revokes an existing invitation.
+   */
+  async revokeInvitation(invitationId: string): Promise<{ success: boolean; error?: string }> {
+    try {
+      const { error } = await supabase
+        .from("recruiter_invitations")
+        .update({ status: "revoked" })
+        .eq("id", invitationId);
+
+      if (error) throw error;
+      return { success: true };
+    } catch (err: unknown) {
+      return { success: false, error: err instanceof Error ? err.message : "Failed to revoke invitation." };
+    }
+  },
+
+  /**
    * Updates an org member's status (activate, deactivate, remove).
    */
   async updateMemberStatus(
@@ -146,6 +183,75 @@ export const orgAdminService = {
       return { success: true };
     } catch (err: unknown) {
       return { success: false, error: err instanceof Error ? err.message : "Failed to update member status." };
+    }
+  },
+
+  /**
+   * Full Sub-User Job Control: Updates any job posted by a sub-user or org admin.
+   */
+  async updateSubUserJob(jobId: string, updates: Partial<Job>): Promise<{ success: boolean; error?: string }> {
+    try {
+      const { error } = await supabase
+        .from("jobs")
+        .update(updates)
+        .eq("id", jobId);
+
+      if (error) throw error;
+      return { success: true };
+    } catch (err: unknown) {
+      return { success: false, error: err instanceof Error ? err.message : "Failed to update job posting." };
+    }
+  },
+
+  /**
+   * Toggles status (Active <-> Paused / Closed) of a sub-user job posting.
+   */
+  async toggleSubUserJobStatus(jobId: string, currentStatus: string): Promise<{ success: boolean; error?: string }> {
+    const nextStatus = currentStatus === "Active" ? "Paused" : "Active";
+    try {
+      const { error } = await supabase
+        .from("jobs")
+        .update({ status: nextStatus })
+        .eq("id", jobId);
+
+      if (error) throw error;
+      return { success: true };
+    } catch (err: unknown) {
+      return { success: false, error: err instanceof Error ? err.message : "Failed to change job status." };
+    }
+  },
+
+  /**
+   * Full Sub-User Job Control: Deletes a job posting created by a sub-user.
+   */
+  async deleteSubUserJob(jobId: string): Promise<{ success: boolean; error?: string }> {
+    try {
+      const { error } = await supabase
+        .from("jobs")
+        .delete()
+        .eq("id", jobId);
+
+      if (error) throw error;
+      return { success: true };
+    } catch (err: unknown) {
+      return { success: false, error: err instanceof Error ? err.message : "Failed to delete job." };
+    }
+  },
+
+  /**
+   * Reassigns a sub-user job posting to another recruiter in the organization.
+   */
+  async reassignJobRecruiter(jobId: string, newRecruiterId: string): Promise<{ success: boolean; error?: string }> {
+    try {
+      const { error } = await supabase
+        .from("jobs")
+        .update({ recruiter_id: newRecruiterId })
+        .eq("id", jobId);
+
+      if (error) throw error;
+      return { success: true };
+    } catch (err: unknown) {
+      return { success: false, error: err instanceof Error ? err.message : "Failed to reassign job recruiter." };
     }
   },
 

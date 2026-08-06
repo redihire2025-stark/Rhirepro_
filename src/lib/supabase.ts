@@ -106,7 +106,9 @@ export interface RecruiterInvitation {
   invited_email: string;
   token: string;
   role: "admin" | "member";
-  status: "pending" | "accepted" | "expired" | "revoked";
+  status: "pending" | "link_opened" | "accepted" | "expired" | "revoked";
+  last_opened_at?: string | null;
+  opened_count?: number;
   created_at: string;
   expires_at: string;
 }
