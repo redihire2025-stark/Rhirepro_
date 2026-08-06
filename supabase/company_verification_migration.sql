@@ -25,8 +25,12 @@ WHERE verification_status IS NULL OR verification_status = 'Pending';
 -- ── 3. UPDATE GET_SUPER_ADMIN_COMPANIES RPC ─────────────────────
 
 DROP FUNCTION IF EXISTS public.get_super_admin_companies();
+DROP FUNCTION IF EXISTS public.get_super_admin_companies(text, text);
 
-CREATE OR REPLACE FUNCTION public.get_super_admin_companies()
+CREATE OR REPLACE FUNCTION public.get_super_admin_companies(
+  p_status text DEFAULT NULL,
+  p_search text DEFAULT NULL
+)
 RETURNS TABLE (
   company_name        text,
   verification_status text,
@@ -111,10 +115,12 @@ BEGIN
     coalesce(c_payment_status, 'Active') AS payment_status,
     c_latest_created_at AS latest_created_at
   FROM company_agg
+  WHERE (p_status IS NULL OR c_verification_status = p_status)
+    AND (p_search IS NULL OR c_name ILIKE '%' || p_search || '%' OR c_industry ILIKE '%' || p_search || '%')
   ORDER BY 
     CASE WHEN c_verification_status = 'Pending' THEN 0 ELSE 1 END ASC,
     c_latest_created_at DESC;
 END;
 $$;
 
-GRANT EXECUTE ON FUNCTION public.get_super_admin_companies() TO authenticated;
+GRANT EXECUTE ON FUNCTION public.get_super_admin_companies(text, text) TO authenticated;

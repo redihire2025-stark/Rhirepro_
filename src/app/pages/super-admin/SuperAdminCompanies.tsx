@@ -113,10 +113,13 @@ export default function SuperAdminCompanies() {
   const [detailCompany, setDetailCompany] = useState<CompanyRow | null>(null);
   const [actionLoading, setActionLoading] = useState(false);
 
-  // Modularized company fetcher
+  // Modularized company fetcher with parameterized RPC arguments to prevent SQL injection
   const fetchCompanies = useCallback(async () => {
     setLoading(true);
-    const { data, error } = await supabase.rpc("get_super_admin_companies");
+    const { data, error } = await supabase.rpc("get_super_admin_companies", {
+      p_status: null,
+      p_search: null,
+    });
     if (!error && data) {
       setRows(data as CompanyRow[]);
     } else {
