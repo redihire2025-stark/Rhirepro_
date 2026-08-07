@@ -21,6 +21,12 @@ const AuthContext = createContext<AuthContextType>({
   loading: true, signOut: async () => {}, refreshProfile: async () => {},
 });
 
+export const SAFE_RECRUITER_COLUMNS =
+  "id, email, recruiter_name, company_name, company_size, company_type, industry, company_description, website, location, logo_url, tagline, linkedin_url, cin, created_at, cover_image_url, cover_image_name, founded, org_role, org_admin_id, is_active, max_seats, is_org_admin, org_id, is_disabled, last_login_at, resumes_used, keywords_used, profiles_viewed, referral_email, referral_id, verification_status, rejection_reason, rejected_at, rejected_by, verified_at, verified_by, phone";
+
+export const SAFE_PROFILE_COLUMNS =
+  "id, email, first_name, last_name, phone, avatar_url, experience_type, total_experience_years, total_experience_months, current_salary, expected_salary, location, key_skills, headline, bio, resume_url, created_at, updated_at, about, languages, notice_period, current_company, current_designation";
+
 export function AuthProvider({ children }: { children: ReactNode }) {
   const [user, setUser] = useState<User | null>(null);
   const [session, setSession] = useState<Session | null>(null);
@@ -36,7 +42,7 @@ export function AuthProvider({ children }: { children: ReactNode }) {
       return;
     }
     if (userRole === "recruiter") {
-      const { data } = await supabase.from("recruiter_profiles").select("*").eq("id", userId).single();
+      const { data } = await supabase.from("recruiter_profiles").select(SAFE_RECRUITER_COLUMNS).eq("id", userId).single();
       if (!data && retries > 0) {
         await new Promise(r => setTimeout(r, 800));
         return fetchProfile(userId, userRole, retries - 1);
@@ -44,7 +50,7 @@ export function AuthProvider({ children }: { children: ReactNode }) {
       setRecruiterProfile(data);
       setProfile(null);
     } else {
-      const { data } = await supabase.from("profiles").select("*").eq("id", userId).single();
+      const { data } = await supabase.from("profiles").select(SAFE_PROFILE_COLUMNS).eq("id", userId).single();
       if (!data && retries > 0) {
         await new Promise(r => setTimeout(r, 800));
         return fetchProfile(userId, userRole, retries - 1);

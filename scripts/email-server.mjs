@@ -1,9 +1,10 @@
 import http from "http";
 import path from "path";
 import { fileURLToPath } from "url";
-import { randomBytes } from "crypto";
+import { randomBytes, createHash } from "crypto";
 import dotenv from "dotenv";
 import { createClient } from "@supabase/supabase-js";
+import bcrypt from "bcryptjs";
 
 dotenv.config({
   path: path.resolve(path.dirname(fileURLToPath(import.meta.url)), "../.env"),
@@ -26,6 +27,10 @@ function adminClient() {
 
 function generateOTP() {
   return Math.floor(100000 + Math.random() * 900000).toString();
+}
+
+function hashSHA256(text) {
+  return createHash("sha256").update((text || "").trim()).digest("hex");
 }
 
 async function readBody(req) {
@@ -166,16 +171,18 @@ const server = http.createServer(async (req, res) => {
     return;
   }
 
-  // ── POST /api/send-otp  (Login/Signup OTP — generated client-side) ─────────────────
+  // ── POST /api/send-otp  (Login/Signup OTP — generated server-side, hashed in DB) ──
   if (req.method === "POST" && req.url === "/api/send-otp") {
-    const { to_email, to_name, otp_code, expiry_minutes, check_signup } = await readBody(req);
+    const { to_email, to_name, user_type, purpose, check_signup } = await readBody(req);
+    const cleanEmail = (to_email || "").trim().toLowerCase();
+    const isSignup = Boolean(check_signup || purpose === "signup");
     try {
-      if (check_signup) {
-        const cleanEmail = (to_email || "").trim().toLowerCase();
-        const admin = adminClient();
+      const admin = adminClient();
+
+      if (isSignup) {
         const [{ data: profs }, { data: recs }, authRes] = await Promise.all([
           admin.from("profiles").select("id").ilike("email", cleanEmail).limit(1),
-          admin.from("recruiters").select("id").ilike("email", cleanEmail).limit(1),
+          admin.from("recruiter_profiles").select("id").ilike("email", cleanEmail).limit(1),
           admin.auth.admin.listUsers().catch(() => ({ data: { users: [] } })),
         ]);
 
@@ -186,10 +193,29 @@ const server = http.createServer(async (req, res) => {
         }
       }
 
+      const generatedOtp = generateOTP();
+      const sha256Otp = hashSHA256(generatedOtp);
+      const otpHash = bcrypt.hashSync(sha256Otp, 10);
+      const expiresAt = new Date(Date.now() + 10 * 60 * 1000).toISOString();
+
+      if (isSignup) {
+        await admin.from("pending_otps").upsert(
+          { email: cleanEmail, otp_code: otpHash, otp_expires_at: expiresAt },
+          { onConflict: "email" }
+        ).catch(e => console.warn("Failed to store pending_otp:", e.message));
+      } else {
+        const table = user_type === "recruiter" ? "recruiter_profiles" : "profiles";
+        const { data: updated } = await admin.from(table).update({ otp_code: otpHash, otp_expires_at: expiresAt }).ilike("email", cleanEmail).select("id");
+        if ((!updated || updated.length === 0) && !user_type) {
+          const fallbackTable = table === "profiles" ? "recruiter_profiles" : "profiles";
+          await admin.from(fallbackTable).update({ otp_code: otpHash, otp_expires_at: expiresAt }).ilike("email", cleanEmail);
+        }
+      }
+
       await sendResendEmail(
-        to_email,
-        `RhirePro Login OTP: ${otp_code}`,
-        otpHtml(to_name, to_email, otp_code, expiry_minutes, "login"),
+        cleanEmail,
+        `Your RhirePro Verification Code`,
+        otpHtml(to_name, cleanEmail, generatedOtp, 10, isSignup ? "signup" : "login"),
         "otp"
       );
       ok({ success: true });
@@ -197,31 +223,77 @@ const server = http.createServer(async (req, res) => {
     return;
   }
 
-  // ── POST /api/send-reset-otp  (generate OTP server-side, store in DB, send) ─
+  // ── POST /api/verify-otp  (Verify OTP server-side with bcrypt using SHA-256 pre-hash) ──
+  if (req.method === "POST" && req.url === "/api/verify-otp") {
+    const { email, otp_hash, otp, user_type, purpose } = await readBody(req);
+    const cleanEmail = (email || "").trim().toLowerCase();
+    const incomingHash = (otp_hash || (otp ? hashSHA256(otp) : "")).trim();
+    const isSignup = purpose === "signup";
+
+    try {
+      const admin = adminClient();
+
+      if (isSignup) {
+        const { data, error } = await admin.from("pending_otps").select("otp_code, otp_expires_at").ilike("email", cleanEmail).single();
+        if (error || !data || !data.otp_code) return fail(400, "No OTP found. Please request a new one.");
+        if (new Date(data.otp_expires_at) < new Date()) return fail(400, "OTP has expired. Please request a new one.");
+
+        const isValid = bcrypt.compareSync(incomingHash, data.otp_code);
+        if (!isValid) return fail(400, "Invalid OTP. Please try again.");
+
+        await admin.from("pending_otps").delete().ilike("email", cleanEmail);
+        ok({ success: true });
+      } else {
+        let table = user_type === "recruiter" ? "recruiter_profiles" : "profiles";
+        let { data: user } = await admin.from(table).select("id, otp_code, otp_expires_at").ilike("email", cleanEmail).single();
+
+        if ((!user || !user.otp_code) && !user_type) {
+          table = table === "profiles" ? "recruiter_profiles" : "profiles";
+          const res = await admin.from(table).select("id, otp_code, otp_expires_at").ilike("email", cleanEmail).single();
+          user = res.data;
+        }
+
+        if (!user || !user.otp_code) return fail(400, "No OTP found. Please request a new one.");
+        if (new Date(user.otp_expires_at) < new Date()) return fail(400, "OTP has expired. Please request a new one.");
+
+        const isValid = bcrypt.compareSync(incomingHash, user.otp_code);
+        if (!isValid) return fail(400, "Invalid OTP. Please try again.");
+
+        await admin.from(table).update({ otp_code: null, otp_expires_at: null }).eq("id", user.id);
+        ok({ success: true });
+      }
+    } catch (err) { fail(500, err.message); }
+    return;
+  }
+
+  // ── POST /api/send-reset-otp  (generate OTP server-side, SHA-256 + bcrypt store in DB, send) ─
   if (req.method === "POST" && req.url === "/api/send-reset-otp") {
     const { email, user_type } = await readBody(req);
+    const cleanEmail = (email || "").trim().toLowerCase();
     try {
       const admin = adminClient();
       const table = user_type === "recruiter" ? "recruiter_profiles" : "profiles";
       const nameCol = user_type === "recruiter" ? "recruiter_name" : "first_name";
 
       const { data: user, error: lookupErr } = await admin
-        .from(table).select(`id, ${nameCol}`).eq("email", email).single();
+        .from(table).select(`id, ${nameCol}`).ilike("email", cleanEmail).single();
 
       if (lookupErr || !user)
         return fail(404, "No account found with this email address.");
 
       const otp = generateOTP();
+      const sha256Otp = hashSHA256(otp);
+      const otpHash = bcrypt.hashSync(sha256Otp, 10);
       const expires = new Date(Date.now() + 10 * 60 * 1000).toISOString();
       const { error: storeErr } = await admin.from(table)
-        .update({ otp_code: otp, otp_expires_at: expires }).eq("id", user.id);
+        .update({ otp_code: otpHash, otp_expires_at: expires }).eq("id", user.id);
       if (storeErr) throw new Error("Failed to store OTP: " + storeErr.message);
 
-      const name = user[nameCol] || email;
+      const name = user[nameCol] || cleanEmail;
       await sendResendEmail(
-        email,
-        `RhirePro Password Reset OTP: ${otp}`,
-        otpHtml(name, email, otp, 10, "reset"),
+        cleanEmail,
+        `Your RhirePro Password Reset Code`,
+        otpHtml(name, cleanEmail, otp, 10, "reset"),
         "reset_otp"
       );
       ok({ success: true });
@@ -229,20 +301,24 @@ const server = http.createServer(async (req, res) => {
     return;
   }
 
-  // ── POST /api/reset-password  (verify OTP, update password) ─────────────────
+  // ── POST /api/reset-password  (verify OTP hash with bcrypt, update password) ───
   if (req.method === "POST" && req.url === "/api/reset-password") {
-    const { email, otp, new_password, user_type } = await readBody(req);
+    const { email, otp_hash, otp, new_password, user_type } = await readBody(req);
+    const cleanEmail = (email || "").trim().toLowerCase();
+    const incomingHash = (otp_hash || (otp ? hashSHA256(otp) : "")).trim();
     try {
       const admin = adminClient();
       const table = user_type === "recruiter" ? "recruiter_profiles" : "profiles";
 
       const { data: user, error: lookupErr } = await admin
-        .from(table).select("id, otp_code, otp_expires_at").eq("email", email).single();
+        .from(table).select("id, otp_code, otp_expires_at").ilike("email", cleanEmail).single();
 
       if (lookupErr || !user) return fail(404, "No account found with this email address.");
       if (!user.otp_code) return fail(400, "No OTP found. Please request a new one.");
       if (new Date(user.otp_expires_at) < new Date()) return fail(400, "OTP has expired. Please request a new one.");
-      if (user.otp_code !== otp) return fail(400, "Invalid OTP. Please try again.");
+      
+      const isValid = bcrypt.compareSync(incomingHash, user.otp_code);
+      if (!isValid) return fail(400, "Invalid OTP. Please try again.");
 
       const { error: updateErr } = await admin.auth.admin.updateUserById(user.id, { password: new_password });
       if (updateErr) throw new Error("Failed to update password: " + updateErr.message);

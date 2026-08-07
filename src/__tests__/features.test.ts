@@ -18,11 +18,13 @@
  */
 
 import { describe, it, expect } from 'vitest';
+import bcrypt from 'bcryptjs';
+import crypto from 'crypto';
 
-// ── 1. Authentication — OTP generation logic ─────────────────────────────────
+// ── 1. Authentication — OTP generation & Bcrypt security ───────────────────
 
-describe('Feature: OTP generation', () => {
-  /** Simulates the OTP generation used in auth flows */
+describe('Feature: OTP generation & Bcrypt hashing security', () => {
+  /** Simulates server-side OTP generation */
   function generateOTP(): string {
     return Math.floor(100000 + Math.random() * 900000).toString();
   }
@@ -48,12 +50,29 @@ describe('Feature: OTP generation', () => {
 
   it('generates different OTPs across calls (statistically)', () => {
     const otps = new Set(Array.from({ length: 20 }, generateOTP));
-    // With 900000 possible values, 20 draws should almost certainly be unique
     expect(otps.size).toBeGreaterThan(15);
   });
 
   it('OTP is returned as a string, not a number', () => {
     expect(typeof generateOTP()).toBe('string');
+  });
+
+  it('hashes SHA-256 pre-hashed OTP with bcrypt and verifies correctly with compareSync', () => {
+    const otp = '654321';
+    const sha256Otp = crypto.createHash('sha256').update(otp).digest('hex');
+    const hash = bcrypt.hashSync(sha256Otp, 10);
+
+    expect(hash).not.toBe(otp);
+    expect(hash).not.toBe(sha256Otp);
+    expect(hash).toMatch(/^\$2[ayb]\$.{56}$/);
+    expect(bcrypt.compareSync(sha256Otp, hash)).toBe(true);
+    expect(bcrypt.compareSync(crypto.createHash('sha256').update('123456').digest('hex'), hash)).toBe(false);
+  });
+
+  it('rejects expired OTP timestamp comparison', () => {
+    const expiresAt = new Date(Date.now() - 1000).toISOString();
+    const isExpired = new Date(expiresAt) < new Date();
+    expect(isExpired).toBe(true);
   });
 });
 

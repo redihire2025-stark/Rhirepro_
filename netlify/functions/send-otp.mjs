@@ -1,3 +1,6 @@
+import bcrypt from "bcryptjs";
+import crypto from "crypto";
+
 // Best-effort log for the Super Admin "Emails" module — never allowed to
 // break the actual send if it fails (e.g. table not migrated yet).
 async function logEmail(supabaseUrl, serviceKey, { recipient_email, email_type, subject, status, error_message }) {
@@ -44,7 +47,16 @@ export default async (request) => {
     return new Response("Method Not Allowed", { status: 405 });
   }
 
-  const { to_email, to_name, otp_code, expiry_minutes, check_signup } = await request.json();
+  const body = await request.json();
+  const { to_email, to_name, user_type, purpose, check_signup } = body;
+  const cleanEmail = (to_email || "").trim().toLowerCase();
+
+  if (!cleanEmail) {
+    return new Response(JSON.stringify({ error: "Email is required" }), {
+      status: 400,
+      headers: { "Content-Type": "application/json" },
+    });
+  }
 
   const resendKey = process.env.RESEND_API_KEY || process.env.VITE_RESEND_API_KEY;
   const senderEmail = process.env.RESEND_SENDER_EMAIL || process.env.VITE_RESEND_SENDER_EMAIL || "support@rhirepro.com";
@@ -52,14 +64,15 @@ export default async (request) => {
   const supabaseUrl = process.env.VITE_SUPABASE_URL || process.env.SUPABASE_URL;
   const serviceKey = process.env.SUPABASE_SERVICE_ROLE_KEY;
 
-  if (check_signup && supabaseUrl && serviceKey) {
-    const cleanEmail = (to_email || "").trim().toLowerCase();
+  const isSignup = Boolean(check_signup || purpose === "signup");
+
+  if (isSignup && supabaseUrl && serviceKey) {
     try {
       const [pRes, rRes] = await Promise.all([
         fetch(`${supabaseUrl}/rest/v1/profiles?email=ilike.${encodeURIComponent(cleanEmail)}&select=id`, {
           headers: { apikey: serviceKey, Authorization: `Bearer ${serviceKey}` },
         }),
-        fetch(`${supabaseUrl}/rest/v1/recruiters?email=ilike.${encodeURIComponent(cleanEmail)}&select=id`, {
+        fetch(`${supabaseUrl}/rest/v1/recruiter_profiles?email=ilike.${encodeURIComponent(cleanEmail)}&select=id`, {
           headers: { apikey: serviceKey, Authorization: `Bearer ${serviceKey}` },
         }),
       ]);
@@ -73,6 +86,73 @@ export default async (request) => {
       }
     } catch (checkErr) {
       console.warn("[send-otp] Email check failed:", checkErr.message);
+    }
+  }
+
+  // Generate 6-digit OTP server-side & pre-hash with SHA-256 before bcrypt
+  const generatedOtp = Math.floor(100000 + Math.random() * 900000).toString();
+  const sha256Otp = crypto.createHash("sha256").update(generatedOtp).digest("hex");
+  const otpHash = bcrypt.hashSync(sha256Otp, 10);
+  const expiresAt = new Date(Date.now() + 10 * 60 * 1000).toISOString();
+
+  // Store hashed OTP in Supabase DB
+  if (supabaseUrl && serviceKey) {
+    try {
+      if (isSignup) {
+        // Upsert into pending_otps table
+        await fetch(`${supabaseUrl}/rest/v1/pending_otps`, {
+          method: "POST",
+          headers: {
+            apikey: serviceKey,
+            Authorization: `Bearer ${serviceKey}`,
+            "Content-Type": "application/json",
+            Prefer: "resolution=merge-duplicates",
+          },
+          body: JSON.stringify({
+            email: cleanEmail,
+            otp_code: otpHash,
+            otp_expires_at: expiresAt,
+          }),
+        });
+      } else {
+        // Update existing user profile in profiles or recruiter_profiles
+        const targetTable = user_type === "recruiter" ? "recruiter_profiles" : "profiles";
+        const updateRes = await fetch(`${supabaseUrl}/rest/v1/${targetTable}?email=ilike.${encodeURIComponent(cleanEmail)}`, {
+          method: "PATCH",
+          headers: {
+            apikey: serviceKey,
+            Authorization: `Bearer ${serviceKey}`,
+            "Content-Type": "application/json",
+            Prefer: "return=representation",
+          },
+          body: JSON.stringify({
+            otp_code: otpHash,
+            otp_expires_at: expiresAt,
+          }),
+        });
+
+        // If targetTable was default and updated 0 rows, attempt fallback to the other table
+        if (updateRes.ok) {
+          const updatedData = await updateRes.json();
+          if (Array.isArray(updatedData) && updatedData.length === 0 && !user_type) {
+            const fallbackTable = targetTable === "profiles" ? "recruiter_profiles" : "profiles";
+            await fetch(`${supabaseUrl}/rest/v1/${fallbackTable}?email=ilike.${encodeURIComponent(cleanEmail)}`, {
+              method: "PATCH",
+              headers: {
+                apikey: serviceKey,
+                Authorization: `Bearer ${serviceKey}`,
+                "Content-Type": "application/json",
+              },
+              body: JSON.stringify({
+                otp_code: otpHash,
+                otp_expires_at: expiresAt,
+              }),
+            });
+          }
+        }
+      }
+    } catch (dbErr) {
+      console.warn("[send-otp] Storing OTP hash failed:", dbErr.message);
     }
   }
 
@@ -91,17 +171,17 @@ export default async (request) => {
     },
     body: JSON.stringify({
       from: `${senderName} <${senderEmail}>`,
-      to: [to_email],
-      subject: `Your RhirePro OTP: ${otp_code}`,
+      to: [cleanEmail],
+      subject: `Your RhirePro Verification Code`,
       html: `
         <div style="font-family:sans-serif;max-width:480px;margin:0 auto;padding:32px;">
           <h2 style="color:#FF2B2B;margin-bottom:8px;">RhirePro</h2>
-          <p style="color:#333;">Hi <strong>${to_name || to_email}</strong>,</p>
+          <p style="color:#333;">Hi <strong>${to_name || cleanEmail}</strong>,</p>
           <p style="color:#333;">Your verification code is:</p>
           <div style="background:#f5f5f5;border-radius:12px;padding:24px;text-align:center;margin:24px 0;">
-            <span style="font-size:40px;font-weight:bold;letter-spacing:12px;color:#FF2B2B;">${otp_code}</span>
+            <span style="font-size:40px;font-weight:bold;letter-spacing:12px;color:#FF2B2B;">${generatedOtp}</span>
           </div>
-          <p style="color:#666;font-size:14px;">This code expires in <strong>${expiry_minutes} minutes</strong>.</p>
+          <p style="color:#666;font-size:14px;">This code expires in <strong>10 minutes</strong>.</p>
           <p style="color:#666;font-size:14px;">If you didn't request this, you can safely ignore this email.</p>
           <hr style="border:none;border-top:1px solid #eee;margin:24px 0;" />
           <p style="color:#aaa;font-size:12px;">— The RhirePro Team</p>
@@ -113,9 +193,9 @@ export default async (request) => {
   if (!res.ok) {
     const err = await res.text();
     await logEmail(supabaseUrl, serviceKey, {
-      recipient_email: to_email,
+      recipient_email: cleanEmail,
       email_type: "otp",
-      subject: `Your RhirePro OTP: ${otp_code}`,
+      subject: "Your RhirePro Verification Code",
       status: "failed",
       error_message: err,
     });
@@ -129,9 +209,9 @@ export default async (request) => {
   }
 
   await logEmail(supabaseUrl, serviceKey, {
-    recipient_email: to_email,
+    recipient_email: cleanEmail,
     email_type: "otp",
-    subject: `Your RhirePro OTP: ${otp_code}`,
+    subject: "Your RhirePro Verification Code",
     status: "sent",
   });
   await logApiRequest(supabaseUrl, serviceKey, {
@@ -145,3 +225,4 @@ export default async (request) => {
 };
 
 export const config = { path: "/api/send-otp" };
+

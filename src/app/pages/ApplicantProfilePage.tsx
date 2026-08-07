@@ -1,7 +1,7 @@
 import { useState, useEffect, useCallback, useMemo, useRef } from "react";
 import { useParams, useNavigate } from "react-router";
 import { supabase, Profile, Application } from "../../lib/supabase";
-import { useAuth } from "../../lib/auth-context";
+import { useAuth, SAFE_PROFILE_COLUMNS } from "../../lib/auth-context";
 import {
   User, MapPin, Phone, Mail, Globe, Star, Briefcase, GraduationCap,
   Award, FileText, Download, Loader2, ArrowLeft, ShieldAlert,
@@ -166,7 +166,7 @@ export default function ApplicantProfilePage() {
         // Fallback: Try to fetch profile directly assuming applicantId is the profile ID
         const { data: directProf, error: directProfErr } = await supabase
           .from("profiles")
-          .select("*")
+          .select(SAFE_PROFILE_COLUMNS)
           .eq("id", id)
           .single();
 
@@ -189,7 +189,7 @@ export default function ApplicantProfilePage() {
         // 3. Fetch candidate profile
         const { data: pData, error: pError } = await supabase
           .from("profiles")
-          .select("*")
+          .select(SAFE_PROFILE_COLUMNS)
           .eq("id", appData.profile_id)
           .single();
 
