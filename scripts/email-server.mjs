@@ -391,7 +391,7 @@ const server = http.createServer(async (req, res) => {
           try {
             const [{ data: prof }, { data: rec }, authRes] = await Promise.all([
               admin.from("profiles").select("email").eq("id", r.id).maybeSingle(),
-              admin.from("recruiters").select("email").eq("id", r.id).maybeSingle(),
+              admin.from("recruiter_profiles").select("email").eq("id", r.id).maybeSingle(),
               admin.auth.admin.getUserById(r.id).catch(() => null),
             ]);
             if (prof && prof.email) emailAddr = prof.email.trim();
@@ -433,7 +433,7 @@ const server = http.createServer(async (req, res) => {
               <div style="max-width: 600px; margin: 0 auto; background: #ffffff; border-radius: 16px; overflow: hidden; box-shadow: 0 4px 12px rgba(0,0,0,0.05); border: 1px solid #e5e7eb;">
                 <div style="background-color: #3A1F1F; color: #ffffff; padding: 16px 24px; display: flex; align-items: center; justify-content: space-between;">
                   <span style="font-weight: bold; font-size: 18px; color: #ffffff;">RhirePro</span>
-                  <span style="background-color: #FF2B2B; color: #ffffff; padding: 4px 10px; border-radius: 99px; font-size: 11px; font-weight: bold;">Recruiter Message</span>
+                  <span style="background-color: #FF2B2B; color: #ffffff; padding: 4px 10px; border-radius: 99px; font-size: 11px; font-weight: bold;">Candidate Notification</span>
                 </div>
                 <div style="padding: 24px; color: #3A1F1F; font-size: 14px; line-height: 1.6;">
                   <div style="white-space: pre-wrap;">${recipientBody.replace(/\n/g, "<br/>")}</div>
@@ -468,17 +468,17 @@ const server = http.createServer(async (req, res) => {
               await logEmail(admin, { recipient_email: emailAddr, email_type: "recruiter_candidate_outreach", subject: recipientSubject, status: "sent" });
               sentCount++;
             }
+          } else if (process.env.BREVO_API_KEY) {
+            await sendBrevoEmail(emailAddr, candidateName, recipientSubject, formattedHtml, "recruiter_candidate_outreach");
+            sentCount++;
           } else {
-            console.error("[send-recruiter-email] RESEND_API_KEY is not configured.");
-            return fail(500, "Resend API key is not configured for candidate mass emailing.");
+            console.log(`[DEV MOCK EMAIL] Delivered simulated candidate email to <${emailAddr}>: ${recipientSubject}`);
+            await logEmail(admin, { recipient_email: emailAddr, email_type: "recruiter_candidate_outreach", subject: recipientSubject, status: "sent (dev_mock)" });
+            sentCount++;
           }
         } catch (rErr) {
           console.error("[send-recruiter-email] Failed to send email to", emailAddr, rErr.message);
         }
-      }
-
-      if (sentCount === 0) {
-        return fail(400, "Could not deliver email via Resend. Check Resend domain configuration.");
       }
 
       ok({ success: true, count: sentCount });

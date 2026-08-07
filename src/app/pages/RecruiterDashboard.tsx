@@ -8507,6 +8507,55 @@ function ApplicantsPage() {
       console.error("Failed to send interview details notification:", notificationError.message);
     }
 
+    // Resolve candidate email and dispatch email notification
+    let candidateEmail = targetApplicant.profile?.email || "";
+    let candidateName = targetApplicant.profile
+      ? [targetApplicant.profile.first_name, targetApplicant.profile.last_name].filter(Boolean).join(" ")
+      : "";
+
+    if (!candidateEmail) {
+      const { data: profData } = await supabase
+        .from("profiles")
+        .select("email, first_name, last_name")
+        .eq("id", targetApplicant.profile_id)
+        .maybeSingle();
+
+      if (profData?.email) {
+        candidateEmail = profData.email;
+        if (!candidateName) {
+          candidateName = [profData.first_name, profData.last_name].filter(Boolean).join(" ");
+        }
+      }
+    }
+
+    if (!candidateName) candidateName = "Candidate";
+
+    if (candidateEmail) {
+      const jobTitle = targetApplicant.job?.title || "Position";
+      const subject = `Interview Invitation (${round}) for ${jobTitle} - ${companyName}`;
+      const emailBody = [
+        `Dear ${candidateName},`,
+        "",
+        `You have been invited to an interview (${round}) for the position of ${jobTitle} at ${companyName}.`,
+        "",
+        `Interview Details:`,
+        `• Round: ${round}`,
+        `• Meeting URL: ${normalizedMeetingUrl}`,
+        "",
+        `Message & Instructions from Recruiter:`,
+        message,
+        "",
+        `Best regards,`,
+        `${companyName} Hiring Team`
+      ].join("\n");
+
+      void sendRecruiterCandidateEmail({
+        recipients: [{ email: candidateEmail, name: candidateName }],
+        subject,
+        body: emailBody,
+      }).catch(err => console.warn("Failed to dispatch candidate interview email:", err));
+    }
+
     setApplicants(prev => prev.map(a => a.id === targetApplicant.id ? {
       ...a,
       status: "Interview Scheduled",
@@ -8594,6 +8643,54 @@ function ApplicantsPage() {
       console.error("Failed to send offer notification:", notificationError.message);
     }
 
+    // Resolve candidate email and dispatch offer email notification
+    let candidateEmail = targetApplicant.profile?.email || "";
+    let candidateName = targetApplicant.profile
+      ? [targetApplicant.profile.first_name, targetApplicant.profile.last_name].filter(Boolean).join(" ")
+      : "";
+
+    if (!candidateEmail) {
+      const { data: profData } = await supabase
+        .from("profiles")
+        .select("email, first_name, last_name")
+        .eq("id", targetApplicant.profile_id)
+        .maybeSingle();
+
+      if (profData?.email) {
+        candidateEmail = profData.email;
+        if (!candidateName) {
+          candidateName = [profData.first_name, profData.last_name].filter(Boolean).join(" ");
+        }
+      }
+    }
+
+    if (!candidateName) candidateName = "Candidate";
+
+    if (candidateEmail) {
+      const jobTitle = targetApplicant.job?.title || "Position";
+      const subject = `Job Offer Letter from ${companyName} for ${jobTitle}`;
+      const emailBody = [
+        `Dear ${candidateName},`,
+        "",
+        `Congratulations! We are pleased to extend a job offer for the position of ${jobTitle} at ${companyName}.`,
+        "",
+        `Offer Details:`,
+        message,
+        "",
+        `Offer Letter Document: ${offerLetterFile.name}`,
+        offerLetterUrl ? `View Offer Letter: ${offerLetterUrl}` : "",
+        "",
+        `Best regards,`,
+        `${companyName} Hiring Team`
+      ].filter(Boolean).join("\n");
+
+      void sendRecruiterCandidateEmail({
+        recipients: [{ email: candidateEmail, name: candidateName }],
+        subject,
+        body: emailBody,
+      }).catch(err => console.warn("Failed to dispatch candidate offer email:", err));
+    }
+
     setApplicants(prev => prev.map(a => a.id === targetApplicant.id ? { ...a, status: "Offered" } : a));
     setProfileModal(prev => prev && prev.id === targetApplicant.id ? { ...prev, status: "Offered" } : prev);
     setOfferModalApplicant(null);
@@ -8641,6 +8738,54 @@ function ApplicantsPage() {
     if (error) {
       console.error("Failed to send interview feedback:", error.message);
       return;
+    }
+
+    // Resolve candidate email and dispatch feedback email notification
+    let candidateEmail = targetApplicant.profile?.email || "";
+    let candidateName = targetApplicant.profile
+      ? [targetApplicant.profile.first_name, targetApplicant.profile.last_name].filter(Boolean).join(" ")
+      : "";
+
+    if (!candidateEmail) {
+      const { data: profData } = await supabase
+        .from("profiles")
+        .select("email, first_name, last_name")
+        .eq("id", targetApplicant.profile_id)
+        .maybeSingle();
+
+      if (profData?.email) {
+        candidateEmail = profData.email;
+        if (!candidateName) {
+          candidateName = [profData.first_name, profData.last_name].filter(Boolean).join(" ");
+        }
+      }
+    }
+
+    if (!candidateName) candidateName = "Candidate";
+
+    if (candidateEmail) {
+      const jobTitle = targetApplicant.job?.title || "Position";
+      const subject = `Interview Feedback (${round}) from ${companyName} for ${jobTitle}`;
+      const emailBody = [
+        `Dear ${candidateName},`,
+        "",
+        `Thank you for participating in the ${round} interview for the position of ${jobTitle} at ${companyName}.`,
+        "",
+        `Interview Feedback:`,
+        feedback,
+        "",
+        `Next Round / Discussion:`,
+        nextRoundDiscussion || "N/A",
+        "",
+        `Best regards,`,
+        `${companyName} Hiring Team`
+      ].join("\n");
+
+      void sendRecruiterCandidateEmail({
+        recipients: [{ email: candidateEmail, name: candidateName }],
+        subject,
+        body: emailBody,
+      }).catch(err => console.warn("Failed to dispatch candidate feedback email:", err));
     }
 
     setFeedbackModalApplicant(null);

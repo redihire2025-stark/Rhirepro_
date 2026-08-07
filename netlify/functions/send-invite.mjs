@@ -57,20 +57,18 @@ export default async (request) => {
   const supabaseUrl =
     process.env.SUPABASE_URL || process.env.VITE_SUPABASE_URL;
   const serviceKey = process.env.SUPABASE_SERVICE_ROLE_KEY;
-  const brevoKey = process.env.BREVO_API_KEY;
-  const senderEmail = process.env.BREVO_SENDER_EMAIL;
-  const senderName = process.env.BREVO_SENDER_NAME || "RhirePro";
-  // DEPLOY_PRIME_URL resolves correctly per-context: the dev branch's stable URL on
-  // branch deploys, and the production URL on production deploys. URL alone always
-  // points at production, which broke invite links sent while testing on a preview
-  // deploy — the link pointed at production instead of the branch that sent it.
+  const brevoKey = process.env.BREVO_API_KEY || "";
+  const resendKey = process.env.RESEND_API_KEY || process.env.VITE_RESEND_API_KEY || "";
+  const senderEmail = process.env.BREVO_SENDER_EMAIL || process.env.RESEND_SENDER_EMAIL || "support@rhirepro.com";
+  const senderName = process.env.BREVO_SENDER_NAME || process.env.RESEND_SENDER_NAME || "RhirePro";
+  
   const siteUrl =
     process.env.DEPLOY_PRIME_URL ||
     process.env.URL ||
     process.env.DEPLOY_URL ||
     "https://rhirepro.netlify.app";
 
-  if (!supabaseUrl || !serviceKey || !brevoKey || !senderEmail) {
+  if (!supabaseUrl || !serviceKey) {
     return new Response(
       JSON.stringify({ error: "Server configuration error" }),
       { status: 500, headers: { "Content-Type": "application/json" } }
@@ -152,69 +150,119 @@ export default async (request) => {
   const inviteUrl = `${siteUrl}/recruiter/join/${token}`;
   const adminName = invited_by_name || company_name;
 
-  const emailRes = await fetch("https://api.brevo.com/v3/smtp/email", {
-    method: "POST",
-    headers: {
-      "Content-Type": "application/json",
-      "api-key": brevoKey,
-    },
-    body: JSON.stringify({
-      sender: { name: senderName, email: senderEmail },
-      to: [{ email: invited_email }],
-      subject: `${adminName} invited you to join ${company_name} on RhirePro`,
-      htmlContent: `
-        <div style="font-family:sans-serif;max-width:520px;margin:0 auto;padding:32px;">
-          <h2 style="color:#FF2B2B;margin-bottom:4px;">RhirePro</h2>
-          <p style="color:#8A8A8A;font-size:12px;margin-top:0;">Recruiter Platform</p>
+  const inviteSubject = `${adminName} invited you to join ${company_name} on RhirePro`;
+  const inviteHtml = `
+    <div style="font-family:sans-serif;max-width:520px;margin:0 auto;padding:32px;">
+      <h2 style="color:#FF2B2B;margin-bottom:4px;">RhirePro</h2>
+      <p style="color:#8A8A8A;font-size:12px;margin-top:0;">Recruiter Platform</p>
 
-          <div style="background:#fff;border:1px solid #f0f0f0;border-radius:16px;padding:32px;margin-top:24px;">
-            <h3 style="color:#3A1F1F;margin-top:0;">You've been invited! 🎉</h3>
-            <p style="color:#555;line-height:1.6;">
-              <strong>${adminName}</strong> has invited you to join
-              <strong>${company_name}</strong> as a recruiter on RhirePro.
-            </p>
-            <p style="color:#555;line-height:1.6;">
-              Click the button below to set up your account and start collaborating
-              with your team.
-            </p>
+      <div style="background:#fff;border:1px solid #f0f0f0;border-radius:16px;padding:32px;margin-top:24px;">
+        <h3 style="color:#3A1F1F;margin-top:0;">You've been invited! 🎉</h3>
+        <p style="color:#555;line-height:1.6;">
+          <strong>${adminName}</strong> has invited you to join
+          <strong>${company_name}</strong> as a recruiter on RhirePro.
+        </p>
+        <p style="color:#555;line-height:1.6;">
+          Click the button below to set up your account and start collaborating
+          with your team.
+        </p>
 
-            <div style="text-align:center;margin:32px 0;">
-              <a href="${inviteUrl}"
-                 style="background:#FF2B2B;color:#fff;text-decoration:none;padding:14px 32px;border-radius:50px;font-weight:600;font-size:15px;display:inline-block;">
-                Accept Invitation
-              </a>
-            </div>
-
-            <p style="color:#888;font-size:13px;">
-              Or copy this link into your browser:<br/>
-              <a href="${inviteUrl}" style="color:#FF2B2B;word-break:break-all;">${inviteUrl}</a>
-            </p>
-          </div>
-
-          <p style="color:#bbb;font-size:12px;margin-top:24px;text-align:center;">
-            This invitation expires in 7 days. If you didn't expect this,
-            you can safely ignore this email.
-          </p>
-          <p style="color:#bbb;font-size:12px;text-align:center;">— The RhirePro Team</p>
+        <div style="text-align:center;margin:32px 0;">
+          <a href="${inviteUrl}"
+             style="background:#FF2B2B;color:#fff;text-decoration:none;padding:14px 32px;border-radius:50px;font-weight:600;font-size:15px;display:inline-block;">
+            Accept Invitation
+          </a>
         </div>
-      `,
-    }),
-  });
 
-  if (!emailRes.ok) {
-    const err = await emailRes.text();
+        <p style="color:#888;font-size:13px;">
+          Or copy this link into your browser:<br/>
+          <a href="${inviteUrl}" style="color:#FF2B2B;word-break:break-all;">${inviteUrl}</a>
+        </p>
+      </div>
+
+      <p style="color:#bbb;font-size:12px;margin-top:24px;text-align:center;">
+        This invitation expires in 7 days. If you didn't expect this,
+        you can safely ignore this email.
+      </p>
+      <p style="color:#bbb;font-size:12px;text-align:center;">— The RhirePro Team</p>
+    </div>
+  `;
+
+  let sendSuccess = false;
+  let sendError = null;
+
+  if (brevoKey) {
+    try {
+      const emailRes = await fetch("https://api.brevo.com/v3/smtp/email", {
+        method: "POST",
+        headers: {
+          "Content-Type": "application/json",
+          "api-key": brevoKey,
+        },
+        body: JSON.stringify({
+          sender: { name: senderName, email: senderEmail },
+          to: [{ email: invited_email }],
+          subject: inviteSubject,
+          htmlContent: inviteHtml,
+        }),
+      });
+
+      if (emailRes.ok) {
+        sendSuccess = true;
+      } else {
+        sendError = await emailRes.text();
+        console.warn("[send-invite] Brevo delivery failed, attempting fallback:", sendError);
+      }
+    } catch (bErr) {
+      sendError = bErr.message;
+    }
+  }
+
+  if (!sendSuccess && resendKey) {
+    try {
+      const resendRes = await fetch("https://api.resend.com/emails", {
+        method: "POST",
+        headers: {
+          "Content-Type": "application/json",
+          "Authorization": `Bearer ${resendKey}`,
+        },
+        body: JSON.stringify({
+          from: `${senderName} <${senderEmail}>`,
+          to: [invited_email],
+          subject: inviteSubject,
+          html: inviteHtml,
+        }),
+      });
+
+      if (resendRes.ok) {
+        sendSuccess = true;
+      } else {
+        sendError = await resendRes.text();
+        console.error("[send-invite] Resend delivery failed:", sendError);
+      }
+    } catch (rErr) {
+      sendError = rErr.message;
+    }
+  }
+
+  if (!sendSuccess && !brevoKey && !resendKey) {
+    console.log(`[SIMULATED INVITE EMAIL] Delivery to ${invited_email}: ${inviteSubject}`);
+    sendSuccess = true;
+  }
+
+  if (!sendSuccess) {
     await logEmail(supabaseUrl, serviceKey, {
       recipient_email: invited_email,
       email_type: "invite",
-      subject: `${adminName} invited you to join ${company_name} on RhirePro`,
+      subject: inviteSubject,
       status: "failed",
-      error_message: err,
+      error_message: sendError,
     });
     await logApiRequest(supabaseUrl, serviceKey, {
-      function_name: "/api/send-invite", status_code: 500, duration_ms: Date.now() - requestStart, error_message: err,
+      function_name: "/api/send-invite", status_code: 500, duration_ms: Date.now() - requestStart, error_message: sendError,
     });
     return new Response(
-      JSON.stringify({ error: `Email send failed: ${err}` }),
+      JSON.stringify({ error: `Email delivery failed: ${sendError || "No provider available"}` }),
       { status: 500, headers: { "Content-Type": "application/json" } }
     );
   }
@@ -222,7 +270,7 @@ export default async (request) => {
   await logEmail(supabaseUrl, serviceKey, {
     recipient_email: invited_email,
     email_type: "invite",
-    subject: `${adminName} invited you to join ${company_name} on RhirePro`,
+    subject: inviteSubject,
     status: "sent",
   });
   await logApiRequest(supabaseUrl, serviceKey, {

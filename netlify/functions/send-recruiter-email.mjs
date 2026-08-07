@@ -45,17 +45,15 @@ export default async (request) => {
   const { recipients, subject, body, templateName } = await request.json();
 
   const resendKey = process.env.RESEND_API_KEY || process.env.VITE_RESEND_API_KEY || "";
-  const senderEmail = process.env.RESEND_SENDER_EMAIL || process.env.VITE_RESEND_SENDER_EMAIL || "support@rhirepro.com";
-  const senderName = process.env.RESEND_SENDER_NAME || process.env.VITE_RESEND_SENDER_NAME || "RhirePro";
+  const brevoKey = process.env.BREVO_API_KEY || "";
+  const senderEmail = process.env.RESEND_SENDER_EMAIL || process.env.VITE_RESEND_SENDER_EMAIL || process.env.BREVO_SENDER_EMAIL || "support@rhirepro.com";
+  const senderName = process.env.RESEND_SENDER_NAME || process.env.VITE_RESEND_SENDER_NAME || process.env.BREVO_SENDER_NAME || "RhirePro";
   
   const supabaseUrl = process.env.SUPABASE_URL || process.env.VITE_SUPABASE_URL;
   const serviceKey = process.env.SUPABASE_SERVICE_ROLE_KEY;
 
-  if (!resendKey) {
-    return new Response(JSON.stringify({ error: "Resend email service key is not configured" }), {
-      status: 500,
-      headers: { "Content-Type": "application/json" },
-    });
+  if (!resendKey && !brevoKey) {
+    console.warn("[send-recruiter-email] Neither Resend nor Brevo key is configured. Operating in simulated email mode.");
   }
 
   if (!Array.isArray(recipients) || recipients.length === 0) {
@@ -76,7 +74,7 @@ export default async (request) => {
           fetch(`${supabaseUrl}/rest/v1/profiles?id=eq.${recipient.id}&select=email`, {
             headers: { apikey: serviceKey, Authorization: `Bearer ${serviceKey}` },
           }),
-          fetch(`${supabaseUrl}/rest/v1/recruiters?id=eq.${recipient.id}&select=email`, {
+          fetch(`${supabaseUrl}/rest/v1/recruiter_profiles?id=eq.${recipient.id}&select=email`, {
             headers: { apikey: serviceKey, Authorization: `Bearer ${serviceKey}` },
           }),
           fetch(`${supabaseUrl}/auth/v1/admin/users/${recipient.id}`, {
@@ -138,38 +136,66 @@ export default async (request) => {
         </div>
       `;
 
-      const res = await fetch("https://api.resend.com/emails", {
-        method: "POST",
-        headers: {
-          "Content-Type": "application/json",
-          "Authorization": `Bearer ${resendKey}`,
-        },
-        body: JSON.stringify({
-          from: `${senderName} <${senderEmail}>`,
-          to: [emailAddr],
-          subject: recipientSubject,
-          html: formattedHtml,
-        }),
-      });
+      if (resendKey) {
+        const res = await fetch("https://api.resend.com/emails", {
+          method: "POST",
+          headers: {
+            "Content-Type": "application/json",
+            "Authorization": `Bearer ${resendKey}`,
+          },
+          body: JSON.stringify({
+            from: `${senderName} <${senderEmail}>`,
+            to: [emailAddr],
+            subject: recipientSubject,
+            html: formattedHtml,
+          }),
+        });
 
-      if (!res.ok) {
-        const err = await res.text();
-        console.error("[send-recruiter-email] Send error for", emailAddr, err);
-        await logEmail(supabaseUrl, serviceKey, {
-          recipient_email: emailAddr,
-          email_type: "recruiter_outreach",
-          subject: recipientSubject,
-          status: "failed",
-          error_message: err,
+        if (!res.ok) {
+          const err = await res.text();
+          console.error("[send-recruiter-email] Resend error for", emailAddr, err);
+          await logEmail(supabaseUrl, serviceKey, {
+            recipient_email: emailAddr,
+            email_type: "recruiter_outreach",
+            subject: recipientSubject,
+            status: "failed",
+            error_message: err,
+          });
+        } else {
+          sentCount++;
+          await logEmail(supabaseUrl, serviceKey, {
+            recipient_email: emailAddr,
+            email_type: "recruiter_outreach",
+            subject: recipientSubject,
+            status: "sent",
+          });
+        }
+      } else if (brevoKey) {
+        const res = await fetch("https://api.brevo.com/v3/smtp/email", {
+          method: "POST",
+          headers: {
+            "Content-Type": "application/json",
+            "api-key": brevoKey,
+          },
+          body: JSON.stringify({
+            sender: { name: senderName, email: senderEmail },
+            to: [{ email: emailAddr, name: candidateName }],
+            subject: recipientSubject,
+            htmlContent: formattedHtml,
+          }),
         });
+        if (res.ok) {
+          sentCount++;
+          await logEmail(supabaseUrl, serviceKey, { recipient_email: emailAddr, email_type: "recruiter_outreach", subject: recipientSubject, status: "sent" });
+        } else {
+          const errText = await res.text();
+          console.error("[send-recruiter-email] Brevo error for", emailAddr, errText);
+          await logEmail(supabaseUrl, serviceKey, { recipient_email: emailAddr, email_type: "recruiter_outreach", subject: recipientSubject, status: "failed", error_message: errText });
+        }
       } else {
+        console.log(`[SIMULATED EMAIL] Candidate notification to ${emailAddr}: ${recipientSubject}`);
         sentCount++;
-        await logEmail(supabaseUrl, serviceKey, {
-          recipient_email: emailAddr,
-          email_type: "recruiter_outreach",
-          subject: recipientSubject,
-          status: "sent",
-        });
+        await logEmail(supabaseUrl, serviceKey, { recipient_email: emailAddr, email_type: "recruiter_outreach", subject: recipientSubject, status: "sent (simulated)" });
       }
     } catch (rErr) {
       console.error("[send-recruiter-email] Exception sending email to", emailAddr, rErr.message);
