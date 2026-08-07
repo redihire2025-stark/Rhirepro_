@@ -112,7 +112,7 @@ export const orgAdminService = {
     if (!isDomainMatch) {
       return {
         success: false,
-        error: `You can only invite members with a matching email domain (@${adminDomain || "company.com"}).`,
+        error: "You can only invite members from your organization.",
       };
     }
 

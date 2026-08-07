@@ -330,7 +330,7 @@ const server = http.createServer(async (req, res) => {
         (adminDomain === inviteDomain || getRootDomain(adminDomain) === getRootDomain(inviteDomain));
 
       if (!isDomainMatch) {
-        return fail(400, `You can only invite users with a matching email domain (@${adminDomain || ""})`);
+        return fail(400, "You can only invite members from your organization.");
       }
 
       const token = randomBytes(32).toString("hex");

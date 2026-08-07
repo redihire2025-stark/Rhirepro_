@@ -119,7 +119,7 @@ export default async (request) => {
 
   if (!isDomainMatch) {
     return new Response(
-      JSON.stringify({ error: `You can only invite users with a matching email domain (@${adminDomain || ""})` }),
+      JSON.stringify({ error: "You can only invite members from your organization." }),
       { status: 400, headers: { "Content-Type": "application/json" } }
     );
   }

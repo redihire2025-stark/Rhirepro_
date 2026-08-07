@@ -66,7 +66,7 @@ describe("orgAdminService Business Logic", () => {
     });
 
     expect(res.success).toBe(false);
-    expect(res.error).toContain("matching email domain");
+    expect(res.error).toContain("members from your organization");
   });
 
   it("calculates overview KPIs accurately", () => {
