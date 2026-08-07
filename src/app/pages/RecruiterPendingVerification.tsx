@@ -225,6 +225,21 @@ export default function RecruiterPendingVerification() {
             <div className="flex gap-3">
               <a
                 href="mailto:support@rhirepro.com?subject=Recruiter%20Account%20Verification%20Query"
+                target="_blank"
+                rel="noopener noreferrer"
+                onClick={(e) => {
+                  e.preventDefault();
+                  const mailtoUrl = "mailto:support@rhirepro.com?subject=Recruiter%20Account%20Verification%20Query";
+                  const gmailUrl = "https://mail.google.com/mail/?view=cm&fs=1&to=support@rhirepro.com&su=Recruiter%20Account%20Verification%20Query";
+                  try {
+                    const win = window.open(mailtoUrl, "_blank", "noopener,noreferrer");
+                    if (!win) {
+                      window.open(gmailUrl, "_blank", "noopener,noreferrer");
+                    }
+                  } catch {
+                    window.open(gmailUrl, "_blank", "noopener,noreferrer");
+                  }
+                }}
                 className="flex-1 bg-white/10 hover:bg-white/20 text-white font-medium h-10 rounded-xl transition flex items-center justify-center gap-2 text-sm border border-white/10"
               >
                 <HelpCircle className="w-4 h-4 text-red-300" />

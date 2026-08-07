@@ -1658,6 +1658,8 @@ export default function LandingPage() {
                 </p>
                 <a
                   href="mailto:support@rhirepro.com"
+                  target="_blank"
+                  rel="noopener noreferrer"
                   className="inline-flex items-center gap-2 text-[#FF2B2B] hover:text-[#e02525] text-lg font-semibold transition-colors"
                 >
                   <svg className="w-5 h-5" fill="none" stroke="currentColor" viewBox="0 0 24 24">
@@ -1672,7 +1674,7 @@ export default function LandingPage() {
                   Or click the button below to compose a message in your email client
                 </p>
                 <Button
-                  onClick={() => window.location.href = 'mailto:support@rhirepro.com?subject=Inquiry from RhirePro&body=Hello RhirePro Team,%0D%0A%0D%0AI would like to inquire about...'}
+                  onClick={() => window.open('mailto:support@rhirepro.com?subject=Inquiry%20from%20RhirePro', '_blank', 'noopener,noreferrer')}
                   className="w-full bg-[#FF2B2B] hover:bg-[#e02525] text-white rounded-full py-6 text-base"
                 >
                   Send Email Message
