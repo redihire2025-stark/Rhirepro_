@@ -103,11 +103,21 @@ export default async (request) => {
     );
   }
 
-  const adminEmail = adminProfiles[0].email;
-  const adminDomain = adminEmail.split("@")[1]?.toLowerCase();
-  const inviteDomain = invited_email.split("@")[1]?.toLowerCase();
+  const adminEmail = (adminProfiles[0].email || "").trim().toLowerCase();
+  const adminDomain = adminEmail.split("@")[1];
+  const inviteDomain = (invited_email || "").trim().toLowerCase().split("@")[1];
 
-  if (!adminDomain || !inviteDomain || adminDomain !== inviteDomain) {
+  const getRootDomain = (dom) => {
+    const parts = (dom || "").split(".");
+    return parts.length >= 2 ? parts.slice(-2).join(".") : dom;
+  };
+
+  const isDomainMatch =
+    adminDomain &&
+    inviteDomain &&
+    (adminDomain === inviteDomain || getRootDomain(adminDomain) === getRootDomain(inviteDomain));
+
+  if (!isDomainMatch) {
     return new Response(
       JSON.stringify({ error: `You can only invite users with a matching email domain (@${adminDomain || ""})` }),
       { status: 400, headers: { "Content-Type": "application/json" } }

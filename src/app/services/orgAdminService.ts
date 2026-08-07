@@ -88,38 +88,57 @@ export const orgAdminService = {
     }
 
     // 3. Pending invitation check
-    const pendingExists = existingInvitations.some(
-      (inv) => inv.invited_email.toLowerCase() === trimmedEmail && (inv.status === "pending" || inv.status === "link_opened")
+    const pendingExists = (existingInvitations || []).some(
+      (inv) => (inv.invited_email || "").toLowerCase().trim() === trimmedEmail && (inv.status === "pending" || inv.status === "link_opened")
     );
     if (pendingExists) {
       return { success: false, error: "An active invitation already exists for this email." };
     }
+    // 4. Domain matching check (Core Function)
+    const adminEmail = (recruiterProfile.email || "").trim().toLowerCase();
+    const adminDomain = adminEmail.split("@")[1];
+    const inviteDomain = trimmedEmail.split("@")[1];
 
-    // 4. Domain matching check
-    const adminDomain = recruiterProfile.email?.split("@")[1]?.toLowerCase();
-    const inviteDomain = trimmedEmail.split("@")[1]?.toLowerCase();
-    if (!adminDomain || !inviteDomain || adminDomain !== inviteDomain) {
-      return { success: false, error: `You can only invite members with a matching email domain (@${adminDomain || ""}).` };
+    const getRootDomain = (dom: string) => {
+      const parts = (dom || "").split(".");
+      return parts.length >= 2 ? parts.slice(-2).join(".") : dom;
+    };
+
+    const isDomainMatch =
+      adminDomain &&
+      inviteDomain &&
+      (adminDomain === inviteDomain || getRootDomain(adminDomain) === getRootDomain(inviteDomain));
+
+    if (!isDomainMatch) {
+      return {
+        success: false,
+        error: `You can only invite members with a matching email domain (@${adminDomain || "company.com"}).`,
+      };
     }
 
     // 5. Send invite via serverless function
-    const res = await fetch("/api/send-invite", {
-      method: "POST",
-      headers: { "Content-Type": "application/json" },
-      body: JSON.stringify({
-        org_admin_id: userId,
-        company_name: recruiterProfile.company_name || "",
-        invited_email: trimmedEmail,
-        invited_by_name: recruiterProfile.recruiter_name || recruiterProfile.company_name || "Admin",
-      }),
-    });
+    try {
+      const baseUrl = typeof window !== "undefined" && window.location?.origin ? window.location.origin : "";
+      const res = await fetch(`${baseUrl}/api/send-invite`, {
+        method: "POST",
+        headers: { "Content-Type": "application/json" },
+        body: JSON.stringify({
+          org_admin_id: userId,
+          company_name: recruiterProfile.company_name || "",
+          invited_email: trimmedEmail,
+          invited_by_name: recruiterProfile.recruiter_name || recruiterProfile.company_name || "Admin",
+        }),
+      });
 
-    if (!res.ok) {
-      const err = await res.json().catch(() => ({ error: "Failed to send invitation" }));
-      return { success: false, error: err.error || "Failed to send invitation" };
+      if (!res.ok) {
+        const err = await res.json().catch(() => ({ error: "Failed to send invitation" }));
+        return { success: false, error: err.error || "Failed to send invitation" };
+      }
+
+      return { success: true };
+    } catch (err: any) {
+      return { success: false, error: err?.message || "Failed to send invitation" };
     }
-
-    return { success: true };
   },
 
   /**

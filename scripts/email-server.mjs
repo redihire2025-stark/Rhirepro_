@@ -304,7 +304,7 @@ const server = http.createServer(async (req, res) => {
 
       const admin = adminClient();
 
-      // Fetch org admin profile to verify domains match
+      // Fetch org admin profile to verify email domains match
       const { data: adminProfile, error: adminErr } = await admin
         .from("recruiter_profiles")
         .select("email")
@@ -315,10 +315,21 @@ const server = http.createServer(async (req, res) => {
         return fail(404, "Org admin profile not found.");
       }
 
-      const adminDomain = adminProfile.email.split("@")[1]?.toLowerCase();
-      const inviteDomain = invited_email.split("@")[1]?.toLowerCase();
+      const adminEmail = (adminProfile.email || "").trim().toLowerCase();
+      const adminDomain = adminEmail.split("@")[1];
+      const inviteDomain = (invited_email || "").trim().toLowerCase().split("@")[1];
 
-      if (!adminDomain || !inviteDomain || adminDomain !== inviteDomain) {
+      const getRootDomain = (dom) => {
+        const parts = (dom || "").split(".");
+        return parts.length >= 2 ? parts.slice(-2).join(".") : dom;
+      };
+
+      const isDomainMatch =
+        adminDomain &&
+        inviteDomain &&
+        (adminDomain === inviteDomain || getRootDomain(adminDomain) === getRootDomain(inviteDomain));
+
+      if (!isDomainMatch) {
         return fail(400, `You can only invite users with a matching email domain (@${adminDomain || ""})`);
       }
 
@@ -333,7 +344,7 @@ const server = http.createServer(async (req, res) => {
       });
       if (insertErr) return fail(500, insertErr.message);
 
-      const siteUrl = "http://localhost:5173";
+      const siteUrl = process.env.VITE_APP_URL || "http://localhost:5173";
       const inviteUrl = `${siteUrl}/recruiter/join/${token}`;
 
       const html = `
@@ -351,18 +362,23 @@ const server = http.createServer(async (req, res) => {
               Accept Invitation
             </a>
           </div>
+          <p style="color:#888;font-size:13px;">Or copy this link into your browser:<br/>
+            <a href="${inviteUrl}" style="color:#FF2B2B;word-break:break-all;">${inviteUrl}</a>
+          </p>
           <p style="color:#888;font-size:13px;">This link expires in 7 days.</p>
           <hr style="border:none;border-top:1px solid #eee;margin:24px 0;"/>
           <p style="color:#aaa;font-size:12px;">— The RhirePro Team</p>
         </div>`;
 
-      await sendBrevoEmail(
-        invited_email,
-        invited_email,
-        `You're invited to join ${company_name} on RhirePro`,
-        html,
-        "invite"
-      );
+      const inviteSubject = `You're invited to join ${company_name} on RhirePro`;
+      if (process.env.BREVO_API_KEY) {
+        await sendBrevoEmail(invited_email, invited_email, inviteSubject, html, "invite");
+      } else if (process.env.RESEND_API_KEY || process.env.VITE_RESEND_API_KEY) {
+        await sendResendEmail(invited_email, inviteSubject, html, "invite");
+      } else {
+        console.log(`[SIMULATED TEAM INVITE EMAIL] Delivery to ${invited_email}: ${inviteUrl}`);
+        await logEmail(admin, { recipient_email: invited_email, email_type: "invite", subject: inviteSubject, status: "sent (dev_mock)" });
+      }
 
       ok({ success: true });
     } catch (err) { fail(500, err.message); }

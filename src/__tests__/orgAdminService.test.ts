@@ -49,6 +49,26 @@ describe("orgAdminService Business Logic", () => {
     expect(res.error).toContain("already exists");
   });
 
+  it("enforces domain matching restriction on team invitations", async () => {
+    const mockProfile: Partial<RecruiterProfile> = {
+      verification_status: "Verified",
+      email: "admin@company.com",
+      company_name: "Company Inc",
+      max_seats: 5,
+    };
+
+    const res = await orgAdminService.sendTeamInvitation({
+      inviteEmail: "user@otherdomain.com",
+      recruiterProfile: mockProfile as RecruiterProfile,
+      userId: "admin-id",
+      activeCount: 1,
+      existingInvitations: [],
+    });
+
+    expect(res.success).toBe(false);
+    expect(res.error).toContain("matching email domain");
+  });
+
   it("calculates overview KPIs accurately", () => {
     const members = [{ is_active: true }, { is_active: false }, { is_active: true }];
     const teamJobs = [{ status: "Active" }, { status: "Active" }, { status: "Closed" }];
