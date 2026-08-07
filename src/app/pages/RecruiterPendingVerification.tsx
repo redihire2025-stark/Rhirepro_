@@ -224,7 +224,7 @@ export default function RecruiterPendingVerification() {
 
             <div className="flex gap-3">
               <a
-                href="mailto:support@redhire.dev?subject=Recruiter%20Account%20Verification%20Query"
+                href="mailto:support@rhirepro.com?subject=Recruiter%20Account%20Verification%20Query"
                 className="flex-1 bg-white/10 hover:bg-white/20 text-white font-medium h-10 rounded-xl transition flex items-center justify-center gap-2 text-sm border border-white/10"
               >
                 <HelpCircle className="w-4 h-4 text-red-300" />

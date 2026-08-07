@@ -36,7 +36,9 @@ describe("Recruiter Account Verification Flow", () => {
   it("evaluates verification notice message correctly", () => {
     const expectedHeading = "Your account is currently under review";
     const expectedSubtext = "You will get approved within 2 business days.";
+    const supportEmail = "support@rhirepro.com";
     expect(expectedHeading).toContain("currently under review");
     expect(expectedSubtext).toContain("2 business days");
+    expect(supportEmail).toBe("support@rhirepro.com");
   });
 });
