@@ -27,6 +27,8 @@ interface RecruiterRow {
   company_name: string | null;
   industry: string | null;
   is_disabled: boolean;
+  verification_status: "Pending" | "Verified" | "Rejected" | null;
+  rejection_reason: string | null;
   org_role: string | null;
   created_at: string;
   last_login_at: string | null;
@@ -42,6 +44,7 @@ export default function SuperAdminRecruiters() {
   const [page, setPage] = useState(1);
   const [search, setSearch] = useState("");
   const [statusFilter, setStatusFilter] = useState("all");
+  const [verificationFilter, setVerificationFilter] = useState("all");
   const [sortKey, setSortKey] = useState("created_at");
   const [sortDir, setSortDir] = useState<"asc" | "desc">("desc");
   const [selected, setSelected] = useState<RecruiterRow | null>(null);
@@ -51,7 +54,7 @@ export default function SuperAdminRecruiters() {
     let query = supabase
       .from("recruiter_profiles")
       .select(
-        "id,email,recruiter_name,company_name,industry,is_disabled,org_role,created_at,last_login_at,recruiter_subscriptions(status,plan_id,expires_at)",
+        "id,email,recruiter_name,company_name,industry,is_disabled,verification_status,rejection_reason,org_role,created_at,last_login_at,recruiter_subscriptions(status,plan_id,expires_at)",
         { count: "exact" }
       );
 
@@ -61,6 +64,7 @@ export default function SuperAdminRecruiters() {
     }
     if (statusFilter === "active") query = query.eq("is_disabled", false);
     if (statusFilter === "disabled") query = query.eq("is_disabled", true);
+    if (verificationFilter !== "all") query = query.eq("verification_status", verificationFilter);
 
     const from = (page - 1) * PAGE_SIZE;
     const to = from + PAGE_SIZE - 1;
@@ -70,7 +74,7 @@ export default function SuperAdminRecruiters() {
     setRows((data as unknown as RecruiterRow[]) ?? []);
     setTotalCount(count ?? 0);
     setLoading(false);
-  }, [page, search, statusFilter, sortKey, sortDir]);
+  }, [page, search, statusFilter, verificationFilter, sortKey, sortDir]);
 
   useEffect(() => {
     fetchRows();
@@ -78,7 +82,7 @@ export default function SuperAdminRecruiters() {
 
   useEffect(() => {
     setPage(1);
-  }, [search, statusFilter]);
+  }, [search, statusFilter, verificationFilter]);
 
   const toggleDisabled = async (row: RecruiterRow) => {
     const { error } = await supabase
@@ -100,6 +104,39 @@ export default function SuperAdminRecruiters() {
     fetchRows();
   };
 
+  const updateVerification = async (row: RecruiterRow, newStatus: "Verified" | "Rejected", reason?: string) => {
+    const userRes = await supabase.auth.getUser();
+    const adminId = userRes.data.user?.id || null;
+    const now = new Date().toISOString();
+
+    const { error } = await supabase
+      .from("recruiter_profiles")
+      .update({
+        verification_status: newStatus,
+        verified_at: newStatus === "Verified" ? now : null,
+        verified_by: newStatus === "Verified" ? adminId : null,
+        rejected_at: newStatus === "Rejected" ? now : null,
+        rejected_by: newStatus === "Rejected" ? adminId : null,
+        rejection_reason: newStatus === "Rejected" ? (reason || "Verification rejected by Super Admin") : null,
+      })
+      .eq("id", row.id);
+
+    if (error) {
+      toast.error(`Failed to update verification: ${error.message}`);
+      return;
+    }
+
+    logAdminAction({
+      action: `recruiter.${newStatus.toLowerCase()}`,
+      entityType: "recruiter_profiles",
+      entityId: row.id,
+      afterValue: { verification_status: newStatus },
+    });
+
+    toast.success(`Recruiter set to ${newStatus}`);
+    fetchRows();
+  };
+
   const columns: DataTableColumn<RecruiterRow>[] = [
     {
       key: "recruiter_name",
@@ -113,6 +150,17 @@ export default function SuperAdminRecruiters() {
       ),
     },
     { key: "company_name", header: "Company", render: (row) => row.company_name || "—" },
+    {
+      key: "verification_status",
+      header: "Verification",
+      sortable: true,
+      render: (row) => {
+        const st = row.verification_status || "Pending";
+        if (st === "Verified") return <Badge className="bg-emerald-600 hover:bg-emerald-600/90">Verified</Badge>;
+        if (st === "Rejected") return <Badge variant="destructive">Rejected</Badge>;
+        return <Badge variant="secondary" className="bg-amber-500/10 text-amber-600 border-amber-500/20">Pending</Badge>;
+      },
+    },
     { key: "industry", header: "Industry", render: (row) => row.industry || "—" },
     {
       key: "plan",
@@ -173,6 +221,18 @@ export default function SuperAdminRecruiters() {
               { label: "Disabled", value: "disabled" },
             ],
           },
+          {
+            key: "verification",
+            label: "Verification",
+            value: verificationFilter,
+            onChange: setVerificationFilter,
+            options: [
+              { label: "All verifications", value: "all" },
+              { label: "Pending", value: "Pending" },
+              { label: "Verified", value: "Verified" },
+              { label: "Rejected", value: "Rejected" },
+            ],
+          },
         ]}
         onExportCsv={() =>
           exportRowsAsCsv(
@@ -181,6 +241,7 @@ export default function SuperAdminRecruiters() {
               { key: "email", header: "Email" },
               { key: "recruiter_name", header: "Name" },
               { key: "company_name", header: "Company" },
+              { key: "verification_status", header: "Verification" },
               { key: "is_disabled", header: "Disabled" },
               { key: "created_at", header: "Joined" },
             ],
@@ -196,6 +257,16 @@ export default function SuperAdminRecruiters() {
             </DropdownMenuTrigger>
             <DropdownMenuContent align="end">
               <DropdownMenuItem onClick={() => setSelected(row)}>View details</DropdownMenuItem>
+              {row.verification_status !== "Verified" && (
+                <DropdownMenuItem onClick={() => updateVerification(row, "Verified")}>
+                  <CheckCircle2 className="text-emerald-600" /> Verify Recruiter
+                </DropdownMenuItem>
+              )}
+              {row.verification_status !== "Rejected" && (
+                <DropdownMenuItem onClick={() => updateVerification(row, "Rejected")}>
+                  <Ban className="text-red-600" /> Reject Recruiter
+                </DropdownMenuItem>
+              )}
               <DropdownMenuItem onClick={() => toggleDisabled(row)}>
                 {row.is_disabled ? (
                   <>
@@ -226,6 +297,12 @@ export default function SuperAdminRecruiters() {
                   <span>{selected.company_name || "—"}</span>
                 </div>
                 <div className="flex justify-between">
+                  <span className="text-muted-foreground">Verification</span>
+                  <Badge variant={selected.verification_status === "Verified" ? "default" : selected.verification_status === "Rejected" ? "destructive" : "secondary"}>
+                    {selected.verification_status || "Pending"}
+                  </Badge>
+                </div>
+                <div className="flex justify-between">
                   <span className="text-muted-foreground">Industry</span>
                   <span>{selected.industry || "—"}</span>
                 </div>
@@ -244,6 +321,33 @@ export default function SuperAdminRecruiters() {
                 <div className="flex justify-between">
                   <span className="text-muted-foreground">Last login</span>
                   <span>{selected.last_login_at ? new Date(selected.last_login_at).toLocaleString() : "Never"}</span>
+                </div>
+                <div className="pt-4 flex gap-2">
+                  {selected.verification_status !== "Verified" && (
+                    <Button
+                      size="sm"
+                      className="flex-1 bg-emerald-600 hover:bg-emerald-700"
+                      onClick={() => {
+                        updateVerification(selected, "Verified");
+                        setSelected(null);
+                      }}
+                    >
+                      Verify
+                    </Button>
+                  )}
+                  {selected.verification_status !== "Rejected" && (
+                    <Button
+                      size="sm"
+                      variant="destructive"
+                      className="flex-1"
+                      onClick={() => {
+                        updateVerification(selected, "Rejected");
+                        setSelected(null);
+                      }}
+                    >
+                      Reject
+                    </Button>
+                  )}
                 </div>
               </div>
             </>

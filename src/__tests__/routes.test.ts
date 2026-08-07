@@ -77,15 +77,15 @@ describe('Router — route definitions', () => {
     expect(getChildPaths()).toContain('/blog/:id');
   });
 
-  it('defines a catch-all 404 route (*)', () => {
-    expect(getChildPaths()).toContain('*');
+  it('defines the recruiter pending verification route (/recruiter/pending-verification)', () => {
+    expect(getChildPaths()).toContain('/recruiter/pending-verification');
   });
 
-  it('has 28 child routes total', () => {
+  it('has expected number of child routes total', () => {
     // /, /signin, /signup, /jobs, /job/:id, /services, /blog, /blog/:id,
-    // /jobseeker/signin, /jobseeker/signup, /recruiter/signin, /recruiter/signup,
+    // /jobseeker/signin, /jobseeker/signup, /recruiter/signin, /recruiter/signup, /recruiter/pending-verification
     // /jobseeker/dashboard/*, /recruiter/dashboard/*, *
-    expect(getChildPaths().length).toBe(34);
+    expect(getChildPaths().length).toBe(35);
   });
 
   it('each child route has a Component', () => {

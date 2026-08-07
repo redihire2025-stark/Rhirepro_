@@ -8,6 +8,8 @@ import JobSeekerSignIn from "./pages/JobSeekerSignIn";
 import JobSeekerSignUp from "./pages/JobSeekerSignUp";
 import RecruiterSignIn from "./pages/RecruiterSignIn";
 import RecruiterSignUp from "./pages/RecruiterSignUp";
+import RecruiterPendingVerification from "./pages/RecruiterPendingVerification";
+import RecruiterVerificationGuard from "./components/RecruiterVerificationGuard";
 import JobSeekerDashboard from "./pages/JobSeekerDashboard";
 import RecruiterDashboard from "./pages/RecruiterDashboard";
 import PlanDetailsPage from "./pages/PlanDetailsPage";
@@ -184,13 +186,22 @@ export const router = createBrowserRouter([
     errorElement: <ErrorPage />,
   },
   {
+    path: "/recruiter/pending-verification",
+    Component: RecruiterPendingVerification,
+    errorElement: <ErrorPage />,
+  },
+  {
     path: "/jobseeker/dashboard/*",
     Component: JobSeekerDashboard,
     errorElement: <ErrorPage />,
   },
   {
     path: "/recruiter/dashboard/*",
-    Component: RecruiterDashboard,
+    Component: () => (
+      <RecruiterVerificationGuard>
+        <RecruiterDashboard />
+      </RecruiterVerificationGuard>
+    ),
     errorElement: <ErrorPage />,
   },
   {
@@ -200,12 +211,20 @@ export const router = createBrowserRouter([
   },
   {
     path: "/recruiter/candidate/:candidateId/profile",
-    Component: ApplicantProfilePage,
+    Component: () => (
+      <RecruiterVerificationGuard>
+        <ApplicantProfilePage />
+      </RecruiterVerificationGuard>
+    ),
     errorElement: <ErrorPage />,
   },
   {
     path: "/recruiter/applicant/:applicantId/profile",
-    Component: ApplicantProfilePage,
+    Component: () => (
+      <RecruiterVerificationGuard>
+        <ApplicantProfilePage />
+      </RecruiterVerificationGuard>
+    ),
     errorElement: <ErrorPage />,
   },
   {
@@ -220,12 +239,20 @@ export const router = createBrowserRouter([
   },
   {
     path: "/recruiter/admin",
-    Component: OrgAdminPanel,
+    Component: () => (
+      <RecruiterVerificationGuard>
+        <OrgAdminPanel />
+      </RecruiterVerificationGuard>
+    ),
     errorElement: <ErrorPage />,
   },
   {
     path: "/recruiter/admin/member/:memberId",
-    Component: OrgAdminPanel,
+    Component: () => (
+      <RecruiterVerificationGuard>
+        <OrgAdminPanel />
+      </RecruiterVerificationGuard>
+    ),
     errorElement: <ErrorPage />,
   },
   {

@@ -131,12 +131,12 @@ export default function RecruiterSignUp() {
 
       const { data: { session } } = await supabase.auth.getSession();
       if (session) {
-        navigate("/recruiter/dashboard");
+        navigate("/recruiter/pending-verification");
         return;
       }
 
       setSuccess(true);
-      setTimeout(() => navigate("/recruiter/signin"), 3000);
+      setTimeout(() => navigate("/recruiter/pending-verification"), 3000);
   };
 
   const handleVerifyOTP = async (e: React.FormEvent) => {
