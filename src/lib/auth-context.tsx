@@ -49,6 +49,33 @@ export function AuthProvider({ children }: { children: ReactNode }) {
         await new Promise(r => setTimeout(r, 800));
         return fetchProfile(userId, userRole, retries - 1);
       }
+      if (!data) {
+        // Auto-create profile record if missing in DB for jobseekers
+        try {
+          const { data: userData } = await supabase.auth.getUser();
+          const userObj = userData?.user;
+          if (userObj) {
+            const meta = userObj.user_metadata || {};
+            const fullName = meta.full_name || meta.name || "";
+            const nameParts = fullName.split(" ");
+            const { data: newProfile } = await supabase.from("profiles").upsert({
+              id: userId,
+              email: userObj.email,
+              first_name: meta.first_name || nameParts[0] || null,
+              last_name: meta.last_name || nameParts.slice(1).join(" ") || null,
+              phone: meta.phone || null,
+              experience_type: (meta.experience as "fresher" | "experienced") || "fresher",
+            }).select("*").single();
+            if (newProfile) {
+              setProfile(newProfile);
+              setRecruiterProfile(null);
+              return;
+            }
+          }
+        } catch {
+          // Ignore fallback errors and proceed to set null
+        }
+      }
       setProfile(data);
       setRecruiterProfile(null);
     }

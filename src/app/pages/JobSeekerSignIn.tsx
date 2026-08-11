@@ -6,6 +6,7 @@ import { Eye, EyeOff, Loader2, ShieldCheck, RefreshCw, Mail } from "lucide-react
 import { Button } from "../components/ui/button";
 import { Input } from "../components/ui/input";
 import { supabase } from "../../lib/supabase";
+import { useAuth } from "../../lib/auth-context";
 import { sendOTPEmail, sendPasswordResetOTP, resetPasswordWithOTP } from "../../lib/email";
 
 // ─── OTP helpers ─────────────────────────────────────────────────────────────
@@ -65,6 +66,7 @@ export default function JobSeekerSignIn() {
   const [showNewPassword, setShowNewPassword] = useState(false);
   const [resetSuccess, setResetSuccess] = useState(false);
   const navigate = useNavigate();
+  const { refreshProfile } = useAuth();
   const location = useLocation();
   const redirectTo = new URLSearchParams(location.search).get("redirect");
   const safeRedirectTo = redirectTo?.startsWith("/") ? redirectTo : "/jobseeker/dashboard";
@@ -177,6 +179,7 @@ export default function JobSeekerSignIn() {
       const valid = await verifyOTPFromDB(userId, otp.trim());
       if (!valid) throw new Error("Invalid or expired OTP. Please try again.");
       await supabase.from("profiles").update({ otp_code: null, otp_expires_at: null }).eq("id", userId);
+      await refreshProfile();
       // Dashboard checks profile completion on load and redirects to profile if needed
       navigate(safeRedirectTo);
     } catch (err: unknown) {

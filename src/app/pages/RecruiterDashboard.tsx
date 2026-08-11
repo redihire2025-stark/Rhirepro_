@@ -2770,7 +2770,7 @@ function PostJobPage() {
       setPostSuccess(true);
       setShowPreview(false);
       setTimeout(() => { setPostSuccess(false); navigate("/recruiter/dashboard/manage-jobs"); }, 2000);
-      setFormData({ jobTitle: "", jobDescription: "", rolesResponsibilities: "", requirements: "", location: "", locations: [], locationInput: "", workMode: "", salaryMin: "", salaryMax: "", experienceMin: "", experienceMax: "", skills: "", employmentType: "", industry: "", openings: "1", education: "", specialization: "", perks: [], customPerk: "", department: "", interviewMode: "", interviewModes: [], preferredJoiningTime: "" });
+      setFormData({ jobTitle: "", jobDescription: "", rolesResponsibilities: "", requirements: "", location: "", locations: [], locationInput: "", workMode: "", salaryMin: "", salaryMax: "", experienceMin: "", experienceMax: "", skills: "", employmentType: "", industry: "", customIndustry: "", openings: "1", education: "", customEducation: "", specialization: "", customSpecialization: "", perks: [], customPerk: "", department: "", interviewMode: "", interviewModes: [], preferredJoiningTime: "" });
       setShowSkillInput(false);
       setSkillPickerOpen(false);
       setSkillSearch("");
@@ -3515,8 +3515,11 @@ function ManageJobsPage() {
       openings: String(job.openings),
       skills: (job.skills || []).join(", "),
       industry: job.industry || "",
+      customIndustry: "",
       education: eduCategory,
+      customEducation: "",
       specialization: spec,
+      customSpecialization: "",
       interviewMode: job.interview_mode || "",
       interviewModes: existingModes,
       perks: job.perks || [],

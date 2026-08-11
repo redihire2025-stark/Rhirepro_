@@ -8,7 +8,7 @@ import { Input } from "../components/ui/input";
 import { RadioGroup, RadioGroupItem } from "../components/ui/radio-group";
 import { Label } from "../components/ui/label";
 import { supabase } from "../../lib/supabase";
-import { sendOTPEmail } from "../../lib/email";
+import { sendOTPEmail, checkIfEmailExists } from "../../lib/email";
 
 function generateOTP() {
   return Math.floor(100000 + Math.random() * 900000).toString();

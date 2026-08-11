@@ -759,7 +759,7 @@ function normalizeInterviewModes(raw: any): string[] {
 // ── Main Dashboard ─────────────────────────────────────────────────────────────
 export default function JobSeekerDashboard() {
   const navigate = useNavigate();
-  const { profile, user, loading: authLoading, signOut } = useAuth();
+  const { profile, user, loading: authLoading, signOut, refreshProfile } = useAuth();
 
   // Auth guard — redirect to sign-in if not authenticated
   useEffect(() => {
@@ -782,14 +782,31 @@ export default function JobSeekerDashboard() {
   const [checkingCompletion, setCheckingCompletion] = useState(() => {
     if (!isRootPath) return false;
     try {
-      return !window.sessionStorage.getItem(`jobseeker_initial_check_done_${user?.id || ""}`);
+      if (!user?.id) return true;
+      return !window.sessionStorage.getItem(`jobseeker_initial_check_done_${user.id}`);
     } catch {
       return false;
     }
   });
 
+  // Safety fallback: ensure dashboard loading screen never hangs indefinitely
   useEffect(() => {
-    if (authLoading || !profile || !user || completionCheckRef.current) return;
+    if (authLoading) return;
+    const safetyTimer = setTimeout(() => {
+      setCheckingCompletion(false);
+    }, 2000);
+    return () => clearTimeout(safetyTimer);
+  }, [authLoading]);
+
+  useEffect(() => {
+    if (authLoading || !user) return;
+
+    if (!profile) {
+      refreshProfile().catch(() => {});
+      return;
+    }
+
+    if (completionCheckRef.current) return;
     completionCheckRef.current = true;
 
     const sessionKey = `jobseeker_initial_check_done_${user.id}`;
@@ -809,33 +826,38 @@ export default function JobSeekerDashboard() {
     const pid = profile.id;
     (async () => {
       try {
-        window.sessionStorage.setItem(sessionKey, "true");
-      } catch {
-        // ignore storage errors
-      }
+        try {
+          window.sessionStorage.setItem(sessionKey, "true");
+        } catch {
+          // ignore storage errors
+        }
 
-      const [expRes, eduRes, projRes, certRes] = await Promise.all([
-        supabase.from("work_experience").select("id", { count: "exact", head: true }).eq("profile_id", pid),
-        supabase.from("education").select("id", { count: "exact", head: true }).eq("profile_id", pid),
-        supabase.from("projects").select("id", { count: "exact", head: true }).eq("profile_id", pid),
-        supabase.from("certifications").select("id", { count: "exact", head: true }).eq("profile_id", pid),
-      ]);
-      let score = 0;
-      const name = [profile.first_name, profile.last_name].filter(Boolean).join(" ");
-      score += Math.round(([name, profile.phone, profile.email, profile.location].filter(Boolean).length / 4) * 15);
-      if ((profile.about || "").trim().length > 20) score += 10;
-      score += Math.min(10, Math.round(((profile.skills?.length || 0) / 3) * 10));
-      if ((expRes.count || 0) > 0) score += 20;
-      if ((eduRes.count || 0) > 0) score += 15;
-      if ((projRes.count || 0) > 0) score += 5;
-      if ((certRes.count || 0) > 0) score += 5;
-      if (profile.resume_url) score += 10;
-      const p = profile as any;
-      score += Math.round(([p.expected_salary, p.notice_period].filter(Boolean).length / 2) * 10);
-      setCheckingCompletion(false);
-      if (Math.min(100, score) < 100) navigate("/jobseeker/dashboard/profile", { replace: true });
+        const [expRes, eduRes, projRes, certRes] = await Promise.all([
+          supabase.from("work_experience").select("id", { count: "exact", head: true }).eq("profile_id", pid),
+          supabase.from("education").select("id", { count: "exact", head: true }).eq("profile_id", pid),
+          supabase.from("projects").select("id", { count: "exact", head: true }).eq("profile_id", pid),
+          supabase.from("certifications").select("id", { count: "exact", head: true }).eq("profile_id", pid),
+        ]);
+        let score = 0;
+        const name = [profile.first_name, profile.last_name].filter(Boolean).join(" ");
+        score += Math.round(([name, profile.phone, profile.email, profile.location].filter(Boolean).length / 4) * 15);
+        if ((profile.about || "").trim().length > 20) score += 10;
+        score += Math.min(10, Math.round(((profile.skills?.length || 0) / 3) * 10));
+        if ((expRes.count || 0) > 0) score += 20;
+        if ((eduRes.count || 0) > 0) score += 15;
+        if ((projRes.count || 0) > 0) score += 5;
+        if ((certRes.count || 0) > 0) score += 5;
+        if (profile.resume_url) score += 10;
+        const p = profile as any;
+        score += Math.round(([p.expected_salary, p.notice_period].filter(Boolean).length / 2) * 10);
+        if (Math.min(100, score) < 100) navigate("/jobseeker/dashboard/profile", { replace: true });
+      } catch (err) {
+        console.error("Profile completion check failed:", err);
+      } finally {
+        setCheckingCompletion(false);
+      }
     })();
-  }, [authLoading, profile, user, navigate, isRootPath]);
+  }, [authLoading, profile, user, navigate, isRootPath, refreshProfile]);
   const [notificationsOpen, setNotificationsOpen] = useState(false);
   const [notifications, setNotifications] = useState<Notification[]>([]);
   const [unreadCount, setUnreadCount] = useState(0);
