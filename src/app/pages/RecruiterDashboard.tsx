@@ -6027,6 +6027,29 @@ function SearchCandidatesPage() {
             )}
           </div>
 
+          {/* Skills (Top Filter) */}
+          <div className="px-4 py-3 border-b border-gray-100">
+            <p className="text-xs font-semibold text-[#3A1F1F] mb-2 uppercase tracking-wide">Skills</p>
+            <div className="flex gap-1.5 mb-2 flex-wrap">
+              {skillTags.map(tag => (
+                <span key={tag} className="flex items-center gap-1 bg-[#FF2B2B] text-white text-xs px-2 py-0.5 rounded-full">
+                  {tag}
+                  <button onClick={() => setSkillTags(prev => prev.filter(t => t !== tag))} className="ml-0.5 hover:opacity-75">×</button>
+                </span>
+              ))}
+            </div>
+            <div className="flex gap-1">
+              <Input
+                value={skillInput}
+                onChange={e => setSkillInput(e.target.value)}
+                onKeyDown={e => { if (e.key === "Enter" || e.key === ",") { e.preventDefault(); addSkillTag(skillInput); } }}
+                className="bg-[#F6F6F6] border-gray-200 rounded-lg text-xs h-8 flex-1"
+                placeholder="Type skill + Enter"
+              />
+              <button onClick={() => addSkillTag(skillInput)} className="px-2 py-1 bg-[#FF2B2B] text-white rounded-lg text-xs hover:bg-[#e02525]">+</button>
+            </div>
+          </div>
+
           {/* Experience */}
           <div className="px-4 py-3 border-b border-gray-100">
             <p className="text-xs font-semibold text-[#3A1F1F] mb-2 uppercase tracking-wide">Experience</p>
@@ -6049,44 +6072,20 @@ function SearchCandidatesPage() {
             </div>
           </div>
 
-          {/* Candidate Type */}
-          <div className="px-4 py-3 border-b border-gray-100">
-            <p className="text-xs font-semibold text-[#3A1F1F] mb-2 uppercase tracking-wide">Candidate Type</p>
-            <div className="space-y-1.5">
-              {[["", "All"], ["fresher", "Freshers only"], ["experienced", "Experienced only"]].map(([val, label]) => (
-                <label key={val} className="flex items-center gap-2 cursor-pointer">
-                  <input type="radio" name="expType" value={val} checked={expType === val} onChange={() => setExpType(val)} className="accent-[#FF2B2B]" />
-                  <span className="text-xs text-[#3A1F1F]">{label}</span>
-                </label>
-              ))}
-            </div>
-          </div>
-
-          {/* Active In */}
+          {/* Active In Dropdown */}
           <div className="px-4 py-3 border-b border-gray-100">
             <p className="text-xs font-semibold text-[#3A1F1F] mb-2 uppercase tracking-wide">Active In</p>
-            <div className="space-y-1.5">
-              {[
-                ["7days", "7 days"],
-                ["15days", "15 days"],
-                ["30days", "30 days"],
-                ["2months", "2 months"],
-                ["3months", "3 months"],
-                ["6months", "6 months"],
-              ].map(([val, label]) => (
-                <label key={val} className="flex items-center gap-2 cursor-pointer">
-                  <input
-                    type="radio"
-                    name="activeIn"
-                    value={val}
-                    checked={activeIn === val}
-                    onChange={() => setActiveIn(val)}
-                    className="accent-[#FF2B2B]"
-                  />
-                  <span className="text-xs text-[#3A1F1F]">{label}</span>
-                </label>
-              ))}
-            </div>
+            <Select value={activeIn || "6months"} onValueChange={v => setActiveIn(v)}>
+              <SelectTrigger className="bg-[#F6F6F6] border-gray-200 rounded-lg text-xs h-8"><SelectValue placeholder="6 months" /></SelectTrigger>
+              <SelectContent>
+                <SelectItem value="7days">7 days</SelectItem>
+                <SelectItem value="15days">15 days</SelectItem>
+                <SelectItem value="30days">30 days</SelectItem>
+                <SelectItem value="2months">2 months</SelectItem>
+                <SelectItem value="3months">3 months</SelectItem>
+                <SelectItem value="6months">6 months</SelectItem>
+              </SelectContent>
+            </Select>
           </div>
 
           {/* Current Salary */}
@@ -6111,17 +6110,19 @@ function SearchCandidatesPage() {
             </Select>
           </div>
 
-          {/* Notice Period */}
+          {/* Notice Period Dropdown */}
           <div className="px-4 py-3 border-b border-gray-100">
             <p className="text-xs font-semibold text-[#3A1F1F] mb-2 uppercase tracking-wide">Notice Period</p>
-            <div className="space-y-1.5">
-              {[["", "Any"], ["immediate", "Immediate joiner"], ["15", "≤ 15 days"], ["30", "≤ 30 days"], ["60", "≤ 60 days"]].map(([val, label]) => (
-                <label key={val} className="flex items-center gap-2 cursor-pointer">
-                  <input type="radio" name="notice" value={val} checked={noticePeriod === val} onChange={() => setNoticePeriod(val)} className="accent-[#FF2B2B]" />
-                  <span className="text-xs text-[#3A1F1F]">{label}</span>
-                </label>
-              ))}
-            </div>
+            <Select value={noticePeriod || "any"} onValueChange={v => setNoticePeriod(v === "any" ? "" : v)}>
+              <SelectTrigger className="bg-[#F6F6F6] border-gray-200 rounded-lg text-xs h-8"><SelectValue placeholder="Any" /></SelectTrigger>
+              <SelectContent>
+                <SelectItem value="any">Any Notice</SelectItem>
+                <SelectItem value="immediate">Immediate joiner</SelectItem>
+                <SelectItem value="15">≤ 15 days</SelectItem>
+                <SelectItem value="30">≤ 30 days</SelectItem>
+                <SelectItem value="60">≤ 60 days</SelectItem>
+              </SelectContent>
+            </Select>
           </div>
 
           {/* Education */}
@@ -6142,31 +6143,8 @@ function SearchCandidatesPage() {
             <Input value={currentCompany} onChange={e => setCurrentCompany(e.target.value)} className="bg-[#F6F6F6] border-gray-200 rounded-lg text-xs h-8" placeholder="Enter company name" />
           </div>
 
-          {/* Skills */}
-          <div className="px-4 py-3">
-            <p className="text-xs font-semibold text-[#3A1F1F] mb-2 uppercase tracking-wide">Skills</p>
-            <div className="flex gap-1.5 mb-2 flex-wrap">
-              {skillTags.map(tag => (
-                <span key={tag} className="flex items-center gap-1 bg-[#FF2B2B] text-white text-xs px-2 py-0.5 rounded-full">
-                  {tag}
-                  <button onClick={() => setSkillTags(prev => prev.filter(t => t !== tag))} className="ml-0.5 hover:opacity-75">×</button>
-                </span>
-              ))}
-            </div>
-            <div className="flex gap-1">
-              <Input
-                value={skillInput}
-                onChange={e => setSkillInput(e.target.value)}
-                onKeyDown={e => { if (e.key === "Enter" || e.key === ",") { e.preventDefault(); addSkillTag(skillInput); } }}
-                className="bg-[#F6F6F6] border-gray-200 rounded-lg text-xs h-8 flex-1"
-                placeholder="Type skill + Enter"
-              />
-              <button onClick={() => addSkillTag(skillInput)} className="px-2 py-1 bg-[#FF2B2B] text-white rounded-lg text-xs hover:bg-[#e02525]">+</button>
-            </div>
-          </div>
-
           {/* Apply Filters button */}
-          <div className="px-4 pb-4">
+          <div className="px-4 pb-4 pt-3">
             <Button onClick={handleSearch} disabled={searching} className="w-full bg-[#FF2B2B] hover:bg-[#e02525] text-white rounded-xl text-sm">
               {searching ? "Searching..." : "Apply Filters"}
             </Button>
