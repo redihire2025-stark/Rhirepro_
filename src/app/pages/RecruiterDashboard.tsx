@@ -4926,6 +4926,7 @@ function SearchCandidatesPage() {
   const [industry, setIndustry] = useState("");
   const [currentCompany, setCurrentCompany] = useState("");
   const [expType, setExpType] = useState("");
+  const [activeIn, setActiveIn] = useState("6months");
   const [skillTags, setSkillTags] = useState<string[]>([]);
   const [skillInput, setSkillInput] = useState("");
   const [skillSuggestionsOpen, setSkillSuggestionsOpen] = useState(false);
@@ -5122,6 +5123,37 @@ function SearchCandidatesPage() {
     if (monthMatch) return parseInt(monthMatch[1]) * 30;
     const dayMatch = lower.match(/(\d+)/);
     return dayMatch ? parseInt(dayMatch[1]) : 999;
+  };
+
+  const parseActiveDate = (c: DBCandidate): Date | null => {
+    const dateStr = (c as any).last_active_at || (c as any).updated_at || c.created_at;
+    if (!dateStr) return null;
+    const d = new Date(dateStr);
+    return isNaN(d.getTime()) ? null : d;
+  };
+
+  const getActiveInDays = (val: string): number => {
+    switch (val) {
+      case "7days":
+      case "7":
+        return 7;
+      case "15days":
+      case "15":
+        return 15;
+      case "30days":
+      case "30":
+        return 30;
+      case "2months":
+      case "60":
+        return 60;
+      case "3months":
+      case "90":
+        return 90;
+      case "6months":
+      case "180":
+      default:
+        return 180;
+    }
   };
 
   const parseSearchTokens = (input: string): { tokens: string[]; isOr: boolean; notTokens: string[] } => {
@@ -5463,7 +5495,7 @@ function SearchCandidatesPage() {
             const { data: hydratedData } = await supabase
               .from("profiles")
               .select(`
-                id, first_name, last_name, avatar_url, headline, current_title, current_company, location, experience_type, total_experience, skills, about,
+                id, first_name, last_name, avatar_url, headline, current_title, current_company, location, experience_type, total_experience, skills, about, created_at, updated_at, last_active_at,
                 work_experience(id, company, title, start_date, end_date, description, is_current),
                 education(id, institution, degree, field, start_year, end_year)
               `)
@@ -5547,7 +5579,7 @@ function SearchCandidatesPage() {
             const { data: skillMatches } = await supabase
               .from("profiles")
               .select(`
-                id, first_name, last_name, avatar_url, headline, current_title, current_company, location, experience_type, total_experience, skills, about,
+                id, first_name, last_name, avatar_url, headline, current_title, current_company, location, experience_type, total_experience, skills, about, created_at, updated_at, last_active_at,
                 work_experience(id, company, title, start_date, end_date, description, is_current),
                 education(id, institution, degree, field, start_year, end_year)
               `)
@@ -5690,6 +5722,38 @@ function SearchCandidatesPage() {
         const cSkills = c.skills || [];
         return skillTags.every(tag => cSkills.some(s => skillsMatch(s, tag)));
       });
+      // Active In filter
+      const maxActiveDays = getActiveInDays(activeIn || "6months");
+      const activeCutoff = Date.now() - maxActiveDays * 24 * 60 * 60 * 1000;
+      raw = raw.filter(c => {
+        const activeDate = parseActiveDate(c);
+        if (!activeDate) return true;
+        return activeDate.getTime() >= activeCutoff;
+      });
+
+      // Industry filter (IT / Non-IT)
+      raw = raw.filter(c => {
+        if (!industry) return true;
+        const indLower = industry.toLowerCase();
+        const cText = [
+          c.headline,
+          c.current_title,
+          c.about,
+          ...(c.skills || []),
+          ...(c.work_experience || []).flatMap(w => [w.title, w.company, w.description])
+        ].filter(Boolean).join(" ").toLowerCase();
+
+        const itKeywords = [
+          "software", "developer", "engineer", "react", "node", "python", "java", "javascript",
+          "typescript", "tech", "technology", "it", "code", "frontend", "backend", "fullstack",
+          "cloud", "aws", "devops", "data", "ai", "ml", "system", "web", "mobile", "qa", "tester"
+        ];
+
+        const isItCandidate = itKeywords.some(kw => cText.includes(kw));
+        if (indLower === "it") return isItCandidate;
+        if (indLower === "non-it" || indLower === "no-it") return !isItCandidate;
+        return cText.includes(indLower);
+      });
 
       // Sort
       if (sortBy === "exp_desc") raw.sort((a, b) => parseExp(b) - parseExp(a));
@@ -5753,7 +5817,9 @@ function SearchCandidatesPage() {
     expSalMax,
     noticePeriod,
     education,
+    industry,
     expType,
+    activeIn,
     booleanSearchEnabled,
     booleanSearchError,
     sortBy,
@@ -5762,7 +5828,7 @@ function SearchCandidatesPage() {
   const clearAllFilters = () => {
     setExpMin(""); setExpMax(""); setCurSalMin(""); setCurSalMax("");
     setExpSalMax(""); setNoticePeriod(""); setEducation("");
-    setIndustry(""); setCurrentCompany(""); setExpType(""); setSkillTags([]);
+    setIndustry(""); setCurrentCompany(""); setExpType(""); setActiveIn("6months"); setSkillTags([]);
     setSearchPage(1);
     if (!keywords.trim()) {
       setSearched(false);
@@ -5790,7 +5856,7 @@ function SearchCandidatesPage() {
     window.scrollTo({ top: 0, behavior: "smooth" });
   }, [searchPage]);
 
-  const activeFilterCount = [expMin, expMax, curSalMin, curSalMax, expSalMax, noticePeriod, education, industry, currentCompany, expType].filter(Boolean).length + skillTags.length;
+  const activeFilterCount = [expMin, expMax, curSalMin, curSalMax, expSalMax, noticePeriod, education, industry, currentCompany, expType, activeIn !== "6months" ? "activeIn" : ""].filter(Boolean).length + skillTags.length;
 
   // ── Render ────────────────────────────────────────────────
   return (
@@ -5997,6 +6063,29 @@ function SearchCandidatesPage() {
             )}
           </div>
 
+          {/* Skills (Top Filter) */}
+          <div className="px-4 py-3 border-b border-gray-100">
+            <p className="text-xs font-semibold text-[#3A1F1F] mb-2 uppercase tracking-wide">Skills</p>
+            <div className="flex gap-1.5 mb-2 flex-wrap">
+              {skillTags.map(tag => (
+                <span key={tag} className="flex items-center gap-1 bg-[#FF2B2B] text-white text-xs px-2 py-0.5 rounded-full">
+                  {tag}
+                  <button onClick={() => setSkillTags(prev => prev.filter(t => t !== tag))} className="ml-0.5 hover:opacity-75">×</button>
+                </span>
+              ))}
+            </div>
+            <div className="flex gap-1">
+              <Input
+                value={skillInput}
+                onChange={e => setSkillInput(e.target.value)}
+                onKeyDown={e => { if (e.key === "Enter" || e.key === ",") { e.preventDefault(); addSkillTag(skillInput); } }}
+                className="bg-[#F6F6F6] border-gray-200 rounded-lg text-xs h-8 flex-1"
+                placeholder="Type skill + Enter"
+              />
+              <button onClick={() => addSkillTag(skillInput)} className="px-2 py-1 bg-[#FF2B2B] text-white rounded-lg text-xs hover:bg-[#e02525]">+</button>
+            </div>
+          </div>
+
           {/* Experience */}
           <div className="px-4 py-3 border-b border-gray-100">
             <p className="text-xs font-semibold text-[#3A1F1F] mb-2 uppercase tracking-wide">Experience</p>
@@ -6019,17 +6108,20 @@ function SearchCandidatesPage() {
             </div>
           </div>
 
-          {/* Candidate Type */}
+          {/* Active In Dropdown */}
           <div className="px-4 py-3 border-b border-gray-100">
-            <p className="text-xs font-semibold text-[#3A1F1F] mb-2 uppercase tracking-wide">Candidate Type</p>
-            <div className="space-y-1.5">
-              {[["", "All"], ["fresher", "Freshers only"], ["experienced", "Experienced only"]].map(([val, label]) => (
-                <label key={val} className="flex items-center gap-2 cursor-pointer">
-                  <input type="radio" name="expType" value={val} checked={expType === val} onChange={() => setExpType(val)} className="accent-[#FF2B2B]" />
-                  <span className="text-xs text-[#3A1F1F]">{label}</span>
-                </label>
-              ))}
-            </div>
+            <p className="text-xs font-semibold text-[#3A1F1F] mb-2 uppercase tracking-wide">Active In</p>
+            <Select value={activeIn || "6months"} onValueChange={v => setActiveIn(v)}>
+              <SelectTrigger className="bg-[#F6F6F6] border-gray-200 rounded-lg text-xs h-8"><SelectValue placeholder="6 months" /></SelectTrigger>
+              <SelectContent>
+                <SelectItem value="7days">7 days</SelectItem>
+                <SelectItem value="15days">15 days</SelectItem>
+                <SelectItem value="30days">30 days</SelectItem>
+                <SelectItem value="2months">2 months</SelectItem>
+                <SelectItem value="3months">3 months</SelectItem>
+                <SelectItem value="6months">6 months</SelectItem>
+              </SelectContent>
+            </Select>
           </div>
 
           {/* Current Salary */}
@@ -6054,17 +6146,32 @@ function SearchCandidatesPage() {
             </Select>
           </div>
 
-          {/* Notice Period */}
+          {/* Notice Period Dropdown */}
           <div className="px-4 py-3 border-b border-gray-100">
             <p className="text-xs font-semibold text-[#3A1F1F] mb-2 uppercase tracking-wide">Notice Period</p>
-            <div className="space-y-1.5">
-              {[["", "Any"], ["immediate", "Immediate joiner"], ["15", "≤ 15 days"], ["30", "≤ 30 days"], ["60", "≤ 60 days"]].map(([val, label]) => (
-                <label key={val} className="flex items-center gap-2 cursor-pointer">
-                  <input type="radio" name="notice" value={val} checked={noticePeriod === val} onChange={() => setNoticePeriod(val)} className="accent-[#FF2B2B]" />
-                  <span className="text-xs text-[#3A1F1F]">{label}</span>
-                </label>
-              ))}
-            </div>
+            <Select value={noticePeriod || "any"} onValueChange={v => setNoticePeriod(v === "any" ? "" : v)}>
+              <SelectTrigger className="bg-[#F6F6F6] border-gray-200 rounded-lg text-xs h-8"><SelectValue placeholder="Any" /></SelectTrigger>
+              <SelectContent>
+                <SelectItem value="any">Any Notice</SelectItem>
+                <SelectItem value="immediate">Immediate joiner</SelectItem>
+                <SelectItem value="15">≤ 15 days</SelectItem>
+                <SelectItem value="30">≤ 30 days</SelectItem>
+                <SelectItem value="60">≤ 60 days</SelectItem>
+              </SelectContent>
+            </Select>
+          </div>
+
+          {/* Industry Dropdown */}
+          <div className="px-4 py-3 border-b border-gray-100">
+            <p className="text-xs font-semibold text-[#3A1F1F] mb-2 uppercase tracking-wide">Industry</p>
+            <Select value={industry || "any"} onValueChange={v => setIndustry(v === "any" ? "" : v)}>
+              <SelectTrigger className="bg-[#F6F6F6] border-gray-200 rounded-lg text-xs h-8"><SelectValue placeholder="Any" /></SelectTrigger>
+              <SelectContent>
+                <SelectItem value="any">Any Industry</SelectItem>
+                <SelectItem value="it">IT</SelectItem>
+                <SelectItem value="non-it">Non-IT</SelectItem>
+              </SelectContent>
+            </Select>
           </div>
 
           {/* Education */}
@@ -6085,31 +6192,8 @@ function SearchCandidatesPage() {
             <Input value={currentCompany} onChange={e => setCurrentCompany(e.target.value)} className="bg-[#F6F6F6] border-gray-200 rounded-lg text-xs h-8" placeholder="Enter company name" />
           </div>
 
-          {/* Skills */}
-          <div className="px-4 py-3">
-            <p className="text-xs font-semibold text-[#3A1F1F] mb-2 uppercase tracking-wide">Skills</p>
-            <div className="flex gap-1.5 mb-2 flex-wrap">
-              {skillTags.map(tag => (
-                <span key={tag} className="flex items-center gap-1 bg-[#FF2B2B] text-white text-xs px-2 py-0.5 rounded-full">
-                  {tag}
-                  <button onClick={() => setSkillTags(prev => prev.filter(t => t !== tag))} className="ml-0.5 hover:opacity-75">×</button>
-                </span>
-              ))}
-            </div>
-            <div className="flex gap-1">
-              <Input
-                value={skillInput}
-                onChange={e => setSkillInput(e.target.value)}
-                onKeyDown={e => { if (e.key === "Enter" || e.key === ",") { e.preventDefault(); addSkillTag(skillInput); } }}
-                className="bg-[#F6F6F6] border-gray-200 rounded-lg text-xs h-8 flex-1"
-                placeholder="Type skill + Enter"
-              />
-              <button onClick={() => addSkillTag(skillInput)} className="px-2 py-1 bg-[#FF2B2B] text-white rounded-lg text-xs hover:bg-[#e02525]">+</button>
-            </div>
-          </div>
-
           {/* Apply Filters button */}
-          <div className="px-4 pb-4">
+          <div className="px-4 pb-4 pt-3">
             <Button onClick={handleSearch} disabled={searching} className="w-full bg-[#FF2B2B] hover:bg-[#e02525] text-white rounded-xl text-sm">
               {searching ? "Searching..." : "Apply Filters"}
             </Button>

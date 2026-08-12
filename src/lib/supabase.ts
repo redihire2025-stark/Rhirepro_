@@ -45,6 +45,17 @@ export interface Profile {
   profile_views?: number | null;
   recruiter_searches?: number | null;
   created_at: string;
+  updated_at?: string | null;
+  last_active_at?: string | null;
+  dob?: string | null;
+  gender?: string | null;
+  marital_status?: string | null;
+  desired_job_title?: string | null;
+  job_type_pref?: string | null;
+  preferred_location?: string | null;
+  work_auth?: string | null;
+  willing_to_relocate?: string | null;
+  languages?: Array<{ language: string; proficiency: string }> | null;
 }
 
 export interface RecruiterProfile {

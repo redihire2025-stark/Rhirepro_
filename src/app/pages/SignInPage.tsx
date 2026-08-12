@@ -164,6 +164,7 @@ export default function SignInPage() {
       await verifyOTP({ email, otp: otp.trim(), userType, purpose: "login" });
 
       if (userType === "jobseeker") {
+        await supabase.from("profiles").update({ last_active_at: new Date().toISOString(), otp_code: null, otp_expires_at: null }).eq("id", userId);
         navigate("/jobseeker/dashboard");
       } else {
         navigate(planRedirect ? `/recruiter/plan-details?plan=${planRedirect}` : "/recruiter/dashboard");

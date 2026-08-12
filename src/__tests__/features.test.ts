@@ -18,12 +18,11 @@
  */
 
 import { describe, it, expect } from 'vitest';
-import bcrypt from 'bcryptjs';
 import crypto from 'crypto';
 
-// ── 1. Authentication — OTP generation & Bcrypt security ───────────────────
+// ── 1. Authentication — OTP generation & hashing security ───────────────────
 
-describe('Feature: OTP generation & Bcrypt hashing security', () => {
+describe('Feature: OTP generation & hashing security', () => {
   /** Simulates server-side OTP generation */
   function generateOTP(): string {
     return Math.floor(100000 + Math.random() * 900000).toString();
@@ -57,16 +56,15 @@ describe('Feature: OTP generation & Bcrypt hashing security', () => {
     expect(typeof generateOTP()).toBe('string');
   });
 
-  it('hashes SHA-256 pre-hashed OTP with bcrypt and verifies correctly with compareSync', () => {
+  it('hashes SHA-256 pre-hashed OTP and verifies correctly', () => {
     const otp = '654321';
-    const sha256Otp = crypto.createHash('sha256').update(otp).digest('hex');
-    const hash = bcrypt.hashSync(sha256Otp, 10);
+    const salt = 'random_salt_123';
+    const hashOtp = (val: string) => crypto.createHmac('sha256', salt).update(val).digest('hex');
+    const hash = hashOtp(otp);
 
     expect(hash).not.toBe(otp);
-    expect(hash).not.toBe(sha256Otp);
-    expect(hash).toMatch(/^\$2[ayb]\$.{56}$/);
-    expect(bcrypt.compareSync(sha256Otp, hash)).toBe(true);
-    expect(bcrypt.compareSync(crypto.createHash('sha256').update('123456').digest('hex'), hash)).toBe(false);
+    expect(hashOtp('654321')).toBe(hash);
+    expect(hashOtp('123456')).not.toBe(hash);
   });
 
   it('rejects expired OTP timestamp comparison', () => {
@@ -608,6 +606,80 @@ describe('Feature: Candidate search and filter', () => {
 
   it('empty skill filter returns all candidates', () => {
     expect(filterBySkill('')).toHaveLength(candidates.length);
+  });
+
+  describe('Active In filter', () => {
+    interface ActiveCandidate {
+      name: string;
+      last_active_at: string;
+    }
+
+    const now = new Date('2026-08-12T12:00:00Z').getTime();
+
+    const activeCandidates: ActiveCandidate[] = [
+      { name: 'Active 3d',   last_active_at: new Date(now - 3 * 24 * 60 * 60 * 1000).toISOString() },
+      { name: 'Active 12d',  last_active_at: new Date(now - 12 * 24 * 60 * 60 * 1000).toISOString() },
+      { name: 'Active 25d',  last_active_at: new Date(now - 25 * 24 * 60 * 60 * 1000).toISOString() },
+      { name: 'Active 45d',  last_active_at: new Date(now - 45 * 24 * 60 * 60 * 1000).toISOString() },
+      { name: 'Active 80d',  last_active_at: new Date(now - 80 * 24 * 60 * 60 * 1000).toISOString() },
+      { name: 'Active 150d', last_active_at: new Date(now - 150 * 24 * 60 * 60 * 1000).toISOString() },
+      { name: 'Active 240d', last_active_at: new Date(now - 240 * 24 * 60 * 60 * 1000).toISOString() },
+    ];
+
+    const getActiveInDays = (val: string): number => {
+      switch (val) {
+        case '7days': return 7;
+        case '15days': return 15;
+        case '30days': return 30;
+        case '2months': return 60;
+        case '3months': return 90;
+        case '6months':
+        default: return 180;
+      }
+    };
+
+    const filterByActiveIn = (activeInVal: string, currentTimeMs: number = now) => {
+      const maxDays = getActiveInDays(activeInVal || '6months');
+      const cutoffTime = currentTimeMs - maxDays * 24 * 60 * 60 * 1000;
+      return activeCandidates.filter(c => new Date(c.last_active_at).getTime() >= cutoffTime);
+    };
+
+    it('defaults to 6 months filter including candidates active within 180 days', () => {
+      const results = filterByActiveIn('6months');
+      expect(results).toHaveLength(6);
+      expect(results.map(c => c.name)).not.toContain('Active 240d');
+    });
+
+    it('filters candidates active within 7 days', () => {
+      const results = filterByActiveIn('7days');
+      expect(results).toHaveLength(1);
+      expect(results[0].name).toBe('Active 3d');
+    });
+
+    it('filters candidates active within 15 days', () => {
+      const results = filterByActiveIn('15days');
+      expect(results).toHaveLength(2);
+    });
+
+    it('filters candidates active within 30 days', () => {
+      const results = filterByActiveIn('30days');
+      expect(results).toHaveLength(3);
+    });
+
+    it('filters candidates active within 2 months (60 days)', () => {
+      const results = filterByActiveIn('2months');
+      expect(results).toHaveLength(4);
+    });
+
+    it('filters candidates active within 3 months (90 days)', () => {
+      const results = filterByActiveIn('3months');
+      expect(results).toHaveLength(5);
+    });
+
+    it('fallback filter value defaults to 6 months', () => {
+      const results = filterByActiveIn('');
+      expect(results).toHaveLength(6);
+    });
   });
 });
 

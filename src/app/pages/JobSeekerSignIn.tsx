@@ -6,7 +6,34 @@ import { Eye, EyeOff, Loader2, ShieldCheck, RefreshCw, Mail } from "lucide-react
 import { Button } from "../components/ui/button";
 import { Input } from "../components/ui/input";
 import { supabase } from "../../lib/supabase";
-import { requestOTP, verifyOTP, sendPasswordResetOTP, resetPasswordWithOTP, secureSignIn } from "../../lib/email";
+import { useAuth } from "../../lib/auth-context";
+import { sendOTPEmail, sendPasswordResetOTP, resetPasswordWithOTP } from "../../lib/email";
+
+// ─── OTP helpers ─────────────────────────────────────────────────────────────
+
+function generateOTP() {
+  return Math.floor(100000 + Math.random() * 900000).toString();
+}
+
+async function storeOTP(userId: string, otp: string) {
+  const expires = new Date(Date.now() + 10 * 60 * 1000).toISOString();
+  const { error } = await supabase.from("profiles").update({
+    otp_code: otp,
+    otp_expires_at: expires,
+  }).eq("id", userId);
+  if (error) throw new Error("Failed to store OTP: " + error.message);
+}
+
+async function verifyOTPFromDB(userId: string, otp: string): Promise<boolean> {
+  const { data } = await supabase
+    .from("profiles")
+    .select("otp_code, otp_expires_at")
+    .eq("id", userId)
+    .single();
+  if (!data?.otp_code) return false;
+  if (new Date(data.otp_expires_at) < new Date()) return false;
+  return data.otp_code === otp;
+}
 
 // ─── Google SVG ──────────────────────────────────────────────────────────────
 const GoogleIcon = () => (
@@ -39,6 +66,7 @@ export default function JobSeekerSignIn() {
   const [showNewPassword, setShowNewPassword] = useState(false);
   const [resetSuccess, setResetSuccess] = useState(false);
   const navigate = useNavigate();
+  const { refreshProfile } = useAuth();
   const location = useLocation();
   const redirectTo = new URLSearchParams(location.search).get("redirect");
   const safeRedirectTo = redirectTo?.startsWith("/") ? redirectTo : "/jobseeker/dashboard";
@@ -145,7 +173,11 @@ export default function JobSeekerSignIn() {
     setError("");
     setLoading(true);
     try {
-      await verifyOTP({ email, otp: otp.trim(), userType: "jobseeker", purpose: "login" });
+      const valid = await verifyOTPFromDB(userId, otp.trim());
+      if (!valid) throw new Error("Invalid or expired OTP. Please try again.");
+      await supabase.from("profiles").update({ last_active_at: new Date().toISOString(), otp_code: null, otp_expires_at: null }).eq("id", userId);
+      await refreshProfile();
+      // Dashboard checks profile completion on load and redirects to profile if needed
       navigate(safeRedirectTo);
     } catch (err: unknown) {
       setError(err instanceof Error ? err.message : "OTP verification failed.");

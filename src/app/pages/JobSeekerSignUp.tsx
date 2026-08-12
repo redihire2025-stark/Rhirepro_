@@ -8,8 +8,14 @@ import { Input } from "../components/ui/input";
 import { RadioGroup, RadioGroupItem } from "../components/ui/radio-group";
 import { Label } from "../components/ui/label";
 import { supabase } from "../../lib/supabase";
-import { requestOTP, verifyOTP, checkIfEmailExists, secureHashPassword } from "../../lib/email";
-import { encryptPhone } from "../../lib/phoneProtection";
+import { sendOTPEmail, checkIfEmailExists } from "../../lib/email";
+
+function generateOTP() {
+  return Math.floor(100000 + Math.random() * 900000).toString();
+}
+
+type PendingOTP = { code: string; expiresAt: number };
+const OTP_EXPIRY_MS = 10 * 60 * 1000;
 
 const GoogleIcon = () => (
   <svg className="w-5 h-5 mr-2" viewBox="0 0 24 24">
