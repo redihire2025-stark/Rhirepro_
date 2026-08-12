@@ -18,6 +18,7 @@
  */
 
 import { describe, it, expect } from 'vitest';
+import { parsePreferredLocations } from '../lib/supabase';
 import crypto from 'crypto';
 
 // ── 1. Authentication — OTP generation & hashing security ───────────────────
@@ -789,5 +790,51 @@ describe('Feature: Job listings filter', () => {
 
   it('search with no match returns empty', () => {
     expect(searchTitle('Blockchain')).toHaveLength(0);
+  });
+});
+
+describe('Feature: Recruiter Multi-Location Candidate Search', () => {
+  const candidates = [
+    { id: '1', name: 'Alice', location: 'Bangalore, Karnataka', preferred_location: 'Remote' },
+    { id: '2', name: 'Bob', location: 'Hyderabad, Telangana', preferred_location: 'Bangalore, Pune' },
+    { id: '3', name: 'Charlie', location: 'Pune, Maharashtra', preferred_location: 'Mumbai' },
+    { id: '4', name: 'Diana', location: 'Delhi NCR', preferred_location: 'Gurgaon, Remote' },
+  ];
+
+  const filterCandidatesByLocations = (targetLocations: string[]) => {
+    if (!targetLocations || targetLocations.length === 0) return candidates;
+
+    return candidates.filter(c => {
+      const currentLoc = (c.location || "").toLowerCase();
+      const prefLocs = parsePreferredLocations(c.preferred_location).map((p: string) => p.toLowerCase());
+
+      return targetLocations.some(targetLoc => {
+        const tLower = targetLoc.toLowerCase();
+        const targetVars = [tLower];
+        if (tLower === "bangalore") targetVars.push("bengaluru");
+        if (tLower === "bengaluru") targetVars.push("bangalore");
+
+        const matchCurrent = targetVars.some(v => currentLoc.includes(v));
+        const matchPref = targetVars.some(v => prefLocs.some((p: string) => p.includes(v)));
+
+        return matchCurrent || matchPref;
+      });
+    });
+  };
+
+  it('matches candidates across multiple selected locations in current or preferred location', () => {
+    const results = filterCandidatesByLocations(['Bangalore', 'Remote']);
+    // Alice: current Bangalore -> match
+    // Bob: preferred Bangalore -> match
+    // Diana: preferred Remote -> match
+    expect(results.map(r => r.name)).toEqual(['Alice', 'Bob', 'Diana']);
+  });
+
+  it('returns candidates matching any single selected location out of multiple', () => {
+    const results = filterCandidatesByLocations(['Hyderabad', 'Pune']);
+    // Bob: current Hyderabad -> match
+    // Charlie: current Pune -> match
+    // Bob also preferred Pune -> match
+    expect(results.map(r => r.name)).toEqual(['Bob', 'Charlie']);
   });
 });

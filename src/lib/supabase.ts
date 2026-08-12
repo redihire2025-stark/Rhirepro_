@@ -52,10 +52,34 @@ export interface Profile {
   marital_status?: string | null;
   desired_job_title?: string | null;
   job_type_pref?: string | null;
-  preferred_location?: string | null;
+  preferred_location?: string | string[] | null;
   work_auth?: string | null;
   willing_to_relocate?: string | null;
   languages?: Array<{ language: string; proficiency: string }> | null;
+}
+
+export function parsePreferredLocations(val: string | string[] | null | undefined): string[] {
+  if (!val) return [];
+  if (Array.isArray(val)) {
+    return Array.from(new Set(val.map(s => s.trim()).filter(Boolean)));
+  }
+  if (typeof val === "string" && val.trim().startsWith("[")) {
+    try {
+      const parsed = JSON.parse(val);
+      if (Array.isArray(parsed)) {
+        return Array.from(new Set(parsed.map(s => String(s).trim()).filter(Boolean)));
+      }
+    } catch {
+      // Fallthrough to comma split
+    }
+  }
+  return Array.from(new Set(val.split(",").map(s => s.trim()).filter(Boolean)));
+}
+
+export function formatPreferredLocations(locations: string[]): string {
+  if (!locations || locations.length === 0) return "";
+  const cleaned = Array.from(new Set(locations.map(l => l.trim()).filter(Boolean)));
+  return cleaned.join(", ");
 }
 
 export interface RecruiterProfile {

@@ -1,6 +1,6 @@
 import { useState, useEffect, useCallback, useRef, useMemo, type ChangeEvent } from "react";
 import { useNavigate, Routes, Route, Link, useLocation, useParams } from "react-router";
-import { supabase, Job, Application, Notification, Profile, WorkExperience, Education as EduType, RecruiterSubscription, RecruiterArticle, PREFERRED_JOINING_TIME_OPTIONS } from "../../lib/supabase";
+import { supabase, Job, Application, Notification, Profile, WorkExperience, Education as EduType, RecruiterSubscription, RecruiterArticle, PREFERRED_JOINING_TIME_OPTIONS, parsePreferredLocations, formatPreferredLocations } from "../../lib/supabase";
 import {
   SALARY_AMOUNT_OPTIONS,
   JOB_EXPIRY_DAYS,
@@ -363,6 +363,156 @@ function LocationAutocomplete({
               })
             )}
           </div>
+        </div>
+      )}
+    </div>
+  );
+}
+
+function MultiLocationAutocomplete({
+  locations,
+  onChange,
+  onEnter,
+  placeholder = "Location",
+  className = "",
+}: {
+  locations: string[];
+  onChange: (locations: string[]) => void;
+  onEnter?: () => void;
+  placeholder?: string;
+  className?: string;
+}) {
+  const [inputSearch, setInputSearch] = useState("");
+  const [open, setOpen] = useState(false);
+  const wrapperRef = useRef<HTMLDivElement>(null);
+
+  const addCity = (city: string) => {
+    const cleaned = city.replace(/,/g, "").trim();
+    if (!cleaned) return;
+    if (!locations.some(l => l.toLowerCase() === cleaned.toLowerCase())) {
+      onChange([...locations, cleaned]);
+    }
+    setInputSearch("");
+    setOpen(false);
+  };
+
+  const removeCity = (city: string) => {
+    onChange(locations.filter(l => l.toLowerCase() !== city.toLowerCase()));
+  };
+
+  const filteredCities = useMemo(() => {
+    const query = inputSearch.replace(/,/g, "").trim().toLowerCase();
+    const existingLower = locations.map(l => l.toLowerCase());
+    const matches: string[] = [];
+
+    for (let i = 0; i < INDIA_CITY_OPTIONS.length; i++) {
+      const city = INDIA_CITY_OPTIONS[i];
+      if (existingLower.includes(city.toLowerCase())) continue;
+      if (!query || city.toLowerCase().includes(query) || fuzzyMatch(query, city)) {
+        matches.push(city);
+        if (matches.length >= 40) break;
+      }
+    }
+    return matches;
+  }, [inputSearch, locations]);
+
+  useEffect(() => {
+    if (!open) return;
+    const handleClickOutside = (event: MouseEvent) => {
+      if (!wrapperRef.current?.contains(event.target as Node)) {
+        setOpen(false);
+      }
+    };
+    document.addEventListener("mousedown", handleClickOutside);
+    return () => document.removeEventListener("mousedown", handleClickOutside);
+  }, [open]);
+
+  return (
+    <div className={`relative ${className}`} ref={wrapperRef}>
+      <div className="flex flex-wrap items-center gap-1.5 min-h-[42px] rounded-xl border border-gray-200 bg-[#F6F6F6] px-3 py-1.5 focus-within:border-[#FF2B2B] focus-within:ring-1 focus-within:ring-[#FF2B2B]">
+        <MapPin className={`h-4 w-4 shrink-0 transition-colors ${open ? "text-[#FF2B2B]" : "text-[#8A8A8A]"}`} />
+        {locations.map((loc) => (
+          <span
+            key={loc}
+            className="inline-flex items-center gap-1 rounded-full bg-[#FF2B2B] px-2.5 py-0.5 text-xs font-medium text-white shadow-sm"
+          >
+            <span>{loc}</span>
+            <button
+              type="button"
+              onClick={() => removeCity(loc)}
+              className="ml-0.5 rounded-full p-0.5 hover:bg-white/20 transition-colors"
+              title={`Remove ${loc}`}
+            >
+              <X className="h-3 w-3" />
+            </button>
+          </span>
+        ))}
+        <input
+          type="text"
+          value={inputSearch}
+          onFocus={() => setOpen(true)}
+          onChange={(e) => {
+            setInputSearch(e.target.value);
+            setOpen(true);
+          }}
+          onKeyDown={(e) => {
+            if (e.key === "Enter") {
+              e.preventDefault();
+              if (inputSearch.trim()) {
+                addCity(filteredCities[0] || inputSearch);
+              } else if (onEnter) {
+                onEnter();
+              }
+            }
+            if (e.key === ",") {
+              e.preventDefault();
+              if (inputSearch.trim()) addCity(inputSearch);
+            }
+            if (e.key === "Backspace" && !inputSearch && locations.length > 0) {
+              removeCity(locations[locations.length - 1]);
+            }
+            if (e.key === "Escape") setOpen(false);
+          }}
+          placeholder={locations.length > 0 ? "+ Add location..." : placeholder}
+          className="min-w-[100px] flex-1 bg-transparent text-sm text-[#3A1F1F] outline-none placeholder:text-[#8A8A8A]"
+        />
+        <button
+          type="button"
+          onClick={() => setOpen(current => !current)}
+          className={`transition-all shrink-0 ${open ? "text-[#FF2B2B] rotate-180" : "text-[#8A8A8A] hover:text-[#FF2B2B]"}`}
+        >
+          <ChevronDown className="h-4 w-4" />
+        </button>
+      </div>
+
+      {open && (
+        <div className="absolute left-0 right-0 top-full z-[80] mt-1 max-h-60 overflow-y-auto rounded-xl border border-gray-200 bg-white p-1 shadow-xl">
+          {filteredCities.length === 0 && inputSearch.trim() ? (
+            <button
+              type="button"
+              onClick={() => addCity(inputSearch)}
+              className="flex w-full items-center gap-2 rounded-lg px-3 py-2 text-left text-sm text-[#3A1F1F] hover:bg-[#FFF0F0] hover:text-[#FF2B2B] transition-colors"
+            >
+              <Plus className="h-4 w-4 text-[#FF2B2B]" />
+              <span>Add "{inputSearch.trim()}"</span>
+            </button>
+          ) : filteredCities.length === 0 ? (
+            <div className="px-3 py-2 text-xs text-[#8A8A8A] italic text-center">
+              All matching cities added
+            </div>
+          ) : (
+            filteredCities.map((city) => (
+              <button
+                key={city}
+                type="button"
+                onClick={() => addCity(city)}
+                className="flex w-full items-center gap-2 rounded-lg px-3 py-2 text-left text-sm text-[#3A1F1F] hover:bg-[#FFF0F0] hover:text-[#FF2B2B] transition-colors"
+              >
+                <MapPin className="h-3.5 w-3.5 text-[#FF2B2B] opacity-60" />
+                <span>{city}</span>
+              </button>
+            ))
+          )}
         </div>
       )}
     </div>
@@ -4911,6 +5061,7 @@ function SearchCandidatesPage() {
   // ── Search state ──────────────────────────────────────────
   const [keywords, setKeywords] = useState("");
   const [location, setLocation] = useState("");
+  const [locations, setLocations] = useState<string[]>([]);
   const [keywordSearchEnabled, setKeywordSearchEnabled] = useState(true);
   const [booleanSearchEnabled, setBooleanSearchEnabled] = useState(false);
   const [highlightedIndex, setHighlightedIndex] = useState(-1);
@@ -5432,7 +5583,11 @@ function SearchCandidatesPage() {
     }
     const activeKeywords = typeof overrideKeywords === "string" ? overrideKeywords : keywords;
     const trimmedKw = activeKeywords.trim();
-    const hasSearchCriteria = Boolean(trimmedKw);
+    const targetLocations = Array.from(new Set([
+      ...locations.map(l => l.trim()).filter(Boolean),
+      ...(location.trim() ? [location.trim()] : [])
+    ]));
+    const hasSearchCriteria = Boolean(trimmedKw) || targetLocations.length > 0 || Boolean(currentCompany.trim()) || Boolean(expType) || Boolean(expMin) || Boolean(expMax) || skillTags.length > 0;
 
     if (!hasSearchCriteria) {
       setSearching(false);
@@ -5553,19 +5708,31 @@ function SearchCandidatesPage() {
           }
         }
 
-        // Dedicated Location Filter with city variations (e.g., Bangalore <-> Bengaluru, Gurgaon <-> Gurugram)
-        if (location.trim()) {
-          const locLower = location.trim().toLowerCase();
-          const locVars = [locLower];
-          if (locLower === "bangalore") locVars.push("bengaluru");
-          if (locLower === "bengaluru") locVars.push("bangalore");
-          if (locLower === "gurgaon") locVars.push("gurugram");
-          if (locLower === "gurugram") locVars.push("gurgaon");
-          if (locLower === "mumbai") locVars.push("bombay");
-          if (locLower === "delhi") locVars.push("ncr");
+        // Dedicated Multi-Location Filter with city variations (e.g., Bangalore <-> Bengaluru, Gurgaon <-> Gurugram)
+        const targetLocations = Array.from(new Set([
+          ...locations.map(l => l.trim()).filter(Boolean),
+          ...(location.trim() ? [location.trim()] : [])
+        ]));
+        if (targetLocations.length > 0) {
+          const locClauses: string[] = [];
+          targetLocations.forEach(locStr => {
+            const locLower = locStr.toLowerCase();
+            const locVars = [locLower];
+            if (locLower === "bangalore") locVars.push("bengaluru");
+            if (locLower === "bengaluru") locVars.push("bangalore");
+            if (locLower === "gurgaon") locVars.push("gurugram");
+            if (locLower === "gurugram") locVars.push("gurgaon");
+            if (locLower === "mumbai") locVars.push("bombay");
+            if (locLower === "delhi") locVars.push("ncr");
 
-          const locClauses = locVars.map(v => `location.ilike.%${v}%`);
-          q = q.or(locClauses.join(","));
+            locVars.forEach(v => {
+              locClauses.push(`location.ilike.%${v}%`);
+              locClauses.push(`preferred_location.ilike.%${v}%`);
+            });
+          });
+          if (locClauses.length > 0) {
+            q = q.or(locClauses.join(","));
+          }
         }
 
         if (currentCompany.trim()) q = q.ilike("current_company", `%${currentCompany.trim()}%`);
@@ -5722,6 +5889,34 @@ function SearchCandidatesPage() {
         const cSkills = c.skills || [];
         return skillTags.every(tag => cSkills.some(s => skillsMatch(s, tag)));
       });
+      // Multi-location client filtering (matching candidate location or preferred_location)
+      const targetLocations = Array.from(new Set([
+        ...locations.map(l => l.trim()).filter(Boolean),
+        ...(location.trim() ? [location.trim()] : [])
+      ]));
+      if (targetLocations.length > 0) {
+        raw = raw.filter(c => {
+          const currentLoc = (c.location || "").toLowerCase();
+          const prefLocs = parsePreferredLocations(c.preferred_location).map((p: string) => p.toLowerCase());
+
+          return targetLocations.some(targetLoc => {
+            const tLower = targetLoc.toLowerCase();
+            const targetVars = [tLower];
+            if (tLower === "bangalore") targetVars.push("bengaluru");
+            if (tLower === "bengaluru") targetVars.push("bangalore");
+            if (tLower === "gurgaon") targetVars.push("gurugram");
+            if (tLower === "gurugram") targetVars.push("gurgaon");
+            if (tLower === "mumbai") targetVars.push("bombay");
+            if (tLower === "delhi") targetVars.push("ncr");
+
+            const matchCurrent = targetVars.some(v => currentLoc.includes(v));
+            const matchPref = targetVars.some(v => prefLocs.some((p: string) => p.includes(v)));
+
+            return matchCurrent || matchPref;
+          });
+        });
+      }
+
       // Active In filter
       const maxActiveDays = getActiveInDays(activeIn || "6months");
       const activeCutoff = Date.now() - maxActiveDays * 24 * 60 * 60 * 1000;
@@ -6005,12 +6200,12 @@ function SearchCandidatesPage() {
               </div>
             )}
           </div>
-          <LocationAutocomplete
-            value={location}
-            onChange={setLocation}
+          <MultiLocationAutocomplete
+            locations={locations}
+            onChange={setLocations}
             onEnter={handleSearch}
             placeholder="Location"
-            className="min-w-[160px]"
+            className="min-w-[200px] flex-1 md:flex-initial"
           />
           <Button onClick={handleSearch} disabled={searching || !!booleanSearchError} className="bg-[#FF2B2B] hover:bg-[#e02525] text-white rounded-xl px-6 disabled:opacity-50">
             <Search className="h-4 w-4 mr-2" /> {searching ? "Searching..." : "Search"}
