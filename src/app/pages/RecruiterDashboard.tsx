@@ -5720,6 +5720,30 @@ function SearchCandidatesPage() {
         return activeDate.getTime() >= activeCutoff;
       });
 
+      // Industry filter (IT / Non-IT)
+      raw = raw.filter(c => {
+        if (!industry) return true;
+        const indLower = industry.toLowerCase();
+        const cText = [
+          c.headline,
+          c.current_title,
+          c.about,
+          ...(c.skills || []),
+          ...(c.work_experience || []).flatMap(w => [w.title, w.company, w.description])
+        ].filter(Boolean).join(" ").toLowerCase();
+
+        const itKeywords = [
+          "software", "developer", "engineer", "react", "node", "python", "java", "javascript",
+          "typescript", "tech", "technology", "it", "code", "frontend", "backend", "fullstack",
+          "cloud", "aws", "devops", "data", "ai", "ml", "system", "web", "mobile", "qa", "tester"
+        ];
+
+        const isItCandidate = itKeywords.some(kw => cText.includes(kw));
+        if (indLower === "it") return isItCandidate;
+        if (indLower === "non-it" || indLower === "no-it") return !isItCandidate;
+        return cText.includes(indLower);
+      });
+
       // Sort
       if (sortBy === "exp_desc") raw.sort((a, b) => parseExp(b) - parseExp(a));
       else if (sortBy === "exp_asc") raw.sort((a, b) => parseExp(a) - parseExp(b));
@@ -5782,6 +5806,7 @@ function SearchCandidatesPage() {
     expSalMax,
     noticePeriod,
     education,
+    industry,
     expType,
     activeIn,
     booleanSearchEnabled,
@@ -6121,6 +6146,19 @@ function SearchCandidatesPage() {
                 <SelectItem value="15">≤ 15 days</SelectItem>
                 <SelectItem value="30">≤ 30 days</SelectItem>
                 <SelectItem value="60">≤ 60 days</SelectItem>
+              </SelectContent>
+            </Select>
+          </div>
+
+          {/* Industry Dropdown */}
+          <div className="px-4 py-3 border-b border-gray-100">
+            <p className="text-xs font-semibold text-[#3A1F1F] mb-2 uppercase tracking-wide">Industry</p>
+            <Select value={industry || "any"} onValueChange={v => setIndustry(v === "any" ? "" : v)}>
+              <SelectTrigger className="bg-[#F6F6F6] border-gray-200 rounded-lg text-xs h-8"><SelectValue placeholder="Any" /></SelectTrigger>
+              <SelectContent>
+                <SelectItem value="any">Any Industry</SelectItem>
+                <SelectItem value="it">IT</SelectItem>
+                <SelectItem value="non-it">Non-IT</SelectItem>
               </SelectContent>
             </Select>
           </div>
