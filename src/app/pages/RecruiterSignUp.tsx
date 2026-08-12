@@ -7,15 +7,9 @@ import { Button } from "../components/ui/button";
 import { Input } from "../components/ui/input";
 import { Select, SelectContent, SelectItem, SelectTrigger, SelectValue } from "../components/ui/select";
 import { supabase } from "../../lib/supabase";
-import { sendOTPEmail, checkIfEmailExists } from "../../lib/email";
+import { requestOTP, verifyOTP, checkIfEmailExists, secureHashPassword } from "../../lib/email";
+import { encryptPhone } from "../../lib/phoneProtection";
 import { INDUSTRY_OPTIONS } from "../../lib/jobMasterData";
-
-function generateOTP() {
-  return Math.floor(100000 + Math.random() * 900000).toString();
-}
-
-type PendingOTP = { code: string; expiresAt: number };
-const OTP_EXPIRY_MS = 10 * 60 * 1000;
 
 export default function RecruiterSignUp() {
   const [formData, setFormData] = useState({
@@ -35,7 +29,6 @@ export default function RecruiterSignUp() {
   const [success, setSuccess] = useState(false);
   const [step, setStep] = useState<"signup" | "otp">("signup");
   const [otp, setOtp] = useState("");
-  const [pendingOTP, setPendingOTP] = useState<PendingOTP | null>(null);
   const navigate = useNavigate();
 
   useEffect(() => {
@@ -69,10 +62,8 @@ export default function RecruiterSignUp() {
         return;
       }
 
-      const generatedOTP = generateOTP();
-      await sendOTPEmail(formData.email, generatedOTP, formData.recruiterName);
+      await requestOTP({ email: formData.email, name: formData.recruiterName, userType: "recruiter", purpose: "signup", checkSignup: true });
 
-      setPendingOTP({ code: generatedOTP, expiresAt: Date.now() + OTP_EXPIRY_MS });
       setOtp("");
       setStep("otp");
     } catch (err: unknown) {
@@ -84,9 +75,11 @@ export default function RecruiterSignUp() {
   };
 
   const createAccount = async () => {
+      const hashedPassword = await secureHashPassword(formData.password);
+      const encPhone = encryptPhone(formData.phone);
       const { data: authData, error: signUpError } = await supabase.auth.signUp({
         email: formData.email,
-        password: formData.password,
+        password: hashedPassword,
         options: {
           data: {
             role: "recruiter",
@@ -94,7 +87,7 @@ export default function RecruiterSignUp() {
             recruiter_name: formData.recruiterName,
             industry: formData.industry,
             company_size: formData.companySize,
-            phone: formData.phone,
+            phone: encPhone,
           },
         },
       });
@@ -112,7 +105,7 @@ export default function RecruiterSignUp() {
         company_name: formData.companyName,
         industry: formData.industry,
         company_size: formData.companySize,
-        phone: formData.phone,
+        phone: encPhone,
       }, { onConflict: "id", ignoreDuplicates: true });
 
       if (profileError && profileError.code !== "23505") {
@@ -134,13 +127,8 @@ export default function RecruiterSignUp() {
     setError("");
     setLoading(true);
     try {
-      if (!pendingOTP || pendingOTP.expiresAt < Date.now()) {
-        throw new Error("OTP has expired. Please request a new one.");
-      }
-      if (pendingOTP.code !== otp.trim()) throw new Error("Invalid OTP. Please try again.");
-
+      await verifyOTP({ email: formData.email, otp: otp.trim(), userType: "recruiter", purpose: "signup" });
       await createAccount();
-      setPendingOTP(null);
     } catch (err: unknown) {
       setError(err instanceof Error ? err.message : "OTP verification failed.");
     } finally {
@@ -152,9 +140,7 @@ export default function RecruiterSignUp() {
     setError("");
     setResendLoading(true);
     try {
-      const newOTP = generateOTP();
-      await sendOTPEmail(formData.email, newOTP, formData.recruiterName);
-      setPendingOTP({ code: newOTP, expiresAt: Date.now() + OTP_EXPIRY_MS });
+      await requestOTP({ email: formData.email, name: formData.recruiterName, userType: "recruiter", purpose: "signup", checkSignup: true });
     } catch {
       setError("Failed to resend OTP. Please try again.");
     } finally {
@@ -165,7 +151,6 @@ export default function RecruiterSignUp() {
   const handleBackToSignup = () => {
     setOtp("");
     setError("");
-    setPendingOTP(null);
     setStep("signup");
   };
 

@@ -1478,22 +1478,33 @@ export default function RecruiterDashboard() {
   const [checkingCompletion, setCheckingCompletion] = useState(isRootPath);
 
   useEffect(() => {
-    if (authLoading || !recruiterProfile || !user || recruiterCheckRef.current) return;
+    if (authLoading) return;
+    if (!user || !recruiterProfile) {
+      setCheckingCompletion(false);
+      return;
+    }
+    if (recruiterCheckRef.current) return;
     recruiterCheckRef.current = true;
+
     if (!isRootPath) { setCheckingCompletion(false); return; }
-    const rp = recruiterProfile;
-    let score = 0;
-    if (rp.recruiter_name) score += 10;
-    if (rp.company_name) score += 15;
-    if (rp.phone) score += 5;
-    if (rp.industry) score += 15;
-    if (rp.company_size) score += 10;
-    if (rp.company_type) score += 5;
-    if ((rp.company_description || "").trim().length > 20) score += 20;
-    if (rp.location) score += 10;
-    if (rp.website) score += 10;
-    setCheckingCompletion(false);
-    if (score < 100) navigate("/recruiter/dashboard/company-profile", { replace: true });
+    try {
+      const rp = recruiterProfile;
+      let score = 0;
+      if (rp.recruiter_name) score += 10;
+      if (rp.company_name) score += 15;
+      if (rp.phone) score += 5;
+      if (rp.industry) score += 15;
+      if (rp.company_size) score += 10;
+      if (rp.company_type) score += 5;
+      if ((rp.company_description || "").trim().length > 20) score += 20;
+      if (rp.location) score += 10;
+      if (rp.website) score += 10;
+      if (score < 100) navigate("/recruiter/dashboard/company-profile", { replace: true });
+    } catch (err) {
+      console.error("Error during recruiter profile completion check:", err);
+    } finally {
+      setCheckingCompletion(false);
+    }
   }, [authLoading, recruiterProfile, user, navigate, isRootPath]);
 
   const handleSignOut = async () => {
