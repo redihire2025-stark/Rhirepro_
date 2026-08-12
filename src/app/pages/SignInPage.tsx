@@ -54,6 +54,19 @@ export default function SignInPage() {
     };
   }, []);
 
+  const parseError = (err: unknown, fallback: string): string => {
+    if (!err) return fallback;
+    if (typeof err === "string") return err;
+    if (err instanceof Error && err.message) return err.message;
+    if (typeof err === "object") {
+      const obj = err as Record<string, any>;
+      if (typeof obj.message === "string" && obj.message) return obj.message;
+      if (typeof obj.error === "string" && obj.error) return obj.error;
+      if (typeof obj.error_description === "string" && obj.error_description) return obj.error_description;
+    }
+    return fallback;
+  };
+
   const handleForgotPassword = async (e: React.FormEvent) => {
     e.preventDefault();
     setForgotLoading(true);
@@ -62,7 +75,7 @@ export default function SignInPage() {
       await sendPasswordResetOTP(forgotEmail, userType);
       setStep("forgot-otp");
     } catch (err: unknown) {
-      setError(err instanceof Error ? err.message : "Failed to send reset OTP.");
+      setError(parseError(err, "Failed to send reset OTP. Please check your email."));
     } finally {
       setForgotLoading(false);
     }
@@ -78,7 +91,7 @@ export default function SignInPage() {
       await resetPasswordWithOTP(forgotEmail, forgotOtp, newPassword, userType);
       setResetSuccess(true);
     } catch (err: unknown) {
-      setError(err instanceof Error ? err.message : "Failed to reset password.");
+      setError(parseError(err, "Failed to reset password. Please check your OTP and try again."));
     } finally {
       setForgotLoading(false);
     }
