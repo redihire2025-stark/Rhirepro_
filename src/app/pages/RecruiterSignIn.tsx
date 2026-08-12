@@ -6,31 +6,7 @@ import { Eye, EyeOff, Loader2, ShieldCheck, RefreshCw, Building2, Mail } from "l
 import { Button } from "../components/ui/button";
 import { Input } from "../components/ui/input";
 import { supabase } from "../../lib/supabase";
-import { sendOTPEmail, sendPasswordResetOTP, resetPasswordWithOTP } from "../../lib/email";
-
-function generateOTP() {
-  return Math.floor(100000 + Math.random() * 900000).toString();
-}
-
-async function storeOTP(userId: string, otp: string) {
-  const expires = new Date(Date.now() + 10 * 60 * 1000).toISOString();
-  const { error } = await supabase.from("recruiter_profiles").update({
-    otp_code: otp,
-    otp_expires_at: expires,
-  }).eq("id", userId);
-  if (error) throw new Error("Failed to store OTP: " + error.message);
-}
-
-async function verifyOTPFromDB(userId: string, otp: string): Promise<boolean> {
-  const { data } = await supabase
-    .from("recruiter_profiles")
-    .select("otp_code, otp_expires_at")
-    .eq("id", userId)
-    .single();
-  if (!data?.otp_code) return false;
-  if (new Date(data.otp_expires_at) < new Date()) return false;
-  return data.otp_code === otp;
-}
+import { requestOTP, verifyOTP, sendPasswordResetOTP, resetPasswordWithOTP, secureSignIn } from "../../lib/email";
 
 export default function RecruiterSignIn() {
   const [step, setStep] = useState<"credentials" | "otp" | "forgot" | "forgot-otp">("credentials");
@@ -96,8 +72,8 @@ export default function RecruiterSignIn() {
     setError("");
     setLoading(true);
     try {
-      // 1. Authenticate
-      const { data, error: authErr } = await supabase.auth.signInWithPassword({ email, password });
+      // 1. Authenticate securely (SHA-256 pre-hashed password)
+      const { data, error: authErr } = await secureSignIn(email, password);
       if (authErr) throw new Error("Invalid email or password. Please try again.");
       if (!data.user) throw new Error("Authentication failed.");
 
@@ -124,9 +100,6 @@ export default function RecruiterSignIn() {
         throw new Error("This account has been disabled. Please contact your organization admin.");
       }
 
-      // 4. Generate & send a real OTP for every account, no bypass
-      const generatedOTP = generateOTP();
-      await storeOTP(data.user.id, generatedOTP);
       setUserId(data.user.id);
       setDisplayName(rp.recruiter_name || "");
       // Org admin accounts follow the admin_org{n}@redhire.dev convention (10 companies, org1-org10).
@@ -140,7 +113,7 @@ export default function RecruiterSignIn() {
       const hasOrgSeats = (rp.max_seats ?? 0) > 5;
       setIsOrgAdmin((rp.org_role === "admin" && hasOrgSeats) || !!rp.is_org_admin || isOrgAdminEmail);
 
-      await sendOTPEmail(email, generatedOTP, rp.recruiter_name || "");
+      await requestOTP({ email, name: rp.recruiter_name || "", userType: "recruiter", purpose: "login" });
 
       setStep("otp");
     } catch (err: unknown) {
@@ -155,10 +128,8 @@ export default function RecruiterSignIn() {
     setError("");
     setLoading(true);
     try {
-      const valid = await verifyOTPFromDB(userId, otp.trim());
-      if (!valid) throw new Error("Invalid or expired OTP. Please try again.");
-      await supabase.from("recruiter_profiles").update({ otp_code: null, otp_expires_at: null, last_login_at: new Date().toISOString() }).eq("id", userId);
-      // Dashboard checks profile completion on load and redirects to company-profile if needed
+      await verifyOTP({ email, otp: otp.trim(), userType: "recruiter", purpose: "login" });
+      await supabase.from("recruiter_profiles").update({ last_login_at: new Date().toISOString() }).eq("id", userId);
       navigate(isOrgAdmin ? "/recruiter/admin" : "/recruiter/dashboard");
     } catch (err: unknown) {
       setError(err instanceof Error ? err.message : "OTP verification failed.");
@@ -168,13 +139,11 @@ export default function RecruiterSignIn() {
   };
 
   const handleResendOTP = async () => {
-    if (!userId) return;
+    if (!email) return;
     setResendLoading(true);
     setError("");
     try {
-      const newOTP = generateOTP();
-      await storeOTP(userId, newOTP);
-      await sendOTPEmail(email, newOTP, displayName);
+      await requestOTP({ email, name: displayName, userType: "recruiter", purpose: "login" });
       setOtp("");
     } catch {
       setError("Failed to resend OTP. Please try again.");

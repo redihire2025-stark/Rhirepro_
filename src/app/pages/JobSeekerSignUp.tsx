@@ -43,7 +43,6 @@ export default function JobSeekerSignUp() {
   const [success, setSuccess] = useState(false);
   const [step, setStep] = useState<"signup" | "otp">("signup");
   const [otp, setOtp] = useState("");
-  const [pendingOTP, setPendingOTP] = useState<PendingOTP | null>(null);
   const navigate = useNavigate();
   const location = useLocation();
   const redirectTo = new URLSearchParams(location.search).get("redirect");
@@ -80,10 +79,9 @@ export default function JobSeekerSignUp() {
         return;
       }
 
-      const generatedOTP = generateOTP();
-      await sendOTPEmail(formData.email, generatedOTP, [formData.firstName, formData.lastName].filter(Boolean).join(" "));
+      const fullName = [formData.firstName, formData.lastName].filter(Boolean).join(" ");
+      await requestOTP({ email: formData.email, name: fullName, userType: "jobseeker", purpose: "signup", checkSignup: true });
 
-      setPendingOTP({ code: generatedOTP, expiresAt: Date.now() + OTP_EXPIRY_MS });
       setOtp("");
       setStep("otp");
     } catch (err: unknown) {
@@ -99,15 +97,17 @@ export default function JobSeekerSignUp() {
   };
 
   const createAccount = async () => {
+    const hashedPassword = await secureHashPassword(formData.password);
+    const encPhone = encryptPhone(formData.mobile);
     const { data: authData, error: signUpError } = await supabase.auth.signUp({
         email: formData.email,
-        password: formData.password,
+        password: hashedPassword,
         options: {
           data: {
             role: "jobseeker",
             first_name: formData.firstName,
             last_name: formData.lastName,
-            phone: formData.mobile,
+            phone: encPhone,
             experience: formData.experience,
           },
         },
@@ -124,7 +124,7 @@ export default function JobSeekerSignUp() {
         email: formData.email,
         first_name: formData.firstName,
         last_name: formData.lastName,
-        phone: formData.mobile,
+        phone: encPhone,
         experience_type: formData.experience as "fresher" | "experienced",
       }, { onConflict: "id", ignoreDuplicates: true });
 
@@ -148,13 +148,8 @@ export default function JobSeekerSignUp() {
     setError("");
     setLoading(true);
     try {
-      if (!pendingOTP || pendingOTP.expiresAt < Date.now()) {
-        throw new Error("OTP has expired. Please request a new one.");
-      }
-      if (pendingOTP.code !== otp.trim()) throw new Error("Invalid OTP. Please try again.");
-
+      await verifyOTP({ email: formData.email, otp: otp.trim(), userType: "jobseeker", purpose: "signup" });
       await createAccount();
-      setPendingOTP(null);
     } catch (err: unknown) {
       setError(err instanceof Error ? err.message : "OTP verification failed.");
     } finally {
@@ -166,9 +161,8 @@ export default function JobSeekerSignUp() {
     setError("");
     setResendLoading(true);
     try {
-      const newOTP = generateOTP();
-      await sendOTPEmail(formData.email, newOTP, [formData.firstName, formData.lastName].filter(Boolean).join(" "));
-      setPendingOTP({ code: newOTP, expiresAt: Date.now() + OTP_EXPIRY_MS });
+      const fullName = [formData.firstName, formData.lastName].filter(Boolean).join(" ");
+      await requestOTP({ email: formData.email, name: fullName, userType: "jobseeker", purpose: "signup", checkSignup: true });
     } catch {
       setError("Failed to resend OTP. Please try again.");
     } finally {
@@ -179,7 +173,6 @@ export default function JobSeekerSignUp() {
   const handleBackToSignup = () => {
     setOtp("");
     setError("");
-    setPendingOTP(null);
     setStep("signup");
   };
 

@@ -115,8 +115,8 @@ export default function JobSeekerSignIn() {
     setError("");
     setLoading(true);
     try {
-      // 1. Authenticate with Supabase
-      const { data, error: authErr } = await supabase.auth.signInWithPassword({ email, password });
+      // 1. Authenticate with Supabase securely (SHA-256 pre-hashed password)
+      const { data, error: authErr } = await secureSignIn(email, password);
       if (authErr) throw new Error("Invalid email or password. Please try again.");
       if (!data.user) throw new Error("Authentication failed.");
 
@@ -153,14 +153,11 @@ export default function JobSeekerSignIn() {
         }
       }
 
-      // 4. Generate & store OTP
-      const generatedOTP = generateOTP();
-      await storeOTP(data.user.id, generatedOTP);
+      // 4. Request server-side OTP generation & email delivery
       setUserId(data.user.id);
-
       const fullName = [firstName, lastName].filter(Boolean).join(" ");
       setDisplayName(fullName);
-      await sendOTPEmail(email, generatedOTP, fullName);
+      await requestOTP({ email, name: fullName, userType: "jobseeker", purpose: "login" });
 
       setStep("otp");
     } catch (err: unknown) {
@@ -191,13 +188,11 @@ export default function JobSeekerSignIn() {
 
   // ── Resend OTP ────────────────────────────────────────────────────────────
   const handleResendOTP = async () => {
-    if (!userId) return;
+    if (!email) return;
     setResendLoading(true);
     setError("");
     try {
-      const newOTP = generateOTP();
-      await storeOTP(userId, newOTP);
-      await sendOTPEmail(email, newOTP, displayName);
+      await requestOTP({ email, name: displayName, userType: "jobseeker", purpose: "login" });
       setOtp("");
     } catch {
       setError("Failed to resend OTP. Please try again.");

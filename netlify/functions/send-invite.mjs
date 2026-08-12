@@ -57,9 +57,9 @@ export default async (request) => {
   const supabaseUrl =
     process.env.SUPABASE_URL || process.env.VITE_SUPABASE_URL;
   const serviceKey = process.env.SUPABASE_SERVICE_ROLE_KEY;
-  const brevoKey = process.env.BREVO_API_KEY;
-  const senderEmail = process.env.BREVO_SENDER_EMAIL;
-  const senderName = process.env.BREVO_SENDER_NAME || "RhirePro";
+  const resendKey = process.env.RESEND_API_KEY || process.env.VITE_RESEND_API_KEY;
+  const senderEmail = process.env.RESEND_SENDER_EMAIL || process.env.VITE_RESEND_SENDER_EMAIL || "support@rhirepro.com";
+  const senderName = process.env.RESEND_SENDER_NAME || process.env.VITE_RESEND_SENDER_NAME || "RhirePro";
   // DEPLOY_PRIME_URL resolves correctly per-context: the dev branch's stable URL on
   // branch deploys, and the production URL on production deploys. URL alone always
   // points at production, which broke invite links sent while testing on a preview
@@ -70,7 +70,7 @@ export default async (request) => {
     process.env.DEPLOY_URL ||
     "https://rhirepro.netlify.app";
 
-  if (!supabaseUrl || !serviceKey || !brevoKey || !senderEmail) {
+  if (!supabaseUrl || !serviceKey || !resendKey) {
     return new Response(
       JSON.stringify({ error: "Server configuration error" }),
       { status: 500, headers: { "Content-Type": "application/json" } }
@@ -148,21 +148,21 @@ export default async (request) => {
     );
   }
 
-  // 2. Send invitation email via Brevo
+  // 2. Send invitation email via Resend
   const inviteUrl = `${siteUrl}/recruiter/join/${token}`;
   const adminName = invited_by_name || company_name;
 
-  const emailRes = await fetch("https://api.brevo.com/v3/smtp/email", {
+  const emailRes = await fetch("https://api.resend.com/emails", {
     method: "POST",
     headers: {
       "Content-Type": "application/json",
-      "api-key": brevoKey,
+      "Authorization": `Bearer ${resendKey}`,
     },
     body: JSON.stringify({
-      sender: { name: senderName, email: senderEmail },
-      to: [{ email: invited_email }],
+      from: `${senderName} <${senderEmail}>`,
+      to: [invited_email],
       subject: `${adminName} invited you to join ${company_name} on RhirePro`,
-      htmlContent: `
+      html: `
         <div style="font-family:sans-serif;max-width:520px;margin:0 auto;padding:32px;">
           <h2 style="color:#FF2B2B;margin-bottom:4px;">RhirePro</h2>
           <p style="color:#8A8A8A;font-size:12px;margin-top:0;">Recruiter Platform</p>

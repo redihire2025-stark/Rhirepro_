@@ -6,14 +6,8 @@ import { Checkbox } from "../components/ui/checkbox";
 import { User, Briefcase, Mail, Lock, UserCircle, Building2, Phone, Eye, EyeOff, Loader2, CheckCircle, RefreshCw, ShieldCheck } from "lucide-react";
 const logoImage = new URL("../../logo/logo.png", import.meta.url).href;
 import { supabase } from "../../lib/supabase";
-import { sendOTPEmail, checkIfEmailExists } from "../../lib/email";
-
-function generateOTP() {
-  return Math.floor(100000 + Math.random() * 900000).toString();
-}
-
-type PendingOTP = { code: string; expiresAt: number };
-const OTP_EXPIRY_MS = 10 * 60 * 1000;
+import { requestOTP, verifyOTP, checkIfEmailExists, secureHashPassword } from "../../lib/email";
+import { encryptPhone } from "../../lib/phoneProtection";
 
 export default function SignUpPage() {
   const navigate = useNavigate();
@@ -38,7 +32,6 @@ export default function SignUpPage() {
   const [success, setSuccess] = useState(false);
   const [step, setStep] = useState<"signup" | "otp">("signup");
   const [otp, setOtp] = useState("");
-  const [pendingOTP, setPendingOTP] = useState<PendingOTP | null>(null);
   const [pendingUserType, setPendingUserType] = useState<"jobseeker" | "recruiter">(initialUserType);
 
   useEffect(() => {
@@ -75,10 +68,8 @@ export default function SignUpPage() {
         return;
       }
 
-      const generatedOTP = generateOTP();
-      await sendOTPEmail(formData.email, generatedOTP, formData.name);
+      await requestOTP({ email: formData.email, name: formData.name, userType, purpose: "signup", checkSignup: true });
 
-      setPendingOTP({ code: generatedOTP, expiresAt: Date.now() + OTP_EXPIRY_MS });
       setPendingUserType(userType);
       setOtp("");
       setStep("otp");
@@ -91,6 +82,8 @@ export default function SignUpPage() {
   };
 
   const createAccount = async () => {
+    const hashedPassword = await secureHashPassword(formData.password);
+    const encPhone = encryptPhone(formData.phone);
     if (pendingUserType === "jobseeker") {
       const parts = formData.name.trim().split(" ");
       const firstName = parts[0] || "";
@@ -98,13 +91,13 @@ export default function SignUpPage() {
 
       const { data: authData, error: signUpError } = await supabase.auth.signUp({
         email: formData.email,
-        password: formData.password,
+        password: hashedPassword,
         options: {
           data: {
             role: "jobseeker",
             first_name: firstName,
             last_name: lastName,
-            phone: formData.phone,
+            phone: encPhone,
           },
         },
       });
@@ -120,7 +113,7 @@ export default function SignUpPage() {
         email: formData.email,
         first_name: firstName,
         last_name: lastName,
-        phone: formData.phone,
+        phone: encPhone,
         experience_type: "fresher",
       }, { onConflict: "id", ignoreDuplicates: true });
       if (profileError && profileError.code !== "23505") {
@@ -129,13 +122,13 @@ export default function SignUpPage() {
     } else {
       const { data: authData, error: signUpError } = await supabase.auth.signUp({
         email: formData.email,
-        password: formData.password,
+        password: hashedPassword,
         options: {
           data: {
             role: "recruiter",
             recruiter_name: formData.name,
             company_name: formData.company,
-            phone: formData.phone,
+            phone: encPhone,
           },
         },
       });
@@ -151,7 +144,7 @@ export default function SignUpPage() {
         email: formData.email,
         recruiter_name: formData.name,
         company_name: formData.company,
-        phone: formData.phone,
+        phone: encPhone,
       }, { onConflict: "id", ignoreDuplicates: true });
       if (profileError && profileError.code !== "23505") {
         console.warn("Recruiter profile insert (non-fatal):", profileError.message);
@@ -173,13 +166,8 @@ export default function SignUpPage() {
     setError("");
     setLoading(true);
     try {
-      if (!pendingOTP || pendingOTP.expiresAt < Date.now()) {
-        throw new Error("OTP has expired. Please request a new one.");
-      }
-      if (pendingOTP.code !== otp.trim()) throw new Error("Invalid OTP. Please try again.");
-
+      await verifyOTP({ email: formData.email, otp: otp.trim(), userType: pendingUserType, purpose: "signup" });
       await createAccount();
-      setPendingOTP(null);
     } catch (err: unknown) {
       setError(err instanceof Error ? err.message : "OTP verification failed.");
     } finally {
@@ -191,9 +179,7 @@ export default function SignUpPage() {
     setError("");
     setResendLoading(true);
     try {
-      const newOTP = generateOTP();
-      await sendOTPEmail(formData.email, newOTP, formData.name);
-      setPendingOTP({ code: newOTP, expiresAt: Date.now() + OTP_EXPIRY_MS });
+      await requestOTP({ email: formData.email, name: formData.name, userType: pendingUserType, purpose: "signup", checkSignup: true });
     } catch {
       setError("Failed to resend OTP. Please try again.");
     } finally {
@@ -204,7 +190,6 @@ export default function SignUpPage() {
   const handleBackToSignup = () => {
     setOtp("");
     setError("");
-    setPendingOTP(null);
     setStep("signup");
   };
 
