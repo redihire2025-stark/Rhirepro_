@@ -76,6 +76,14 @@ export function AuthProvider({ children }: { children: ReactNode }) {
           // Ignore fallback errors and proceed to set null
         }
       }
+      if (data) {
+        const lastActiveMs = data.last_active_at ? new Date(data.last_active_at).getTime() : 0;
+        if (Date.now() - lastActiveMs > 5 * 60 * 1000) {
+          const nowIso = new Date().toISOString();
+          data.last_active_at = nowIso;
+          void supabase.from("profiles").update({ last_active_at: nowIso }).eq("id", userId);
+        }
+      }
       setProfile(data);
       setRecruiterProfile(null);
     }
