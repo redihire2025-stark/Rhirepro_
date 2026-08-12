@@ -6,33 +6,7 @@ import { Eye, EyeOff, Loader2, ShieldCheck, RefreshCw, Mail } from "lucide-react
 import { Button } from "../components/ui/button";
 import { Input } from "../components/ui/input";
 import { supabase } from "../../lib/supabase";
-import { sendOTPEmail, sendPasswordResetOTP, resetPasswordWithOTP } from "../../lib/email";
-
-// ─── OTP helpers ─────────────────────────────────────────────────────────────
-
-function generateOTP() {
-  return Math.floor(100000 + Math.random() * 900000).toString();
-}
-
-async function storeOTP(userId: string, otp: string) {
-  const expires = new Date(Date.now() + 10 * 60 * 1000).toISOString();
-  const { error } = await supabase.from("profiles").update({
-    otp_code: otp,
-    otp_expires_at: expires,
-  }).eq("id", userId);
-  if (error) throw new Error("Failed to store OTP: " + error.message);
-}
-
-async function verifyOTPFromDB(userId: string, otp: string): Promise<boolean> {
-  const { data } = await supabase
-    .from("profiles")
-    .select("otp_code, otp_expires_at")
-    .eq("id", userId)
-    .single();
-  if (!data?.otp_code) return false;
-  if (new Date(data.otp_expires_at) < new Date()) return false;
-  return data.otp_code === otp;
-}
+import { requestOTP, verifyOTP, sendPasswordResetOTP, resetPasswordWithOTP, secureSignIn } from "../../lib/email";
 
 // ─── Google SVG ──────────────────────────────────────────────────────────────
 const GoogleIcon = () => (
@@ -113,8 +87,8 @@ export default function JobSeekerSignIn() {
     setError("");
     setLoading(true);
     try {
-      // 1. Authenticate with Supabase
-      const { data, error: authErr } = await supabase.auth.signInWithPassword({ email, password });
+      // 1. Authenticate with Supabase securely (SHA-256 pre-hashed password)
+      const { data, error: authErr } = await secureSignIn(email, password);
       if (authErr) throw new Error("Invalid email or password. Please try again.");
       if (!data.user) throw new Error("Authentication failed.");
 
@@ -151,14 +125,11 @@ export default function JobSeekerSignIn() {
         }
       }
 
-      // 4. Generate & store OTP
-      const generatedOTP = generateOTP();
-      await storeOTP(data.user.id, generatedOTP);
+      // 4. Request server-side OTP generation & email delivery
       setUserId(data.user.id);
-
       const fullName = [firstName, lastName].filter(Boolean).join(" ");
       setDisplayName(fullName);
-      await sendOTPEmail(email, generatedOTP, fullName);
+      await requestOTP({ email, name: fullName, userType: "jobseeker", purpose: "login" });
 
       setStep("otp");
     } catch (err: unknown) {
@@ -174,10 +145,7 @@ export default function JobSeekerSignIn() {
     setError("");
     setLoading(true);
     try {
-      const valid = await verifyOTPFromDB(userId, otp.trim());
-      if (!valid) throw new Error("Invalid or expired OTP. Please try again.");
-      await supabase.from("profiles").update({ otp_code: null, otp_expires_at: null }).eq("id", userId);
-      // Dashboard checks profile completion on load and redirects to profile if needed
+      await verifyOTP({ email, otp: otp.trim(), userType: "jobseeker", purpose: "login" });
       navigate(safeRedirectTo);
     } catch (err: unknown) {
       setError(err instanceof Error ? err.message : "OTP verification failed.");
@@ -188,13 +156,11 @@ export default function JobSeekerSignIn() {
 
   // ── Resend OTP ────────────────────────────────────────────────────────────
   const handleResendOTP = async () => {
-    if (!userId) return;
+    if (!email) return;
     setResendLoading(true);
     setError("");
     try {
-      const newOTP = generateOTP();
-      await storeOTP(userId, newOTP);
-      await sendOTPEmail(email, newOTP, displayName);
+      await requestOTP({ email, name: displayName, userType: "jobseeker", purpose: "login" });
       setOtp("");
     } catch {
       setError("Failed to resend OTP. Please try again.");

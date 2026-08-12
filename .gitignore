@@ -64,5 +64,6 @@ venv/
 /Lib/
 /venv/Scripts/
 !/scripts/
+scripts/*.exe
 .env
-.exe
+*.exe

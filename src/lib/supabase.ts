@@ -66,8 +66,8 @@ export interface RecruiterProfile {
   linkedin_url: string | null;
   cin: string | null;
   founded: string | null;
-  otp_code: string | null;
-  otp_expires_at: string | null;
+  otp_code?: string | null;
+  otp_expires_at?: string | null;
   is_org_admin: boolean;
   org_id: string | null;
   is_disabled: boolean;

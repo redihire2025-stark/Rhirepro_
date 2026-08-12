@@ -789,7 +789,12 @@ export default function JobSeekerDashboard() {
   });
 
   useEffect(() => {
-    if (authLoading || !profile || !user || completionCheckRef.current) return;
+    if (authLoading) return;
+    if (!user || !profile) {
+      setCheckingCompletion(false);
+      return;
+    }
+    if (completionCheckRef.current) return;
     completionCheckRef.current = true;
 
     const sessionKey = `jobseeker_initial_check_done_${user.id}`;
@@ -809,31 +814,36 @@ export default function JobSeekerDashboard() {
     const pid = profile.id;
     (async () => {
       try {
-        window.sessionStorage.setItem(sessionKey, "true");
-      } catch {
-        // ignore storage errors
-      }
+        try {
+          window.sessionStorage.setItem(sessionKey, "true");
+        } catch {
+          // ignore storage errors
+        }
 
-      const [expRes, eduRes, projRes, certRes] = await Promise.all([
-        supabase.from("work_experience").select("id", { count: "exact", head: true }).eq("profile_id", pid),
-        supabase.from("education").select("id", { count: "exact", head: true }).eq("profile_id", pid),
-        supabase.from("projects").select("id", { count: "exact", head: true }).eq("profile_id", pid),
-        supabase.from("certifications").select("id", { count: "exact", head: true }).eq("profile_id", pid),
-      ]);
-      let score = 0;
-      const name = [profile.first_name, profile.last_name].filter(Boolean).join(" ");
-      score += Math.round(([name, profile.phone, profile.email, profile.location].filter(Boolean).length / 4) * 15);
-      if ((profile.about || "").trim().length > 20) score += 10;
-      score += Math.min(10, Math.round(((profile.skills?.length || 0) / 3) * 10));
-      if ((expRes.count || 0) > 0) score += 20;
-      if ((eduRes.count || 0) > 0) score += 15;
-      if ((projRes.count || 0) > 0) score += 5;
-      if ((certRes.count || 0) > 0) score += 5;
-      if (profile.resume_url) score += 10;
-      const p = profile as any;
-      score += Math.round(([p.expected_salary, p.notice_period].filter(Boolean).length / 2) * 10);
-      setCheckingCompletion(false);
-      if (Math.min(100, score) < 100) navigate("/jobseeker/dashboard/profile", { replace: true });
+        const [expRes, eduRes, projRes, certRes] = await Promise.all([
+          supabase.from("work_experience").select("id", { count: "exact", head: true }).eq("profile_id", pid),
+          supabase.from("education").select("id", { count: "exact", head: true }).eq("profile_id", pid),
+          supabase.from("projects").select("id", { count: "exact", head: true }).eq("profile_id", pid),
+          supabase.from("certifications").select("id", { count: "exact", head: true }).eq("profile_id", pid),
+        ]);
+        let score = 0;
+        const name = [profile.first_name, profile.last_name].filter(Boolean).join(" ");
+        score += Math.round(([name, profile.phone, profile.email, profile.location].filter(Boolean).length / 4) * 15);
+        if ((profile.about || "").trim().length > 20) score += 10;
+        score += Math.min(10, Math.round(((profile.skills?.length || 0) / 3) * 10));
+        if ((expRes.count || 0) > 0) score += 20;
+        if ((eduRes.count || 0) > 0) score += 15;
+        if ((projRes.count || 0) > 0) score += 5;
+        if ((certRes.count || 0) > 0) score += 5;
+        if (profile.resume_url) score += 10;
+        const p = profile as any;
+        score += Math.round(([p.expected_salary, p.notice_period].filter(Boolean).length / 2) * 10);
+        if (Math.min(100, score) < 100) navigate("/jobseeker/dashboard/profile", { replace: true });
+      } catch (err) {
+        console.error("Error during profile completion check:", err);
+      } finally {
+        setCheckingCompletion(false);
+      }
     })();
   }, [authLoading, profile, user, navigate, isRootPath]);
   const [notificationsOpen, setNotificationsOpen] = useState(false);
@@ -1319,6 +1329,7 @@ function getFuzzyExpandedTerms(term: string): string[] {
 // ── Find a Job ─────────────────────────────────────────────────────────────────
 function FindJobPage() {
   const { profile } = useAuth();
+  const navigate = useNavigate();
   const userId = profile?.id;
   const profileSkills = Array.isArray(profile?.skills)
     ? profile.skills.filter((value): value is string => typeof value === "string")
@@ -2155,6 +2166,10 @@ function FindJobPage() {
   }
 
   function handleChipClick(chip: string) {
+    if (chip === "Saved Jobs") {
+      navigate("/jobseeker/dashboard/analytics?tab=saved");
+      return;
+    }
     if (chip === "Remote") {
       const nextVal = remoteFilter === "yes" ? "" : "yes";
       setRemoteFilter(nextVal);
@@ -2175,6 +2190,7 @@ function FindJobPage() {
   }
 
   function isChipActive(chip: string): boolean {
+    if (chip === "Saved Jobs") return false;
     if (chip === "Remote") return remoteFilter === "yes" || selectedChip === "Remote";
     if (chip === "Full-time") return jobTypeFilter === "fulltime" || selectedChip === "Full-time";
     if (chip === "Part-time") return jobTypeFilter === "parttime" || selectedChip === "Part-time";
@@ -2254,7 +2270,7 @@ function FindJobPage() {
 
           {/* Type Chips */}
           <div className="flex justify-center gap-3 mt-4 flex-wrap">
-            {["Remote", "Full-time", "Part-time", "Contract"].map((chip) => {
+            {["Remote", "Full-time", "Part-time", "Contract", "Saved Jobs"].map((chip) => {
               const active = isChipActive(chip);
               return (
                 <button
@@ -4750,7 +4766,20 @@ function CertForm({ form, setForm, onSave, onCancel }: {
 function AnalyticsPage() {
   const { profile } = useAuth();
   const navigate = useNavigate();
-  const [activeTab, setActiveTab] = useState<"applied" | "saved" | "compare">("applied");
+  const location = useLocation();
+
+  const initialTab = useMemo(() => {
+    const searchParams = new URLSearchParams(location.search);
+    const tabParam = searchParams.get("tab");
+    const stateTab = (location.state as { tab?: string } | null)?.tab;
+    const target = tabParam || stateTab;
+    if (target === "saved" || target === "compare" || target === "applied") {
+      return target;
+    }
+    return "applied";
+  }, [location.search, location.state]);
+
+  const [activeTab, setActiveTab] = useState<"applied" | "saved" | "compare">(initialTab);
   const [appliedJobs, setAppliedJobs] = useState<AppliedJobWithJob[]>([]);
   const [savedJobs, setSavedJobs] = useState<SavedJobWithJob[]>([]);
   const [selectedInterviewJob, setSelectedInterviewJob] = useState<AppliedJobWithJob | null>(null);
@@ -4760,6 +4789,16 @@ function AnalyticsPage() {
   const [selectedOfferDetails, setSelectedOfferDetails] = useState<OfferPanelDetails | null>(null);
   const [analyticsLoading, setAnalyticsLoading] = useState(true);
   const [appliedJobsFilter, setAppliedJobsFilter] = useState<string | undefined>(undefined);
+
+  useEffect(() => {
+    const searchParams = new URLSearchParams(location.search);
+    const tabParam = searchParams.get("tab");
+    const stateTab = (location.state as { tab?: string } | null)?.tab;
+    const target = tabParam || stateTab;
+    if (target === "saved" || target === "compare" || target === "applied") {
+      setActiveTab(target);
+    }
+  }, [location.search, location.state]);
 
   // Saved-job payloads are normalized to the canonical shared DB schema, so the
   // apply flow should consume the same `DBJob` contract used by the rest of the

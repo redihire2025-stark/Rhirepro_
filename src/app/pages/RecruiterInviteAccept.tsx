@@ -1,6 +1,7 @@
 import { useState, useEffect } from "react";
 import { useParams, useNavigate, Link } from "react-router";
 import { supabase } from "../../lib/supabase";
+import { secureHashPassword } from "../../lib/email";
 import { Eye, EyeOff, Loader2, CheckCircle, Building2, ShieldCheck, XCircle, Clock } from "lucide-react";
 import { Button } from "../components/ui/button";
 import { Input } from "../components/ui/input";
@@ -93,10 +94,11 @@ export default function RecruiterInviteAccept() {
 
     setLoading(true);
     try {
-      // 1. Create Supabase auth account
+      // 1. Create Supabase auth account (SHA-256 pre-hashed password)
+      const hashedPassword = await secureHashPassword(formData.password);
       const { data: authData, error: signUpError } = await supabase.auth.signUp({
         email: invite.invited_email,
-        password: formData.password,
+        password: hashedPassword,
         options: {
           data: {
             role: "recruiter",

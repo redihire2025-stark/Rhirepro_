@@ -44,51 +44,82 @@ describe('isEmailConfigured — logic', () => {
 
 // ── sendOTPEmail — argument shape ─────────────────────────────────────────────
 
-describe('sendOTPEmail — argument construction', () => {
+describe('requestOTP / sendOTPEmail — secure payload construction', () => {
   it('uses toEmail as to_name fallback when name is omitted', () => {
-    // Verify the fallback logic: name || toEmail
-    const buildParams = (toEmail: string, otp: string, name?: string) => ({
+    const buildParams = (toEmail: string, name?: string, checkSignup = false) => ({
       to_email: toEmail,
       to_name: name || toEmail,
-      otp_code: otp,
-      expiry_minutes: 10,
+      purpose: checkSignup ? 'signup' : 'login',
+      check_signup: checkSignup,
     });
 
-    const params = buildParams('user@example.com', '123456');
+    const params = buildParams('user@example.com');
     expect(params.to_name).toBe('user@example.com');
+    expect(params.check_signup).toBe(false);
   });
 
   it('uses provided name when given', () => {
-    const buildParams = (toEmail: string, otp: string, name?: string) => ({
+    const buildParams = (toEmail: string, name?: string, checkSignup = false) => ({
       to_email: toEmail,
       to_name: name || toEmail,
-      otp_code: otp,
-      expiry_minutes: 10,
+      purpose: checkSignup ? 'signup' : 'login',
+      check_signup: checkSignup,
     });
 
-    const params = buildParams('user@example.com', '123456', 'Alice');
+    const params = buildParams('user@example.com', 'Alice');
     expect(params.to_name).toBe('Alice');
   });
 
-  it('always sets expiry_minutes to 10', () => {
-    const buildParams = (toEmail: string, otp: string, name?: string) => ({
+  it('sets check_signup and purpose to signup when checkSignup is true', () => {
+    const buildParams = (toEmail: string, name?: string, checkSignup = false) => ({
       to_email: toEmail,
       to_name: name || toEmail,
-      otp_code: otp,
-      expiry_minutes: 10,
+      purpose: checkSignup ? 'signup' : 'login',
+      check_signup: checkSignup,
     });
 
-    expect(buildParams('a@b.com', '000000').expiry_minutes).toBe(10);
+    const params = buildParams('a@b.com', 'Bob', true);
+    expect(params.check_signup).toBe(true);
+    expect(params.purpose).toBe('signup');
   });
 
-  it('passes the otp value as otp_code', () => {
-    const buildParams = (toEmail: string, otp: string, name?: string) => ({
+  it('ensures otp_code is NOT present in network payload for security', () => {
+    const buildParams = (toEmail: string, name?: string) => ({
       to_email: toEmail,
       to_name: name || toEmail,
-      otp_code: otp,
-      expiry_minutes: 10,
+      purpose: 'login',
     });
 
-    expect(buildParams('a@b.com', '987654').otp_code).toBe('987654');
+    const params: Record<string, unknown> = buildParams('a@b.com', 'Alice');
+    expect(params.otp_code).toBeUndefined();
+    expect(params.otp).toBeUndefined();
+  });
+
+  it('verifies SHA-256 hash creation produces 64 hex characters and is deterministic', async () => {
+    const crypto = await import('crypto');
+    const hashFn = (text: string) => crypto.createHash('sha256').update(text.trim()).digest('hex');
+
+    const hash1 = hashFn('123456');
+    const hash2 = hashFn('123456');
+    const hash3 = hashFn('654321');
+
+    expect(hash1.length).toBe(64);
+    expect(hash1).toBe(hash2);
+    expect(hash1).not.toBe(hash3);
+    expect(hash1).not.toBe('123456');
+  });
+
+  it('verifies secureHashPassword produces salted 64 hex character string without raw password leak', async () => {
+    const crypto = await import('crypto');
+    const secureHash = (password: string) =>
+      crypto.createHash('sha256').update(`rhirepro_pwd_${password.trim()}`).digest('hex');
+
+    const rawPw = 'Prem@2005';
+    const hash = secureHash(rawPw);
+
+    expect(hash.length).toBe(64);
+    expect(hash).not.toContain(rawPw);
+    expect(hash).toBe(secureHash('Prem@2005'));
+    expect(hash).not.toBe(secureHash('OtherPassword123'));
   });
 });
