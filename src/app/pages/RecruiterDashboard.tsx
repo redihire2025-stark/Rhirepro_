@@ -4915,6 +4915,7 @@ function SearchCandidatesPage() {
   const [industry, setIndustry] = useState("");
   const [currentCompany, setCurrentCompany] = useState("");
   const [expType, setExpType] = useState("");
+  const [activeIn, setActiveIn] = useState("6months");
   const [skillTags, setSkillTags] = useState<string[]>([]);
   const [skillInput, setSkillInput] = useState("");
   const [skillSuggestionsOpen, setSkillSuggestionsOpen] = useState(false);
@@ -5111,6 +5112,37 @@ function SearchCandidatesPage() {
     if (monthMatch) return parseInt(monthMatch[1]) * 30;
     const dayMatch = lower.match(/(\d+)/);
     return dayMatch ? parseInt(dayMatch[1]) : 999;
+  };
+
+  const parseActiveDate = (c: DBCandidate): Date | null => {
+    const dateStr = (c as any).last_active_at || (c as any).updated_at || c.created_at;
+    if (!dateStr) return null;
+    const d = new Date(dateStr);
+    return isNaN(d.getTime()) ? null : d;
+  };
+
+  const getActiveInDays = (val: string): number => {
+    switch (val) {
+      case "7days":
+      case "7":
+        return 7;
+      case "15days":
+      case "15":
+        return 15;
+      case "30days":
+      case "30":
+        return 30;
+      case "2months":
+      case "60":
+        return 60;
+      case "3months":
+      case "90":
+        return 90;
+      case "6months":
+      case "180":
+      default:
+        return 180;
+    }
   };
 
   const parseSearchTokens = (input: string): { tokens: string[]; isOr: boolean; notTokens: string[] } => {
@@ -5452,7 +5484,7 @@ function SearchCandidatesPage() {
             const { data: hydratedData } = await supabase
               .from("profiles")
               .select(`
-                id, first_name, last_name, avatar_url, headline, current_title, current_company, location, experience_type, total_experience, skills, about,
+                id, first_name, last_name, avatar_url, headline, current_title, current_company, location, experience_type, total_experience, skills, about, created_at, updated_at, last_active_at,
                 work_experience(id, company, title, start_date, end_date, description, is_current),
                 education(id, institution, degree, field, start_year, end_year)
               `)
@@ -5536,7 +5568,7 @@ function SearchCandidatesPage() {
             const { data: skillMatches } = await supabase
               .from("profiles")
               .select(`
-                id, first_name, last_name, avatar_url, headline, current_title, current_company, location, experience_type, total_experience, skills, about,
+                id, first_name, last_name, avatar_url, headline, current_title, current_company, location, experience_type, total_experience, skills, about, created_at, updated_at, last_active_at,
                 work_experience(id, company, title, start_date, end_date, description, is_current),
                 education(id, institution, degree, field, start_year, end_year)
               `)
@@ -5679,6 +5711,14 @@ function SearchCandidatesPage() {
         const cSkills = c.skills || [];
         return skillTags.every(tag => cSkills.some(s => skillsMatch(s, tag)));
       });
+      // Active In filter
+      const maxActiveDays = getActiveInDays(activeIn || "6months");
+      const activeCutoff = Date.now() - maxActiveDays * 24 * 60 * 60 * 1000;
+      raw = raw.filter(c => {
+        const activeDate = parseActiveDate(c);
+        if (!activeDate) return true;
+        return activeDate.getTime() >= activeCutoff;
+      });
 
       // Sort
       if (sortBy === "exp_desc") raw.sort((a, b) => parseExp(b) - parseExp(a));
@@ -5743,6 +5783,7 @@ function SearchCandidatesPage() {
     noticePeriod,
     education,
     expType,
+    activeIn,
     booleanSearchEnabled,
     booleanSearchError,
     sortBy,
@@ -5751,7 +5792,7 @@ function SearchCandidatesPage() {
   const clearAllFilters = () => {
     setExpMin(""); setExpMax(""); setCurSalMin(""); setCurSalMax("");
     setExpSalMax(""); setNoticePeriod(""); setEducation("");
-    setIndustry(""); setCurrentCompany(""); setExpType(""); setSkillTags([]);
+    setIndustry(""); setCurrentCompany(""); setExpType(""); setActiveIn("6months"); setSkillTags([]);
     setSearchPage(1);
     if (!keywords.trim()) {
       setSearched(false);
@@ -5779,7 +5820,7 @@ function SearchCandidatesPage() {
     window.scrollTo({ top: 0, behavior: "smooth" });
   }, [searchPage]);
 
-  const activeFilterCount = [expMin, expMax, curSalMin, curSalMax, expSalMax, noticePeriod, education, industry, currentCompany, expType].filter(Boolean).length + skillTags.length;
+  const activeFilterCount = [expMin, expMax, curSalMin, curSalMax, expSalMax, noticePeriod, education, industry, currentCompany, expType, activeIn !== "6months" ? "activeIn" : ""].filter(Boolean).length + skillTags.length;
 
   // ── Render ────────────────────────────────────────────────
   return (
@@ -6015,6 +6056,33 @@ function SearchCandidatesPage() {
               {[["", "All"], ["fresher", "Freshers only"], ["experienced", "Experienced only"]].map(([val, label]) => (
                 <label key={val} className="flex items-center gap-2 cursor-pointer">
                   <input type="radio" name="expType" value={val} checked={expType === val} onChange={() => setExpType(val)} className="accent-[#FF2B2B]" />
+                  <span className="text-xs text-[#3A1F1F]">{label}</span>
+                </label>
+              ))}
+            </div>
+          </div>
+
+          {/* Active In */}
+          <div className="px-4 py-3 border-b border-gray-100">
+            <p className="text-xs font-semibold text-[#3A1F1F] mb-2 uppercase tracking-wide">Active In</p>
+            <div className="space-y-1.5">
+              {[
+                ["7days", "7 days"],
+                ["15days", "15 days"],
+                ["30days", "30 days"],
+                ["2months", "2 months"],
+                ["3months", "3 months"],
+                ["6months", "6 months"],
+              ].map(([val, label]) => (
+                <label key={val} className="flex items-center gap-2 cursor-pointer">
+                  <input
+                    type="radio"
+                    name="activeIn"
+                    value={val}
+                    checked={activeIn === val}
+                    onChange={() => setActiveIn(val)}
+                    className="accent-[#FF2B2B]"
+                  />
                   <span className="text-xs text-[#3A1F1F]">{label}</span>
                 </label>
               ))}

@@ -45,6 +45,8 @@ export interface Profile {
   profile_views?: number | null;
   recruiter_searches?: number | null;
   created_at: string;
+  updated_at?: string | null;
+  last_active_at?: string | null;
   dob?: string | null;
   gender?: string | null;
   marital_status?: string | null;
