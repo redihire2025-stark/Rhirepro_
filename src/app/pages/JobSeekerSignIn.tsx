@@ -178,7 +178,7 @@ export default function JobSeekerSignIn() {
     try {
       const valid = await verifyOTPFromDB(userId, otp.trim());
       if (!valid) throw new Error("Invalid or expired OTP. Please try again.");
-      await supabase.from("profiles").update({ otp_code: null, otp_expires_at: null }).eq("id", userId);
+      await supabase.from("profiles").update({ last_active_at: new Date().toISOString(), otp_code: null, otp_expires_at: null }).eq("id", userId);
       await refreshProfile();
       // Dashboard checks profile completion on load and redirects to profile if needed
       navigate(safeRedirectTo);

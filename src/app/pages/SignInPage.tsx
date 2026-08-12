@@ -205,7 +205,7 @@ export default function SignInPage() {
       if (!valid) throw new Error("Invalid or expired OTP. Please try again.");
 
       if (userType === "jobseeker") {
-        await supabase.from("profiles").update({ otp_code: null, otp_expires_at: null }).eq("id", userId);
+        await supabase.from("profiles").update({ last_active_at: new Date().toISOString(), otp_code: null, otp_expires_at: null }).eq("id", userId);
         navigate("/jobseeker/dashboard");
       } else {
         await supabase.from("recruiter_profiles").update({ otp_code: null, otp_expires_at: null }).eq("id", userId);
