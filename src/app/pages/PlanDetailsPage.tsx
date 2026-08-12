@@ -245,10 +245,10 @@ export default function PlanDetailsPage() {
             </p>
 
             {/* Payment methods */}
-            <div className="mt-4 pt-4 border-t border-gray-100 flex items-center justify-center gap-3">
-              <span className="text-xs text-[#8A8A8A]">Pay via</span>
-              <div className="bg-[#5F259F] text-white text-xs font-bold px-3 py-1 rounded-md">PhonePe</div>
-              <span className="text-xs text-[#8A8A8A]">UPI / QR</span>
+            <div className="mt-4 pt-4 border-t border-gray-100 flex items-center justify-center gap-2 flex-wrap">
+              <span className="text-xs text-[#8A8A8A]">Secured by</span>
+              <div className="bg-[#0C2340] text-white text-xs font-bold px-3 py-1 rounded-md">Razorpay</div>
+              <span className="text-xs text-[#8A8A8A]">UPI / Cards / Netbanking</span>
             </div>
           </div>
         </div>

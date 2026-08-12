@@ -114,12 +114,29 @@ export default async (request) => {
       });
       let userData = userRes.ok ? await userRes.json() : [];
 
-      if ((!userData || userData.length === 0 || !userData[0].otp_code) && !user_type) {
-        targetTable = targetTable === "profiles" ? "recruiter_profiles" : "profiles";
-        userRes = await fetch(`${supabaseUrl}/rest/v1/${targetTable}?email=ilike.${encodeURIComponent(cleanEmail)}&select=id,otp_code,otp_expires_at`, {
+      // Fallback 1: check the other profile table if not found or no otp_code
+      if (!userData || userData.length === 0 || !userData[0].otp_code) {
+        const fallbackTable = targetTable === "profiles" ? "recruiter_profiles" : "profiles";
+        const fallbackRes = await fetch(`${supabaseUrl}/rest/v1/${fallbackTable}?email=ilike.${encodeURIComponent(cleanEmail)}&select=id,otp_code,otp_expires_at`, {
           headers: { apikey: serviceKey, Authorization: `Bearer ${serviceKey}` },
         });
-        userData = userRes.ok ? await userRes.json() : [];
+        const fallbackData = fallbackRes.ok ? await fallbackRes.json() : [];
+        if (fallbackData && fallbackData.length > 0 && fallbackData[0].otp_code) {
+          targetTable = fallbackTable;
+          userData = fallbackData;
+        }
+      }
+
+      // Fallback 2: check pending_otps table
+      if (!userData || userData.length === 0 || !userData[0].otp_code) {
+        const pendingRes = await fetch(`${supabaseUrl}/rest/v1/pending_otps?email=ilike.${encodeURIComponent(cleanEmail)}&select=id,otp_code,otp_expires_at`, {
+          headers: { apikey: serviceKey, Authorization: `Bearer ${serviceKey}` },
+        });
+        const pendingData = pendingRes.ok ? await pendingRes.json() : [];
+        if (pendingData && pendingData.length > 0 && pendingData[0].otp_code) {
+          targetTable = "pending_otps";
+          userData = pendingData;
+        }
       }
 
       if (!userData || userData.length === 0 || !userData[0].otp_code) {
@@ -143,7 +160,17 @@ export default async (request) => {
         });
       }
 
-      const isValid = bcrypt.compareSync(incomingHash, user.otp_code);
+      let isValid = false;
+      if (user.otp_code.startsWith("$2b$") || user.otp_code.startsWith("$2a$")) {
+        isValid = bcrypt.compareSync(incomingHash, user.otp_code);
+        if (!isValid && otp) {
+          const directSha = crypto.createHash("sha256").update(otp.trim()).digest("hex");
+          isValid = bcrypt.compareSync(directSha, user.otp_code);
+        }
+      } else {
+        isValid = (user.otp_code === incomingHash) || (user.otp_code === (otp || "").trim());
+      }
+
       if (!isValid) {
         await logApiRequest(supabaseUrl, serviceKey, {
           function_name: "/api/verify-otp", status_code: 400, duration_ms: Date.now() - requestStart, error_message: "Invalid OTP",
@@ -155,15 +182,22 @@ export default async (request) => {
       }
 
       // Clear OTP on successful verification
-      await fetch(`${supabaseUrl}/rest/v1/${targetTable}?id=eq.${user.id}`, {
-        method: "PATCH",
-        headers: {
-          apikey: serviceKey,
-          Authorization: `Bearer ${serviceKey}`,
-          "Content-Type": "application/json",
-        },
-        body: JSON.stringify({ otp_code: null, otp_expires_at: null }),
-      });
+      if (targetTable === "pending_otps") {
+        await fetch(`${supabaseUrl}/rest/v1/pending_otps?id=eq.${user.id}`, {
+          method: "DELETE",
+          headers: { apikey: serviceKey, Authorization: `Bearer ${serviceKey}` },
+        });
+      } else {
+        await fetch(`${supabaseUrl}/rest/v1/${targetTable}?id=eq.${user.id}`, {
+          method: "PATCH",
+          headers: {
+            apikey: serviceKey,
+            Authorization: `Bearer ${serviceKey}`,
+            "Content-Type": "application/json",
+          },
+          body: JSON.stringify({ otp_code: null, otp_expires_at: null }),
+        });
+      }
 
       await logApiRequest(supabaseUrl, serviceKey, {
         function_name: "/api/verify-otp", status_code: 200, duration_ms: Date.now() - requestStart,

@@ -118,19 +118,42 @@ export async function sendOTPEmail(toEmail: string, arg2?: string | boolean, arg
   return requestOTP({ email: toEmail, name, checkSignup: isSignup });
 }
 
-/** Send Password Reset OTP (OTP generated & stored server-side) */
+/** Send Password Reset OTP (OTP generated & stored server-side with native Supabase Auth fallback) */
 export async function sendPasswordResetOTP(
   email: string,
   userType: "jobseeker" | "recruiter"
 ): Promise<void> {
-  const res = await fetch("/api/send-reset-otp", {
-    method: "POST",
-    headers: { "Content-Type": "application/json" },
-    body: JSON.stringify({ email, user_type: userType }),
+  const cleanEmail = email.trim().toLowerCase();
+
+  try {
+    const res = await fetch("/api/send-reset-otp", {
+      method: "POST",
+      headers: { "Content-Type": "application/json" },
+      body: JSON.stringify({ email: cleanEmail, user_type: userType }),
+    });
+
+    if (res.ok) {
+      return;
+    }
+
+    const data = await res.json().catch(() => null);
+    if (data?.error) {
+      throw new Error(data.error);
+    }
+  } catch (err: any) {
+    if (err.message && err.message !== "Failed to fetch" && !err.message.includes("Unexpected token") && err.message !== "Unknown error") {
+      throw err;
+    }
+    console.warn("Netlify function /api/send-reset-otp unavailable, trying Supabase Auth fallback:", err?.message);
+  }
+
+  // Native Supabase Auth fallback if Netlify serverless function is not deployed yet
+  const { error: resetErr } = await supabase.auth.resetPasswordForEmail(cleanEmail, {
+    redirectTo: `${window.location.origin}/signin`,
   });
-  if (!res.ok) {
-    const err = await res.json().catch(() => ({ error: "Unknown error" }));
-    throw new Error(err.error || "Failed to send password reset OTP");
+
+  if (resetErr) {
+    throw new Error(resetErr.message || "Failed to send password reset email. Please verify your email address.");
   }
 }
 
@@ -180,16 +203,36 @@ export async function resetPasswordWithOTP(
   newPassword: string,
   userType: "jobseeker" | "recruiter"
 ): Promise<void> {
+  const cleanEmail = email.trim().toLowerCase();
   const otpHash = await hashSHA256(otp);
   const securePassword = await secureHashPassword(newPassword);
-  const res = await fetch("/api/reset-password", {
-    method: "POST",
-    headers: { "Content-Type": "application/json" },
-    body: JSON.stringify({ email, otp_hash: otpHash, new_password: securePassword, user_type: userType }),
-  });
-  if (!res.ok) {
-    const err = await res.json().catch(() => ({ error: "Unknown error" }));
-    throw new Error(err.error || "Failed to reset password");
+
+  try {
+    const res = await fetch("/api/reset-password", {
+      method: "POST",
+      headers: { "Content-Type": "application/json" },
+      body: JSON.stringify({ email: cleanEmail, otp_hash: otpHash, new_password: securePassword, user_type: userType }),
+    });
+
+    if (res.ok) {
+      return;
+    }
+
+    const data = await res.json().catch(() => null);
+    if (data?.error) {
+      throw new Error(data.error);
+    }
+  } catch (err: any) {
+    if (err.message && err.message !== "Failed to fetch" && !err.message.includes("Unexpected token") && err.message !== "Unknown error") {
+      throw err;
+    }
+    console.warn("Netlify function /api/reset-password unavailable, trying Supabase Auth fallback:", err?.message);
+  }
+
+  // Native Supabase Auth fallback if Netlify serverless function is not deployed yet
+  const { error: updateErr } = await supabase.auth.updateUser({ password: securePassword });
+  if (updateErr) {
+    throw new Error(updateErr.message || "Failed to reset password. Please request a new OTP.");
   }
 }
 
