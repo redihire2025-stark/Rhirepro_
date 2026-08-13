@@ -7,7 +7,7 @@ import { Button } from "../components/ui/button";
 import { Input } from "../components/ui/input";
 import { supabase } from "../../lib/supabase";
 import { useAuth } from "../../lib/auth-context";
-import { sendOTPEmail, sendPasswordResetOTP, resetPasswordWithOTP } from "../../lib/email";
+import { requestOTP, verifyOTP, sendPasswordResetOTP, resetPasswordWithOTP, secureSignIn } from "../../lib/email";
 
 // ─── OTP helpers ─────────────────────────────────────────────────────────────
 

@@ -3239,8 +3239,8 @@ function PostJobPage() {
                       type="button"
                       onClick={() => toggleInterviewMode(mode)}
                       className={`px-4 py-2 rounded-full text-xs font-semibold border transition-all duration-200 flex items-center justify-center gap-1.5 text-center ${selected
-                          ? "bg-[#FF2B2B] text-white border-[#FF2B2B] shadow-sm"
-                          : "bg-white text-[#3A1F1F] border-gray-200 hover:border-[#FF2B2B]"
+                        ? "bg-[#FF2B2B] text-white border-[#FF2B2B] shadow-sm"
+                        : "bg-white text-[#3A1F1F] border-gray-200 hover:border-[#FF2B2B]"
                         }`}
                     >
                       {selected && <Check className="h-3.5 w-3.5 text-white" />}
@@ -3278,8 +3278,8 @@ function PostJobPage() {
                   <span
                     key={skill}
                     className={`flex items-center gap-1 px-3 py-1.5 rounded-full text-sm font-medium border ${isOffRole
-                        ? "border-[#FF2B2B] bg-[#FFF0F0] text-[#A61B1B]"
-                        : "border-transparent bg-[#ECECF4] text-[#3A1F1F]"
+                      ? "border-[#FF2B2B] bg-[#FFF0F0] text-[#A61B1B]"
+                      : "border-transparent bg-[#ECECF4] text-[#3A1F1F]"
                       }`}
                     title={isOffRole ? "This skill is not aligned with the job title/JD." : "Role-aligned skill"}
                   >
@@ -4240,8 +4240,8 @@ function ManageJobsPage() {
                         }));
                       }}
                       className={`px-4 py-2 rounded-full text-xs font-semibold border transition-all duration-200 flex items-center justify-center gap-1.5 text-center ${selected
-                          ? "bg-[#FF2B2B] text-white border-[#FF2B2B] shadow-sm"
-                          : "bg-white text-[#3A1F1F] border-gray-200 hover:border-[#FF2B2B]"
+                        ? "bg-[#FF2B2B] text-white border-[#FF2B2B] shadow-sm"
+                        : "bg-white text-[#3A1F1F] border-gray-200 hover:border-[#FF2B2B]"
                         }`}
                     >
                       {selected && <Check className="h-3.5 w-3.5 text-white" />}
@@ -5950,8 +5950,8 @@ function SearchCandidatesPage() {
                 }
               }}
               className={`pl-9 ${keywords ? "pr-9" : ""} bg-[#F6F6F6] rounded-xl transition-all ${booleanSearchError
-                  ? "border-red-500 ring-2 ring-red-200 text-red-700 bg-red-50/20"
-                  : "border-gray-200"
+                ? "border-red-500 ring-2 ring-red-200 text-red-700 bg-red-50/20"
+                : "border-gray-200"
                 }`}
               placeholder={booleanSearchEnabled ? "e.g. React AND Python NOT Angular" : "Skills, designation, company name..."}
             />
@@ -6443,8 +6443,8 @@ function SearchCandidatesPage() {
                                       <Badge
                                         key={i}
                                         className={`text-xs transition-colors ${matched
-                                            ? "bg-[#FF2B2B] text-white font-semibold shadow-sm border border-[#FF2B2B]"
-                                            : "bg-[#ECECF4] text-[#3A1F1F]"
+                                          ? "bg-[#FF2B2B] text-white font-semibold shadow-sm border border-[#FF2B2B]"
+                                          : "bg-[#ECECF4] text-[#3A1F1F]"
                                           }`}
                                       >
                                         {s}
@@ -11153,9 +11153,9 @@ function PlansPage({ activeSub, loading }: { activeSub: RecruiterSubscription | 
             <div
               key={plan.id}
               className={`bg-white rounded-2xl p-6 shadow-md border-2 transition-all duration-300 ${isCurrentPlan
-                  ? "border-[#FF2B2B]"
-                  : `hover:border-[#FF2B2B] hover:shadow-xl hover:-translate-y-1 ${plan.popular ? "border-[#FF2B2B]/40" : "border-gray-100"
-                  }`
+                ? "border-[#FF2B2B]"
+                : `hover:border-[#FF2B2B] hover:shadow-xl hover:-translate-y-1 ${plan.popular ? "border-[#FF2B2B]/40" : "border-gray-100"
+                }`
                 }`}
             >
               {/* Header */}
