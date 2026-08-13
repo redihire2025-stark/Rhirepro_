@@ -601,7 +601,15 @@ export default function ApplicantProfilePage() {
                 <div className="flex-1 min-w-0">
                   <div className="flex items-start justify-between flex-wrap gap-2">
                     <div>
-                      <h2 className="text-2xl font-bold text-[#3A1F1F]">{name}</h2>
+                      <div className="flex items-center gap-2.5 flex-wrap">
+                        <h2 className="text-2xl font-bold text-[#3A1F1F]">{name}</h2>
+                        {profile?.location && (
+                          <span className="inline-flex items-center gap-1 text-xs text-[#5A5A5A] font-medium bg-[#F6F6F6] border border-gray-200 px-2.5 py-1 rounded-full">
+                            <MapPin className="h-3.5 w-3.5 text-[#FF2B2B]" />
+                            <span>{profile.location}</span>
+                          </span>
+                        )}
+                      </div>
                       <p className="text-[#FF2B2B] font-medium">{profile?.headline || "Jobseeker"}</p>
                     </div>
                     <div className="bg-green-50 border border-green-100 rounded-xl px-3 py-1.5 text-center flex-shrink-0">

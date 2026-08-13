@@ -4687,7 +4687,15 @@ function SearchCandidateProfileModal({
                 : initials}
             </div>
             <div className="flex-1 min-w-0">
-              <h2 className="text-lg font-bold text-white truncate">{name}</h2>
+              <div className="flex items-center gap-2.5 flex-wrap">
+                <h2 className="text-lg font-bold text-white truncate">{name}</h2>
+                {candidate.location && (
+                  <span className="inline-flex items-center gap-1 text-xs text-white bg-white/20 px-2.5 py-0.5 rounded-full backdrop-blur-sm">
+                    <MapPin className="h-3 w-3 text-white" />
+                    <span>{candidate.location}</span>
+                  </span>
+                )}
+              </div>
               <p className="text-sm text-white/80 truncate">
                 {candidate.headline || candidate.current_title}
                 {candidate.current_company && <span> · {candidate.current_company}</span>}
@@ -6464,10 +6472,18 @@ function SearchCandidatesPage() {
                           </div>
 
                           <div className="flex-1 min-w-0">
-                            {/* Name + Match */}
+                            {/* Name + Match + Current Location */}
                             <div className="flex items-start justify-between gap-2 flex-wrap">
                               <div>
-                                <h3 className="text-base font-semibold text-[#3A1F1F]">{name}</h3>
+                                <div className="flex items-center gap-2 flex-wrap">
+                                  <h3 className="text-base font-semibold text-[#3A1F1F]">{name}</h3>
+                                  {c.location && (
+                                    <span className="inline-flex items-center gap-1 text-xs text-[#5A5A5A] font-medium bg-[#F6F6F6] border border-gray-200 px-2.5 py-0.5 rounded-full">
+                                      <MapPin className="h-3 w-3 text-[#FF2B2B]" />
+                                      <span>{c.location}</span>
+                                    </span>
+                                  )}
+                                </div>
                                 <p className="text-sm text-[#5A5A5A]">
                                   {c.headline || c.current_title || (workExp[0] ? workExp[0].title : "")}
                                   {(c.current_company || workExp[0]?.company) && (
