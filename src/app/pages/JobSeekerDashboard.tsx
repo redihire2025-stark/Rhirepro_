@@ -2907,7 +2907,9 @@ function ProfilePage({ onPendingPrefsChange }: { onPendingPrefsChange?: (pending
       const prefs = {
         desiredJobTitle: profile.desired_job_title || "",
         jobType: profile.job_type_pref || "",
-        preferredLocation: profile.preferred_location || "",
+        preferredLocation: Array.isArray(profile.preferred_location)
+          ? profile.preferred_location.join(", ")
+          : profile.preferred_location || "",
         expectedSalary: profile.expected_salary || "",
         noticePeriod: profile.notice_period || "",
         workAuth: profile.work_auth || "",
