@@ -56,12 +56,26 @@ export default function SignInPage() {
 
   const parseError = (err: unknown, fallback: string): string => {
     if (!err) return fallback;
-    if (typeof err === "string") return err;
-    if (err instanceof Error && err.message) return err.message;
+    if (typeof err === "string") {
+      try {
+        const p = JSON.parse(err);
+        if (typeof p.error === "string" && p.error) return p.error;
+        if (typeof p.message === "string" && p.message) return p.message;
+      } catch {}
+      return err;
+    }
+    if (err instanceof Error && err.message) {
+      try {
+        const p = JSON.parse(err.message);
+        if (typeof p.error === "string" && p.error) return p.error;
+        if (typeof p.message === "string" && p.message) return p.message;
+      } catch {}
+      return err.message;
+    }
     if (typeof err === "object") {
       const obj = err as Record<string, any>;
-      if (typeof obj.message === "string" && obj.message) return obj.message;
       if (typeof obj.error === "string" && obj.error) return obj.error;
+      if (typeof obj.message === "string" && obj.message) return obj.message;
       if (typeof obj.error_description === "string" && obj.error_description) return obj.error_description;
     }
     return fallback;
@@ -103,7 +117,7 @@ export default function SignInPage() {
     setLoading(true);
     try {
       const { data, error: authErr } = await secureSignIn(email, password);
-      if (authErr) throw new Error("Invalid email or password. Please try again.");
+      if (authErr) throw new Error(authErr.message || "Invalid email or password. Please try again.");
       if (!data.user) throw new Error("Authentication failed.");
 
       const role = data.user.user_metadata?.role;
@@ -124,15 +138,16 @@ export default function SignInPage() {
         const lastName = profile?.last_name || meta.last_name || "";
 
         if (profileErr || !profile) {
-          const { error: insertErr } = await supabase.from("profiles").insert({
-            id: data.user.id, email: data.user.email,
-            first_name: firstName || null, last_name: lastName || null,
+          const { error: insertErr } = await supabase.from("profiles").upsert({
+            id: data.user.id,
+            email: data.user.email,
+            first_name: firstName || null,
+            last_name: lastName || null,
             phone: meta.phone || null,
             experience_type: (meta.experience as "fresher" | "experienced") || "fresher",
-          });
+          }, { onConflict: "id", ignoreDuplicates: true });
           if (insertErr && insertErr.code !== "23505") {
-            await supabase.auth.signOut();
-            throw new Error("Account setup failed. Please try signing up again.");
+            console.warn("Jobseeker profile setup warning (non-fatal):", insertErr.message);
           }
         }
 

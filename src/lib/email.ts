@@ -136,12 +136,17 @@ export async function sendPasswordResetOTP(
       return;
     }
 
-    const data = await res.json().catch(() => null);
-    if (data?.error) {
-      throw new Error(data.error);
+    const text = await res.text().catch(() => "");
+    let errorMsg = "Failed to send reset OTP. Please check your email.";
+    try {
+      const data = JSON.parse(text);
+      errorMsg = data?.error || data?.message || text || errorMsg;
+    } catch {
+      if (text && !text.startsWith("<!DOCTYPE")) errorMsg = text;
     }
+    throw new Error(errorMsg);
   } catch (err: any) {
-    if (err.message && err.message !== "Failed to fetch" && !err.message.includes("Unexpected token") && err.message !== "Unknown error") {
+    if (err.message && err.message !== "Failed to fetch" && !err.message.includes("Unexpected token")) {
       throw err;
     }
     console.warn("Netlify function /api/send-reset-otp unavailable, trying Supabase Auth fallback:", err?.message);
@@ -168,32 +173,86 @@ export async function secureHashPassword(password: string): Promise<string> {
   return hashArray.map(b => b.toString(16).padStart(2, "0")).join("");
 }
 
-/** Secure Sign In helper that uses pre-hashed password to prevent cleartext DevTools leaks, with legacy fallback */
+/** Secure Sign In helper that uses pre-hashed password with multiple legacy/hashing fallbacks */
 export async function secureSignIn(email: string, rawPassword: string) {
+  const cleanEmail = email.trim().toLowerCase();
+  const cleanRawPassword = (rawPassword || "").trim();
   const hashedPassword = await secureHashPassword(rawPassword);
+  const directShaPassword = await hashSHA256(rawPassword);
 
-  // 1. Attempt sign-in with secure SHA-256 pre-hashed password
-  const primaryRes = await supabase.auth.signInWithPassword({
-    email: email.trim().toLowerCase(),
+  // 1. Attempt sign-in with salted SHA-256 pre-hashed password
+  let res = await supabase.auth.signInWithPassword({
+    email: cleanEmail,
     password: hashedPassword,
   });
 
-  if (!primaryRes.error) {
-    return primaryRes;
+  if (!res.error) {
+    return res;
   }
 
-  // 2. Legacy fallback for accounts created before password pre-hashing
-  const legacyRes = await supabase.auth.signInWithPassword({
-    email: email.trim().toLowerCase(),
-    password: rawPassword,
-  });
-
-  // If legacy sign-in succeeds, automatically upgrade the account's password to the secure pre-hashed format
-  if (!legacyRes.error && legacyRes.data?.user) {
-    await supabase.auth.updateUser({ password: hashedPassword }).catch(() => {});
+  // 2. Attempt sign-in with direct SHA-256 pre-hashed password
+  if (directShaPassword && directShaPassword !== hashedPassword) {
+    const shaRes = await supabase.auth.signInWithPassword({
+      email: cleanEmail,
+      password: directShaPassword,
+    });
+    if (!shaRes.error) {
+      if (shaRes.data?.user) {
+        await supabase.auth.updateUser({ password: hashedPassword }).catch(() => {});
+      }
+      return shaRes;
+    }
   }
 
-  return legacyRes;
+  // 3. Attempt sign-in with clean raw password
+  if (cleanRawPassword) {
+    const cleanRawRes = await supabase.auth.signInWithPassword({
+      email: cleanEmail,
+      password: cleanRawPassword,
+    });
+    if (!cleanRawRes.error) {
+      if (cleanRawRes.data?.user) {
+        await supabase.auth.updateUser({ password: hashedPassword }).catch(() => {});
+      }
+      return cleanRawRes;
+    }
+  }
+
+  // 4. Legacy fallback for untrimmed raw password
+  if (rawPassword && rawPassword !== cleanRawPassword) {
+    const legacyRes = await supabase.auth.signInWithPassword({
+      email: cleanEmail,
+      password: rawPassword,
+    });
+    if (!legacyRes.error && legacyRes.data?.user) {
+      await supabase.auth.updateUser({ password: hashedPassword }).catch(() => {});
+    }
+    return legacyRes;
+  }
+
+  // 5. Check if this is a Google OAuth account without an email password set yet
+  try {
+    const checkRes = await fetch("/api/check-email", {
+      method: "POST",
+      headers: { "Content-Type": "application/json" },
+      body: JSON.stringify({ email: cleanEmail }),
+    });
+    if (checkRes.ok) {
+      const checkData = await checkRes.json();
+      if (checkData.is_google && !checkData.has_password) {
+        return {
+          data: { user: null, session: null },
+          error: {
+            message: "This account was registered with Google. Click 'Google' to sign in, or use 'Forgot password?' to create an email password.",
+            name: "AuthApiError",
+            status: 400,
+          } as any,
+        };
+      }
+    }
+  } catch {}
+
+  return res;
 }
 
 /** Verify OTP and reset password using client-side SHA-256 pre-hashed OTP and pre-hashed password */
@@ -218,12 +277,17 @@ export async function resetPasswordWithOTP(
       return;
     }
 
-    const data = await res.json().catch(() => null);
-    if (data?.error) {
-      throw new Error(data.error);
+    const text = await res.text().catch(() => "");
+    let errorMsg = "Failed to reset password. Please check your OTP and try again.";
+    try {
+      const data = JSON.parse(text);
+      errorMsg = data?.error || data?.message || text || errorMsg;
+    } catch {
+      if (text && !text.startsWith("<!DOCTYPE")) errorMsg = text;
     }
+    throw new Error(errorMsg);
   } catch (err: any) {
-    if (err.message && err.message !== "Failed to fetch" && !err.message.includes("Unexpected token") && err.message !== "Unknown error") {
+    if (err.message && err.message !== "Failed to fetch" && !err.message.includes("Unexpected token")) {
       throw err;
     }
     console.warn("Netlify function /api/reset-password unavailable, trying Supabase Auth fallback:", err?.message);

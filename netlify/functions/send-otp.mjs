@@ -223,18 +223,23 @@ export default async (request) => {
   });
 
   if (!res.ok) {
-    const err = await res.text();
+    const errText = await res.text();
+    let errorMsg = errText;
+    try {
+      const parsed = JSON.parse(errText);
+      errorMsg = parsed.message || parsed.error || errText;
+    } catch {}
     await logEmail(supabaseUrl, serviceKey, {
       recipient_email: cleanEmail,
       email_type: "otp",
       subject: "Your RhirePro Verification Code",
       status: "failed",
-      error_message: err,
+      error_message: errorMsg,
     });
     await logApiRequest(supabaseUrl, serviceKey, {
-      function_name: "/api/send-otp", status_code: 500, duration_ms: Date.now() - requestStart, error_message: err,
+      function_name: "/api/send-otp", status_code: 500, duration_ms: Date.now() - requestStart, error_message: errorMsg,
     });
-    return new Response(JSON.stringify({ error: err }), {
+    return new Response(JSON.stringify({ error: errorMsg }), {
       status: 500,
       headers: { "Content-Type": "application/json" },
     });

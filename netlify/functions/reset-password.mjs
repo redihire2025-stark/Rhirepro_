@@ -46,6 +46,17 @@ export default async (request) => {
   }
 
   if (!userData || userData.length === 0 || !userData[0].otp_code) {
+    userRes = await fetch(`${supabaseUrl}/rest/v1/pending_otps?email=ilike.${encodeURIComponent(cleanEmail)}&select=id,otp_code,otp_expires_at`, {
+      headers: { apikey: serviceKey, Authorization: `Bearer ${serviceKey}` },
+    });
+    const pendingData = userRes.ok ? await userRes.json() : [];
+    if (pendingData && pendingData.length > 0 && pendingData[0].otp_code) {
+      targetTable = "pending_otps";
+      userData = pendingData;
+    }
+  }
+
+  if (!userData || userData.length === 0 || !userData[0].otp_code) {
     return new Response(JSON.stringify({ error: "No OTP found. Please request a new one." }), {
       status: 400,
       headers: { "Content-Type": "application/json" },
@@ -78,8 +89,19 @@ export default async (request) => {
     });
   }
 
+  // Find user Auth ID if user.id was from pending_otps
+  let authUserId = user.id;
+  if (targetTable === "pending_otps") {
+    const listRes = await fetch(`${supabaseUrl}/auth/v1/admin/users`, {
+      headers: { apikey: serviceKey, Authorization: `Bearer ${serviceKey}` },
+    });
+    const listData = listRes.ok ? await listRes.json() : null;
+    const authUser = listData?.users?.find(u => (u.email || "").toLowerCase() === cleanEmail);
+    if (authUser) authUserId = authUser.id;
+  }
+
   // Update password in Supabase Auth via Admin REST API
-  const updateRes = await fetch(`${supabaseUrl}/auth/v1/admin/users/${user.id}`, {
+  let updateRes = await fetch(`${supabaseUrl}/auth/v1/admin/users/${authUserId}`, {
     method: "PUT",
     headers: {
       apikey: serviceKey,
@@ -90,23 +112,47 @@ export default async (request) => {
   });
 
   if (!updateRes.ok) {
-    const errData = await updateRes.json().catch(() => ({ message: "Failed to update password" }));
-    return new Response(JSON.stringify({ error: errData.message || "Failed to update password" }), {
-      status: 500,
-      headers: { "Content-Type": "application/json" },
+    const createRes = await fetch(`${supabaseUrl}/auth/v1/admin/users`, {
+      method: "POST",
+      headers: {
+        apikey: serviceKey,
+        Authorization: `Bearer ${serviceKey}`,
+        "Content-Type": "application/json",
+      },
+      body: JSON.stringify({
+        id: authUserId,
+        email: cleanEmail,
+        password: new_password,
+        email_confirm: true,
+        user_metadata: { role: targetTable === "recruiter_profiles" ? "recruiter" : "jobseeker" },
+      }),
     });
+    if (!createRes.ok) {
+      const errData = await createRes.json().catch(() => ({ message: "Failed to update password" }));
+      return new Response(JSON.stringify({ error: errData.message || errData.msg || "Failed to update password" }), {
+        status: 500,
+        headers: { "Content-Type": "application/json" },
+      });
+    }
   }
 
   // Clear OTP
-  await fetch(`${supabaseUrl}/rest/v1/${targetTable}?id=eq.${user.id}`, {
-    method: "PATCH",
-    headers: {
-      apikey: serviceKey,
-      Authorization: `Bearer ${serviceKey}`,
-      "Content-Type": "application/json",
-    },
-    body: JSON.stringify({ otp_code: null, otp_expires_at: null }),
-  });
+  if (targetTable === "pending_otps") {
+    await fetch(`${supabaseUrl}/rest/v1/pending_otps?email=ilike.${encodeURIComponent(cleanEmail)}`, {
+      method: "DELETE",
+      headers: { apikey: serviceKey, Authorization: `Bearer ${serviceKey}` },
+    });
+  } else {
+    await fetch(`${supabaseUrl}/rest/v1/${targetTable}?id=eq.${user.id}`, {
+      method: "PATCH",
+      headers: {
+        apikey: serviceKey,
+        Authorization: `Bearer ${serviceKey}`,
+        "Content-Type": "application/json",
+      },
+      body: JSON.stringify({ otp_code: null, otp_expires_at: null }),
+    });
+  }
 
   return new Response(JSON.stringify({ success: true }), {
     status: 200,

@@ -29,7 +29,7 @@ export default async (request) => {
     });
   }
 
-  // Lookup user profile
+  // Lookup user profile across all candidate locations
   let targetTable = user_type === "recruiter" ? "recruiter_profiles" : "profiles";
   let userRes = await fetch(`${supabaseUrl}/rest/v1/${targetTable}?email=ilike.${encodeURIComponent(cleanEmail)}&select=id`, {
     headers: { apikey: serviceKey, Authorization: `Bearer ${serviceKey}` },
@@ -49,6 +49,27 @@ export default async (request) => {
   }
 
   if (!userData || userData.length === 0) {
+    const pendingRes = await fetch(`${supabaseUrl}/rest/v1/pending_otps?email=ilike.${encodeURIComponent(cleanEmail)}&select=id`, {
+      headers: { apikey: serviceKey, Authorization: `Bearer ${serviceKey}` },
+    });
+    const pendingData = pendingRes.ok ? await pendingRes.json() : [];
+    if (pendingData && pendingData.length > 0) {
+      targetTable = "pending_otps";
+      userData = pendingData;
+    } else {
+      const authRes = await fetch(`${supabaseUrl}/auth/v1/admin/users`, {
+        headers: { apikey: serviceKey, Authorization: `Bearer ${serviceKey}` },
+      });
+      const authData = authRes.ok ? await authRes.json() : null;
+      const authUser = authData?.users?.find(u => (u.email || "").toLowerCase() === cleanEmail);
+      if (authUser) {
+        targetTable = "pending_otps";
+        userData = [{ id: authUser.id }];
+      }
+    }
+  }
+
+  if (!userData || userData.length === 0) {
     return new Response(JSON.stringify({ error: "No account found with this email address." }), {
       status: 404,
       headers: { "Content-Type": "application/json" },
@@ -61,15 +82,28 @@ export default async (request) => {
   const otpHash = bcrypt.hashSync(sha256Otp, 10);
   const expiresAt = new Date(Date.now() + 10 * 60 * 1000).toISOString();
 
-  await fetch(`${supabaseUrl}/rest/v1/${targetTable}?id=eq.${user.id}`, {
-    method: "PATCH",
-    headers: {
-      apikey: serviceKey,
-      Authorization: `Bearer ${serviceKey}`,
-      "Content-Type": "application/json",
-    },
-    body: JSON.stringify({ otp_code: otpHash, otp_expires_at: expiresAt }),
-  });
+  if (targetTable === "pending_otps") {
+    await fetch(`${supabaseUrl}/rest/v1/pending_otps`, {
+      method: "POST",
+      headers: {
+        apikey: serviceKey,
+        Authorization: `Bearer ${serviceKey}`,
+        "Content-Type": "application/json",
+        Prefer: "resolution=merge-duplicates",
+      },
+      body: JSON.stringify({ email: cleanEmail, otp_code: otpHash, otp_expires_at: expiresAt }),
+    });
+  } else {
+    await fetch(`${supabaseUrl}/rest/v1/${targetTable}?id=eq.${user.id}`, {
+      method: "PATCH",
+      headers: {
+        apikey: serviceKey,
+        Authorization: `Bearer ${serviceKey}`,
+        "Content-Type": "application/json",
+      },
+      body: JSON.stringify({ otp_code: otpHash, otp_expires_at: expiresAt }),
+    });
+  }
 
   if (!resendKey) {
     return new Response(JSON.stringify({ error: "Resend email service key is not configured" }), {
@@ -106,8 +140,13 @@ export default async (request) => {
   });
 
   if (!res.ok) {
-    const err = await res.text();
-    return new Response(JSON.stringify({ error: err }), {
+    const errText = await res.text();
+    let errorMsg = errText;
+    try {
+      const parsed = JSON.parse(errText);
+      errorMsg = parsed.message || parsed.error || errText;
+    } catch {}
+    return new Response(JSON.stringify({ error: errorMsg }), {
       status: 500,
       headers: { "Content-Type": "application/json" },
     });
