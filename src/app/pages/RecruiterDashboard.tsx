@@ -27,6 +27,7 @@ import { SEARCH_SUGGESTION_DATASET, SKILL_OPTIONS, getSkillSearchTerms, skillsMa
 import { inferSkillSuggestions, extractTextFromHtml, getRelevantSkillsForJobContext } from "../../lib/recruiterJobHelpers";
 import { useAuth } from "../../lib/auth-context";
 import { sendRecruiterCandidateEmail } from "../../lib/email";
+import { formatActiveTime, parseActiveDate } from "../../lib/activeTime";
 import {
   INDUSTRY_OPTIONS,
   PERKS_AND_BENEFITS_OPTIONS,
@@ -467,9 +468,8 @@ function IndustryCombobox({
                     key={opt}
                     type="button"
                     onClick={() => selectOption(opt)}
-                    className={`flex w-full items-center justify-between rounded-lg px-3 py-2 text-left text-sm transition-colors ${
-                      isSelected ? "bg-[#FFF0F0] text-[#FF2B2B] font-semibold" : "text-[#3A1F1F] hover:bg-[#FFF0F0] hover:text-[#FF2B2B]"
-                    }`}
+                    className={`flex w-full items-center justify-between rounded-lg px-3 py-2 text-left text-sm transition-colors ${isSelected ? "bg-[#FFF0F0] text-[#FF2B2B] font-semibold" : "text-[#3A1F1F] hover:bg-[#FFF0F0] hover:text-[#FF2B2B]"
+                      }`}
                   >
                     <span>{opt}</span>
                     {isSelected && <Check className="h-4 w-4 text-[#FF2B2B]" />}
@@ -575,9 +575,8 @@ function QualificationCombobox({
                     key={opt}
                     type="button"
                     onClick={() => selectOption(opt)}
-                    className={`flex w-full items-center justify-between rounded-lg px-3 py-2 text-left text-sm transition-colors ${
-                      isSelected ? "bg-[#FFF0F0] text-[#FF2B2B] font-semibold" : "text-[#3A1F1F] hover:bg-[#FFF0F0] hover:text-[#FF2B2B]"
-                    }`}
+                    className={`flex w-full items-center justify-between rounded-lg px-3 py-2 text-left text-sm transition-colors ${isSelected ? "bg-[#FFF0F0] text-[#FF2B2B] font-semibold" : "text-[#3A1F1F] hover:bg-[#FFF0F0] hover:text-[#FF2B2B]"
+                      }`}
                   >
                     <span>{opt}</span>
                     {isSelected && <Check className="h-4 w-4 text-[#FF2B2B]" />}
@@ -689,9 +688,8 @@ function SpecializationCombobox({
                     key={opt}
                     type="button"
                     onClick={() => selectOption(opt)}
-                    className={`flex w-full items-center justify-between rounded-lg px-3 py-2 text-left text-sm transition-colors ${
-                      isSelected ? "bg-[#FFF0F0] text-[#FF2B2B] font-semibold" : "text-[#3A1F1F] hover:bg-[#FFF0F0] hover:text-[#FF2B2B]"
-                    }`}
+                    className={`flex w-full items-center justify-between rounded-lg px-3 py-2 text-left text-sm transition-colors ${isSelected ? "bg-[#FFF0F0] text-[#FF2B2B] font-semibold" : "text-[#3A1F1F] hover:bg-[#FFF0F0] hover:text-[#FF2B2B]"
+                      }`}
                   >
                     <span>{opt}</span>
                     {isSelected && <Check className="h-4 w-4 text-[#FF2B2B]" />}
@@ -1691,9 +1689,8 @@ export default function RecruiterDashboard() {
                           <div
                             key={n.id}
                             onClick={() => handleNotificationClick(n)}
-                            className={`group relative flex items-start justify-between gap-2 p-2.5 rounded-lg cursor-pointer transition-colors ${
-                              !n.is_read ? "bg-red-50 hover:bg-red-100/70" : "hover:bg-[#F6F6F6]"
-                            }`}
+                            className={`group relative flex items-start justify-between gap-2 p-2.5 rounded-lg cursor-pointer transition-colors ${!n.is_read ? "bg-red-50 hover:bg-red-100/70" : "hover:bg-[#F6F6F6]"
+                              }`}
                           >
                             <div className="flex gap-2.5 flex-1 pr-5">
                               <div className={`w-2 h-2 rounded-full mt-1.5 flex-shrink-0 ${!n.is_read ? "bg-[#FF2B2B]" : "bg-gray-300"}`} />
@@ -2307,8 +2304,8 @@ function DashboardOverview() {
               <p className="text-sm text-[#8A8A8A] text-center py-4">No upcoming interviews scheduled</p>
             ) : (
               upcomingInterviews.map((iv, i) => (
-                <div 
-                  key={i} 
+                <div
+                  key={i}
                   onClick={() => navigate(`/recruiter/dashboard/applicants/${iv.id}/profile`)}
                   className="flex items-center gap-3 p-3 bg-[#F6F6F6] hover:bg-gray-100/80 transition-colors rounded-xl cursor-pointer"
                 >
@@ -2348,8 +2345,8 @@ function DashboardOverview() {
               <p className="text-sm text-[#8A8A8A] text-center py-4">No recent applicants</p>
             ) : (
               recentApplicants.map(applicant => (
-                <div 
-                  key={applicant.id} 
+                <div
+                  key={applicant.id}
                   onClick={() => navigate(`/recruiter/dashboard/applicants/${applicant.id}/profile`)}
                   className="flex items-center gap-3 p-3 border border-gray-100 rounded-xl hover:bg-[#F6F6F6] transition-colors cursor-pointer"
                 >
@@ -3229,7 +3226,7 @@ function PostJobPage() {
                 />
               </div>
             </div>
-            
+
             {/* Interview Mode Multi-select */}
             <div className="mt-4 pt-4 border-t border-gray-100">
               <label className="block mb-2 text-sm font-medium text-[#3A1F1F]">Interview Mode(s) *</label>
@@ -3241,11 +3238,10 @@ function PostJobPage() {
                       key={mode}
                       type="button"
                       onClick={() => toggleInterviewMode(mode)}
-                      className={`px-4 py-2 rounded-full text-xs font-semibold border transition-all duration-200 flex items-center justify-center gap-1.5 text-center ${
-                        selected
+                      className={`px-4 py-2 rounded-full text-xs font-semibold border transition-all duration-200 flex items-center justify-center gap-1.5 text-center ${selected
                           ? "bg-[#FF2B2B] text-white border-[#FF2B2B] shadow-sm"
                           : "bg-white text-[#3A1F1F] border-gray-200 hover:border-[#FF2B2B]"
-                      }`}
+                        }`}
                     >
                       {selected && <Check className="h-3.5 w-3.5 text-white" />}
                       <span>{mode}</span>
@@ -3281,11 +3277,10 @@ function PostJobPage() {
                 return (
                   <span
                     key={skill}
-                    className={`flex items-center gap-1 px-3 py-1.5 rounded-full text-sm font-medium border ${
-                      isOffRole
+                    className={`flex items-center gap-1 px-3 py-1.5 rounded-full text-sm font-medium border ${isOffRole
                         ? "border-[#FF2B2B] bg-[#FFF0F0] text-[#A61B1B]"
                         : "border-transparent bg-[#ECECF4] text-[#3A1F1F]"
-                    }`}
+                      }`}
                     title={isOffRole ? "This skill is not aligned with the job title/JD." : "Role-aligned skill"}
                   >
                     <button type="button" onClick={() => toggleMandatorySkill(skill)} className={`mr-1 ${isMandatory ? "text-[#FF2B2B]" : "text-[#8A8A8A]"}`} title={isMandatory ? "Mandatory skill" : "Mark as mandatory"}>
@@ -3416,13 +3411,13 @@ function PostJobPage() {
           <div className="border-b pb-6">
             <h2 className="text-lg font-semibold text-[#3A1F1F] mb-4">Job Details *</h2>
             <UnifiedJobDetailsEditor
-                description={formData.jobDescription}
-                onChangeDescription={val => setFormData(prev => ({ ...prev, jobDescription: val }))}
-                rolesResponsibilities={formData.rolesResponsibilities}
-                onChangeRolesResponsibilities={val => setFormData(prev => ({ ...prev, rolesResponsibilities: val }))}
-                requirements={formData.requirements}
-                onChangeRequirements={val => setFormData(prev => ({ ...prev, requirements: val }))}
-              />
+              description={formData.jobDescription}
+              onChangeDescription={val => setFormData(prev => ({ ...prev, jobDescription: val }))}
+              rolesResponsibilities={formData.rolesResponsibilities}
+              onChangeRolesResponsibilities={val => setFormData(prev => ({ ...prev, rolesResponsibilities: val }))}
+              requirements={formData.requirements}
+              onChangeRequirements={val => setFormData(prev => ({ ...prev, requirements: val }))}
+            />
           </div>
 
           {/* Perks */}
@@ -4049,7 +4044,7 @@ function ManageJobsPage() {
               </div>
             );
           })}
-          
+
           {/* Pagination matching JobSeekerDashboard style */}
           {totalPages > 1 && (
             <div className="flex justify-center mt-8 pb-4" id="manage-jobs-pagination">
@@ -4244,11 +4239,10 @@ function ManageJobsPage() {
                           interviewModes: selected ? f.interviewModes.filter(m => m !== mode) : [...f.interviewModes, mode]
                         }));
                       }}
-                      className={`px-4 py-2 rounded-full text-xs font-semibold border transition-all duration-200 flex items-center justify-center gap-1.5 text-center ${
-                        selected
+                      className={`px-4 py-2 rounded-full text-xs font-semibold border transition-all duration-200 flex items-center justify-center gap-1.5 text-center ${selected
                           ? "bg-[#FF2B2B] text-white border-[#FF2B2B] shadow-sm"
                           : "bg-white text-[#3A1F1F] border-gray-200 hover:border-[#FF2B2B]"
-                      }`}
+                        }`}
                     >
                       {selected && <Check className="h-3.5 w-3.5 text-white" />}
                       <span>{mode}</span>
@@ -4431,7 +4425,7 @@ function SearchCandidateProfileModal({
         wrapper.style.alignItems = "center";
         wrapper.style.justifyContent = "flex-start";
         wrapper.style.width = "100%";
-        
+
         const availableWidth = Math.max(100, pdfPreviewRef.current.clientWidth - 8);
         for (let i = 1; i <= numPages; i++) {
           if (cancelled || !pdfPreviewRef.current?.isConnected) return;
@@ -4555,7 +4549,7 @@ function SearchCandidateProfileModal({
 
         <div className="px-6 pb-6 pt-5">
           <div className={`grid grid-cols-1 ${hasResume ? "lg:grid-cols-2" : ""} gap-6 items-start`}>
-            
+
             {/* Profile Info (Left side if split, full width otherwise) */}
             <div className="space-y-5">
               {/* Quick stats grid */}
@@ -5251,16 +5245,16 @@ function SearchCandidatesPage() {
     let match;
     let lastOperatorIndex = -1;
     let lastOperatorLength = 0;
-    
+
     while ((match = operatorRegex.exec(text)) !== null) {
       lastOperatorIndex = match.index;
       lastOperatorLength = match[0].length;
     }
-    
+
     if (lastCommaIndex === -1 && lastOperatorIndex === -1) {
       return { token: text, prefix: "", separatorType: "none" as const };
     }
-    
+
     if (lastCommaIndex > lastOperatorIndex) {
       const prefix = text.slice(0, lastCommaIndex + 1);
       const token = text.slice(lastCommaIndex + 1);
@@ -5419,7 +5413,7 @@ function SearchCandidatesPage() {
       const t = token.toLowerCase().trim();
       if (!t) return;
       const cSkills = (candidate.skills || []).map(s => s.toLowerCase().trim());
-      
+
       if (cSkills.includes(t)) {
         score += 50;
       } else if (cSkills.some(s => skillsMatch(s, t) || fuzzyMatch(t, s))) {
@@ -5493,7 +5487,7 @@ function SearchCandidatesPage() {
     try {
       let raw: DBCandidate[] = [];
       let esSuccess = false;
-      
+
       try {
         const apiUrl = import.meta.env.VITE_API_URL || "http://localhost:8000";
         const esUrl = `${apiUrl}/candidates/search?q=${encodeURIComponent(activeKeywords)}` +
@@ -5509,7 +5503,7 @@ function SearchCandidatesPage() {
         if (esRes.ok) {
           const data = await esRes.json();
           const matchedIds = data.candidates.map((c: any) => c.id);
-          
+
           if (matchedIds.length > 0) {
             const { data: hydratedData } = await supabase
               .from("profiles")
@@ -5519,7 +5513,7 @@ function SearchCandidatesPage() {
                 education(id, institution, degree, field, start_year, end_year)
               `)
               .in("id", matchedIds);
-              
+
             if (hydratedData) {
               const idToCandidateMap = new Map(hydratedData.map((c: any) => [c.id, c]));
               raw = matchedIds
@@ -5546,7 +5540,7 @@ function SearchCandidatesPage() {
           const { tokens: rawTokens, isOr: rawIsOr } = parseSearchTokens(activeKeywords);
           const searchTokens = rawTokens.length > 0 ? rawTokens : [activeKeywords.trim()];
           const isOrQuery = booleanSearchEnabled ? rawIsOr : true;
-          
+
           if (isOrQuery) {
             // OR mode: combine all token clauses
             const clauses = searchTokens.flatMap(term => [
@@ -5654,19 +5648,19 @@ function SearchCandidatesPage() {
             const matchToken = (token: string) => {
               const t = token.toLowerCase().trim();
               if (!t) return false;
-              
+
               // 1. Direct text inclusion
               if (searchableText.includes(t)) return true;
-              
+
               // 2. Skill matches (exact, keyword expanded if enabled, or fuzzy)
-              if ((candidate.skills || []).some(skill => 
-                (keywordSearchEnabled && skillsMatch(skill, t)) || 
-                skill.toLowerCase().includes(t) || 
+              if ((candidate.skills || []).some(skill =>
+                (keywordSearchEnabled && skillsMatch(skill, t)) ||
+                skill.toLowerCase().includes(t) ||
                 fuzzyMatch(t, skill)
               )) return true;
 
               // 3. Work experience title/description match
-              if ((candidate.work_experience || []).some(we => 
+              if ((candidate.work_experience || []).some(we =>
                 (we.title && (we.title.toLowerCase().includes(t) || fuzzyMatch(t, we.title))) ||
                 (we.description && we.description.toLowerCase().includes(t))
               )) return true;
@@ -5831,7 +5825,7 @@ function SearchCandidatesPage() {
     }
   };
 
-  // Dynamically update candidate search results or clear them instantly when search input/filters are emptied or invalid
+  // Dynamically update candidate search results on mount and when filters/keywords change
   useEffect(() => {
     if (booleanSearchError) {
       setSearched(false);
@@ -5840,23 +5834,9 @@ function SearchCandidatesPage() {
       return;
     }
 
-    const trimmedKw = keywords.trim();
-    const hasSearchCriteria = Boolean(trimmedKw);
-
-    if (!hasSearchCriteria) {
-      setSearched(false);
-      setResults([]);
-      setSearching(false);
-      return;
-    }
-
-    if (trimmedKw.length < 2) {
-      return;
-    }
-
     const timer = setTimeout(() => {
       handleSearch(keywords);
-    }, 450);
+    }, 250);
     return () => clearTimeout(timer);
   }, [
     keywords,
@@ -5873,6 +5853,10 @@ function SearchCandidatesPage() {
     industry,
     expType,
     activeIn,
+    selectedCountry,
+    selectedState,
+    selectedCity,
+    locationRadius,
     booleanSearchEnabled,
     booleanSearchError,
     sortBy,
@@ -5965,11 +5949,10 @@ function SearchCandidatesPage() {
                   }
                 }
               }}
-              className={`pl-9 ${keywords ? "pr-9" : ""} bg-[#F6F6F6] rounded-xl transition-all ${
-                booleanSearchError
+              className={`pl-9 ${keywords ? "pr-9" : ""} bg-[#F6F6F6] rounded-xl transition-all ${booleanSearchError
                   ? "border-red-500 ring-2 ring-red-200 text-red-700 bg-red-50/20"
                   : "border-gray-200"
-              }`}
+                }`}
               placeholder={booleanSearchEnabled ? "e.g. React AND Python NOT Angular" : "Skills, designation, company name..."}
             />
             {keywords && (
@@ -6007,7 +5990,7 @@ function SearchCandidatesPage() {
               </div>
             )}
             {skillSuggestionsOpen && hasSuggestions && (
-              <div 
+              <div
                 ref={dropdownContainerRef}
                 className="absolute left-0 right-0 top-full z-50 mt-1 overflow-hidden rounded-xl border border-gray-200 bg-white shadow-xl"
               >
@@ -6024,9 +6007,8 @@ function SearchCandidatesPage() {
                             type="button"
                             onClick={() => selectSuggestion(skill)}
                             onMouseEnter={() => setHighlightedIndex(globalIndex)}
-                            className={`flex w-full items-center px-3 py-2 text-left text-sm transition-colors ${
-                              isHighlighted ? "bg-[#FFF0F0] text-[#FF2B2B] font-medium" : "text-[#3A1F1F] hover:bg-gray-50"
-                            }`}
+                            className={`flex w-full items-center px-3 py-2 text-left text-sm transition-colors ${isHighlighted ? "bg-[#FFF0F0] text-[#FF2B2B] font-medium" : "text-[#3A1F1F] hover:bg-gray-50"
+                              }`}
                           >
                             <Tag className="h-3.5 w-3.5 mr-2 opacity-60 text-[#FF2B2B]" />
                             <span>{skill}</span>
@@ -6048,9 +6030,8 @@ function SearchCandidatesPage() {
                             type="button"
                             onClick={() => selectSuggestion(role)}
                             onMouseEnter={() => setHighlightedIndex(globalIndex)}
-                            className={`flex w-full items-center px-3 py-2 text-left text-sm transition-colors ${
-                              isHighlighted ? "bg-[#FFF0F0] text-[#FF2B2B] font-medium" : "text-[#3A1F1F] hover:bg-gray-50"
-                            }`}
+                            className={`flex w-full items-center px-3 py-2 text-left text-sm transition-colors ${isHighlighted ? "bg-[#FFF0F0] text-[#FF2B2B] font-medium" : "text-[#3A1F1F] hover:bg-gray-50"
+                              }`}
                           >
                             <Briefcase className="h-3.5 w-3.5 mr-2 opacity-60 text-emerald-600" />
                             <span>{role}</span>
@@ -6091,7 +6072,7 @@ function SearchCandidatesPage() {
         <div className="flex items-center gap-6 mt-3 pt-2 border-t border-gray-100">
           <label className="flex items-center gap-2 text-xs font-medium text-[#5A5A5A] cursor-pointer select-none">
             <span>Boolean Search</span>
-            <div 
+            <div
               onClick={() => {
                 const nextState = !booleanSearchEnabled;
                 setBooleanSearchEnabled(nextState);
@@ -6189,7 +6170,7 @@ function SearchCandidatesPage() {
               <p className="text-xs font-semibold text-[#3A1F1F] uppercase tracking-wide">Location Filter</p>
               <MapPin className="h-3.5 w-3.5 text-[#FF2B2B]" />
             </div>
-            
+
             {/* Country Selector */}
             <div>
               <label className="text-[10px] text-[#8A8A8A] block mb-0.5 uppercase font-medium">Country</label>
@@ -6401,7 +6382,7 @@ function SearchCandidatesPage() {
                           </div>
 
                           <div className="flex-1 min-w-0">
-                            {/* Name + Match */}
+                            {/* Name + Match + Active status on right top */}
                             <div className="flex items-start justify-between gap-2 flex-wrap">
                               <div>
                                 <h3 className="text-base font-semibold text-[#3A1F1F]">{name}</h3>
@@ -6412,6 +6393,19 @@ function SearchCandidatesPage() {
                                   )}
                                 </p>
                               </div>
+
+                              {/* Active status badge on top right */}
+                              {(() => {
+                                const activeDate = parseActiveDate(c);
+                                const activeLabel = formatActiveTime(activeDate);
+                                if (!activeLabel) return null;
+                                return (
+                                  <span className="inline-flex items-center gap-1.5 px-2.5 py-1 rounded-full text-xs font-semibold bg-emerald-50 text-emerald-700 border border-emerald-200/80 shadow-xs shrink-0">
+                                    <span className="w-1.5 h-1.5 rounded-full bg-emerald-500 animate-pulse" />
+                                    {activeLabel}
+                                  </span>
+                                );
+                              })()}
                             </div>
 
                             {/* Key info row */}
@@ -6434,7 +6428,7 @@ function SearchCandidatesPage() {
                             {(() => {
                               const searchTokensList = parseSearchTokens(keywords).tokens.map(t => t.toLowerCase().trim()).concat(skillTags.map(t => t.toLowerCase().trim())).filter(Boolean);
                               const isSkillMatched = (s: string) => searchTokensList.some(t => skillsMatch(s, t) || s.toLowerCase().includes(t) || fuzzyMatch(t, s));
-                              
+
                               const sortedSkills = [...skills].sort((a, b) => {
                                 const aMatch = isSkillMatched(a) ? 1 : 0;
                                 const bMatch = isSkillMatched(b) ? 1 : 0;
@@ -6448,11 +6442,10 @@ function SearchCandidatesPage() {
                                     return (
                                       <Badge
                                         key={i}
-                                        className={`text-xs transition-colors ${
-                                          matched
+                                        className={`text-xs transition-colors ${matched
                                             ? "bg-[#FF2B2B] text-white font-semibold shadow-sm border border-[#FF2B2B]"
                                             : "bg-[#ECECF4] text-[#3A1F1F]"
-                                        }`}
+                                          }`}
                                       >
                                         {s}
                                       </Badge>
@@ -6938,7 +6931,7 @@ function EmailingPage() {
       if (isOr) {
         const matchesCount = tokens.filter(t => fullCandidateText.includes(t.toLowerCase())).length;
         if (matchesCount === 0) return 0;
-        score += Math.min( matchesCount * 15, 30 );
+        score += Math.min(matchesCount * 15, 30);
       } else {
         const allMatch = tokens.every(t => fullCandidateText.includes(t.toLowerCase()));
         if (!allMatch) return 0;
@@ -7219,7 +7212,7 @@ Best regards,
 
   const insertTag = (tag: string) => {
     const isSubject = lastFocusedFieldRef.current === "subject";
-    
+
     if (isSubject && subjectInputRef.current) {
       const el = subjectInputRef.current;
       let start = subjectCaretPosRef.current.start >= 0 ? subjectCaretPosRef.current.start : (el.selectionStart ?? subject.length);
@@ -7262,7 +7255,7 @@ Best regards,
   // Dynamic interpolation helper for merge tags
   const getRenderedText = (text: string, candidate?: DBCandidate) => {
     const candidateName = candidate ? getCandidateDisplayName(candidate) : "Candidate";
-    
+
     // Only resolve job attributes if a specific job is selected (NOT "none")
     const job = (selectedJobId && selectedJobId !== "none")
       ? (recruiterJobs.find(j => j.id === selectedJobId) || null)
@@ -7659,9 +7652,8 @@ Best regards,
                             type="button"
                             onClick={() => selectSuggestion(skill)}
                             onMouseEnter={() => setHighlightedIndex(globalIndex)}
-                            className={`flex w-full items-center px-3 py-2 text-left text-sm transition-colors ${
-                              isHighlighted ? "bg-[#FFF0F0] text-[#FF2B2B] font-medium" : "text-[#3A1F1F] hover:bg-gray-50"
-                            }`}
+                            className={`flex w-full items-center px-3 py-2 text-left text-sm transition-colors ${isHighlighted ? "bg-[#FFF0F0] text-[#FF2B2B] font-medium" : "text-[#3A1F1F] hover:bg-gray-50"
+                              }`}
                           >
                             <Tag className="h-3.5 w-3.5 mr-2 opacity-60 text-[#FF2B2B]" />
                             <span>{skill}</span>
@@ -7683,9 +7675,8 @@ Best regards,
                             type="button"
                             onClick={() => selectSuggestion(role)}
                             onMouseEnter={() => setHighlightedIndex(globalIndex)}
-                            className={`flex w-full items-center px-3 py-2 text-left text-sm transition-colors ${
-                              isHighlighted ? "bg-[#FFF0F0] text-[#FF2B2B] font-medium" : "text-[#3A1F1F] hover:bg-gray-50"
-                            }`}
+                            className={`flex w-full items-center px-3 py-2 text-left text-sm transition-colors ${isHighlighted ? "bg-[#FFF0F0] text-[#FF2B2B] font-medium" : "text-[#3A1F1F] hover:bg-gray-50"
+                              }`}
                           >
                             <Briefcase className="h-3.5 w-3.5 mr-2 opacity-60 text-emerald-600" />
                             <span>{role}</span>
@@ -7729,9 +7720,8 @@ Best regards,
                 setExpMax(max === "1" ? "1" : max);
                 if (min === "") setExpType("fresher"); else setExpType("experienced");
               }}
-              className={`px-3 py-1 rounded-full text-xs border transition-colors ${
-                expMin === min && expMax === max ? "bg-[#FF2B2B] text-white border-[#FF2B2B]" : "border-gray-200 text-[#5A5A5A] hover:border-[#FF2B2B]"
-              }`}
+              className={`px-3 py-1 rounded-full text-xs border transition-colors ${expMin === min && expMax === max ? "bg-[#FF2B2B] text-white border-[#FF2B2B]" : "border-gray-200 text-[#5A5A5A] hover:border-[#FF2B2B]"
+                }`}
             >
               {label}
             </button>
@@ -7742,7 +7732,7 @@ Best regards,
         <div className="flex items-center gap-6 mt-3 pt-2 border-t border-gray-100">
           <label className="flex items-center gap-2 text-xs font-medium text-[#5A5A5A] cursor-pointer select-none">
             <span>Boolean Search Mode</span>
-            <div 
+            <div
               onClick={() => {
                 const nextState = !booleanSearchEnabled;
                 setBooleanSearchEnabled(nextState);
@@ -7882,9 +7872,8 @@ Best regards,
                 return (
                   <div
                     key={candidate.id}
-                    className={`bg-white border rounded-2xl p-5 shadow-xs transition-all relative flex flex-col justify-between ${
-                      isSelected ? "border-[#FF2B2B] bg-[#FFF8F8]/40 ring-1 ring-[#FF2B2B]/30" : "border-gray-200 hover:border-gray-300"
-                    }`}
+                    className={`bg-white border rounded-2xl p-5 shadow-xs transition-all relative flex flex-col justify-between ${isSelected ? "border-[#FF2B2B] bg-[#FFF8F8]/40 ring-1 ring-[#FF2B2B]/30" : "border-gray-200 hover:border-gray-300"
+                      }`}
                   >
                     <div>
                       <div className="flex items-start gap-3">
@@ -8127,18 +8116,16 @@ Best regards,
               <button
                 type="button"
                 onClick={() => setComposerTab("edit")}
-                className={`pb-2 px-4 text-xs font-semibold border-b-2 transition-colors ${
-                  composerTab === "edit" ? "border-[#FF2B2B] text-[#FF2B2B]" : "border-transparent text-gray-500 hover:text-gray-700"
-                }`}
+                className={`pb-2 px-4 text-xs font-semibold border-b-2 transition-colors ${composerTab === "edit" ? "border-[#FF2B2B] text-[#FF2B2B]" : "border-transparent text-gray-500 hover:text-gray-700"
+                  }`}
               >
                 Edit Message
               </button>
               <button
                 type="button"
                 onClick={() => setComposerTab("preview")}
-                className={`pb-2 px-4 text-xs font-semibold border-b-2 transition-colors ${
-                  composerTab === "preview" ? "border-[#FF2B2B] text-[#FF2B2B]" : "border-transparent text-gray-500 hover:text-gray-700"
-                }`}
+                className={`pb-2 px-4 text-xs font-semibold border-b-2 transition-colors ${composerTab === "preview" ? "border-[#FF2B2B] text-[#FF2B2B]" : "border-transparent text-gray-500 hover:text-gray-700"
+                  }`}
               >
                 Live Preview (Candidate View)
               </button>
@@ -9300,66 +9287,66 @@ function ApplicantsPage() {
                         </div>
                       </div>
 
-                  {/* Actions */}
-                  <div className="flex items-center justify-between mt-4 pt-3 border-t border-gray-100 flex-wrap gap-2.5">
-                    <div className="flex items-center gap-2 flex-shrink-0">
-                      <Badge className={`text-xs ${statusColor(getEffectiveApplicationStatus(applicant))}`}>{getEffectiveApplicationStage(applicant)}</Badge>
-                      {getEffectiveApplicationStage(applicant) !== "Joined" && (
-                        selectedInterviewRoundApplicantId === applicant.id ? (
-                          <Select
-                            value="__round_placeholder__"
-                            onValueChange={(round) => {
-                              if (round === "__round_placeholder__") return;
-                              if (round === "cancel") {
-                                setSelectedInterviewRoundApplicantId(null);
-                                return;
-                              }
-                              setSelectedInterviewRoundApplicantId(null);
-                              handleInterviewStatusRequest(applicant, round as "L1" | "L2" | "L3" | "HR Round");
-                            }}
-                          >
-                            <SelectTrigger className="h-7 min-w-[140px] rounded-full border-purple-300 text-xs text-purple-700 bg-purple-50">
-                              <span>Select Round</span>
-                            </SelectTrigger>
-                            <SelectContent>
-                              <SelectItem value="L1" className="text-xs text-purple-700 font-medium">L1 Round</SelectItem>
-                              <SelectItem value="L2" className="text-xs text-purple-700 font-medium">L2 Round</SelectItem>
-                              <SelectItem value="L3" className="text-xs text-purple-700 font-medium">L3 Round</SelectItem>
-                              <SelectItem value="HR Round" className="text-xs text-purple-700 font-medium">HR Round</SelectItem>
-                              <SelectItem value="cancel" className="text-xs text-gray-500">Cancel</SelectItem>
-                            </SelectContent>
-                          </Select>
-                        ) : (
-                          <Select
-                            value="__move_to_placeholder__"
-                            onValueChange={(value) => {
-                              if (value === "__move_to_placeholder__") return;
-                              if (value === "Interview") {
-                                setSelectedInterviewRoundApplicantId(applicant.id);
-                                return;
-                              }
-                              void handleStatusDropdownSelect(applicant, value);
-                            }}
-                          >
-                            <SelectTrigger className="h-7 min-w-[140px] rounded-full border-gray-200 text-xs">
-                              <span>Move to</span>
-                            </SelectTrigger>
-                            <SelectContent className="max-h-64">
-                              {moveToOptionsForApplicant(applicant).map((stage) => (
-                                <SelectItem key={stage} value={stage} className="text-xs">
-                                  {stage}
-                                </SelectItem>
-                              ))}
-                            </SelectContent>
-                          </Select>
-                        )
-                      )}
+                      {/* Actions */}
+                      <div className="flex items-center justify-between mt-4 pt-3 border-t border-gray-100 flex-wrap gap-2.5">
+                        <div className="flex items-center gap-2 flex-shrink-0">
+                          <Badge className={`text-xs ${statusColor(getEffectiveApplicationStatus(applicant))}`}>{getEffectiveApplicationStage(applicant)}</Badge>
+                          {getEffectiveApplicationStage(applicant) !== "Joined" && (
+                            selectedInterviewRoundApplicantId === applicant.id ? (
+                              <Select
+                                value="__round_placeholder__"
+                                onValueChange={(round) => {
+                                  if (round === "__round_placeholder__") return;
+                                  if (round === "cancel") {
+                                    setSelectedInterviewRoundApplicantId(null);
+                                    return;
+                                  }
+                                  setSelectedInterviewRoundApplicantId(null);
+                                  handleInterviewStatusRequest(applicant, round as "L1" | "L2" | "L3" | "HR Round");
+                                }}
+                              >
+                                <SelectTrigger className="h-7 min-w-[140px] rounded-full border-purple-300 text-xs text-purple-700 bg-purple-50">
+                                  <span>Select Round</span>
+                                </SelectTrigger>
+                                <SelectContent>
+                                  <SelectItem value="L1" className="text-xs text-purple-700 font-medium">L1 Round</SelectItem>
+                                  <SelectItem value="L2" className="text-xs text-purple-700 font-medium">L2 Round</SelectItem>
+                                  <SelectItem value="L3" className="text-xs text-purple-700 font-medium">L3 Round</SelectItem>
+                                  <SelectItem value="HR Round" className="text-xs text-purple-700 font-medium">HR Round</SelectItem>
+                                  <SelectItem value="cancel" className="text-xs text-gray-500">Cancel</SelectItem>
+                                </SelectContent>
+                              </Select>
+                            ) : (
+                              <Select
+                                value="__move_to_placeholder__"
+                                onValueChange={(value) => {
+                                  if (value === "__move_to_placeholder__") return;
+                                  if (value === "Interview") {
+                                    setSelectedInterviewRoundApplicantId(applicant.id);
+                                    return;
+                                  }
+                                  void handleStatusDropdownSelect(applicant, value);
+                                }}
+                              >
+                                <SelectTrigger className="h-7 min-w-[140px] rounded-full border-gray-200 text-xs">
+                                  <span>Move to</span>
+                                </SelectTrigger>
+                                <SelectContent className="max-h-64">
+                                  {moveToOptionsForApplicant(applicant).map((stage) => (
+                                    <SelectItem key={stage} value={stage} className="text-xs">
+                                      {stage}
+                                    </SelectItem>
+                                  ))}
+                                </SelectContent>
+                              </Select>
+                            )
+                          )}
+                        </div>
+                        <div className="ml-auto">
+                          {renderStageActions(applicant)}
+                        </div>
+                      </div>
                     </div>
-                    <div className="ml-auto">
-                      {renderStageActions(applicant)}
-                    </div>
-                  </div>
-                </div>
 
                     {/* Career Timeline — Naukri horizontal style with gap detection + tooltips */}
                     {(workExp.length > 0 || edu.length > 0) && (() => {
@@ -9470,7 +9457,7 @@ function ApplicantsPage() {
                   </div>
                 );
               })}
-              
+
               {/* Numbered Pagination Control Bar */}
               {totalPages > 1 && (
                 <div className="flex justify-center mt-8 pb-4" id="applicants-pagination">
@@ -11165,13 +11152,11 @@ function PlansPage({ activeSub, loading }: { activeSub: RecruiterSubscription | 
           return (
             <div
               key={plan.id}
-              className={`bg-white rounded-2xl p-6 shadow-md border-2 transition-all duration-300 ${
-                isCurrentPlan
+              className={`bg-white rounded-2xl p-6 shadow-md border-2 transition-all duration-300 ${isCurrentPlan
                   ? "border-[#FF2B2B]"
-                  : `hover:border-[#FF2B2B] hover:shadow-xl hover:-translate-y-1 ${
-                      plan.popular ? "border-[#FF2B2B]/40" : "border-gray-100"
-                    }`
-              }`}
+                  : `hover:border-[#FF2B2B] hover:shadow-xl hover:-translate-y-1 ${plan.popular ? "border-[#FF2B2B]/40" : "border-gray-100"
+                  }`
+                }`}
             >
               {/* Header */}
               <div className="flex items-start justify-between mb-2">
