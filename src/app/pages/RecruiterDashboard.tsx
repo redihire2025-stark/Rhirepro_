@@ -15,7 +15,14 @@ import {
   isJobExpired,
 } from "../../lib/jobs";
 import { PLANS, FREE_DAILY_POST_LIMIT, getPlanById, validatePromo, getPlanPriceBreakdown } from "../../lib/plans";
-import { INDIA_CITY_OPTIONS } from "../../lib/locationData";
+import {
+  INDIA_CITY_OPTIONS,
+  getAllCountriesList,
+  getStatesList,
+  getCitiesList,
+  isLocationWithinRadius,
+  matchesMultiLevelLocation,
+} from "../../lib/locationData";
 import { SEARCH_SUGGESTION_DATASET, SKILL_OPTIONS, getSkillSearchTerms, skillsMatch, fuzzyMatch } from "../../lib/skillKeywords";
 import { inferSkillSuggestions, extractTextFromHtml, getRelevantSkillsForJobContext } from "../../lib/recruiterJobHelpers";
 import { useAuth } from "../../lib/auth-context";
@@ -4927,6 +4934,10 @@ function SearchCandidatesPage() {
   const [currentCompany, setCurrentCompany] = useState("");
   const [expType, setExpType] = useState("");
   const [activeIn, setActiveIn] = useState("6months");
+  const [selectedCountry, setSelectedCountry] = useState("");
+  const [selectedState, setSelectedState] = useState("");
+  const [selectedCity, setSelectedCity] = useState("");
+  const [locationRadius, setLocationRadius] = useState("");
   const [skillTags, setSkillTags] = useState<string[]>([]);
   const [skillInput, setSkillInput] = useState("");
   const [skillSuggestionsOpen, setSkillSuggestionsOpen] = useState(false);
@@ -4941,6 +4952,10 @@ function SearchCandidatesPage() {
   const [interviewInvited, setInterviewInvited] = useState<Set<string>>(new Set());
   const [messagedCandidates, setMessagedCandidates] = useState<Set<string>>(new Set());
   const [searchPage, setSearchPage] = useState<number>(1);
+
+  const countriesList = useMemo(() => getAllCountriesList(), []);
+  const statesList = useMemo(() => getStatesList(selectedCountry), [selectedCountry]);
+  const citiesList = useMemo(() => getCitiesList(selectedCountry, selectedState), [selectedCountry, selectedState]);
 
   // Load candidate statuses from database on mount & when recruiter changes
   useEffect(() => {
@@ -5134,6 +5149,10 @@ function SearchCandidatesPage() {
 
   const getActiveInDays = (val: string): number => {
     switch (val) {
+      case "24h":
+      case "1day":
+      case "1":
+        return 1;
       case "7days":
       case "7":
         return 7;
@@ -5731,6 +5750,40 @@ function SearchCandidatesPage() {
         return activeDate.getTime() >= activeCutoff;
       });
 
+      // Multi-level location filter (Country, State, City)
+      if (selectedCountry || selectedState || selectedCity) {
+        const countryObj = countriesList.find(cnt => cnt.isoCode === selectedCountry);
+        const stateObj = statesList.find(st => st.isoCode === selectedState);
+        const countryName = countryObj ? countryObj.name : selectedCountry;
+        const stateName = stateObj ? stateObj.name : selectedState;
+        raw = raw.filter(c => {
+          const locs = [
+            c.location,
+            ...(Array.isArray((c as any).preferred_location)
+              ? (c as any).preferred_location
+              : [(c as any).preferred_location])
+          ].filter(Boolean) as string[];
+          return matchesMultiLevelLocation(locs, { country: countryName, state: stateName, city: selectedCity });
+        });
+      }
+
+      // Radius-based location filter
+      if (locationRadius && (location.trim() || selectedCity || selectedState)) {
+        const targetCenter = selectedCity || location.trim() || selectedState;
+        const radiusNum = parseFloat(locationRadius);
+        if (targetCenter && !isNaN(radiusNum)) {
+          raw = raw.filter(c => {
+            const locs = [
+              c.location,
+              ...(Array.isArray((c as any).preferred_location)
+                ? (c as any).preferred_location
+                : [(c as any).preferred_location])
+            ].filter(Boolean) as string[];
+            return isLocationWithinRadius(locs, targetCenter, radiusNum);
+          });
+        }
+      }
+
       // Industry filter (IT / Non-IT)
       raw = raw.filter(c => {
         if (!industry) return true;
@@ -5829,6 +5882,7 @@ function SearchCandidatesPage() {
     setExpMin(""); setExpMax(""); setCurSalMin(""); setCurSalMax("");
     setExpSalMax(""); setNoticePeriod(""); setEducation("");
     setIndustry(""); setCurrentCompany(""); setExpType(""); setActiveIn("6months"); setSkillTags([]);
+    setSelectedCountry(""); setSelectedState(""); setSelectedCity(""); setLocationRadius("");
     setSearchPage(1);
     if (!keywords.trim()) {
       setSearched(false);
@@ -5856,7 +5910,11 @@ function SearchCandidatesPage() {
     window.scrollTo({ top: 0, behavior: "smooth" });
   }, [searchPage]);
 
-  const activeFilterCount = [expMin, expMax, curSalMin, curSalMax, expSalMax, noticePeriod, education, industry, currentCompany, expType, activeIn !== "6months" ? "activeIn" : ""].filter(Boolean).length + skillTags.length;
+  const activeFilterCount = [
+    expMin, expMax, curSalMin, curSalMax, expSalMax, noticePeriod, education, industry, currentCompany, expType,
+    activeIn !== "6months" ? "activeIn" : "",
+    selectedCountry, selectedState, selectedCity, locationRadius
+  ].filter(Boolean).length + skillTags.length;
 
   // ── Render ────────────────────────────────────────────────
   return (
@@ -6114,6 +6172,7 @@ function SearchCandidatesPage() {
             <Select value={activeIn || "6months"} onValueChange={v => setActiveIn(v)}>
               <SelectTrigger className="bg-[#F6F6F6] border-gray-200 rounded-lg text-xs h-8"><SelectValue placeholder="6 months" /></SelectTrigger>
               <SelectContent>
+                <SelectItem value="24h">Last 24 hours</SelectItem>
                 <SelectItem value="7days">7 days</SelectItem>
                 <SelectItem value="15days">15 days</SelectItem>
                 <SelectItem value="30days">30 days</SelectItem>
@@ -6122,6 +6181,79 @@ function SearchCandidatesPage() {
                 <SelectItem value="6months">6 months</SelectItem>
               </SelectContent>
             </Select>
+          </div>
+
+          {/* Location Filters (Multi-level & Radius) */}
+          <div className="px-4 py-3 border-b border-gray-100 space-y-2.5">
+            <div className="flex items-center justify-between">
+              <p className="text-xs font-semibold text-[#3A1F1F] uppercase tracking-wide">Location Filter</p>
+              <MapPin className="h-3.5 w-3.5 text-[#FF2B2B]" />
+            </div>
+            
+            {/* Country Selector */}
+            <div>
+              <label className="text-[10px] text-[#8A8A8A] block mb-0.5 uppercase font-medium">Country</label>
+              <Select value={selectedCountry || "any"} onValueChange={v => {
+                const val = v === "any" ? "" : v;
+                setSelectedCountry(val);
+                setSelectedState("");
+                setSelectedCity("");
+              }}>
+                <SelectTrigger className="bg-[#F6F6F6] border-gray-200 rounded-lg text-xs h-8"><SelectValue placeholder="Any Country" /></SelectTrigger>
+                <SelectContent className="max-h-48">
+                  <SelectItem value="any">Any Country</SelectItem>
+                  {countriesList.map(c => <SelectItem key={c.isoCode} value={c.isoCode}>{c.name}</SelectItem>)}
+                </SelectContent>
+              </Select>
+            </div>
+
+            {/* State Selector */}
+            {selectedCountry && (
+              <div>
+                <label className="text-[10px] text-[#8A8A8A] block mb-0.5 uppercase font-medium">State</label>
+                <Select value={selectedState || "any"} onValueChange={v => {
+                  const val = v === "any" ? "" : v;
+                  setSelectedState(val);
+                  setSelectedCity("");
+                }}>
+                  <SelectTrigger className="bg-[#F6F6F6] border-gray-200 rounded-lg text-xs h-8"><SelectValue placeholder="Any State" /></SelectTrigger>
+                  <SelectContent className="max-h-48">
+                    <SelectItem value="any">Any State</SelectItem>
+                    {statesList.map(s => <SelectItem key={s.isoCode} value={s.isoCode}>{s.name}</SelectItem>)}
+                  </SelectContent>
+                </Select>
+              </div>
+            )}
+
+            {/* City Selector */}
+            {selectedCountry && (
+              <div>
+                <label className="text-[10px] text-[#8A8A8A] block mb-0.5 uppercase font-medium">City</label>
+                <Select value={selectedCity || "any"} onValueChange={v => setSelectedCity(v === "any" ? "" : v)}>
+                  <SelectTrigger className="bg-[#F6F6F6] border-gray-200 rounded-lg text-xs h-8"><SelectValue placeholder="Any City" /></SelectTrigger>
+                  <SelectContent className="max-h-48">
+                    <SelectItem value="any">Any City</SelectItem>
+                    {citiesList.map(c => <SelectItem key={c} value={c}>{c}</SelectItem>)}
+                  </SelectContent>
+                </Select>
+              </div>
+            )}
+
+            {/* Radius Selector */}
+            <div>
+              <label className="text-[10px] text-[#8A8A8A] block mb-0.5 uppercase font-medium">Radius Distance</label>
+              <Select value={locationRadius || "any"} onValueChange={v => setLocationRadius(v === "any" ? "" : v)}>
+                <SelectTrigger className="bg-[#F6F6F6] border-gray-200 rounded-lg text-xs h-8"><SelectValue placeholder="Any Distance" /></SelectTrigger>
+                <SelectContent>
+                  <SelectItem value="any">Any Distance</SelectItem>
+                  <SelectItem value="10">Within 10 km</SelectItem>
+                  <SelectItem value="25">Within 25 km</SelectItem>
+                  <SelectItem value="50">Within 50 km</SelectItem>
+                  <SelectItem value="100">Within 100 km</SelectItem>
+                  <SelectItem value="200">Within 200 km</SelectItem>
+                </SelectContent>
+              </Select>
+            </div>
           </div>
 
           {/* Current Salary */}

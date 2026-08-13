@@ -19,6 +19,7 @@
 
 import { describe, it, expect } from 'vitest';
 import crypto from 'crypto';
+import { matchesMultiLevelLocation, isLocationWithinRadius, calculateDistanceKm } from '../lib/locationData';
 
 // ── 1. Authentication — OTP generation & hashing security ───────────────────
 
@@ -617,6 +618,7 @@ describe('Feature: Candidate search and filter', () => {
     const now = new Date('2026-08-12T12:00:00Z').getTime();
 
     const activeCandidates: ActiveCandidate[] = [
+      { name: 'Active 12h',  last_active_at: new Date(now - 12 * 60 * 60 * 1000).toISOString() },
       { name: 'Active 3d',   last_active_at: new Date(now - 3 * 24 * 60 * 60 * 1000).toISOString() },
       { name: 'Active 12d',  last_active_at: new Date(now - 12 * 24 * 60 * 60 * 1000).toISOString() },
       { name: 'Active 25d',  last_active_at: new Date(now - 25 * 24 * 60 * 60 * 1000).toISOString() },
@@ -628,6 +630,9 @@ describe('Feature: Candidate search and filter', () => {
 
     const getActiveInDays = (val: string): number => {
       switch (val) {
+        case '24h':
+        case '1day':
+          return 1;
         case '7days': return 7;
         case '15days': return 15;
         case '30days': return 30;
@@ -644,41 +649,76 @@ describe('Feature: Candidate search and filter', () => {
       return activeCandidates.filter(c => new Date(c.last_active_at).getTime() >= cutoffTime);
     };
 
+    it('filters candidates active within last 24 hours (24h)', () => {
+      const results = filterByActiveIn('24h');
+      expect(results).toHaveLength(1);
+      expect(results[0].name).toBe('Active 12h');
+    });
+
     it('defaults to 6 months filter including candidates active within 180 days', () => {
       const results = filterByActiveIn('6months');
-      expect(results).toHaveLength(6);
+      expect(results).toHaveLength(7);
       expect(results.map(c => c.name)).not.toContain('Active 240d');
     });
 
     it('filters candidates active within 7 days', () => {
       const results = filterByActiveIn('7days');
-      expect(results).toHaveLength(1);
-      expect(results[0].name).toBe('Active 3d');
+      expect(results).toHaveLength(2);
+      expect(results.map(c => c.name)).toContain('Active 12h');
+      expect(results.map(c => c.name)).toContain('Active 3d');
     });
 
     it('filters candidates active within 15 days', () => {
       const results = filterByActiveIn('15days');
-      expect(results).toHaveLength(2);
+      expect(results).toHaveLength(3);
     });
 
     it('filters candidates active within 30 days', () => {
       const results = filterByActiveIn('30days');
-      expect(results).toHaveLength(3);
+      expect(results).toHaveLength(4);
     });
 
     it('filters candidates active within 2 months (60 days)', () => {
       const results = filterByActiveIn('2months');
-      expect(results).toHaveLength(4);
+      expect(results).toHaveLength(5);
     });
 
     it('filters candidates active within 3 months (90 days)', () => {
       const results = filterByActiveIn('3months');
-      expect(results).toHaveLength(5);
+      expect(results).toHaveLength(6);
     });
 
     it('fallback filter value defaults to 6 months', () => {
       const results = filterByActiveIn('');
-      expect(results).toHaveLength(6);
+      expect(results).toHaveLength(7);
+    });
+  });
+
+  describe('Location multi-level and radius distance search', () => {
+
+    it('matches candidate location by city, state, and country level hierarchy', () => {
+      expect(matchesMultiLevelLocation('Bengaluru, Karnataka, India', { city: 'Bengaluru' })).toBe(true);
+      expect(matchesMultiLevelLocation('Bengaluru, Karnataka, India', { state: 'Karnataka' })).toBe(true);
+      expect(matchesMultiLevelLocation('Bengaluru, Karnataka, India', { country: 'India' })).toBe(true);
+      expect(matchesMultiLevelLocation('Mumbai, Maharashtra', { city: 'Bengaluru' })).toBe(false);
+    });
+
+    it('handles location aliases like Bangalore <-> Bengaluru', () => {
+      expect(matchesMultiLevelLocation('Bangalore', { city: 'Bengaluru' })).toBe(true);
+      expect(matchesMultiLevelLocation('Bengaluru', { city: 'Bangalore' })).toBe(true);
+    });
+
+    it('calculates Haversine distance correctly between coordinates', () => {
+      // Distance between Bangalore (12.9716, 77.5946) and Pune (18.5204, 73.8567) is ~730 km
+      const dist = calculateDistanceKm(12.9716, 77.5946, 18.5204, 73.8567);
+      expect(dist).toBeGreaterThan(700);
+      expect(dist).toBeLessThan(760);
+    });
+
+    it('filters candidate within location radius distance', () => {
+      // Bengaluru to Electronics City (~15 km) should be within 25 km radius
+      expect(isLocationWithinRadius('Bengaluru', 'Bengaluru', 10)).toBe(true);
+      expect(isLocationWithinRadius('Pune', 'Bengaluru', 50)).toBe(false);
     });
   });
 });
