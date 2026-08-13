@@ -4927,7 +4927,7 @@ function SearchCandidatesPage() {
   const [industry, setIndustry] = useState("");
   const [currentCompany, setCurrentCompany] = useState("");
   const [expType, setExpType] = useState("");
-  const [activeIn, setActiveIn] = useState("6months");
+  const [activeIn, setActiveIn] = useState("any");
   const [selectedCountry, setSelectedCountry] = useState("");
   const [selectedState, setSelectedState] = useState("");
   const [selectedCity, setSelectedCity] = useState("");
@@ -5141,7 +5141,7 @@ function SearchCandidatesPage() {
     return isNaN(d.getTime()) ? null : d;
   };
 
-  const getActiveInDays = (val: string): number => {
+  const getActiveInDays = (val: string): number | null => {
     switch (val) {
       case "24h":
       case "1day":
@@ -5164,8 +5164,12 @@ function SearchCandidatesPage() {
         return 90;
       case "6months":
       case "180":
-      default:
         return 180;
+      case "any":
+      case "all":
+      case "":
+      default:
+        return null;
     }
   };
 
@@ -5736,13 +5740,17 @@ function SearchCandidatesPage() {
         return skillTags.every(tag => cSkills.some(s => skillsMatch(s, tag)));
       });
       // Active In filter
-      const maxActiveDays = getActiveInDays(activeIn || "6months");
-      const activeCutoff = Date.now() - maxActiveDays * 24 * 60 * 60 * 1000;
-      raw = raw.filter(c => {
-        const activeDate = parseActiveDate(c);
-        if (!activeDate) return true;
-        return activeDate.getTime() >= activeCutoff;
-      });
+      if (activeIn && activeIn !== "any") {
+        const maxActiveDays = getActiveInDays(activeIn);
+        if (maxActiveDays !== null) {
+          const activeCutoff = Date.now() - maxActiveDays * 24 * 60 * 60 * 1000;
+          raw = raw.filter(c => {
+            const activeDate = parseActiveDate(c);
+            if (!activeDate) return true;
+            return activeDate.getTime() >= activeCutoff;
+          });
+        }
+      }
 
       // Multi-level location filter (Country, State, City)
       if (selectedCountry || selectedState || selectedCity) {
@@ -5865,7 +5873,7 @@ function SearchCandidatesPage() {
   const clearAllFilters = () => {
     setExpMin(""); setExpMax(""); setCurSalMin(""); setCurSalMax("");
     setExpSalMax(""); setNoticePeriod(""); setEducation("");
-    setIndustry(""); setCurrentCompany(""); setExpType(""); setActiveIn("6months"); setSkillTags([]);
+    setIndustry(""); setCurrentCompany(""); setExpType(""); setActiveIn("any"); setSkillTags([]);
     setSelectedCountry(""); setSelectedState(""); setSelectedCity(""); setLocationRadius("");
     setSearchPage(1);
     if (!keywords.trim()) {
@@ -5896,7 +5904,7 @@ function SearchCandidatesPage() {
 
   const activeFilterCount = [
     expMin, expMax, curSalMin, curSalMax, expSalMax, noticePeriod, education, industry, currentCompany, expType,
-    activeIn !== "6months" ? "activeIn" : "",
+    activeIn && activeIn !== "any" ? "activeIn" : "",
     selectedCountry, selectedState, selectedCity, locationRadius
   ].filter(Boolean).length + skillTags.length;
 
@@ -6150,9 +6158,10 @@ function SearchCandidatesPage() {
           {/* Active In Dropdown */}
           <div className="px-4 py-3 border-b border-gray-100">
             <p className="text-xs font-semibold text-[#3A1F1F] mb-2 uppercase tracking-wide">Active In</p>
-            <Select value={activeIn || "6months"} onValueChange={v => setActiveIn(v)}>
-              <SelectTrigger className="bg-[#F6F6F6] border-gray-200 rounded-lg text-xs h-8"><SelectValue placeholder="6 months" /></SelectTrigger>
+            <Select value={activeIn || "any"} onValueChange={v => setActiveIn(v)}>
+              <SelectTrigger className="bg-[#F6F6F6] border-gray-200 rounded-lg text-xs h-8"><SelectValue placeholder="Any" /></SelectTrigger>
               <SelectContent>
+                <SelectItem value="any">Any</SelectItem>
                 <SelectItem value="24h">Last 24 hours</SelectItem>
                 <SelectItem value="7days">7 days</SelectItem>
                 <SelectItem value="15days">15 days</SelectItem>

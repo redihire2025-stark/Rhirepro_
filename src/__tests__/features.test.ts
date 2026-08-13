@@ -628,7 +628,7 @@ describe('Feature: Candidate search and filter', () => {
       { name: 'Active 240d', last_active_at: new Date(now - 240 * 24 * 60 * 60 * 1000).toISOString() },
     ];
 
-    const getActiveInDays = (val: string): number => {
+    const getActiveInDays = (val: string): number | null => {
       switch (val) {
         case '24h':
         case '1day':
@@ -638,13 +638,16 @@ describe('Feature: Candidate search and filter', () => {
         case '30days': return 30;
         case '2months': return 60;
         case '3months': return 90;
-        case '6months':
-        default: return 180;
+        case '6months': return 180;
+        case 'any':
+        case '':
+        default: return null;
       }
     };
 
     const filterByActiveIn = (activeInVal: string, currentTimeMs: number = now) => {
-      const maxDays = getActiveInDays(activeInVal || '6months');
+      const maxDays = getActiveInDays(activeInVal);
+      if (maxDays === null) return activeCandidates;
       const cutoffTime = currentTimeMs - maxDays * 24 * 60 * 60 * 1000;
       return activeCandidates.filter(c => new Date(c.last_active_at).getTime() >= cutoffTime);
     };
@@ -655,7 +658,7 @@ describe('Feature: Candidate search and filter', () => {
       expect(results[0].name).toBe('Active 12h');
     });
 
-    it('defaults to 6 months filter including candidates active within 180 days', () => {
+    it('filters candidates active within 6 months including candidates active within 180 days', () => {
       const results = filterByActiveIn('6months');
       expect(results).toHaveLength(7);
       expect(results.map(c => c.name)).not.toContain('Active 240d');
@@ -688,9 +691,11 @@ describe('Feature: Candidate search and filter', () => {
       expect(results).toHaveLength(6);
     });
 
-    it('fallback filter value defaults to 6 months', () => {
-      const results = filterByActiveIn('');
-      expect(results).toHaveLength(7);
+    it('returns all candidates when filter is any or empty', () => {
+      const resultsAny = filterByActiveIn('any');
+      const resultsEmpty = filterByActiveIn('');
+      expect(resultsAny).toHaveLength(8);
+      expect(resultsEmpty).toHaveLength(8);
     });
   });
 
