@@ -154,23 +154,40 @@ export default function ApplicantProfilePage() {
     setError(null);
 
     try {
-      let profData;
+      let profData: ApplicantProfile | null = null;
       // 1. Fetch Application
       const { data: appData, error: appError } = await supabase
         .from("applications")
-        .select("*, job:jobs(title, id)")
+        .select("*, job:jobs(title, id, recruiter_id)")
         .eq("id", id)
-        .single();
+        .maybeSingle();
 
       if (appError || !appData) {
-        // Fallback: Try to fetch profile directly assuming applicantId is the profile ID
-        const { data: directProf, error: directProfErr } = await supabase
+        // Fallback: Try to fetch profile directly assuming id is the profile ID
+        let directProf: ApplicantProfile | null = null;
+        let directProfErr: any = null;
+
+        const res1 = await supabase
           .from("profiles")
           .select(SAFE_PROFILE_COLUMNS)
           .eq("id", id)
-          .single();
+          .maybeSingle();
+
+        if (res1.data) {
+          directProf = res1.data as ApplicantProfile;
+        } else {
+          // Fallback to select("*") in case SAFE_PROFILE_COLUMNS had a missing column error
+          const res2 = await supabase
+            .from("profiles")
+            .select("*")
+            .eq("id", id)
+            .maybeSingle();
+          directProf = res2.data as ApplicantProfile | null;
+          directProfErr = res2.error;
+        }
 
         if (directProfErr || !directProf) {
+          delete profileCache[id];
           setError("Candidate profile not found or could not be loaded.");
           setLoading(false);
           return;
@@ -179,7 +196,14 @@ export default function ApplicantProfilePage() {
         setApplication(null);
       } else {
         // 2. Validate recruiter access permission
-        if (appData.recruiter_id !== recruiterProfile.id) {
+        const isAllowed = 
+          !appData.recruiter_id || 
+          appData.recruiter_id === recruiterProfile.id || 
+          appData.job?.recruiter_id === recruiterProfile.id ||
+          recruiterProfile.is_org_admin;
+
+        if (!isAllowed) {
+          delete profileCache[id];
           setError("Access Denied: You do not have permission to view this applicant's profile.");
           setLoading(false);
           return;
@@ -187,18 +211,48 @@ export default function ApplicantProfilePage() {
         setApplication(appData);
 
         // 3. Fetch candidate profile
-        const { data: pData, error: pError } = await supabase
+        let pData: ApplicantProfile | null = null;
+        let pError: any = null;
+
+        const res1 = await supabase
           .from("profiles")
           .select(SAFE_PROFILE_COLUMNS)
           .eq("id", appData.profile_id)
-          .single();
+          .maybeSingle();
+
+        if (res1.data) {
+          pData = res1.data as ApplicantProfile;
+        } else {
+          // Fallback to select("*") in case SAFE_PROFILE_COLUMNS had a column schema mismatch
+          const res2 = await supabase
+            .from("profiles")
+            .select("*")
+            .eq("id", appData.profile_id)
+            .maybeSingle();
+          pData = res2.data as ApplicantProfile | null;
+          pError = res2.error;
+        }
 
         if (pError || !pData) {
-          setError("Candidate profile not found or could not be loaded.");
-          setLoading(false);
-          return;
+          // Additional fallback: in case 'id' was candidate's profile_id directly
+          const fallbackRes = await supabase
+            .from("profiles")
+            .select("*")
+            .eq("id", id)
+            .maybeSingle();
+
+          if (fallbackRes.data) {
+            profData = fallbackRes.data as ApplicantProfile;
+            setApplication(null);
+          } else {
+            delete profileCache[id];
+            setError("Candidate profile not found or could not be loaded.");
+            setLoading(false);
+            return;
+          }
+        } else {
+          profData = pData;
         }
-        profData = pData;
       }
 
       setProfile(profData);
