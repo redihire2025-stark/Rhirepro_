@@ -160,13 +160,16 @@ const server = http.createServer(async (req, res) => {
       const [{ data: profs }, { data: recs }, authRes] = await Promise.all([
         admin.from("profiles").select("id").ilike("email", cleanEmail).limit(1),
         admin.from("recruiters").select("id").ilike("email", cleanEmail).limit(1),
-        admin.auth.admin.listUsers().catch(() => ({ data: { users: [] } })),
+        admin.auth.admin.listUsers({ page: 1, perPage: 1000 }).catch(() => ({ data: { users: [] } })),
       ]);
 
       const authUser = authRes?.data?.users?.find(u => (u.email || "").toLowerCase() === cleanEmail);
+      const providers = authUser?.app_metadata?.providers || [authUser?.app_metadata?.provider];
+      const isGoogle = Array.isArray(providers) && providers.includes("google");
+      const hasPassword = Boolean(authUser?.encrypted_password);
       const exists = !!((profs && profs.length > 0) || (recs && recs.length > 0) || authUser);
 
-      ok({ exists });
+      ok({ exists, is_google: isGoogle, has_password: hasPassword });
     } catch (err) { fail(500, err.message); }
     return;
   }
@@ -204,11 +207,17 @@ const server = http.createServer(async (req, res) => {
           { onConflict: "email" }
         ).catch(e => console.warn("Failed to store pending_otp:", e.message));
       } else {
-        const table = user_type === "recruiter" ? "recruiter_profiles" : "profiles";
+        let table = user_type === "recruiter" ? "recruiter_profiles" : "profiles";
         const { data: updated } = await admin.from(table).update({ otp_code: otpHash, otp_expires_at: expiresAt }).ilike("email", cleanEmail).select("id");
-        if ((!updated || updated.length === 0) && !user_type) {
+        if (!updated || updated.length === 0) {
           const fallbackTable = table === "profiles" ? "recruiter_profiles" : "profiles";
-          await admin.from(fallbackTable).update({ otp_code: otpHash, otp_expires_at: expiresAt }).ilike("email", cleanEmail);
+          const { data: fallbackUpdated } = await admin.from(fallbackTable).update({ otp_code: otpHash, otp_expires_at: expiresAt }).ilike("email", cleanEmail).select("id");
+          if (!fallbackUpdated || fallbackUpdated.length === 0) {
+            await admin.from("pending_otps").upsert(
+              { email: cleanEmail, otp_code: otpHash, otp_expires_at: expiresAt },
+              { onConflict: "email" }
+            ).catch(e => console.warn("Failed to store pending_otp fallback:", e.message));
+          }
         }
       }
 
@@ -234,32 +243,71 @@ const server = http.createServer(async (req, res) => {
       const admin = adminClient();
 
       if (isSignup) {
-        const { data, error } = await admin.from("pending_otps").select("otp_code, otp_expires_at").ilike("email", cleanEmail).single();
-        if (error || !data || !data.otp_code) return fail(400, "No OTP found. Please request a new one.");
+        let { data, error } = await admin.from("pending_otps").select("otp_code, otp_expires_at").ilike("email", cleanEmail).single();
+        if (error || !data || !data.otp_code) {
+          const { data: prof } = await admin.from("profiles").select("otp_code, otp_expires_at").ilike("email", cleanEmail).single();
+          if (prof && prof.otp_code) data = prof;
+          else {
+            const { data: rec } = await admin.from("recruiter_profiles").select("otp_code, otp_expires_at").ilike("email", cleanEmail).single();
+            if (rec && rec.otp_code) data = rec;
+          }
+        }
+
+        if (!data || !data.otp_code) return fail(400, "No OTP found. Please request a new one.");
         if (new Date(data.otp_expires_at) < new Date()) return fail(400, "OTP has expired. Please request a new one.");
 
-        const isValid = bcrypt.compareSync(incomingHash, data.otp_code);
+        let isValid = false;
+        if (data.otp_code.startsWith("$2b$") || data.otp_code.startsWith("$2a$")) {
+          isValid = bcrypt.compareSync(incomingHash, data.otp_code);
+          if (!isValid && otp) {
+            isValid = bcrypt.compareSync(hashSHA256(otp), data.otp_code);
+          }
+        } else {
+          isValid = (data.otp_code === incomingHash) || (data.otp_code === (otp || "").trim());
+        }
+
         if (!isValid) return fail(400, "Invalid OTP. Please try again.");
 
-        await admin.from("pending_otps").delete().ilike("email", cleanEmail);
+        await admin.from("pending_otps").delete().ilike("email", cleanEmail).catch(() => {});
         ok({ success: true });
       } else {
         let table = user_type === "recruiter" ? "recruiter_profiles" : "profiles";
         let { data: user } = await admin.from(table).select("id, otp_code, otp_expires_at").ilike("email", cleanEmail).single();
 
-        if ((!user || !user.otp_code) && !user_type) {
+        if (!user || !user.otp_code) {
           table = table === "profiles" ? "recruiter_profiles" : "profiles";
           const res = await admin.from(table).select("id, otp_code, otp_expires_at").ilike("email", cleanEmail).single();
           user = res.data;
         }
 
+        if (!user || !user.otp_code) {
+          const res = await admin.from("pending_otps").select("id, otp_code, otp_expires_at").ilike("email", cleanEmail).single();
+          if (res.data && res.data.otp_code) {
+            user = res.data;
+            table = "pending_otps";
+          }
+        }
+
         if (!user || !user.otp_code) return fail(400, "No OTP found. Please request a new one.");
         if (new Date(user.otp_expires_at) < new Date()) return fail(400, "OTP has expired. Please request a new one.");
 
-        const isValid = bcrypt.compareSync(incomingHash, user.otp_code);
+        let isValid = false;
+        if (user.otp_code.startsWith("$2b$") || user.otp_code.startsWith("$2a$")) {
+          isValid = bcrypt.compareSync(incomingHash, user.otp_code);
+          if (!isValid && otp) {
+            isValid = bcrypt.compareSync(hashSHA256(otp), user.otp_code);
+          }
+        } else {
+          isValid = (user.otp_code === incomingHash) || (user.otp_code === (otp || "").trim());
+        }
+
         if (!isValid) return fail(400, "Invalid OTP. Please try again.");
 
-        await admin.from(table).update({ otp_code: null, otp_expires_at: null }).eq("id", user.id);
+        if (table === "pending_otps") {
+          await admin.from("pending_otps").delete().eq("id", user.id);
+        } else {
+          await admin.from(table).update({ otp_code: null, otp_expires_at: null }).eq("id", user.id);
+        }
         ok({ success: true });
       }
     } catch (err) { fail(500, err.message); }
@@ -272,22 +320,63 @@ const server = http.createServer(async (req, res) => {
     const cleanEmail = (email || "").trim().toLowerCase();
     try {
       const admin = adminClient();
-      const table = user_type === "recruiter" ? "recruiter_profiles" : "profiles";
-      const nameCol = user_type === "recruiter" ? "recruiter_name" : "first_name";
+      let table = user_type === "recruiter" ? "recruiter_profiles" : "profiles";
+      let nameCol = user_type === "recruiter" ? "recruiter_name" : "first_name";
 
-      const { data: user, error: lookupErr } = await admin
-        .from(table).select(`id, ${nameCol}`).ilike("email", cleanEmail).single();
+      let { data: user, error: lookupErr } = await admin
+        .from(table).select(`id, ${nameCol}`).ilike("email", cleanEmail).maybeSingle();
 
-      if (lookupErr || !user)
+      if (lookupErr || !user) {
+        const fallbackTable = table === "profiles" ? "recruiter_profiles" : "profiles";
+        const fallbackCol = fallbackTable === "recruiter_profiles" ? "recruiter_name" : "first_name";
+        const { data: fallbackUser } = await admin
+          .from(fallbackTable).select(`id, ${fallbackCol}`).ilike("email", cleanEmail).maybeSingle();
+        if (fallbackUser) {
+          user = fallbackUser;
+          table = fallbackTable;
+          nameCol = fallbackCol;
+        }
+      }
+
+      if (!user) {
+        const { data: pendingUser } = await admin
+          .from("pending_otps").select("id, email").ilike("email", cleanEmail).maybeSingle();
+        if (pendingUser) {
+          user = pendingUser;
+          table = "pending_otps";
+        }
+      }
+
+      if (!user) {
+        const authRes = await admin.auth.admin.listUsers().catch(() => ({ data: { users: [] } }));
+        const authUser = authRes?.data?.users?.find(u => (u.email || "").toLowerCase() === cleanEmail);
+        if (authUser) {
+          user = { id: authUser.id };
+          table = "pending_otps";
+        }
+      }
+
+      if (!user) {
         return fail(404, "No account found with this email address.");
+      }
 
       const otp = generateOTP();
       const sha256Otp = hashSHA256(otp);
       const otpHash = bcrypt.hashSync(sha256Otp, 10);
       const expires = new Date(Date.now() + 10 * 60 * 1000).toISOString();
-      const { error: storeErr } = await admin.from(table)
-        .update({ otp_code: otpHash, otp_expires_at: expires }).eq("id", user.id);
-      if (storeErr) throw new Error("Failed to store OTP: " + storeErr.message);
+
+      if (table === "pending_otps") {
+        await admin.from("pending_otps").upsert(
+          { email: cleanEmail, otp_code: otpHash, otp_expires_at: expires },
+          { onConflict: "email" }
+        ).catch(e => console.warn("Failed to store pending_otps reset:", e.message));
+      } else {
+        const { error: storeErr } = await admin.from(table)
+          .update({ otp_code: otpHash, otp_expires_at: expires }).eq("id", user.id);
+        if (storeErr) throw new Error("Failed to store OTP: " + storeErr.message);
+      }
+
+      console.log(`\n  🔐 [RESET OTP] Code for <${cleanEmail}>: ${otp} (Expires in 10 mins)\n`);
 
       const name = user[nameCol] || cleanEmail;
       await sendResendEmail(
@@ -295,7 +384,9 @@ const server = http.createServer(async (req, res) => {
         `Your RhirePro Password Reset Code`,
         otpHtml(name, cleanEmail, otp, 10, "reset"),
         "reset_otp"
-      );
+      ).catch((err) => {
+        console.warn(`[send-reset-otp] Resend dispatch warning for ${cleanEmail}:`, err.message);
+      });
       ok({ success: true });
     } catch (err) { fail(500, err.message); }
     return;
@@ -308,22 +399,58 @@ const server = http.createServer(async (req, res) => {
     const incomingHash = (otp_hash || (otp ? hashSHA256(otp) : "")).trim();
     try {
       const admin = adminClient();
-      const table = user_type === "recruiter" ? "recruiter_profiles" : "profiles";
+      let table = user_type === "recruiter" ? "recruiter_profiles" : "profiles";
 
-      const { data: user, error: lookupErr } = await admin
-        .from(table).select("id, otp_code, otp_expires_at").ilike("email", cleanEmail).single();
+      let { data: user, error: lookupErr } = await admin
+        .from(table).select("id, otp_code, otp_expires_at").ilike("email", cleanEmail).maybeSingle();
 
-      if (lookupErr || !user) return fail(404, "No account found with this email address.");
-      if (!user.otp_code) return fail(400, "No OTP found. Please request a new one.");
+      if (lookupErr || !user || !user.otp_code) {
+        const fallbackTable = table === "profiles" ? "recruiter_profiles" : "profiles";
+        const { data: fallbackUser } = await admin
+          .from(fallbackTable).select("id, otp_code, otp_expires_at").ilike("email", cleanEmail).maybeSingle();
+        if (fallbackUser && fallbackUser.otp_code) {
+          user = fallbackUser;
+          table = fallbackTable;
+        }
+      }
+
+      if (!user || !user.otp_code) {
+        const { data: pendingUser } = await admin
+          .from("pending_otps").select("id, otp_code, otp_expires_at").ilike("email", cleanEmail).maybeSingle();
+        if (pendingUser && pendingUser.otp_code) {
+          user = pendingUser;
+          table = "pending_otps";
+        }
+      }
+
+      if (!user || !user.otp_code) return fail(400, "No OTP found. Please request a new one.");
       if (new Date(user.otp_expires_at) < new Date()) return fail(400, "OTP has expired. Please request a new one.");
-      
-      const isValid = bcrypt.compareSync(incomingHash, user.otp_code);
+
+      let isValid = false;
+      if (user.otp_code.startsWith("$2b$") || user.otp_code.startsWith("$2a$")) {
+        isValid = bcrypt.compareSync(incomingHash, user.otp_code);
+        if (!isValid && otp) {
+          isValid = bcrypt.compareSync(hashSHA256(otp), user.otp_code);
+        }
+      } else {
+        isValid = (user.otp_code === incomingHash) || (user.otp_code === (otp || "").trim());
+      }
+
       if (!isValid) return fail(400, "Invalid OTP. Please try again.");
 
-      const { error: updateErr } = await admin.auth.admin.updateUserById(user.id, { password: new_password });
+      let authUserId = user.id;
+      const { data: { users } } = await admin.auth.admin.listUsers().catch(() => ({ data: { users: [] } }));
+      const authUser = users?.find(u => (u.email || "").toLowerCase() === cleanEmail);
+      if (authUser) authUserId = authUser.id;
+
+      const { error: updateErr } = await admin.auth.admin.updateUserById(authUserId, { password: new_password });
       if (updateErr) throw new Error("Failed to update password: " + updateErr.message);
 
-      await admin.from(table).update({ otp_code: null, otp_expires_at: null }).eq("id", user.id);
+      if (table === "pending_otps") {
+        await admin.from("pending_otps").delete().ilike("email", cleanEmail).catch(() => {});
+      } else {
+        await admin.from(table).update({ otp_code: null, otp_expires_at: null }).eq("id", user.id);
+      }
 
       ok({ success: true });
     } catch (err) { fail(500, err.message); }

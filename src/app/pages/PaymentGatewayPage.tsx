@@ -1,17 +1,28 @@
 import { useState, useCallback, useEffect } from "react";
 import { useNavigate, useSearchParams } from "react-router";
-import { supabase } from "../../lib/supabase";
 import { useAuth } from "../../lib/auth-context";
 import { calculateGst, getPlanById } from "../../lib/plans";
 import { Button } from "../components/ui/button";
 import {
   CheckCircle, XCircle, RefreshCw, ArrowLeft,
-  ShieldCheck, Smartphone, Zap, Lock, TestTube2,
+  ShieldCheck, Zap, Lock, CreditCard, TestTube2,
 } from "lucide-react";
 import logoImage from "../../logo/logo.png";
-import phonePeQR from "../../logo/qr.jpg";
 
-// ── Main Payment Page — redirects to PhonePe ──────────────────────────────────
+function loadRazorpayScript(): Promise<boolean> {
+  return new Promise((resolve) => {
+    if ((window as any).Razorpay) {
+      resolve(true);
+      return;
+    }
+    const script = document.createElement("script");
+    script.src = "https://checkout.razorpay.com/v1/checkout.js";
+    script.onload = () => resolve(true);
+    script.onerror = () => resolve(false);
+    document.body.appendChild(script);
+  });
+}
+
 export default function PaymentGatewayPage() {
   const navigate = useNavigate();
   const [searchParams] = useSearchParams();
@@ -30,6 +41,7 @@ export default function PaymentGatewayPage() {
   const displayTotal = finalAmount || baseAmount + gstAmount;
 
   const [status, setStatus] = useState<"idle" | "loading" | "failed" | "success">("idle");
+  const [errorMsg, setErrorMsg] = useState<string>("");
   const [txnRef, setTxnRef] = useState<string>("");
 
   useEffect(() => {
@@ -42,118 +54,108 @@ export default function PaymentGatewayPage() {
   }, [status, navigate]);
 
   const handlePay = useCallback(async () => {
-    if (!recruiterProfile?.id) return;
-    setStatus("loading");
-
-    // ── TEST MODE: Any applied promo/coupon code bypasses PhonePe and activates plan directly ──────
-    if (promoCode && promoCode.trim() !== "") {
-      try {
-        const now = new Date();
-        const expiresAt = new Date(now.getTime() + 30 * 24 * 60 * 60 * 1000);
-        const testRef = `TEST_${recruiterProfile.id}_${Date.now()}`;
-
-        // Insert payment transaction
-        const { data: txn, error: txnErr } = await supabase
-          .from("payment_transactions")
-          .insert({
-            recruiter_id:    recruiterProfile.id,
-            plan_id:         planId,
-            amount:          baseAmount,
-            promo_code:      promoCode,
-            discount_amount: discount,
-            final_amount:    displayTotal,
-            status:          "success",
-            payment_method:  "test",
-            transaction_ref: testRef,
-            completed_at:    now.toISOString(),
-          })
-          .select("id")
-          .single();
-
-        if (txnErr) throw txnErr;
-
-        // Cancel any existing active subscription
-        await supabase
-          .from("recruiter_subscriptions")
-          .update({ status: "cancelled" })
-          .eq("recruiter_id", recruiterProfile.id)
-          .eq("status", "active");
-
-        // Activate new subscription
-        const { error: subErr } = await supabase
-          .from("recruiter_subscriptions")
-          .insert({
-            recruiter_id:    recruiterProfile.id,
-            plan_id:         planId,
-            status:          "active",
-            started_at:      now.toISOString(),
-            expires_at:      expiresAt.toISOString(),
-            daily_job_posts: plan?.dailyJobPosts ?? null,
-            payment_id:      txn.id,
-          });
-
-        if (subErr) throw subErr;
-
-        // Make user an admin in the database
-        const { error: profileErr } = await supabase
-          .from("recruiter_profiles")
-          .update({
-            org_role: "admin",
-            max_seats: 10,
-            is_org_admin: true,
-          })
-          .eq("id", recruiterProfile.id);
-
-        if (profileErr) throw profileErr;
-
-        // Refresh profile context
-        await refreshProfile();
-
-        setTxnRef(testRef);
-        setStatus("success");
-      } catch (err) {
-        console.error("Test activation error:", err);
-        setStatus("failed");
-      }
+    if (!recruiterProfile?.id) {
+      setErrorMsg("Please sign in as a recruiter to purchase a plan.");
+      setStatus("failed");
       return;
     }
+    setStatus("loading");
+    setErrorMsg("");
 
-    // ── LIVE MODE: redirect to PhonePe ────────────────────────────────────────
     try {
-      const merchantTransactionId = `TXN_${recruiterProfile.id}_${Date.now()}`;
-
-      sessionStorage.setItem("pp_txn", JSON.stringify({
-        merchantTransactionId,
-        recruiter_id:    recruiterProfile.id,
-        plan_id:         planId,
-        amount:          baseAmount,
-        final_amount:    displayTotal,
-        discount_amount: discount,
-        promo_code:      promoCode,
-        daily_job_posts: plan?.dailyJobPosts ?? null,
-      }));
-
-      const redirectUrl = `${window.location.origin}/recruiter/payment/status`;
-
-      const { data, error } = await supabase.functions.invoke("create-order", {
-        body: {
-          amount: displayTotal,
-          merchantTransactionId,
-          redirectUrl,
-          recruiter_id: recruiterProfile.id,
-        },
-      });
-
-      if (error || !data?.redirectUrl) {
-        throw new Error(error?.message ?? "Could not initiate PhonePe payment");
+      const isLoaded = await loadRazorpayScript();
+      if (!isLoaded) {
+        throw new Error("Failed to load Razorpay SDK. Check your internet connection.");
       }
 
-      window.location.href = data.redirectUrl;
-    } catch (err) {
-      console.error("PhonePe init error:", err);
+      const apiUrl = import.meta.env.VITE_API_URL || "http://localhost:8000";
+
+      // 1. Create order on FastAPI backend
+      const res = await fetch(`${apiUrl}/payments/create-order`, {
+        method: "POST",
+        headers: { "Content-Type": "application/json" },
+        body: JSON.stringify({
+          plan_id: planId,
+          recruiter_id: recruiterProfile.id,
+          promo_code: promoCode || undefined,
+        }),
+      });
+
+      if (!res.ok) {
+        const errJson = await res.json().catch(() => ({}));
+        throw new Error(errJson.detail || "Could not create Razorpay order");
+      }
+
+      const orderData = await res.json();
+
+      // 2. Open Razorpay Checkout Modal
+      const options = {
+        key: orderData.key_id || import.meta.env.VITE_RAZORPAY_KEY_ID || "rzp_test_TOksXioBHbSu5W",
+        amount: orderData.amount,
+        currency: orderData.currency || "INR",
+        name: "RhirePro",
+        description: `${plan?.name ?? "Recruiter"} Plan Subscription`,
+        image: logoImage,
+        order_id: orderData.order_id,
+        handler: async function (response: any) {
+          try {
+            setStatus("loading");
+            // 3. Verify payment signature on FastAPI backend
+            const verifyRes = await fetch(`${apiUrl}/payments/verify-payment`, {
+              method: "POST",
+              headers: { "Content-Type": "application/json" },
+              body: JSON.stringify({
+                razorpay_order_id: response.razorpay_order_id,
+                razorpay_payment_id: response.razorpay_payment_id,
+                razorpay_signature: response.razorpay_signature,
+                recruiter_id: recruiterProfile.id,
+                plan_id: planId,
+                promo_code: promoCode || undefined,
+              }),
+            });
+
+            if (!verifyRes.ok) {
+              const errJson = await verifyRes.json().catch(() => ({}));
+              throw new Error(errJson.detail || "Payment verification failed");
+            }
+
+            // 4. Refresh profile context to reflect upgrade
+            await refreshProfile();
+            setTxnRef(response.razorpay_payment_id);
+            setStatus("success");
+          } catch (err: any) {
+            console.error("Payment verification error:", err);
+            setErrorMsg(err.message || "Payment verification failed.");
+            setStatus("failed");
+          }
+        },
+        prefill: {
+          name: recruiterProfile.recruiter_name || recruiterProfile.company_name || "",
+          email: recruiterProfile.email || "",
+          contact: recruiterProfile.phone || "",
+        },
+        notes: {
+          plan_id: planId,
+          recruiter_id: recruiterProfile.id,
+        },
+        theme: {
+          color: "#FF2B2B",
+        },
+        modal: {
+          ondismiss: function () {
+            setStatus("idle");
+          },
+        },
+      };
+
+      const rzp = new (window as any).Razorpay(options);
+      rzp.open();
+    } catch (err: any) {
+      console.error("Razorpay init error:", err);
+      setErrorMsg(err.message || "Failed to initialize Razorpay checkout");
       setStatus("failed");
     }
-  }, [recruiterProfile, planId, baseAmount, displayTotal, discount, promoCode, plan]);
+  }, [recruiterProfile, planId, promoCode, plan, refreshProfile]);
 
   if (status === "success") {
     return (
@@ -162,8 +164,8 @@ export default function PaymentGatewayPage() {
           <div className="w-20 h-20 bg-green-100 rounded-full flex items-center justify-center mx-auto mb-4 animate-bounce">
             <CheckCircle className="h-10 w-10 text-green-500" />
           </div>
-          <div className="inline-flex items-center gap-1.5 bg-yellow-100 text-yellow-700 text-xs font-medium px-3 py-1 rounded-full mb-4">
-            <TestTube2 className="h-3.5 w-3.5" /> Test Mode — {promoCode.toUpperCase()}
+          <div className="inline-flex items-center gap-1.5 bg-blue-50 text-blue-700 text-xs font-medium px-3 py-1 rounded-full mb-4">
+            <TestTube2 className="h-3.5 w-3.5" /> Razorpay Test Mode
           </div>
           <h2 className="text-2xl font-bold text-[#3A1F1F] mb-2">Payment Successful!</h2>
           <p className="text-[#8A8A8A] mb-6">
@@ -190,8 +192,8 @@ export default function PaymentGatewayPage() {
           <div className="w-20 h-20 bg-red-100 rounded-full flex items-center justify-center mx-auto mb-5">
             <XCircle className="h-10 w-10 text-[#FF2B2B]" />
           </div>
-          <h2 className="text-2xl font-bold text-[#3A1F1F] mb-2">Could Not Connect</h2>
-          <p className="text-[#8A8A8A] mb-8">Failed to reach PhonePe. Please try again.</p>
+          <h2 className="text-2xl font-bold text-[#3A1F1F] mb-2">Payment Failed</h2>
+          <p className="text-[#8A8A8A] mb-8">{errorMsg || "Could not complete payment. Please try again."}</p>
           <div className="space-y-3">
             <Button onClick={() => setStatus("idle")}
               className="w-full bg-[#FF2B2B] hover:bg-[#e02525] text-white rounded-full py-6">
@@ -225,31 +227,34 @@ export default function PaymentGatewayPage() {
 
       <div className="container mx-auto px-4 py-12 max-w-md">
         <div className="bg-white rounded-2xl shadow-xl overflow-hidden">
-          {/* PhonePe header */}
-          <div className="bg-[#5F259F] px-6 py-5 flex items-center justify-between text-white">
+          {/* Razorpay header */}
+          <div className="bg-[#0C2340] px-6 py-5 flex items-center justify-between text-white">
             <div>
-              <div className="text-xl font-bold">PhonePe Business</div>
-              <div className="text-purple-200 text-xs">Secure UPI Payment</div>
+              <div className="text-xl font-bold flex items-center gap-2">
+                Razorpay Checkout
+              </div>
+              <div className="text-blue-200 text-xs">UPI · Cards · Netbanking · Wallets</div>
             </div>
-            <Smartphone className="h-7 w-7 text-white/80" />
+            <div className="bg-blue-900/60 border border-blue-400/30 text-blue-200 text-xs px-2.5 py-1 rounded-full flex items-center gap-1 font-mono">
+              <TestTube2 className="h-3.5 w-3.5 text-yellow-400" /> Test Mode
+            </div>
           </div>
 
           <div className="p-6 space-y-5">
-            {/* QR */}
-            <div className="flex flex-col items-center">
-              <p className="text-xs text-[#8A8A8A] mb-3">Or scan to pay directly via any UPI app</p>
-              <div className="border-2 border-gray-100 rounded-xl overflow-hidden">
-                <img src={phonePeQR} alt="PhonePe QR" className="w-44 h-44 object-contain" />
-              </div>
+            {/* Payment method summary */}
+            <div className="flex flex-col items-center bg-gray-50 border border-gray-100 rounded-xl p-4 text-center">
+              <CreditCard className="h-8 w-8 text-[#FF2B2B] mb-2" />
+              <p className="text-sm font-semibold text-[#3A1F1F]">Razorpay Secure Payment Gateway</p>
+              <p className="text-xs text-[#8A8A8A] mt-0.5">Pay safely using Test Cards, UPI, or Netbanking</p>
             </div>
 
             {/* Order info */}
             <div className="flex justify-between items-center bg-[#F6F6F6] rounded-xl px-4 py-3">
               <div>
-                <p className="text-xs text-[#8A8A8A]">{plan?.name} · 30 days</p>
-                <p className="text-xs text-[#8A8A8A]">Plan Price: ₹{baseAmount}</p>
+                <p className="text-xs font-semibold text-[#3A1F1F]">{plan?.name} · 30 days</p>
+                <p className="text-xs text-[#8A8A8A]">Base Price: ₹{baseAmount}</p>
                 <p className="text-xs text-[#8A8A8A]">GST (18%): ₹{gstAmount}</p>
-                {discount > 0 && <p className="text-xs text-green-600 font-medium">Saved ₹{discount}</p>}
+                {discount > 0 && <p className="text-xs text-green-600 font-medium">Saved ₹{discount} ({promoCode})</p>}
               </div>
               <div className="text-right">
                 {discount > 0 && (
@@ -263,26 +268,26 @@ export default function PaymentGatewayPage() {
             <Button
               onClick={handlePay}
               disabled={status === "loading"}
-              className="w-full bg-[#5F259F] hover:bg-[#4e1e82] text-white rounded-full py-7 text-base font-semibold"
+              className="w-full bg-[#FF2B2B] hover:bg-[#e02525] text-white rounded-full py-7 text-base font-semibold transition-all shadow-md hover:shadow-lg"
             >
               {status === "loading" ? (
                 <span className="flex items-center gap-2">
                   <span className="w-4 h-4 border-2 border-white border-t-transparent rounded-full animate-spin" />
-                  Redirecting to PhonePe…
+                  Opening Razorpay…
                 </span>
               ) : (
                 <span className="flex items-center gap-2">
-                  <Zap className="h-5 w-5" /> Pay ₹{displayTotal} via PhonePe
+                  <Zap className="h-5 w-5" /> Pay ₹{displayTotal} via Razorpay
                 </span>
               )}
             </Button>
 
             <div className="flex items-center justify-center gap-4 pt-2 border-t border-gray-100">
               <div className="flex items-center gap-1 text-xs text-[#8A8A8A]">
-                <Lock className="h-3.5 w-3.5" /> 256-bit SSL
+                <Lock className="h-3.5 w-3.5 text-gray-500" /> 256-bit SSL
               </div>
               <div className="flex items-center gap-1 text-xs text-[#8A8A8A]">
-                <ShieldCheck className="h-3.5 w-3.5" /> PhonePe secured
+                <ShieldCheck className="h-3.5 w-3.5 text-green-500" /> Razorpay Secured
               </div>
             </div>
           </div>

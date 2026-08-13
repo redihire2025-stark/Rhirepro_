@@ -1,12 +1,19 @@
+import base64
+import hashlib
+import hmac
+import json
 import os
-from dotenv import load_dotenv
-dotenv_path = os.path.join(os.path.dirname(os.path.abspath(__file__)), "..", ".env")
-load_dotenv(dotenv_path=dotenv_path)
-
+import urllib.error
+import urllib.request
 from datetime import datetime, timedelta, timezone
 from typing import Literal
 
-from fastapi import FastAPI, Header, HTTPException, Query
+from dotenv import load_dotenv
+
+dotenv_path = os.path.join(os.path.dirname(os.path.abspath(__file__)), "..", ".env")
+load_dotenv(dotenv_path=dotenv_path)
+
+from fastapi import FastAPI, Header, HTTPException, Query, Request
 from fastapi.middleware.cors import CORSMiddleware
 from pydantic import BaseModel, Field
 from supabase import Client, create_client
@@ -985,4 +992,297 @@ def get_testimonials():
         "comment": "RhirePro helped me land my dream job in just 2 weeks. The process was seamless and the support team was incredible!"
       }
     ]
+
+
+# ── Razorpay Payment Gateway Integration ────────────────────────────────────────
+
+RAZORPAY_KEY_ID = os.environ.get("RAZORPAY_KEY_ID") or "rzp_test_TOksXioBHbSu5W"
+RAZORPAY_KEY_SECRET = os.environ.get("RAZORPAY_KEY_SECRET") or "frVS9mmWMomFbj8nJUW2t9zX"
+
+PLANS_DB = {
+  "basic": {"id": "basic", "name": "Basic Plan", "price": 350, "dailyJobPosts": 10},
+  "standard": {"id": "standard", "name": "Standard Plan", "price": 1000, "dailyJobPosts": 50},
+  "premium": {"id": "premium", "name": "Premium Plan", "price": 3000, "dailyJobPosts": None},
+}
+
+PROMO_CODES_DB = {
+  "RHIRE10": {"discountType": "percentage", "discountValue": 10},
+  "RHIRE20": {"discountType": "percentage", "discountValue": 20},
+  "HIRE50":  {"discountType": "percentage", "discountValue": 50},
+  "NEWJOIN": {"discountType": "fixed",      "discountValue": 100},
+  "RHIRE99": {"discountType": "set_price",  "discountValue": 1},
+}
+
+
+def calculate_plan_price(plan_id: str, promo_code: str | None = None):
+  plan = PLANS_DB.get(plan_id.lower())
+  if not plan:
+    raise HTTPException(status_code=400, detail=f"Invalid plan ID: {plan_id}")
+
+  base_price = plan["price"]
+  gst_rate = 0.18
+  discount_amount = 0
+
+  if promo_code and promo_code.strip():
+    code = promo_code.strip().upper()
+    promo = PROMO_CODES_DB.get(code)
+    if promo:
+      dtype = promo["discountType"]
+      dval = promo["discountValue"]
+      if dtype == "percentage":
+        discounted_base = round(base_price * (1 - dval / 100))
+      elif dtype == "set_price":
+        discounted_base = dval
+      else:
+        discounted_base = max(1, base_price - dval)
+      discount_amount = base_price - discounted_base
+    else:
+      discounted_base = base_price
+  else:
+    discounted_base = base_price
+
+  gst_amount = round(base_price * gst_rate)
+  total_amount = discounted_base + gst_amount
+  return {
+    "base_price": base_price,
+    "discount_amount": discount_amount,
+    "gst_amount": gst_amount,
+    "total_amount": total_amount,
+    "daily_job_posts": plan["dailyJobPosts"],
+    "plan_name": plan["name"],
+  }
+
+
+class CreateOrderPayload(BaseModel):
+  plan_id: str
+  recruiter_id: str
+  promo_code: str | None = None
+
+
+class VerifyPaymentPayload(BaseModel):
+  razorpay_order_id: str
+  razorpay_payment_id: str
+  razorpay_signature: str
+  recruiter_id: str
+  plan_id: str
+  promo_code: str | None = None
+
+
+def activate_recruiter_plan(recruiter_id: str, plan_id: str, order_id: str, payment_id: str):
+  now = datetime.now(timezone.utc)
+  expires_at = now + timedelta(days=30)
+  plan_info = PLANS_DB.get(plan_id.lower())
+  daily_posts = plan_info["dailyJobPosts"] if plan_info else None
+  plan_name = plan_info["name"] if plan_info else plan_id
+
+  # 1. Find existing transaction for order_id or payment_id
+  txn_data = (
+    supabase.table("payment_transactions")
+    .select("id")
+    .or_(f"transaction_ref.eq.{order_id},transaction_ref.eq.{payment_id}")
+    .execute()
+    .data
+  )
+
+  txn_id = None
+  if txn_data:
+    txn_id = txn_data[0]["id"]
+    supabase.table("payment_transactions").update({
+      "status": "success",
+      "payment_method": "razorpay",
+      "transaction_ref": payment_id,
+      "completed_at": now.isoformat(),
+    }).eq("id", txn_id).execute()
+  else:
+    # Insert new success transaction
+    new_txn = supabase.table("payment_transactions").insert({
+      "recruiter_id": recruiter_id,
+      "plan_id": plan_id,
+      "amount": plan_info["price"] if plan_info else 0,
+      "final_amount": plan_info["price"] if plan_info else 0,
+      "status": "success",
+      "payment_method": "razorpay",
+      "transaction_ref": payment_id,
+      "completed_at": now.isoformat(),
+    }).execute()
+    if new_txn.data:
+      txn_id = new_txn.data[0]["id"]
+
+  # 2. Cancel existing active subscriptions
+  supabase.table("recruiter_subscriptions").update({
+    "status": "cancelled",
+  }).eq("recruiter_id", recruiter_id).eq("status", "active").execute()
+
+  # 3. Create new active subscription
+  sub_row = {
+    "recruiter_id": recruiter_id,
+    "plan_id": plan_id,
+    "status": "active",
+    "started_at": now.isoformat(),
+    "expires_at": expires_at.isoformat(),
+    "daily_job_posts": daily_posts,
+    "payment_id": txn_id,
+  }
+  supabase.table("recruiter_subscriptions").insert(sub_row).execute()
+
+  # 4. Upgrade recruiter profile to org admin
+  supabase.table("recruiter_profiles").update({
+    "org_role": "admin",
+    "max_seats": 10,
+    "is_org_admin": True,
+  }).eq("id", recruiter_id).execute()
+
+  # 5. Create in-app notification
+  try:
+    supabase.table("notifications").insert({
+      "user_id": recruiter_id,
+      "user_type": "recruiter",
+      "title": "Subscription Activated!",
+      "message": f"Your {plan_name} subscription has been activated successfully.",
+      "type": "status_change",
+      "is_read": False,
+    }).execute()
+  except Exception as e:
+    print("Notification error:", e)
+
+
+@app.post("/payments/create-order")
+def create_razorpay_order(payload: CreateOrderPayload):
+  price_info = calculate_plan_price(payload.plan_id, payload.promo_code)
+  amount_in_paise = max(100, price_info["total_amount"] * 100)  # min ₹1
+
+  url = "https://api.razorpay.com/v1/orders"
+  order_payload = json.dumps({
+    "amount": amount_in_paise,
+    "currency": "INR",
+    "receipt": f"rcpt_{payload.recruiter_id[:8]}_{int(datetime.now(timezone.utc).timestamp())}",
+    "notes": {
+      "recruiter_id": payload.recruiter_id,
+      "plan_id": payload.plan_id,
+      "promo_code": payload.promo_code or "",
+    },
+  }).encode("utf-8")
+
+  auth_str = base64.b64encode(f"{RAZORPAY_KEY_ID}:{RAZORPAY_KEY_SECRET}".encode("utf-8")).decode("utf-8")
+
+  req = urllib.request.Request(
+    url,
+    data=order_payload,
+    headers={
+      "Content-Type": "application/json",
+      "Authorization": f"Basic {auth_str}",
+    },
+    method="POST",
+  )
+
+  try:
+    with urllib.request.urlopen(req) as resp:
+      order_resp = json.loads(resp.read().decode("utf-8"))
+  except urllib.error.HTTPError as err:
+    err_body = err.read().decode("utf-8")
+    print("Razorpay HTTPError:", err_body)
+    raise HTTPException(status_code=500, detail=f"Razorpay order creation failed: {err_body}")
+  except Exception as err:
+    print("Razorpay order exception:", err)
+    raise HTTPException(status_code=500, detail=f"Failed to create Razorpay order: {str(err)}")
+
+  order_id = order_resp["id"]
+
+  # Record pending transaction in Supabase
+  try:
+    supabase.table("payment_transactions").insert({
+      "recruiter_id": payload.recruiter_id,
+      "plan_id": payload.plan_id,
+      "amount": price_info["base_price"],
+      "promo_code": payload.promo_code or None,
+      "discount_amount": price_info["discount_amount"],
+      "final_amount": price_info["total_amount"],
+      "status": "pending",
+      "payment_method": "razorpay",
+      "transaction_ref": order_id,
+    }).execute()
+  except Exception as e:
+    print("Pending txn record warning:", e)
+
+  return {
+    "order_id": order_id,
+    "amount": amount_in_paise,
+    "currency": "INR",
+    "key_id": RAZORPAY_KEY_ID,
+    "plan_id": payload.plan_id,
+    "final_amount": price_info["total_amount"],
+    "discount_amount": price_info["discount_amount"],
+    "base_price": price_info["base_price"],
+    "gst_amount": price_info["gst_amount"],
+  }
+
+
+@app.post("/payments/verify-payment")
+def verify_razorpay_payment(payload: VerifyPaymentPayload):
+  msg = f"{payload.razorpay_order_id}|{payload.razorpay_payment_id}"
+  generated_signature = hmac.new(
+    RAZORPAY_KEY_SECRET.encode("utf-8"),
+    msg.encode("utf-8"),
+    hashlib.sha256,
+  ).hexdigest()
+
+  if generated_signature != payload.razorpay_signature:
+    raise HTTPException(status_code=400, detail="Invalid Razorpay signature.")
+
+  activate_recruiter_plan(
+    recruiter_id=payload.recruiter_id,
+    plan_id=payload.plan_id,
+    order_id=payload.razorpay_order_id,
+    payment_id=payload.razorpay_payment_id,
+  )
+
+  return {
+    "success": True,
+    "message": "Payment verified and plan activated successfully.",
+    "transaction_ref": payload.razorpay_payment_id,
+  }
+
+
+@app.post("/payments/webhook")
+async def razorpay_webhook(request: Request):
+  body = await request.body()
+  signature = request.headers.get("X-Razorpay-Signature", "")
+
+  expected_sig = hmac.new(
+    RAZORPAY_KEY_SECRET.encode("utf-8"),
+    body,
+    hashlib.sha256,
+  ).hexdigest()
+
+  if signature and signature != expected_sig:
+    raise HTTPException(status_code=400, detail="Invalid webhook signature")
+
+  try:
+    payload = json.loads(body.decode("utf-8"))
+    event = payload.get("event")
+    contains = payload.get("payload", {})
+
+    if event in ("payment.captured", "order.paid"):
+      payment_entity = contains.get("payment", {}).get("entity", {})
+      order_id = payment_entity.get("order_id")
+      payment_id = payment_entity.get("id")
+      notes = payment_entity.get("notes", {})
+      recruiter_id = notes.get("recruiter_id")
+      plan_id = notes.get("plan_id")
+
+      if recruiter_id and plan_id:
+        activate_recruiter_plan(recruiter_id, plan_id, order_id, payment_id)
+
+    elif event == "payment.failed":
+      payment_entity = contains.get("payment", {}).get("entity", {})
+      order_id = payment_entity.get("order_id")
+      if order_id:
+        supabase.table("payment_transactions").update({
+          "status": "failed",
+        }).eq("transaction_ref", order_id).execute()
+
+  except Exception as e:
+    print("Webhook processing error:", e)
+
+  return {"status": "ok"}
 
