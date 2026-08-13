@@ -5764,6 +5764,8 @@ function SearchCandidatesPage() {
             c.location,
             ...(Array.isArray((c as any).preferred_location)
               ? (c as any).preferred_location
+              : typeof (c as any).preferred_location === "string"
+              ? (c as any).preferred_location.split(",").map((s: string) => s.trim())
               : [(c as any).preferred_location])
           ].filter(Boolean) as string[];
           return matchesMultiLevelLocation(locs, { country: countryName, state: stateName, city: selectedCity });
@@ -5780,6 +5782,8 @@ function SearchCandidatesPage() {
               c.location,
               ...(Array.isArray((c as any).preferred_location)
                 ? (c as any).preferred_location
+                : typeof (c as any).preferred_location === "string"
+                ? (c as any).preferred_location.split(",").map((s: string) => s.trim())
                 : [(c as any).preferred_location])
             ].filter(Boolean) as string[];
             return isLocationWithinRadius(locs, targetCenter, radiusNum);

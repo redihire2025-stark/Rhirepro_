@@ -466,6 +466,25 @@ function joinPreferredJobTitles(titles: string[]): string {
   return titles.map((title) => title.trim()).filter(Boolean).join(", ");
 }
 
+function splitPreferredLocations(value: string | string[] | null | undefined): string[] {
+  if (!value) return [];
+  if (Array.isArray(value)) {
+    return Array.from(new Set(value.map((loc) => String(loc).trim()).filter(Boolean)));
+  }
+  return Array.from(
+    new Set(
+      String(value)
+        .split(",")
+        .map((loc) => loc.trim())
+        .filter(Boolean)
+    )
+  );
+}
+
+function joinPreferredLocations(locations: string[]): string {
+  return locations.map((loc) => loc.trim()).filter(Boolean).join(", ");
+}
+
 type PreferredJobSuggestion = {
   title: string;
   openings: number;
@@ -2870,6 +2889,9 @@ function ProfilePage({ onPendingPrefsChange }: { onPendingPrefsChange?: (pending
   const [preferredJobOptionsLoading, setPreferredJobOptionsLoading] = useState(false);
   const [preferredJobOptionsError, setPreferredJobOptionsError] = useState("");
   const preferredJobFieldRef = useRef<HTMLDivElement>(null);
+  const [preferredLocationPickerOpen, setPreferredLocationPickerOpen] = useState(false);
+  const [preferredLocationSearch, setPreferredLocationSearch] = useState("");
+  const preferredLocationFieldRef = useRef<HTMLDivElement>(null);
 
   // Sync profile data from DB when it loads, fallback to user metadata
   useEffect(() => {
@@ -3196,6 +3218,19 @@ function ProfilePage({ onPendingPrefsChange }: { onPendingPrefsChange?: (pending
     });
   }, [preferredJobOptions, preferredJobSearch, selectedPreferredJobTitles]);
 
+  const selectedPreferredLocations = useMemo(
+    () => splitPreferredLocations(prefsForm.preferredLocation),
+    [prefsForm.preferredLocation],
+  );
+  const filteredPreferredLocationOptions = useMemo(() => {
+    const query = preferredLocationSearch.trim().toLowerCase();
+    const selected = new Set(selectedPreferredLocations.map((loc) => loc.toLowerCase()));
+    return PREFERRED_LOCATION_ALL_OPTIONS.filter((loc) => {
+      const matches = !query || loc.toLowerCase().includes(query);
+      return matches && !selected.has(loc.toLowerCase());
+    });
+  }, [preferredLocationSearch, selectedPreferredLocations]);
+
 
 
   const dobDisplayValue = basicForm.dob ? formatDateDisplay(basicForm.dob) : "";
@@ -3225,6 +3260,16 @@ function ProfilePage({ onPendingPrefsChange }: { onPendingPrefsChange?: (pending
     document.addEventListener("mousedown", handleClickOutside);
     return () => document.removeEventListener("mousedown", handleClickOutside);
   }, [preferredJobPickerOpen]);
+  useEffect(() => {
+    if (!preferredLocationPickerOpen) return;
+    const handleClickOutside = (event: MouseEvent) => {
+      if (!preferredLocationFieldRef.current?.contains(event.target as Node)) {
+        setPreferredLocationPickerOpen(false);
+      }
+    };
+    document.addEventListener("mousedown", handleClickOutside);
+    return () => document.removeEventListener("mousedown", handleClickOutside);
+  }, [preferredLocationPickerOpen]);
   useEffect(() => {
     if (!editingPrefs || !preferredJobPickerOpen) return;
 
@@ -3336,6 +3381,29 @@ function ProfilePage({ onPendingPrefsChange }: { onPendingPrefsChange?: (pending
       (currentTitle) => currentTitle.toLowerCase() !== title.toLowerCase(),
     );
     setPrefsForm((form) => ({ ...form, desiredJobTitle: joinPreferredJobTitles(updated) }));
+  }
+
+  function addPreferredLocation(location: string) {
+    const nextLocation = location.trim();
+    if (!nextLocation) return;
+    const currentLocations = splitPreferredLocations(prefsForm.preferredLocation);
+    if (currentLocations.some((existing) => existing.toLowerCase() === nextLocation.toLowerCase())) {
+      setPreferredLocationSearch("");
+      return;
+    }
+    setPrefsForm((form) => ({
+      ...form,
+      preferredLocation: joinPreferredLocations([...currentLocations, nextLocation]),
+    }));
+    setPreferredLocationSearch("");
+    setPreferredLocationPickerOpen(true);
+  }
+
+  function removePreferredLocation(location: string) {
+    const updated = splitPreferredLocations(prefsForm.preferredLocation).filter(
+      (currentLocation) => currentLocation.toLowerCase() !== location.toLowerCase(),
+    );
+    setPrefsForm((form) => ({ ...form, preferredLocation: joinPreferredLocations(updated) }));
   }
 
   async function saveExp() {
@@ -4388,14 +4456,86 @@ function ProfilePage({ onPendingPrefsChange }: { onPendingPrefsChange?: (pending
                     )}
                   </div>
                 </div>
-                <div>
-                  <label className="block text-sm text-[#3A1F1F] mb-1">Preferred Location</label>
-                  <SearchableComboboxInput
-                    value={prefsForm.preferredLocation}
-                    onChange={(v) => setPrefsForm((f) => ({ ...f, preferredLocation: v }))}
-                    placeholder="Search location or type custom location..."
-                    options={PREFERRED_LOCATION_ALL_OPTIONS}
-                  />
+                <div className="md:col-span-2" ref={preferredLocationFieldRef}>
+                  <label className="block text-sm text-[#3A1F1F] mb-1">Preferred Location(s)</label>
+                  <div className="relative">
+                    <div className="min-h-11 rounded-xl border border-gray-200 bg-[#F6F6F6] px-3 py-2">
+                      <div className="flex flex-wrap gap-2">
+                        {selectedPreferredLocations.map((loc) => (
+                          <span key={loc} className="flex items-center gap-1 rounded-full bg-white px-3 py-1 text-sm font-medium text-[#3A1F1F] shadow-sm">
+                            <MapPin className="h-3 w-3 text-[#FF2B2B]" />
+                            {loc}
+                            <button
+                              type="button"
+                              onClick={() => removePreferredLocation(loc)}
+                              className="text-[#8A8A8A] hover:text-[#FF2B2B]"
+                              aria-label={`Remove ${loc}`}
+                            >
+                              <X className="h-3 w-3" />
+                            </button>
+                          </span>
+                        ))}
+                        <div className="relative min-w-[220px] flex-1">
+                          <Search className="absolute left-0 top-1/2 h-4 w-4 -translate-y-1/2 text-[#8A8A8A]" />
+                          <input
+                            value={preferredLocationSearch}
+                            onFocus={() => setPreferredLocationPickerOpen(true)}
+                            onChange={(e) => {
+                              setPreferredLocationSearch(e.target.value);
+                              setPreferredLocationPickerOpen(true);
+                            }}
+                            onKeyDown={(e) => {
+                              if (e.key === "Enter") {
+                                e.preventDefault();
+                                addPreferredLocation(filteredPreferredLocationOptions[0] || preferredLocationSearch);
+                              }
+                              if (e.key === "Escape") setPreferredLocationPickerOpen(false);
+                            }}
+                            className="h-7 w-full bg-transparent pl-6 pr-7 text-sm text-[#3A1F1F] outline-none placeholder:text-[#8A8A8A]"
+                            placeholder={selectedPreferredLocations.length > 0 ? "Add another location (e.g. Hyderabad, Remote)" : "Search or type preferred locations"}
+                          />
+                          <button
+                            type="button"
+                            onClick={() => setPreferredLocationPickerOpen((open) => !open)}
+                            className="absolute right-1 top-1/2 -translate-y-1/2 text-[#8A8A8A] hover:text-[#3A1F1F]"
+                            aria-label="Toggle location suggestions"
+                          >
+                            <ChevronsUpDown className="h-4 w-4" />
+                          </button>
+                        </div>
+                      </div>
+                    </div>
+                    {preferredLocationPickerOpen && (
+                      <div className="absolute left-0 right-0 top-full z-[80] mt-2 overflow-hidden rounded-xl border border-gray-200 bg-white shadow-xl">
+                        <div className="max-h-60 overflow-y-auto p-1">
+                          {filteredPreferredLocationOptions.length === 0 && preferredLocationSearch.trim() ? (
+                            <button
+                              type="button"
+                              onClick={() => addPreferredLocation(preferredLocationSearch)}
+                              className="flex w-full items-center gap-2 rounded-lg px-3 py-2 text-left text-sm text-[#3A1F1F] hover:bg-[#FFF0F0]"
+                            >
+                              <Plus className="h-4 w-4 text-[#FF2B2B]" />
+                              <span>Use "{preferredLocationSearch.trim()}"</span>
+                            </button>
+                          ) : filteredPreferredLocationOptions.length === 0 ? (
+                            <div className="rounded-lg px-3 py-2 text-sm text-[#8A8A8A]">No location suggestions found.</div>
+                          ) : (
+                            filteredPreferredLocationOptions.map((loc) => (
+                              <button
+                                key={loc}
+                                type="button"
+                                onClick={() => addPreferredLocation(loc)}
+                                className="flex w-full items-center gap-2 rounded-lg px-3 py-2 text-left text-sm text-[#3A1F1F] hover:bg-[#FFF0F0]"
+                              >
+                                <MapPin className="h-3.5 w-3.5 text-[#8A8A8A]" />
+                                <span>{loc}</span>
+                              </button>
+                            ))
+                          )}
+                        </div>
+                      </div>
+                    )}
+                  </div>
                 </div>
                 <div>
                   <label className="block text-sm text-[#3A1F1F] mb-1">Expected Salary (LPA)</label>
@@ -4466,6 +4606,7 @@ function ProfilePage({ onPendingPrefsChange }: { onPendingPrefsChange?: (pending
                   const normalizedPrefs = {
                     ...prefsForm,
                     desiredJobTitle: joinPreferredJobTitles(splitPreferredJobTitles(prefsForm.desiredJobTitle)),
+                    preferredLocation: joinPreferredLocations(splitPreferredLocations(prefsForm.preferredLocation)),
                   };
                   setPreferences(normalizedPrefs);
                   setEditingPrefs(false);
@@ -4501,6 +4642,8 @@ function ProfilePage({ onPendingPrefsChange }: { onPendingPrefsChange?: (pending
                   if (profile?.id) clearPrefsDraft(profile.id);
                   setPreferredJobPickerOpen(false);
                   setPreferredJobSearch("");
+                  setPreferredLocationPickerOpen(false);
+                  setPreferredLocationSearch("");
                   setEditingPrefs(false);
                 }}>Cancel</Button>
               </div>
