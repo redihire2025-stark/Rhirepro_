@@ -6444,6 +6444,7 @@ function SearchCandidatesPage() {
                   const initials = getCandidateInitials(name);
                   const skills = c.skills || [];
                   const workExp = c.work_experience || [];
+                  const prefLocationStr = formatPreferredLocations(parsePreferredLocations(c.preferred_location));
 
                   // Normalize experience display — use stored text or compute from work history
                   const expYrs = parseExp(c);
@@ -6490,12 +6491,20 @@ function SearchCandidatesPage() {
                                     <span> at <span className="text-[#FF2B2B] font-medium">{c.current_company || workExp[0].company}</span></span>
                                   )}
                                 </p>
+                                {prefLocationStr && (
+                                  <p className="text-xs text-[#5A5A5A] mt-1 flex items-center gap-1 flex-wrap">
+                                    <MapPin className="h-3.5 w-3.5 text-[#FF2B2B]" />
+                                    <span className="font-semibold text-[#3A1F1F]">Preferred Location:</span>
+                                    <span className="text-[#FF2B2B] font-medium">{prefLocationStr}</span>
+                                  </p>
+                                )}
                               </div>
                             </div>
 
                             {/* Key info row */}
                             <div className="flex flex-wrap gap-3 mt-1.5 text-xs text-[#5A5A5A]">
                               {c.location && <span className="flex items-center gap-1"><MapPin className="h-3 w-3 text-[#8A8A8A]" />{c.location}</span>}
+                              {prefLocationStr && <span className="flex items-center gap-1"><MapPin className="h-3 w-3 text-[#FF2B2B]" />Pref: <span className="font-medium text-[#3A1F1F]">{prefLocationStr}</span></span>}
                               {displayExp && <span className="flex items-center gap-1"><Briefcase className="h-3 w-3 text-[#8A8A8A]" />{displayExp}</span>}
                               {fmtSal(c.current_salary) && <span className="flex items-center gap-1"><TrendingUp className="h-3 w-3 text-[#8A8A8A]" />Current: <span className="font-medium text-[#3A1F1F]">{fmtSal(c.current_salary)}</span></span>}
                               {fmtSal(c.expected_salary) && <span className="flex items-center gap-1"><Target className="h-3 w-3 text-[#8A8A8A]" />Expected: <span className="font-medium text-[#FF2B2B]">{fmtSal(c.expected_salary)}</span></span>}
@@ -7957,6 +7966,7 @@ Best regards,
                 const displayName = getCandidateDisplayName(candidate);
                 const initials = getCandidateInitials(displayName);
                 const score = calculateMatchScore(candidate);
+                const prefLocStr = formatPreferredLocations(parsePreferredLocations(candidate.preferred_location));
 
                 return (
                   <div
@@ -8007,11 +8017,23 @@ Best regards,
                           <p className="text-xs text-[#8A8A8A] font-medium truncate mt-0.5">
                             {candidate.current_title || candidate.headline || "Candidate Profile"}
                           </p>
+                          {prefLocStr && (
+                            <p className="text-xs text-[#5A5A5A] mt-1 flex items-center gap-1 flex-wrap">
+                              <MapPin className="h-3 w-3 text-[#FF2B2B]" />
+                              <span className="font-semibold text-[#3A1F1F]">Preferred Location:</span>
+                              <span className="text-[#FF2B2B] font-medium">{prefLocStr}</span>
+                            </p>
+                          )}
 
                           <div className="flex flex-wrap items-center gap-3 text-[11px] text-[#8A8A8A] mt-2">
                             {candidate.location && (
                               <span className="flex items-center gap-1">
                                 <MapPin className="h-3 w-3 text-gray-400" /> {candidate.location}
+                              </span>
+                            )}
+                            {prefLocStr && (
+                              <span className="flex items-center gap-1 text-[#FF2B2B]">
+                                <MapPin className="h-3 w-3 text-[#FF2B2B]" /> Pref: {prefLocStr}
                               </span>
                             )}
                             {candidate.total_experience && (
