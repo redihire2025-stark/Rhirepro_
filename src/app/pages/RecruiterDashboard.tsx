@@ -4555,6 +4555,7 @@ function SearchCandidateProfileModal({
               {/* Quick stats grid */}
               <div className="grid grid-cols-2 md:grid-cols-4 gap-3 p-4 bg-[#F6F6F6] rounded-xl">
                 {[
+                  { label: "Active In", value: formatActiveTime(parseActiveDate(candidate)) || "Active in a day" },
                   { label: "Experience", value: candidate.total_experience },
                   { label: "Location", value: candidate.location },
                   { label: "Current CTC", value: candidate.current_salary },
@@ -6394,7 +6395,14 @@ function SearchCandidatesPage() {
                             {/* Name + Match + Active status on right top */}
                             <div className="flex items-start justify-between gap-2 flex-wrap">
                               <div>
-                                <h3 className="text-base font-semibold text-[#3A1F1F]">{name}</h3>
+                                <div className="flex items-center gap-2 flex-wrap mb-0.5">
+                                  <h3 className="text-base font-semibold text-[#3A1F1F]">{name}</h3>
+                                  {c.location && (
+                                    <span className="inline-flex items-center gap-1 px-2.5 py-0.5 rounded-full text-xs text-[#FF2B2B] bg-red-50 border border-red-100 font-medium">
+                                      <MapPin className="h-3 w-3 text-[#FF2B2B]" /> {c.location}
+                                    </span>
+                                  )}
+                                </div>
                                 <p className="text-sm text-[#5A5A5A]">
                                   {c.headline || c.current_title || (workExp[0] ? workExp[0].title : "")}
                                   {(c.current_company || workExp[0]?.company) && (
@@ -6406,8 +6414,7 @@ function SearchCandidatesPage() {
                               {/* Active status badge on top right */}
                               {(() => {
                                 const activeDate = parseActiveDate(c);
-                                const activeLabel = formatActiveTime(activeDate);
-                                if (!activeLabel) return null;
+                                const activeLabel = formatActiveTime(activeDate) || "Active in a day";
                                 return (
                                   <span className="inline-flex items-center gap-1.5 px-2.5 py-1 rounded-full text-xs font-semibold bg-emerald-50 text-emerald-700 border border-emerald-200/80 shadow-xs shrink-0">
                                     <span className="w-1.5 h-1.5 rounded-full bg-emerald-500 animate-pulse" />
