@@ -497,6 +497,43 @@ function joinPreferredLocations(locations: string[]): string {
   return Array.from(new Set(locations.map((loc) => loc.trim()).filter(Boolean))).join(", ");
 }
 
+function getPrefsDraftKey(profileId: string) {
+  return `jobseeker_profile_prefs_draft_${profileId}`;
+}
+
+function loadPrefsDraft<T>(profileId: string, fallback: T): T {
+  if (!profileId) return fallback;
+  try {
+    const raw = window.localStorage.getItem(getPrefsDraftKey(profileId));
+    if (!raw) return fallback;
+    const parsed = JSON.parse(raw);
+    if (parsed && typeof parsed === "object") {
+      return { ...fallback, ...parsed };
+    }
+  } catch {
+    // ignore malformed drafts
+  }
+  return fallback;
+}
+
+function savePrefsDraft(profileId: string, draft: any) {
+  if (!profileId) return;
+  try {
+    window.localStorage.setItem(getPrefsDraftKey(profileId), JSON.stringify(draft));
+  } catch {
+    // ignore storage failures
+  }
+}
+
+function clearPrefsDraft(profileId: string) {
+  if (!profileId) return;
+  try {
+    window.localStorage.removeItem(getPrefsDraftKey(profileId));
+  } catch {
+    // ignore storage failures
+  }
+}
+
 type PreferredJobSuggestion = {
   title: string;
   openings: number;
@@ -3146,44 +3183,6 @@ function ProfilePage({ onPendingPrefsChange }: { onPendingPrefsChange?: (pending
     () => JSON.stringify(prefsForm) !== JSON.stringify(preferences),
     [prefsForm, preferences],
   );
-
-  const getPrefsDraftKey = (profileId: string) => `jobseeker_profile_prefs_draft_${profileId}`;
-
-  const loadPrefsDraft = useCallback((profileId: string, fallback: typeof prefsForm) => {
-    if (!profileId) return fallback;
-    try {
-      const raw = window.localStorage.getItem(getPrefsDraftKey(profileId));
-      if (!raw) return fallback;
-      const parsed = JSON.parse(raw);
-      if (parsed && typeof parsed === "object") {
-        return {
-          ...fallback,
-          ...parsed,
-        };
-      }
-    } catch {
-      // ignore malformed drafts
-    }
-    return fallback;
-  }, []);
-
-  const savePrefsDraft = useCallback((profileId: string, draft: typeof prefsForm) => {
-    if (!profileId) return;
-    try {
-      window.localStorage.setItem(getPrefsDraftKey(profileId), JSON.stringify(draft));
-    } catch {
-      // ignore storage failures
-    }
-  }, []);
-
-  const clearPrefsDraft = useCallback((profileId: string) => {
-    if (!profileId) return;
-    try {
-      window.localStorage.removeItem(getPrefsDraftKey(profileId));
-    } catch {
-      // ignore storage failures
-    }
-  }, []);
 
   useEffect(() => {
     if (!profile?.id) return;
