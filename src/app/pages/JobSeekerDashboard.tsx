@@ -2948,6 +2948,7 @@ function ProfilePage({ onPendingPrefsChange }: { onPendingPrefsChange?: (pending
     setSkills(profile?.skills ?? []);
     // Preferences
     if (profile) {
+      const p = profile as any;
       const prefs = {
         desiredJobTitle: p.desired_job_title || "",
         jobType: p.job_type_pref || "",
