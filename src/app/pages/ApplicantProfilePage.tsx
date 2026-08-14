@@ -41,6 +41,33 @@ void ensurePdfJs();
 
 const logoImage = new URL("../../logo/logo.png", import.meta.url).href;
 
+function splitPreferredLocations(value: string | string[] | null | undefined): string[] {
+  if (!value) return [];
+  if (Array.isArray(value)) {
+    return Array.from(new Set(value.map((loc) => String(loc).trim()).filter(Boolean)));
+  }
+  const str = String(value).trim();
+  if (!str) return [];
+  if (str.startsWith("[") && str.endsWith("]")) {
+    try {
+      const parsed = JSON.parse(str);
+      if (Array.isArray(parsed)) {
+        return Array.from(new Set(parsed.map((loc) => String(loc).trim()).filter(Boolean)));
+      }
+    } catch {
+      // fallback to comma split
+    }
+  }
+  return Array.from(
+    new Set(
+      str
+        .split(",")
+        .map((loc) => loc.trim())
+        .filter(Boolean)
+    )
+  );
+}
+
 interface WorkExp {
   id: string;
   title: string;
@@ -789,7 +816,24 @@ export default function ApplicantProfilePage() {
                 </div>
                 <div>
                   <span className="font-semibold text-[#3A1F1F] block">Preferred Location</span>
-                  {profile?.preferred_location || "—"}
+                  {(() => {
+                    const locs = splitPreferredLocations(profile?.preferred_location);
+                    return locs.length > 0 ? (
+                      <div className="flex gap-1.5 flex-wrap mt-1">
+                        {locs.map((loc) => (
+                          <Badge key={loc} className="bg-gray-100 text-[#3A1F1F] border border-gray-200 hover:bg-gray-100 text-xs rounded-full font-normal">
+                            {loc}
+                          </Badge>
+                        ))}
+                      </div>
+                    ) : (
+                      <span>{profile?.preferred_location || "—"}</span>
+                    );
+                  })()}
+                </div>
+                <div>
+                  <span className="font-semibold text-[#3A1F1F] block">Current Salary</span>
+                  {profile?.current_salary ? <span className="text-[#3A1F1F] font-semibold">{profile.current_salary}</span> : "—"}
                 </div>
                 <div>
                   <span className="font-semibold text-[#3A1F1F] block">Expected Salary</span>

@@ -466,6 +466,37 @@ function joinPreferredJobTitles(titles: string[]): string {
   return titles.map((title) => title.trim()).filter(Boolean).join(", ");
 }
 
+function splitPreferredLocations(value: string | string[] | null | undefined): string[] {
+  if (!value) return [];
+  if (Array.isArray(value)) {
+    return Array.from(new Set(value.map((loc) => String(loc).trim()).filter(Boolean)));
+  }
+  const str = String(value).trim();
+  if (!str) return [];
+  if (str.startsWith("[") && str.endsWith("]")) {
+    try {
+      const parsed = JSON.parse(str);
+      if (Array.isArray(parsed)) {
+        return Array.from(new Set(parsed.map((loc) => String(loc).trim()).filter(Boolean)));
+      }
+    } catch {
+      // fallback to comma split
+    }
+  }
+  return Array.from(
+    new Set(
+      str
+        .split(",")
+        .map((loc) => loc.trim())
+        .filter(Boolean)
+    )
+  );
+}
+
+function joinPreferredLocations(locations: string[]): string {
+  return Array.from(new Set(locations.map((loc) => loc.trim()).filter(Boolean))).join(", ");
+}
+
 type PreferredJobSuggestion = {
   title: string;
   openings: number;
@@ -545,7 +576,17 @@ function buildDashboardJob(job: DBJobWithApplications): DashboardDisplayJob {
   };
 }
 
-const PREFERRED_INTERVIEW_MODE_OPTIONS = ["In-Person", "Video Call", "Telephonic", "Walk-in"];
+const PREFERRED_INTERVIEW_MODE_OPTIONS = ["Remote", "In-Person", "Hybrid", "Video Call", "Telephonic", "Walk-in"];
+
+const POPULAR_LOCATION_SUGGESTIONS = [
+  "Remote",
+  "Bangalore",
+  "Hyderabad",
+  "Pune",
+  "Mumbai",
+  "Delhi NCR",
+  "Hybrid",
+];
 
 const POPULAR_PREFERRED_LOCATIONS = [
   "Remote",
@@ -2850,7 +2891,8 @@ function ProfilePage({ onPendingPrefsChange }: { onPendingPrefsChange?: (pending
       const prefs = {
         desiredJobTitle: p.desired_job_title || "",
         jobType: p.job_type_pref || "",
-        preferredLocation: p.preferred_location || "",
+        preferredLocation: splitPreferredLocations(p.preferred_location).join(", "),
+        currentSalary: p.current_salary || "",
         expectedSalary: p.expected_salary || "",
         noticePeriod: p.notice_period || "",
         workAuth: p.work_auth || "",
@@ -3032,12 +3074,58 @@ function ProfilePage({ onPendingPrefsChange }: { onPendingPrefsChange?: (pending
   // Preferred Settings
   const [preferences, setPreferences] = useState({
     desiredJobTitle: "", jobType: "",
-    preferredLocation: "", expectedSalary: "",
+    preferredLocation: "", currentSalary: "", expectedSalary: "",
     noticePeriod: "", workAuth: "", willingToRelocate: "",
     preferredInterviewMode: [] as string[],
   });
   const [editingPrefs, setEditingPrefs] = useState(false);
   const [prefsForm, setPrefsForm] = useState({ ...preferences });
+
+  const [preferredLocationSearch, setPreferredLocationSearch] = useState("");
+  const [preferredLocationPickerOpen, setPreferredLocationPickerOpen] = useState(false);
+  const preferredLocationFieldRef = useRef<HTMLDivElement>(null);
+
+  useEffect(() => {
+    if (!preferredLocationPickerOpen) return;
+    const handleClickOutside = (e: MouseEvent) => {
+      if (!preferredLocationFieldRef.current?.contains(e.target as Node)) {
+        setPreferredLocationPickerOpen(false);
+      }
+    };
+    document.addEventListener("mousedown", handleClickOutside);
+    return () => document.removeEventListener("mousedown", handleClickOutside);
+  }, [preferredLocationPickerOpen]);
+
+  const selectedPreferredLocations = useMemo(() => {
+    return splitPreferredLocations(prefsForm.preferredLocation);
+  }, [prefsForm.preferredLocation]);
+
+  const filteredPreferredLocationOptions = useMemo(() => {
+    const q = preferredLocationSearch.trim().toLowerCase();
+    let options = PREFERRED_LOCATION_ALL_OPTIONS;
+    if (q) {
+      options = options.filter((opt) => opt.toLowerCase().includes(q));
+    }
+    return options.slice(0, 30);
+  }, [preferredLocationSearch]);
+
+  const addPreferredLocation = useCallback((loc: string) => {
+    const trimmed = loc.trim();
+    if (!trimmed) return;
+    const current = splitPreferredLocations(prefsForm.preferredLocation);
+    if (!current.some((item) => item.toLowerCase() === trimmed.toLowerCase())) {
+      const updated = [...current, trimmed];
+      setPrefsForm((f) => ({ ...f, preferredLocation: joinPreferredLocations(updated) }));
+    }
+    setPreferredLocationSearch("");
+    setPreferredLocationPickerOpen(false);
+  }, [prefsForm.preferredLocation]);
+
+  const removePreferredLocation = useCallback((loc: string) => {
+    const current = splitPreferredLocations(prefsForm.preferredLocation);
+    const updated = current.filter((item) => item.toLowerCase() !== loc.toLowerCase());
+    setPrefsForm((f) => ({ ...f, preferredLocation: joinPreferredLocations(updated) }));
+  }, [prefsForm.preferredLocation]);
 
   const isPrefsDirty = useMemo(
     () => JSON.stringify(prefsForm) !== JSON.stringify(preferences),
@@ -4331,13 +4419,155 @@ function ProfilePage({ onPendingPrefsChange }: { onPendingPrefsChange?: (pending
                     )}
                   </div>
                 </div>
+                <div className="md:col-span-2" ref={preferredLocationFieldRef}>
+                  <label className="block text-sm text-[#3A1F1F] font-medium mb-1">Preferred Location(s)</label>
+                  <div className="relative">
+                    <div className="min-h-11 rounded-xl border border-gray-200 bg-[#F6F6F6] px-3 py-2">
+                      <div className="flex flex-wrap gap-2 items-center">
+                        {selectedPreferredLocations.map((loc) => (
+                          <span key={loc} className="inline-flex items-center gap-1.5 rounded-full bg-white border border-gray-200 px-3 py-1 text-sm font-medium text-[#3A1F1F] shadow-sm">
+                            <span>{loc}</span>
+                            <button
+                              type="button"
+                              onClick={() => removePreferredLocation(loc)}
+                              className="text-[#8A8A8A] hover:text-[#FF2B2B] focus:outline-none"
+                              aria-label={`Remove ${loc}`}
+                            >
+                              <X className="h-3.5 w-3.5" />
+                            </button>
+                          </span>
+                        ))}
+
+                        <div className="flex items-center gap-1.5 flex-1 min-w-[220px]">
+                          <div className="relative flex-1">
+                            <Search className="absolute left-2.5 top-1/2 h-4 w-4 -translate-y-1/2 text-[#8A8A8A]" />
+                            <input
+                              value={preferredLocationSearch}
+                              onFocus={() => setPreferredLocationPickerOpen(true)}
+                              onChange={(e) => {
+                                setPreferredLocationSearch(e.target.value);
+                                setPreferredLocationPickerOpen(true);
+                              }}
+                              onKeyDown={(e) => {
+                                if (e.key === "Enter") {
+                                  e.preventDefault();
+                                  if (filteredPreferredLocationOptions[0]) {
+                                    addPreferredLocation(filteredPreferredLocationOptions[0]);
+                                  } else if (preferredLocationSearch.trim()) {
+                                    addPreferredLocation(preferredLocationSearch);
+                                  }
+                                }
+                                if (e.key === "Escape") setPreferredLocationPickerOpen(false);
+                              }}
+                              className="h-8 w-full bg-transparent pl-8 pr-7 text-sm text-[#3A1F1F] outline-none placeholder:text-[#8A8A8A]"
+                              placeholder={selectedPreferredLocations.length > 0 ? "Search another location" : "Search location (e.g. Remote, Bangalore...)"}
+                            />
+                            <button
+                              type="button"
+                              onClick={() => setPreferredLocationPickerOpen((open) => !open)}
+                              className="absolute right-1 top-1/2 -translate-y-1/2 text-[#8A8A8A] hover:text-[#3A1F1F]"
+                              aria-label="Toggle location suggestions"
+                            >
+                              <ChevronsUpDown className="h-4 w-4" />
+                            </button>
+                          </div>
+                          <Button
+                            type="button"
+                            size="sm"
+                            onClick={() => {
+                              if (preferredLocationSearch.trim()) {
+                                addPreferredLocation(preferredLocationSearch);
+                              } else {
+                                setPreferredLocationPickerOpen(true);
+                              }
+                            }}
+                            className="h-8 bg-[#FF2B2B] hover:bg-[#e02525] text-white rounded-lg text-xs font-medium px-3 flex items-center gap-1 shrink-0"
+                          >
+                            <Plus className="h-3.5 w-3.5" />
+                            <span>Add</span>
+                          </Button>
+                        </div>
+                      </div>
+                    </div>
+
+                    <div className="mt-2 flex flex-wrap gap-1.5 items-center">
+                      <span className="text-xs text-[#8A8A8A] font-medium mr-1">Popular:</span>
+                      {POPULAR_LOCATION_SUGGESTIONS.map((loc) => {
+                        const isSelected = selectedPreferredLocations.some((s) => s.toLowerCase() === loc.toLowerCase());
+                        return (
+                          <button
+                            key={loc}
+                            type="button"
+                            onClick={() => {
+                              if (isSelected) {
+                                removePreferredLocation(loc);
+                              } else {
+                                addPreferredLocation(loc);
+                              }
+                            }}
+                            className={`text-xs px-2.5 py-1 rounded-full border transition-colors flex items-center gap-1 ${
+                              isSelected
+                                ? "bg-[#FFF0F0] text-[#FF2B2B] border-[#FF2B2B] font-medium"
+                                : "bg-white text-[#555] border-gray-200 hover:border-[#FF2B2B] hover:text-[#FF2B2B]"
+                            }`}
+                          >
+                            {isSelected ? <Check className="h-3 w-3" /> : <Plus className="h-3 w-3" />}
+                            {loc}
+                          </button>
+                        );
+                      })}
+                    </div>
+
+                    {preferredLocationPickerOpen && (
+                      <div className="absolute left-0 right-0 top-full z-[80] mt-2 overflow-hidden rounded-xl border border-gray-200 bg-white shadow-xl">
+                        <div className="max-h-60 overflow-y-auto p-1">
+                          {filteredPreferredLocationOptions.length === 0 && preferredLocationSearch.trim() ? (
+                            <button
+                              type="button"
+                              onClick={() => addPreferredLocation(preferredLocationSearch)}
+                              className="flex w-full items-center gap-2 rounded-lg px-3 py-2 text-left text-sm text-[#3A1F1F] hover:bg-[#FFF0F0]"
+                            >
+                              <Plus className="h-4 w-4 text-[#FF2B2B]" />
+                              <span>Add "{preferredLocationSearch.trim()}"</span>
+                            </button>
+                          ) : filteredPreferredLocationOptions.length === 0 ? (
+                            <div className="rounded-lg px-3 py-2 text-sm text-[#8A8A8A]">No location suggestions found.</div>
+                          ) : (
+                            filteredPreferredLocationOptions.map((loc) => {
+                              const isSelected = selectedPreferredLocations.some((s) => s.toLowerCase() === loc.toLowerCase());
+                              return (
+                                <button
+                                  key={loc}
+                                  type="button"
+                                  onClick={() => {
+                                    if (isSelected) {
+                                      removePreferredLocation(loc);
+                                    } else {
+                                      addPreferredLocation(loc);
+                                    }
+                                  }}
+                                  className={`flex w-full items-center justify-between rounded-lg px-3 py-2 text-left text-sm transition-colors ${
+                                    isSelected ? "bg-[#FFF0F0] text-[#FF2B2B] font-medium" : "text-[#3A1F1F] hover:bg-gray-100"
+                                  }`}
+                                >
+                                  <span>{loc}</span>
+                                  {isSelected && <Check className="h-4 w-4 text-[#FF2B2B]" />}
+                                </button>
+                              );
+                            })
+                          )}
+                        </div>
+                      </div>
+                    )}
+                  </div>
+                </div>
                 <div>
-                  <label className="block text-sm text-[#3A1F1F] mb-1">Preferred Location</label>
+                  <label className="block text-sm text-[#3A1F1F] mb-1">Current Salary (LPA)</label>
                   <SearchableComboboxInput
-                    value={prefsForm.preferredLocation}
-                    onChange={(v) => setPrefsForm((f) => ({ ...f, preferredLocation: v }))}
-                    placeholder="Search location or type custom location..."
-                    options={PREFERRED_LOCATION_ALL_OPTIONS}
+                    value={prefsForm.currentSalary}
+                    onChange={(v) => setPrefsForm((f) => ({ ...f, currentSalary: v }))}
+                    placeholder="Select or type current salary (e.g. 8 LPA)..."
+                    options={EXPECTED_SALARY_LPA_OPTIONS}
                   />
                 </div>
                 <div>
@@ -4380,10 +4610,10 @@ function ProfilePage({ onPendingPrefsChange }: { onPendingPrefsChange?: (pending
                     </SelectContent>
                   </Select>
                 </div>
-                <div>
-                  <label className="block text-sm text-[#3A1F1F] mb-1">Preferred Interview Mode</label>
+                <div className="md:col-span-2">
+                  <label className="block text-sm text-[#3A1F1F] font-medium mb-1">Preferred Interview Mode(s)</label>
                   <div className="flex gap-2 flex-wrap">
-                    {["In-Person", "Video Call", "Telephonic", "Walk-in"].map((m) => {
+                    {PREFERRED_INTERVIEW_MODE_OPTIONS.map((m) => {
                       const selected = Array.isArray(prefsForm.preferredInterviewMode) && prefsForm.preferredInterviewMode.includes(m);
                       return (
                         <button
@@ -4395,8 +4625,13 @@ function ProfilePage({ onPendingPrefsChange }: { onPendingPrefsChange?: (pending
                               ? (f.preferredInterviewMode as string[]).filter(x => x !== m)
                               : [...(f.preferredInterviewMode as string[] || []), m]
                           }))}
-                          className={`px-3 py-1.5 rounded-full text-sm border ${selected ? "bg-[#FF2B2B] text-white border-[#FF2B2B]" : "bg-[#F6F6F6] text-[#3A1F1F] border-gray-200"}`}
+                          className={`px-3.5 py-1.5 rounded-full text-sm font-medium border transition-colors flex items-center gap-1.5 ${
+                            selected 
+                              ? "bg-[#FF2B2B] text-white border-[#FF2B2B] shadow-sm" 
+                              : "bg-[#F6F6F6] text-[#3A1F1F] border-gray-200 hover:border-[#FF2B2B] hover:text-[#FF2B2B]"
+                          }`}
                         >
+                          {selected && <Check className="h-3.5 w-3.5" />}
                           {m}
                         </button>
                       );
@@ -4409,6 +4644,7 @@ function ProfilePage({ onPendingPrefsChange }: { onPendingPrefsChange?: (pending
                   const normalizedPrefs = {
                     ...prefsForm,
                     desiredJobTitle: joinPreferredJobTitles(splitPreferredJobTitles(prefsForm.desiredJobTitle)),
+                    preferredLocation: joinPreferredLocations(splitPreferredLocations(prefsForm.preferredLocation)),
                   };
                   setPreferences(normalizedPrefs);
                   setEditingPrefs(false);
@@ -4417,6 +4653,7 @@ function ProfilePage({ onPendingPrefsChange }: { onPendingPrefsChange?: (pending
                       desired_job_title: normalizedPrefs.desiredJobTitle || null,
                       job_type_pref: normalizedPrefs.jobType || null,
                       preferred_location: normalizedPrefs.preferredLocation || null,
+                      current_salary: normalizedPrefs.currentSalary || null,
                       expected_salary: normalizedPrefs.expectedSalary || null,
                       notice_period: normalizedPrefs.noticePeriod || null,
                       work_auth: normalizedPrefs.workAuth || null,
@@ -4444,6 +4681,8 @@ function ProfilePage({ onPendingPrefsChange }: { onPendingPrefsChange?: (pending
                   if (profile?.id) clearPrefsDraft(profile.id);
                   setPreferredJobPickerOpen(false);
                   setPreferredJobSearch("");
+                  setPreferredLocationPickerOpen(false);
+                  setPreferredLocationSearch("");
                   setEditingPrefs(false);
                 }}>Cancel</Button>
               </div>
@@ -4453,12 +4692,15 @@ function ProfilePage({ onPendingPrefsChange }: { onPendingPrefsChange?: (pending
               {Object.entries({
                 "Desired Roles": preferences.desiredJobTitle,
                 "Job Type": preferences.jobType,
-                "Preferred Location": preferences.preferredLocation,
+                "Preferred Location": splitPreferredLocations(preferences.preferredLocation).join(", ") || preferences.preferredLocation || "—",
+                "Current Salary": preferences.currentSalary,
                 "Expected Salary": preferences.expectedSalary,
                 "Notice Period": preferences.noticePeriod,
                 "Work Authorization": preferences.workAuth,
                 "Willing to Relocate": preferences.willingToRelocate,
-                "Preferred Interview Mode": Array.isArray(preferences.preferredInterviewMode) ? (preferences.preferredInterviewMode.join(", ") || "—") : (preferences.preferredInterviewMode || "—"),
+                "Preferred Interview Mode": Array.isArray(preferences.preferredInterviewMode) && preferences.preferredInterviewMode.length > 0 
+                  ? preferences.preferredInterviewMode.join(", ") 
+                  : (preferences.preferredInterviewMode || "—"),
               }).map(([label, value]) => (
                 <div key={label} className="bg-[#F6F6F6] rounded-xl p-3">
                   <p className="text-[#8A8A8A] text-xs mb-1">{label}</p>
