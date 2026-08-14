@@ -797,10 +797,48 @@ function normalizeInterviewModes(raw: any): string[] {
   return filtered.length > 0 ? filtered : uniqueValues;
 }
 
+interface ProfileScoreFields {
+  first_name?: string | null;
+  last_name?: string | null;
+  phone?: string | null;
+  email?: string | null;
+  location?: string | null;
+  about?: string | null;
+  skills?: string[] | null;
+  resume_url?: string | null;
+  expected_salary?: string | null;
+  notice_period?: string | null;
+}
+
+interface ProfileSectionCounts {
+  workExperience: number;
+  education: number;
+  projects: number;
+  certifications: number;
+}
+
+export function calculateProfileCompletionScore(
+  profile: ProfileScoreFields,
+  counts: ProfileSectionCounts
+): number {
+  let score = 0;
+  const name = [profile.first_name, profile.last_name].filter(Boolean).join(" ");
+  score += Math.round(([name, profile.phone, profile.email, profile.location].filter(Boolean).length / 4) * 15);
+  if ((profile.about || "").trim().length > 20) score += 10;
+  score += Math.min(10, Math.round(((profile.skills?.length || 0) / 3) * 10));
+  if (counts.workExperience > 0) score += 20;
+  if (counts.education > 0) score += 15;
+  if (counts.projects > 0) score += 5;
+  if (counts.certifications > 0) score += 5;
+  if (profile.resume_url) score += 10;
+  score += Math.round(([profile.expected_salary, profile.notice_period].filter(Boolean).length / 2) * 10);
+  return Math.min(100, Math.max(0, score));
+}
+
 // ── Main Dashboard ─────────────────────────────────────────────────────────────
 export default function JobSeekerDashboard() {
   const navigate = useNavigate();
-  const { profile, user, loading: authLoading, signOut } = useAuth();
+  const { profile, user, loading: authLoading, signOut, refreshProfile } = useAuth();
 
   // Auth guard — redirect to sign-in if not authenticated
   useEffect(() => {
@@ -823,18 +861,32 @@ export default function JobSeekerDashboard() {
   const [checkingCompletion, setCheckingCompletion] = useState(() => {
     if (!isRootPath) return false;
     try {
-      return !window.sessionStorage.getItem(`jobseeker_initial_check_done_${user?.id || ""}`);
+      if (!user?.id) return true;
+      return !window.sessionStorage.getItem(`jobseeker_initial_check_done_${user.id}`);
     } catch {
       return false;
     }
   });
 
+  // Safety fallback: ensure dashboard loading screen never hangs indefinitely
   useEffect(() => {
     if (authLoading) return;
-    if (!user || !profile) {
+    const safetyTimer = setTimeout(() => {
       setCheckingCompletion(false);
+    }, 2000);
+    return () => clearTimeout(safetyTimer);
+  }, [authLoading]);
+
+  useEffect(() => {
+    let isCancelled = false;
+
+    if (authLoading || !user) return;
+
+    if (!profile) {
+      refreshProfile().catch(() => {});
       return;
     }
+
     if (completionCheckRef.current) return;
     completionCheckRef.current = true;
 
@@ -867,26 +919,32 @@ export default function JobSeekerDashboard() {
           supabase.from("projects").select("id", { count: "exact", head: true }).eq("profile_id", pid),
           supabase.from("certifications").select("id", { count: "exact", head: true }).eq("profile_id", pid),
         ]);
-        let score = 0;
-        const name = [profile.first_name, profile.last_name].filter(Boolean).join(" ");
-        score += Math.round(([name, profile.phone, profile.email, profile.location].filter(Boolean).length / 4) * 15);
-        if ((profile.about || "").trim().length > 20) score += 10;
-        score += Math.min(10, Math.round(((profile.skills?.length || 0) / 3) * 10));
-        if ((expRes.count || 0) > 0) score += 20;
-        if ((eduRes.count || 0) > 0) score += 15;
-        if ((projRes.count || 0) > 0) score += 5;
-        if ((certRes.count || 0) > 0) score += 5;
-        if (profile.resume_url) score += 10;
-        const p = profile as any;
-        score += Math.round(([p.expected_salary, p.notice_period].filter(Boolean).length / 2) * 10);
-        if (Math.min(100, score) < 100) navigate("/jobseeker/dashboard/profile", { replace: true });
+        if (isCancelled) return;
+
+        const score = calculateProfileCompletionScore(profile, {
+          workExperience: expRes.count || 0,
+          education: eduRes.count || 0,
+          projects: projRes.count || 0,
+          certifications: certRes.count || 0,
+        });
+
+        if (score < 100) {
+          navigate("/jobseeker/dashboard/profile", { replace: true });
+        }
       } catch (err) {
-        console.error("Error during profile completion check:", err);
+        console.error("Profile completion check failed:", err);
       } finally {
-        setCheckingCompletion(false);
+        if (!isCancelled) {
+          setCheckingCompletion(false);
+        }
+
       }
     })();
-  }, [authLoading, profile, user, navigate, isRootPath]);
+
+    return () => {
+      isCancelled = true;
+    };
+  }, [authLoading, profile, user, navigate, isRootPath, refreshProfile]);
   const [notificationsOpen, setNotificationsOpen] = useState(false);
   const [notifications, setNotifications] = useState<Notification[]>([]);
   const [unreadCount, setUnreadCount] = useState(0);
@@ -2853,6 +2911,9 @@ function ProfilePage({ onPendingPrefsChange }: { onPendingPrefsChange?: (pending
   const [preferredJobOptionsLoading, setPreferredJobOptionsLoading] = useState(false);
   const [preferredJobOptionsError, setPreferredJobOptionsError] = useState("");
   const preferredJobFieldRef = useRef<HTMLDivElement>(null);
+  const [preferredLocationPickerOpen, setPreferredLocationPickerOpen] = useState(false);
+  const [preferredLocationSearch, setPreferredLocationSearch] = useState("");
+  const preferredLocationFieldRef = useRef<HTMLDivElement>(null);
 
   // Sync profile data from DB when it loads, fallback to user metadata
   useEffect(() => {
@@ -2869,9 +2930,9 @@ function ProfilePage({ onPendingPrefsChange }: { onPendingPrefsChange?: (pending
       phone: profile?.phone || meta.phone || "",
       email: profile?.email || user?.email || "",
       location: profile?.location || "",
-      dob: (profile as any)?.dob || "",
-      gender: (profile as any)?.gender || "",
-      maritalStatus: (profile as any)?.marital_status || "",
+      dob: profile?.dob || "",
+      gender: profile?.gender || "",
+      maritalStatus: profile?.marital_status || "",
       linkedin: profile?.linkedin_url || "",
       portfolio: profile?.portfolio_url || "",
     };
@@ -2887,7 +2948,6 @@ function ProfilePage({ onPendingPrefsChange }: { onPendingPrefsChange?: (pending
     setSkills(profile?.skills ?? []);
     // Preferences
     if (profile) {
-      const p = profile as any;
       const prefs = {
         desiredJobTitle: p.desired_job_title || "",
         jobType: p.job_type_pref || "",
@@ -2903,8 +2963,8 @@ function ProfilePage({ onPendingPrefsChange }: { onPendingPrefsChange?: (pending
       setPrefsForm(profile.id ? loadPrefsDraft(profile.id, prefs) : prefs);
     }
     // Languages
-    if ((profile as any)?.languages?.length) {
-      setLanguages(((profile as any).languages as { language: string; proficiency: string }[]).map((l, i) => ({ ...l, id: i })));
+    if (profile?.languages?.length) {
+      setLanguages(profile.languages.map((l, i) => ({ ...l, id: i })));
     }
   }, [profile, user]);
 
@@ -3081,52 +3141,6 @@ function ProfilePage({ onPendingPrefsChange }: { onPendingPrefsChange?: (pending
   const [editingPrefs, setEditingPrefs] = useState(false);
   const [prefsForm, setPrefsForm] = useState({ ...preferences });
 
-  const [preferredLocationSearch, setPreferredLocationSearch] = useState("");
-  const [preferredLocationPickerOpen, setPreferredLocationPickerOpen] = useState(false);
-  const preferredLocationFieldRef = useRef<HTMLDivElement>(null);
-
-  useEffect(() => {
-    if (!preferredLocationPickerOpen) return;
-    const handleClickOutside = (e: MouseEvent) => {
-      if (!preferredLocationFieldRef.current?.contains(e.target as Node)) {
-        setPreferredLocationPickerOpen(false);
-      }
-    };
-    document.addEventListener("mousedown", handleClickOutside);
-    return () => document.removeEventListener("mousedown", handleClickOutside);
-  }, [preferredLocationPickerOpen]);
-
-  const selectedPreferredLocations = useMemo(() => {
-    return splitPreferredLocations(prefsForm.preferredLocation);
-  }, [prefsForm.preferredLocation]);
-
-  const filteredPreferredLocationOptions = useMemo(() => {
-    const q = preferredLocationSearch.trim().toLowerCase();
-    let options = PREFERRED_LOCATION_ALL_OPTIONS;
-    if (q) {
-      options = options.filter((opt) => opt.toLowerCase().includes(q));
-    }
-    return options.slice(0, 30);
-  }, [preferredLocationSearch]);
-
-  const addPreferredLocation = useCallback((loc: string) => {
-    const trimmed = loc.trim();
-    if (!trimmed) return;
-    const current = splitPreferredLocations(prefsForm.preferredLocation);
-    if (!current.some((item) => item.toLowerCase() === trimmed.toLowerCase())) {
-      const updated = [...current, trimmed];
-      setPrefsForm((f) => ({ ...f, preferredLocation: joinPreferredLocations(updated) }));
-    }
-    setPreferredLocationSearch("");
-    setPreferredLocationPickerOpen(false);
-  }, [prefsForm.preferredLocation]);
-
-  const removePreferredLocation = useCallback((loc: string) => {
-    const current = splitPreferredLocations(prefsForm.preferredLocation);
-    const updated = current.filter((item) => item.toLowerCase() !== loc.toLowerCase());
-    setPrefsForm((f) => ({ ...f, preferredLocation: joinPreferredLocations(updated) }));
-  }, [prefsForm.preferredLocation]);
-
   const isPrefsDirty = useMemo(
     () => JSON.stringify(prefsForm) !== JSON.stringify(preferences),
     [prefsForm, preferences],
@@ -3227,6 +3241,19 @@ function ProfilePage({ onPendingPrefsChange }: { onPendingPrefsChange?: (pending
     });
   }, [preferredJobOptions, preferredJobSearch, selectedPreferredJobTitles]);
 
+  const selectedPreferredLocations = useMemo(
+    () => splitPreferredLocations(prefsForm.preferredLocation),
+    [prefsForm.preferredLocation],
+  );
+  const filteredPreferredLocationOptions = useMemo(() => {
+    const query = preferredLocationSearch.trim().toLowerCase();
+    const selected = new Set(selectedPreferredLocations.map((loc) => loc.toLowerCase()));
+    return PREFERRED_LOCATION_ALL_OPTIONS.filter((loc) => {
+      const matches = !query || loc.toLowerCase().includes(query);
+      return matches && !selected.has(loc.toLowerCase());
+    });
+  }, [preferredLocationSearch, selectedPreferredLocations]);
+
 
 
   const dobDisplayValue = basicForm.dob ? formatDateDisplay(basicForm.dob) : "";
@@ -3256,6 +3283,16 @@ function ProfilePage({ onPendingPrefsChange }: { onPendingPrefsChange?: (pending
     document.addEventListener("mousedown", handleClickOutside);
     return () => document.removeEventListener("mousedown", handleClickOutside);
   }, [preferredJobPickerOpen]);
+  useEffect(() => {
+    if (!preferredLocationPickerOpen) return;
+    const handleClickOutside = (event: MouseEvent) => {
+      if (!preferredLocationFieldRef.current?.contains(event.target as Node)) {
+        setPreferredLocationPickerOpen(false);
+      }
+    };
+    document.addEventListener("mousedown", handleClickOutside);
+    return () => document.removeEventListener("mousedown", handleClickOutside);
+  }, [preferredLocationPickerOpen]);
   useEffect(() => {
     if (!editingPrefs || !preferredJobPickerOpen) return;
 
@@ -3367,6 +3404,29 @@ function ProfilePage({ onPendingPrefsChange }: { onPendingPrefsChange?: (pending
       (currentTitle) => currentTitle.toLowerCase() !== title.toLowerCase(),
     );
     setPrefsForm((form) => ({ ...form, desiredJobTitle: joinPreferredJobTitles(updated) }));
+  }
+
+  function addPreferredLocation(location: string) {
+    const nextLocation = location.trim();
+    if (!nextLocation) return;
+    const currentLocations = splitPreferredLocations(prefsForm.preferredLocation);
+    if (currentLocations.some((existing) => existing.toLowerCase() === nextLocation.toLowerCase())) {
+      setPreferredLocationSearch("");
+      return;
+    }
+    setPrefsForm((form) => ({
+      ...form,
+      preferredLocation: joinPreferredLocations([...currentLocations, nextLocation]),
+    }));
+    setPreferredLocationSearch("");
+    setPreferredLocationPickerOpen(true);
+  }
+
+  function removePreferredLocation(location: string) {
+    const updated = splitPreferredLocations(prefsForm.preferredLocation).filter(
+      (currentLocation) => currentLocation.toLowerCase() !== location.toLowerCase(),
+    );
+    setPrefsForm((form) => ({ ...form, preferredLocation: joinPreferredLocations(updated) }));
   }
 
   async function saveExp() {
@@ -6267,8 +6327,7 @@ function InsightsPage() {
     ? profile.skills.filter((skill): skill is string => typeof skill === "string")
     : [];
   const skillsKey = [...skills].sort().join(","); // stable string for effect dependency
-  const profilePreferences = (profile || {}) as any;
-  const preferredRole = String(profilePreferences.desired_job_title || profile?.current_title || "").trim();
+  const preferredRole = String(profile?.desired_job_title || profile?.current_title || "").trim();
   const titleStr = preferredRole || String(profile?.current_title || "");
   const domain = detectDomain(skills, titleStr);
   const domainData = DOMAIN_MAP[domain];
@@ -6762,8 +6821,8 @@ function ResumePreviewPage() {
       }
 
       // 5. Load languages
-      if (profile && Array.isArray((profile as any).languages)) {
-        setLanguages(((profile as any).languages).map((l: any, idx: number) => ({
+      if (profile && Array.isArray(profile.languages)) {
+        setLanguages(profile.languages.map((l, idx: number) => ({
           id: idx,
           language: l.language || "",
           proficiency: l.proficiency || "Beginner",
@@ -6777,7 +6836,7 @@ function ResumePreviewPage() {
       console.error("Unexpected error loading profile sections:", err);
       setLoading(false);
     });
-  }, [profile?.id, (profile as any)?.languages]);
+  }, [profile?.id, profile?.languages]);
 
   const basicInfo = useMemo(() => {
     const fullName = `${profile?.first_name || ""} ${profile?.last_name || ""}`.trim();

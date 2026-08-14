@@ -25,7 +25,7 @@ export const SAFE_RECRUITER_COLUMNS =
   "id, email, recruiter_name, company_name, company_size, company_type, industry, company_description, website, location, logo_url, tagline, linkedin_url, cin, created_at, cover_image_url, cover_image_name, founded, org_role, org_admin_id, is_active, max_seats, is_org_admin, org_id, is_disabled, last_login_at, resumes_used, keywords_used, profiles_viewed, referral_email, referral_id, verification_status, rejection_reason, rejected_at, rejected_by, verified_at, verified_by, phone";
 
 export const SAFE_PROFILE_COLUMNS =
-  "id, email, first_name, last_name, phone, avatar_url, experience_type, total_experience, current_salary, expected_salary, location, skills, headline, resume_url, created_at, about, languages, notice_period, current_company, current_title, linkedin_url, portfolio_url, preferred_interview_mode, desired_job_title, job_type_pref, preferred_location, work_auth, willing_to_relocate, otp_code, otp_expires_at, profile_views, recruiter_searches";
+  "id, email, first_name, last_name, phone, avatar_url, experience_type, total_experience, current_salary, expected_salary, location, skills, headline, resume_url, created_at, updated_at, last_active_at, about, languages, notice_period, current_company, current_title, linkedin_url, portfolio_url, preferred_interview_mode, desired_job_title, job_type_pref, preferred_location, work_auth, willing_to_relocate, otp_code, otp_expires_at, profile_views, recruiter_searches";
 
 export function AuthProvider({ children }: { children: ReactNode }) {
   const [user, setUser] = useState<User | null>(null);
@@ -58,11 +58,20 @@ export function AuthProvider({ children }: { children: ReactNode }) {
           await new Promise(r => setTimeout(r, 800));
           return fetchProfile(userId, userRole, retries - 1);
         }
-        setProfile(data);
+        const userProfile = data as Profile | null;
+        if (userProfile) {
+          const lastActiveMs = userProfile.last_active_at ? new Date(userProfile.last_active_at).getTime() : 0;
+          if (Date.now() - lastActiveMs > 5 * 60 * 1000) {
+            const nowIso = new Date().toISOString();
+            userProfile.last_active_at = nowIso;
+            void supabase.from("profiles").update({ last_active_at: nowIso }).eq("id", userId);
+          }
+        }
+        setProfile(userProfile);
         setRecruiterProfile(null);
       }
     } catch (err) {
-      console.error("Unhandled error fetching profile:", err);
+      console.error("fetchProfile error:", err);
     }
   };
 

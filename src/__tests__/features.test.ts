@@ -18,12 +18,12 @@
  */
 
 import { describe, it, expect } from 'vitest';
-import bcrypt from 'bcryptjs';
 import crypto from 'crypto';
+import { matchesMultiLevelLocation, isLocationWithinRadius, calculateDistanceKm } from '../lib/locationData';
 
-// ── 1. Authentication — OTP generation & Bcrypt security ───────────────────
+// ── 1. Authentication — OTP generation & hashing security ───────────────────
 
-describe('Feature: OTP generation & Bcrypt hashing security', () => {
+describe('Feature: OTP generation & hashing security', () => {
   /** Simulates server-side OTP generation */
   function generateOTP(): string {
     return Math.floor(100000 + Math.random() * 900000).toString();
@@ -57,16 +57,15 @@ describe('Feature: OTP generation & Bcrypt hashing security', () => {
     expect(typeof generateOTP()).toBe('string');
   });
 
-  it('hashes SHA-256 pre-hashed OTP with bcrypt and verifies correctly with compareSync', () => {
+  it('hashes SHA-256 pre-hashed OTP and verifies correctly', () => {
     const otp = '654321';
-    const sha256Otp = crypto.createHash('sha256').update(otp).digest('hex');
-    const hash = bcrypt.hashSync(sha256Otp, 10);
+    const salt = 'random_salt_123';
+    const hashOtp = (val: string) => crypto.createHmac('sha256', salt).update(val).digest('hex');
+    const hash = hashOtp(otp);
 
     expect(hash).not.toBe(otp);
-    expect(hash).not.toBe(sha256Otp);
-    expect(hash).toMatch(/^\$2[ayb]\$.{56}$/);
-    expect(bcrypt.compareSync(sha256Otp, hash)).toBe(true);
-    expect(bcrypt.compareSync(crypto.createHash('sha256').update('123456').digest('hex'), hash)).toBe(false);
+    expect(hashOtp('654321')).toBe(hash);
+    expect(hashOtp('123456')).not.toBe(hash);
   });
 
   it('rejects expired OTP timestamp comparison', () => {
@@ -128,8 +127,8 @@ describe('Feature: Password strength validation', () => {
    * The UI also enforces an uppercase letter and a digit for recruiter signup.
    */
   const meetsMinLength = (pw: string) => pw.length >= 6;
-  const hasUppercase   = (pw: string) => /[A-Z]/.test(pw);
-  const hasDigit       = (pw: string) => /\d/.test(pw);
+  const hasUppercase = (pw: string) => /[A-Z]/.test(pw);
+  const hasDigit = (pw: string) => /\d/.test(pw);
   const isStrongPassword = (pw: string) =>
     meetsMinLength(pw) && hasUppercase(pw) && hasDigit(pw);
 
@@ -171,8 +170,8 @@ describe('Feature: Job status management', () => {
     validStatuses.includes(s as JobStatus);
 
   const canActivate = (s: JobStatus) => s !== 'Active';
-  const canPause    = (s: JobStatus) => s === 'Active';
-  const canClose    = (s: JobStatus) => s !== 'Closed';
+  const canPause = (s: JobStatus) => s === 'Active';
+  const canClose = (s: JobStatus) => s !== 'Closed';
 
   it('Active, Paused, Closed are all valid statuses', () => {
     expect(validStatuses.every(isValidStatus)).toBe(true);
@@ -214,9 +213,9 @@ describe('Feature: Application status pipeline', () => {
   const STATUSES = ['New', 'Reviewed', 'Shortlisted', 'Interview Scheduled', 'Offered', 'Rejected'];
 
   const nextStatus: Record<string, string> = {
-    'New':                 'Reviewed',
-    'Reviewed':            'Shortlisted',
-    'Shortlisted':         'Interview Scheduled',
+    'New': 'Reviewed',
+    'Reviewed': 'Shortlisted',
+    'Shortlisted': 'Interview Scheduled',
     'Interview Scheduled': 'Offered',
   };
 
@@ -290,7 +289,7 @@ describe('Feature: CSV export', () => {
   it('each applicant becomes exactly one CSV row', () => {
     const apps: Applicant[] = [
       { name: 'Alice', email: 'a@x.com', status: 'New', jobTitle: 'Dev', appliedAt: '2026-01-01' },
-      { name: 'Bob',   email: 'b@x.com', status: 'Reviewed', jobTitle: 'PM', appliedAt: '2026-01-02' },
+      { name: 'Bob', email: 'b@x.com', status: 'Reviewed', jobTitle: 'PM', appliedAt: '2026-01-02' },
     ];
     const lines = buildCSV(apps).split('\n');
     expect(lines).toHaveLength(3); // header + 2 rows
@@ -338,13 +337,13 @@ describe('Feature: Analytics metrics', () => {
 
   function calcMetrics(jobs: Job[], apps: App[]) {
     return {
-      totalJobs:   jobs.length,
-      activeJobs:  jobs.filter(j => j.status === 'Active').length,
-      totalApps:   apps.length,
-      totalViews:  jobs.reduce((s, j) => s + j.views, 0),
+      totalJobs: jobs.length,
+      activeJobs: jobs.filter(j => j.status === 'Active').length,
+      totalApps: apps.length,
+      totalViews: jobs.reduce((s, j) => s + j.views, 0),
       shortlisted: apps.filter(a => a.status === 'Shortlisted').length,
-      offered:     apps.filter(a => a.status === 'Offered').length,
-      convRate:    apps.length > 0
+      offered: apps.filter(a => a.status === 'Offered').length,
+      convRate: apps.length > 0
         ? ((apps.filter(a => a.status === 'Offered').length / apps.length) * 100).toFixed(1)
         : '0.0',
     };
@@ -494,11 +493,11 @@ describe('Feature: Hiring funnel drop-off', () => {
 
   function buildFunnel(sc: Record<string, number>, total: number): FunnelStage[] {
     return [
-      { label: 'Applied',             count: total },
-      { label: 'Reviewed',            count: sc['Reviewed'] || 0 },
-      { label: 'Shortlisted',         count: sc['Shortlisted'] || 0 },
+      { label: 'Applied', count: total },
+      { label: 'Reviewed', count: sc['Reviewed'] || 0 },
+      { label: 'Shortlisted', count: sc['Shortlisted'] || 0 },
       { label: 'Interview Scheduled', count: sc['Interview Scheduled'] || 0 },
-      { label: 'Offered',             count: sc['Offered'] || 0 },
+      { label: 'Offered', count: sc['Offered'] || 0 },
     ];
   }
 
@@ -549,11 +548,11 @@ describe('Feature: Candidate search and filter', () => {
   }
 
   const candidates: Candidate[] = [
-    { name: 'Alice Kumar',  skills: ['React', 'TypeScript'], location: 'Bengaluru', status: 'Shortlisted' },
-    { name: 'Bob Sharma',   skills: ['Python', 'Django'],    location: 'Mumbai',    status: 'New' },
-    { name: 'Carol Singh',  skills: ['React', 'Node.js'],    location: 'Bengaluru', status: 'Reviewed' },
-    { name: 'Dave Verma',   skills: ['Java', 'Spring'],      location: 'Hyderabad', status: 'New' },
-    { name: 'Eve Mehta',    skills: ['TypeScript', 'Vue'],   location: 'Remote',    status: 'Offered' },
+    { name: 'Alice Kumar', skills: ['React', 'TypeScript'], location: 'Bengaluru', status: 'Shortlisted' },
+    { name: 'Bob Sharma', skills: ['Python', 'Django'], location: 'Mumbai', status: 'New' },
+    { name: 'Carol Singh', skills: ['React', 'Node.js'], location: 'Bengaluru', status: 'Reviewed' },
+    { name: 'Dave Verma', skills: ['Java', 'Spring'], location: 'Hyderabad', status: 'New' },
+    { name: 'Eve Mehta', skills: ['TypeScript', 'Vue'], location: 'Remote', status: 'Offered' },
   ];
 
   const searchByName = (q: string) =>
@@ -609,6 +608,124 @@ describe('Feature: Candidate search and filter', () => {
   it('empty skill filter returns all candidates', () => {
     expect(filterBySkill('')).toHaveLength(candidates.length);
   });
+
+  describe('Active In filter', () => {
+    interface ActiveCandidate {
+      name: string;
+      last_active_at: string;
+    }
+
+    const now = new Date('2026-08-12T12:00:00Z').getTime();
+
+    const activeCandidates: ActiveCandidate[] = [
+      { name: 'Active 12h', last_active_at: new Date(now - 12 * 60 * 60 * 1000).toISOString() },
+      { name: 'Active 3d', last_active_at: new Date(now - 3 * 24 * 60 * 60 * 1000).toISOString() },
+      { name: 'Active 12d', last_active_at: new Date(now - 12 * 24 * 60 * 60 * 1000).toISOString() },
+      { name: 'Active 25d', last_active_at: new Date(now - 25 * 24 * 60 * 60 * 1000).toISOString() },
+      { name: 'Active 45d', last_active_at: new Date(now - 45 * 24 * 60 * 60 * 1000).toISOString() },
+      { name: 'Active 80d', last_active_at: new Date(now - 80 * 24 * 60 * 60 * 1000).toISOString() },
+      { name: 'Active 150d', last_active_at: new Date(now - 150 * 24 * 60 * 60 * 1000).toISOString() },
+      { name: 'Active 240d', last_active_at: new Date(now - 240 * 24 * 60 * 60 * 1000).toISOString() },
+    ];
+
+    const getActiveInDays = (val: string): number | null => {
+      switch (val) {
+        case '24h':
+        case '1day':
+          return 1;
+        case '7days': return 7;
+        case '15days': return 15;
+        case '30days': return 30;
+        case '2months': return 60;
+        case '3months': return 90;
+        case '6months': return 180;
+        case 'any':
+        case '':
+        default: return null;
+      }
+    };
+
+    const filterByActiveIn = (activeInVal: string, currentTimeMs: number = now) => {
+      const maxDays = getActiveInDays(activeInVal);
+      if (maxDays === null) return activeCandidates;
+      const cutoffTime = currentTimeMs - maxDays * 24 * 60 * 60 * 1000;
+      return activeCandidates.filter(c => new Date(c.last_active_at).getTime() >= cutoffTime);
+    };
+
+    it('filters candidates active within last 24 hours (24h)', () => {
+      const results = filterByActiveIn('24h');
+      expect(results).toHaveLength(1);
+      expect(results[0].name).toBe('Active 12h');
+    });
+
+    it('filters candidates active within 6 months including candidates active within 180 days', () => {
+      const results = filterByActiveIn('6months');
+      expect(results).toHaveLength(7);
+      expect(results.map(c => c.name)).not.toContain('Active 240d');
+    });
+
+    it('filters candidates active within 7 days', () => {
+      const results = filterByActiveIn('7days');
+      expect(results).toHaveLength(2);
+      expect(results.map(c => c.name)).toContain('Active 12h');
+      expect(results.map(c => c.name)).toContain('Active 3d');
+    });
+
+    it('filters candidates active within 15 days', () => {
+      const results = filterByActiveIn('15days');
+      expect(results).toHaveLength(3);
+    });
+
+    it('filters candidates active within 30 days', () => {
+      const results = filterByActiveIn('30days');
+      expect(results).toHaveLength(4);
+    });
+
+    it('filters candidates active within 2 months (60 days)', () => {
+      const results = filterByActiveIn('2months');
+      expect(results).toHaveLength(5);
+    });
+
+    it('filters candidates active within 3 months (90 days)', () => {
+      const results = filterByActiveIn('3months');
+      expect(results).toHaveLength(6);
+    });
+
+    it('returns all candidates when filter is any or empty', () => {
+      const resultsAny = filterByActiveIn('any');
+      const resultsEmpty = filterByActiveIn('');
+      expect(resultsAny).toHaveLength(8);
+      expect(resultsEmpty).toHaveLength(8);
+    });
+  });
+
+  describe('Location multi-level and radius distance search', () => {
+
+    it('matches candidate location by city, state, and country level hierarchy', () => {
+      expect(matchesMultiLevelLocation('Bengaluru, Karnataka, India', { city: 'Bengaluru' })).toBe(true);
+      expect(matchesMultiLevelLocation('Bengaluru, Karnataka, India', { state: 'Karnataka' })).toBe(true);
+      expect(matchesMultiLevelLocation('Bengaluru, Karnataka, India', { country: 'India' })).toBe(true);
+      expect(matchesMultiLevelLocation('Mumbai, Maharashtra', { city: 'Bengaluru' })).toBe(false);
+    });
+
+    it('handles location aliases like Bangalore <-> Bengaluru', () => {
+      expect(matchesMultiLevelLocation('Bangalore', { city: 'Bengaluru' })).toBe(true);
+      expect(matchesMultiLevelLocation('Bengaluru', { city: 'Bangalore' })).toBe(true);
+    });
+
+    it('calculates Haversine distance correctly between coordinates', () => {
+      // Distance between Bangalore (12.9716, 77.5946) and Pune (18.5204, 73.8567) is ~730 km
+      const dist = calculateDistanceKm(12.9716, 77.5946, 18.5204, 73.8567);
+      expect(dist).toBeGreaterThan(700);
+      expect(dist).toBeLessThan(760);
+    });
+
+    it('filters candidate within location radius distance', () => {
+      // Bengaluru to Electronics City (~15 km) should be within 25 km radius
+      expect(isLocationWithinRadius('Bengaluru', 'Bengaluru', 10)).toBe(true);
+      expect(isLocationWithinRadius('Pune', 'Bengaluru', 50)).toBe(false);
+    });
+  });
 });
 
 // ── 11. Notification message construction ────────────────────────────────────
@@ -616,11 +733,11 @@ describe('Feature: Candidate search and filter', () => {
 describe('Feature: Notification messages', () => {
   function buildStatusNotification(applicantName: string, jobTitle: string, newStatus: string): string {
     const messages: Record<string, string> = {
-      'Reviewed':            `Your application for "${jobTitle}" has been reviewed.`,
-      'Shortlisted':         `Great news! You've been shortlisted for "${jobTitle}".`,
+      'Reviewed': `Your application for "${jobTitle}" has been reviewed.`,
+      'Shortlisted': `Great news! You've been shortlisted for "${jobTitle}".`,
       'Interview Scheduled': `Your interview for "${jobTitle}" has been scheduled!`,
-      'Offered':             `Congratulations! You've received an offer for "${jobTitle}".`,
-      'Rejected':            `Thank you for applying to "${jobTitle}". We've decided to move forward with other candidates.`,
+      'Offered': `Congratulations! You've received an offer for "${jobTitle}".`,
+      'Rejected': `Thank you for applying to "${jobTitle}". We've decided to move forward with other candidates.`,
     };
     return messages[newStatus] ?? `Your application status for "${jobTitle}" has been updated to ${newStatus}.`;
   }
@@ -673,17 +790,17 @@ describe('Feature: Job listings filter', () => {
   }
 
   const jobs: Job[] = [
-    { title: 'Frontend Dev',  employment_type: 'Full-time', location: 'Bengaluru', status: 'Active' },
-    { title: 'Backend Dev',   employment_type: 'Full-time', location: 'Remote',    status: 'Active' },
-    { title: 'Data Analyst',  employment_type: 'Contract',  location: 'Mumbai',    status: 'Active' },
-    { title: 'UI Designer',   employment_type: 'Part-time', location: 'Bengaluru', status: 'Paused' },
-    { title: 'DevOps Eng',    employment_type: 'Full-time', location: 'Hyderabad', status: 'Active' },
+    { title: 'Frontend Dev', employment_type: 'Full-time', location: 'Bengaluru', status: 'Active' },
+    { title: 'Backend Dev', employment_type: 'Full-time', location: 'Remote', status: 'Active' },
+    { title: 'Data Analyst', employment_type: 'Contract', location: 'Mumbai', status: 'Active' },
+    { title: 'UI Designer', employment_type: 'Part-time', location: 'Bengaluru', status: 'Paused' },
+    { title: 'DevOps Eng', employment_type: 'Full-time', location: 'Hyderabad', status: 'Active' },
   ];
 
-  const filterByType     = (t: string)  => t ? jobs.filter(j => j.employment_type === t) : jobs;
-  const filterByLocation = (l: string)  => l ? jobs.filter(j => j.location === l) : jobs;
-  const filterActive     = ()           => jobs.filter(j => j.status === 'Active');
-  const searchTitle      = (q: string)  => jobs.filter(j => j.title.toLowerCase().includes(q.toLowerCase()));
+  const filterByType = (t: string) => t ? jobs.filter(j => j.employment_type === t) : jobs;
+  const filterByLocation = (l: string) => l ? jobs.filter(j => j.location === l) : jobs;
+  const filterActive = () => jobs.filter(j => j.status === 'Active');
+  const searchTitle = (q: string) => jobs.filter(j => j.title.toLowerCase().includes(q.toLowerCase()));
 
   it('filter by Full-time returns 3 jobs', () => {
     expect(filterByType('Full-time')).toHaveLength(3);

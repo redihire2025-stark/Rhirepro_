@@ -2,6 +2,7 @@ import { useState, useEffect, useCallback, useMemo, useRef } from "react";
 import { useParams, useNavigate } from "react-router";
 import { supabase, Profile, Application } from "../../lib/supabase";
 import { useAuth, SAFE_PROFILE_COLUMNS } from "../../lib/auth-context";
+import { formatActiveTime, parseActiveDate } from "../../lib/activeTime";
 import {
   User, MapPin, Phone, Mail, Globe, Star, Briefcase, GraduationCap,
   Award, FileText, Download, Loader2, ArrowLeft, ShieldAlert,
@@ -181,23 +182,40 @@ export default function ApplicantProfilePage() {
     setError(null);
 
     try {
-      let profData;
+      let profData: ApplicantProfile | null = null;
       // 1. Fetch Application
       const { data: appData, error: appError } = await supabase
         .from("applications")
-        .select("*, job:jobs(title, id)")
+        .select("*, job:jobs(title, id, recruiter_id)")
         .eq("id", id)
-        .single();
+        .maybeSingle();
 
       if (appError || !appData) {
-        // Fallback: Try to fetch profile directly assuming applicantId is the profile ID
-        const { data: directProf, error: directProfErr } = await supabase
+        // Fallback: Try to fetch profile directly assuming id is the profile ID
+        let directProf: ApplicantProfile | null = null;
+        let directProfErr: any = null;
+
+        const res1 = await supabase
           .from("profiles")
           .select(SAFE_PROFILE_COLUMNS)
           .eq("id", id)
-          .single();
+          .maybeSingle();
+
+        if (res1.data) {
+          directProf = res1.data as ApplicantProfile;
+        } else {
+          // Fallback to select("*") in case SAFE_PROFILE_COLUMNS had a missing column error
+          const res2 = await supabase
+            .from("profiles")
+            .select("*")
+            .eq("id", id)
+            .maybeSingle();
+          directProf = res2.data as ApplicantProfile | null;
+          directProfErr = res2.error;
+        }
 
         if (directProfErr || !directProf) {
+          delete profileCache[id];
           setError("Candidate profile not found or could not be loaded.");
           setLoading(false);
           return;
@@ -206,7 +224,14 @@ export default function ApplicantProfilePage() {
         setApplication(null);
       } else {
         // 2. Validate recruiter access permission
-        if (appData.recruiter_id !== recruiterProfile.id) {
+        const isAllowed =
+          !appData.recruiter_id ||
+          appData.recruiter_id === recruiterProfile.id ||
+          appData.job?.recruiter_id === recruiterProfile.id ||
+          recruiterProfile.is_org_admin;
+
+        if (!isAllowed) {
+          delete profileCache[id];
           setError("Access Denied: You do not have permission to view this applicant's profile.");
           setLoading(false);
           return;
@@ -214,18 +239,48 @@ export default function ApplicantProfilePage() {
         setApplication(appData);
 
         // 3. Fetch candidate profile
-        const { data: pData, error: pError } = await supabase
+        let pData: ApplicantProfile | null = null;
+        let pError: any = null;
+
+        const res1 = await supabase
           .from("profiles")
           .select(SAFE_PROFILE_COLUMNS)
           .eq("id", appData.profile_id)
-          .single();
+          .maybeSingle();
+
+        if (res1.data) {
+          pData = res1.data as ApplicantProfile;
+        } else {
+          // Fallback to select("*") in case SAFE_PROFILE_COLUMNS had a column schema mismatch
+          const res2 = await supabase
+            .from("profiles")
+            .select("*")
+            .eq("id", appData.profile_id)
+            .maybeSingle();
+          pData = res2.data as ApplicantProfile | null;
+          pError = res2.error;
+        }
 
         if (pError || !pData) {
-          setError("Candidate profile not found or could not be loaded.");
-          setLoading(false);
-          return;
+          // Additional fallback: in case 'id' was candidate's profile_id directly
+          const fallbackRes = await supabase
+            .from("profiles")
+            .select("*")
+            .eq("id", id)
+            .maybeSingle();
+
+          if (fallbackRes.data) {
+            profData = fallbackRes.data as ApplicantProfile;
+            setApplication(null);
+          } else {
+            delete profileCache[id];
+            setError("Candidate profile not found or could not be loaded.");
+            setLoading(false);
+            return;
+          }
+        } else {
+          profData = pData;
         }
-        profData = pData;
       }
 
       setProfile(profData);
@@ -298,7 +353,7 @@ export default function ApplicantProfilePage() {
         const viewKey = `viewed_profile_${recruiterProfile.id}_${profData.id}`;
         if (!localStorage.getItem(viewKey)) {
           localStorage.setItem(viewKey, "true");
-          
+
           // Increment candidate profile views
           void supabase.rpc("increment_profile_views", { target_profile_id: profData.id }).then(({ error: viewError }) => {
             if (viewError) {
@@ -429,7 +484,7 @@ export default function ApplicantProfilePage() {
         wrapper.style.alignItems = "center";
         wrapper.style.justifyContent = "flex-start";
         wrapper.style.width = "100%";
-        
+
         const availableWidth = Math.max(100, pdfPreviewRef.current.clientWidth - 8);
         for (let i = 1; i <= numPages; i++) {
           if (cancelled || !pdfPreviewRef.current?.isConnected) return;
@@ -611,10 +666,10 @@ export default function ApplicantProfilePage() {
         </div>
 
         <div className="grid grid-cols-1 lg:grid-cols-2 gap-6 items-start">
-          
+
           {/* Left Column: Read-Only Jobseeker Profile */}
           <div className="space-y-6">
-            
+
             {/* Basic Info Section */}
             <div className="bg-white rounded-2xl p-6 shadow-md">
               <div className="flex items-start gap-6 mb-6">
@@ -628,7 +683,20 @@ export default function ApplicantProfilePage() {
                 <div className="flex-1 min-w-0">
                   <div className="flex items-start justify-between flex-wrap gap-2">
                     <div>
-                      <h2 className="text-2xl font-bold text-[#3A1F1F]">{name}</h2>
+                      <div className="flex items-center gap-2 flex-wrap">
+                        <h2 className="text-2xl font-bold text-[#3A1F1F]">{name}</h2>
+                        {(() => {
+                          const activeDate = parseActiveDate(profile);
+                          const activeLabel = formatActiveTime(activeDate);
+                          if (!activeLabel) return null;
+                          return (
+                            <span className="inline-flex items-center gap-1.5 px-2.5 py-0.5 rounded-full text-xs font-semibold bg-emerald-50 text-emerald-700 border border-emerald-200/80 shadow-xs">
+                              <span className="w-1.5 h-1.5 rounded-full bg-emerald-500 animate-pulse" />
+                              {activeLabel}
+                            </span>
+                          );
+                        })()}
+                      </div>
                       <p className="text-[#FF2B2B] font-medium">{profile?.headline || "Jobseeker"}</p>
                     </div>
                     <div className="bg-green-50 border border-green-100 rounded-xl px-3 py-1.5 text-center flex-shrink-0">
@@ -890,7 +958,7 @@ export default function ApplicantProfilePage() {
           {/* Right Column: Embedded Resume Preview & Download */}
           <div className="flex flex-col">
             <div ref={fullscreenResumeRef} className="bg-white rounded-2xl p-6 shadow-md border border-gray-100 flex flex-col flex-1 overflow-hidden relative">
-              
+
               {/* Floating controls in Fullscreen Mode */}
               {isFullscreen && (
                 <div className="absolute top-6 right-6 z-50 flex items-center gap-2 bg-[#3A1F1F]/90 backdrop-blur-md p-1.5 rounded-full shadow-xl border border-white/10">
