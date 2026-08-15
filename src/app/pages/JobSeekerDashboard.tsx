@@ -79,10 +79,10 @@ interface Education {
 }
 type EducationForm = Omit<Education, "id"> & { customField?: string };
 interface Project {
-  id: number; name: string; url: string; startYear: string; endYear: string; description: string;
+  id: number | string; name: string; url: string; startYear: string; endYear: string; description: string;
 }
 interface Certification {
-  id: number; name: string; issuer: string; issueDate: string; expiryDate: string; noExpiry: boolean; credentialId: string;
+  id: number | string; name: string; issuer: string; issueDate: string; expiryDate: string; noExpiry: boolean; credentialId: string;
 }
 interface Language { id: number; language: string; proficiency: string; }
 interface OfferPanelDetails {
@@ -3129,14 +3129,14 @@ function ProfilePage({ onPendingPrefsChange }: { onPendingPrefsChange?: (pending
   const emptyProj = { name: "", url: "", startYear: "2023", endYear: "2024", description: "" };
   const [projects, setProjects] = useState<Project[]>([]);
   const [showAddProj, setShowAddProj] = useState(false);
-  const [editingProjId, setEditingProjId] = useState<number | null>(null);
+  const [editingProjId, setEditingProjId] = useState<number | string | null>(null);
   const [projForm, setProjForm] = useState<Omit<Project,"id">>(emptyProj);
 
   // Certifications
   const emptyCert = { name: "", issuer: "", issueDate: "", expiryDate: "", noExpiry: false, credentialId: "" };
   const [certifications, setCertifications] = useState<Certification[]>([]);
   const [showAddCert, setShowAddCert] = useState(false);
-  const [editingCertId, setEditingCertId] = useState<number | null>(null);
+  const [editingCertId, setEditingCertId] = useState<number | string | null>(null);
   const [certForm, setCertForm] = useState<Omit<Certification,"id">>(emptyCert);
 
   // Languages
