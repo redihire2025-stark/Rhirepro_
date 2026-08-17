@@ -39,7 +39,7 @@ export interface Education {
 }
 
 export interface Project {
-  id: number;
+  id: number | string;
   name: string;
   url: string;
   startYear: string;
@@ -48,7 +48,7 @@ export interface Project {
 }
 
 export interface Certification {
-  id: number;
+  id: number | string;
   name: string;
   issuer: string;
   issueDate: string;
@@ -58,7 +58,7 @@ export interface Certification {
 }
 
 export interface Language {
-  id: number;
+  id: number | string;
   language: string;
   proficiency: string;
 }
