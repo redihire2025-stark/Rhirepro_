@@ -5519,14 +5519,16 @@ function SearchCandidatesPage() {
               `)
               .in("id", matchedIds);
 
-            if (hydratedData) {
+            if (hydratedData && hydratedData.length > 0) {
               const idToCandidateMap = new Map(hydratedData.map((c: any) => [c.id, c]));
               raw = matchedIds
                 .map((id: string) => idToCandidateMap.get(id))
                 .filter(Boolean) as DBCandidate[];
+              if (raw.length > 0) {
+                esSuccess = true;
+              }
             }
           }
-          esSuccess = true;
         }
       } catch (err) {
         console.error("Elasticsearch candidate query failed, falling back to local database search:", err);
@@ -5536,7 +5538,7 @@ function SearchCandidatesPage() {
         let q = supabase
           .from("profiles")
           .select(`
-            id, first_name, last_name, avatar_url, headline, current_title, current_company, location, experience_type, total_experience, skills, about,
+            id, first_name, last_name, avatar_url, headline, current_title, current_company, location, experience_type, total_experience, skills, about, created_at, updated_at, last_active_at, preferred_location, desired_job_title, job_type_pref, work_auth, willing_to_relocate, preferred_interview_mode,
             work_experience(id, company, title, start_date, end_date, description, is_current),
             education(id, institution, degree, field, start_year, end_year)
           `);
@@ -5613,7 +5615,7 @@ function SearchCandidatesPage() {
           let broadSkillQuery = supabase
             .from("profiles")
             .select(`
-              id, first_name, last_name, avatar_url, headline, current_title, current_company, location, experience_type, total_experience, skills, about,
+              id, first_name, last_name, avatar_url, headline, current_title, current_company, location, experience_type, total_experience, skills, about, created_at, updated_at, last_active_at, preferred_location, desired_job_title, job_type_pref, work_auth, willing_to_relocate, preferred_interview_mode,
               work_experience(id, company, title, start_date, end_date, description, is_current),
               education(id, institution, degree, field, start_year, end_year)
             `);
@@ -7386,17 +7388,19 @@ Best regards,
             const { data: hydratedData } = await supabase
               .from("profiles")
               .select(`
-                id, first_name, last_name, avatar_url, headline, current_title, current_company, location, experience_type, total_experience, skills, about, email, phone,
+                id, first_name, last_name, avatar_url, headline, current_title, current_company, location, experience_type, total_experience, skills, about, email, phone, created_at, updated_at, last_active_at, preferred_location, desired_job_title, job_type_pref, work_auth, willing_to_relocate, preferred_interview_mode,
                 work_experience(id, company, title, start_date, end_date, description, is_current),
                 education(id, institution, degree, field, start_year, end_year)
               `)
               .in("id", matchedIds);
-            if (hydratedData) {
+            if (hydratedData && hydratedData.length > 0) {
               const idToMap = new Map(hydratedData.map((c: any) => [c.id, c]));
               raw = matchedIds.map((id: string) => idToMap.get(id)).filter(Boolean) as DBCandidate[];
+              if (raw.length > 0) {
+                esSuccess = true;
+              }
             }
           }
-          esSuccess = true;
         }
       } catch (e) {
         console.warn("ES candidate search fallback:", e);
@@ -7406,7 +7410,7 @@ Best regards,
         let q = supabase
           .from("profiles")
           .select(`
-            id, first_name, last_name, avatar_url, headline, current_title, current_company, location, experience_type, total_experience, skills, about, email, phone,
+            id, first_name, last_name, avatar_url, headline, current_title, current_company, location, experience_type, total_experience, skills, about, email, phone, created_at, updated_at, last_active_at, preferred_location, desired_job_title, job_type_pref, work_auth, willing_to_relocate, preferred_interview_mode,
             work_experience(id, company, title, start_date, end_date, description, is_current),
             education(id, institution, degree, field, start_year, end_year)
           `);

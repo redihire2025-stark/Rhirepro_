@@ -16,30 +16,31 @@ export function parseActiveDate(c: {
 
 /**
  * Formats active time for display.
- * - Within 24 hours: "Active in a day"
- * - Greater than 24 hours up to 48 hours: "Active a day ago"
+ * - Within 24 hours: "Active Today"
+ * - Greater than 24 hours up to 48 hours: "Active 1 day ago"
  * - Greater than 48 hours: "Active N days ago" (e.g. Active 3 days ago)
+ * - Missing or dummy candidate: "Active 6 months ago"
  */
 export function formatActiveTime(
   dateInput?: Date | string | null,
   nowMs: number = Date.now()
 ): string {
-  if (!dateInput) return "";
+  if (!dateInput) return "Active 6 months ago";
   const d = typeof dateInput === "string" ? new Date(dateInput) : dateInput;
-  if (!d || isNaN(d.getTime())) return "";
+  if (!d || isNaN(d.getTime())) return "Active 6 months ago";
 
   const diffMs = nowMs - d.getTime();
 
   // Future timestamps or within 24 hours
   if (diffMs <= 24 * 60 * 60 * 1000) {
-    return "Active in a day";
+    return "Active Today";
   }
 
   const hours = diffMs / (1000 * 60 * 60);
 
   // Greater than 24 hours up to 48 hours
   if (hours <= 48) {
-    return "Active a day ago";
+    return "Active 1 day ago";
   }
 
   const days = Math.floor(hours / 24);
