@@ -5,10 +5,10 @@ describe("activeTime helpers", () => {
   const baseTimeStr = "2026-08-13T12:00:00.000Z";
   const nowMs = new Date(baseTimeStr).getTime();
 
-  it("parses active date correctly from last_active_at, updated_at, or created_at", () => {
+  it("parses active date correctly from last_active_at only", () => {
     expect(parseActiveDate({ last_active_at: "2026-08-13T10:00:00.000Z" })?.toISOString()).toBe("2026-08-13T10:00:00.000Z");
-    expect(parseActiveDate({ updated_at: "2026-08-12T10:00:00.000Z" })?.toISOString()).toBe("2026-08-12T10:00:00.000Z");
-    expect(parseActiveDate({ created_at: "2026-08-11T10:00:00.000Z" })?.toISOString()).toBe("2026-08-11T10:00:00.000Z");
+    expect(parseActiveDate({ updated_at: "2026-08-12T10:00:00.000Z" })).toBeNull();
+    expect(parseActiveDate({ created_at: "2026-08-11T10:00:00.000Z" })).toBeNull();
     expect(parseActiveDate(null)).toBeNull();
     expect(parseActiveDate({})).toBeNull();
   });

@@ -7,10 +7,8 @@ export function parseActiveDate(c: {
   updated_at?: string | null;
   created_at?: string | null;
 } | null | undefined): Date | null {
-  if (!c) return null;
-  const dateStr = c.last_active_at || c.updated_at || c.created_at;
-  if (!dateStr) return null;
-  const d = new Date(dateStr);
+  if (!c || !c.last_active_at) return null;
+  const d = new Date(c.last_active_at);
   return isNaN(d.getTime()) ? null : d;
 }
 

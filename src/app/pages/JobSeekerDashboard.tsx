@@ -3078,7 +3078,7 @@ function ProfilePage({ onPendingPrefsChange }: { onPendingPrefsChange?: (pending
   const emptyProj = { name: "", url: "", startYear: "2023", endYear: "2024", description: "" };
   const [projects, setProjects] = useState<Project[]>([]);
   const [showAddProj, setShowAddProj] = useState(false);
-  const [editingProjId, setEditingProjId] = useState<number | null>(null);
+  const [editingProjId, setEditingProjId] = useState<number | string | null>(null);
   const [projForm, setProjForm] = useState<Omit<Project, "id">>(emptyProj);
 
   // Certifications

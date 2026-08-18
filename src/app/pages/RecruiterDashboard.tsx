@@ -5136,7 +5136,7 @@ function SearchCandidatesPage() {
   };
 
   const parseActiveDate = (c: DBCandidate): Date | null => {
-    const dateStr = (c as any).last_active_at || (c as any).updated_at || c.created_at;
+    const dateStr = (c as any).last_active_at;
     if (!dateStr) return null;
     const d = new Date(dateStr);
     return isNaN(d.getTime()) ? null : d;
