@@ -22,12 +22,12 @@ export default function PlanDetailsPage() {
   const [promoSuccess, setPromoSuccess] = useState("");
 
   const priceBreakdown = getPlanPriceBreakdown(plan, appliedPromo);
-  const { basePrice, discountAmount, gstAmount, totalAmount } = priceBreakdown;
+  const { basePrice, discountedBasePrice, discountAmount, gstAmount, totalAmount } = priceBreakdown;
 
   const handleApplyPromo = () => {
     const found = validatePromo(promoInput);
     if (!found) {
-      setPromoError("Invalid promo code. Try RHIRE10, RHIRE20, HIRE50, or NEWJOIN.");
+      setPromoError("Invalid promo code. Try RHIRE10, RHIRE20, HIRE50, NEWJOIN, or RHIRE99.");
       setAppliedPromo(null);
       setPromoSuccess("");
       return;
@@ -101,7 +101,10 @@ export default function PlanDetailsPage() {
             {/* Plan card */}
             <div className="bg-white rounded-2xl p-6 shadow-md border-2 border-[#FF2B2B]">
               <div className="flex items-baseline gap-1 mb-2">
-                <span className="text-5xl font-bold text-[#3A1F1F]">₹{basePrice}</span>
+                {discountAmount > 0 && (
+                  <span className="text-xl text-[#8A8A8A] line-through">₹{basePrice}</span>
+                )}
+                <span className="text-5xl font-bold text-[#3A1F1F]">₹{discountedBasePrice}</span>
                 <span className="text-[#8A8A8A]">/{plan.period}</span>
               </div>
               <p className="text-xs text-[#8A8A8A] mb-3">+ 18% GST</p>
@@ -173,7 +176,7 @@ export default function PlanDetailsPage() {
               <span className="font-semibold text-[#3A1F1F]">Total Due</span>
               <div className="text-right">
                 {discountAmount > 0 && (
-                  <p className="text-sm text-[#8A8A8A] line-through">₹{basePrice + gstAmount}</p>
+                  <p className="text-sm text-[#8A8A8A] line-through">₹{basePrice + calculateGst(basePrice)}</p>
                 )}
                 <p className="text-3xl font-bold text-[#FF2B2B]">₹{totalAmount}</p>
                 <p className="text-xs text-[#8A8A8A]">Billed monthly</p>
@@ -227,8 +230,10 @@ export default function PlanDetailsPage() {
                   Try: <span className="font-mono text-[#3A1F1F] cursor-pointer hover:text-[#FF2B2B]" onClick={() => setPromoInput("RHIRE10")}>RHIRE10</span>
                   {", "}
                   <span className="font-mono text-[#3A1F1F] cursor-pointer hover:text-[#FF2B2B]" onClick={() => setPromoInput("RHIRE20")}>RHIRE20</span>
-                  {" "}or{" "}
+                  {", "}
                   <span className="font-mono text-[#3A1F1F] cursor-pointer hover:text-[#FF2B2B]" onClick={() => setPromoInput("NEWJOIN")}>NEWJOIN</span>
+                  {" or "}
+                  <span className="font-mono text-[#3A1F1F] cursor-pointer hover:text-[#FF2B2B]" onClick={() => setPromoInput("RHIRE99")}>RHIRE99</span>
                 </p>
               )}
             </div>

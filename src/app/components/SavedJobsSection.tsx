@@ -40,6 +40,9 @@ interface SavedJobsSectionProps {
 const SAVED_JOBS_COMPARE_STATE_KEY = "savedJobsCompareState";
 
 function formatLocation(job: SavedJobWithJob["job"]): string {
+  if (job && Array.isArray((job as any).locations) && (job as any).locations.length > 0) {
+    return (job as any).locations.join(", ");
+  }
   return job?.location || job?.work_mode || "India";
 }
 

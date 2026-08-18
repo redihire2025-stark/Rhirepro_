@@ -1,4 +1,4 @@
-import { useState, useCallback, useEffect } from "react";
+import { useState, useCallback, useEffect, useMemo } from "react";
 import { useNavigate, useSearchParams } from "react-router";
 import { useAuth } from "../../lib/auth-context";
 import { calculateGst, getPlanById } from "../../lib/plans";
@@ -43,6 +43,11 @@ export default function PaymentGatewayPage() {
   const [status, setStatus] = useState<"idle" | "loading" | "failed" | "success">("idle");
   const [errorMsg, setErrorMsg] = useState<string>("");
   const [txnRef, setTxnRef] = useState<string>("");
+
+  const isLiveMode = useMemo(() => {
+    const key = import.meta.env.VITE_RAZORPAY_KEY_ID || "rzp_test_TOksXioBHbSu5W";
+    return key.startsWith("rzp_live");
+  }, []);
 
   useEffect(() => {
     if (status === "success") {
@@ -165,7 +170,7 @@ export default function PaymentGatewayPage() {
             <CheckCircle className="h-10 w-10 text-green-500" />
           </div>
           <div className="inline-flex items-center gap-1.5 bg-blue-50 text-blue-700 text-xs font-medium px-3 py-1 rounded-full mb-4">
-            <TestTube2 className="h-3.5 w-3.5" /> Razorpay Test Mode
+            <TestTube2 className="h-3.5 w-3.5" /> {isLiveMode ? "Razorpay Live Mode" : "Razorpay Test Mode"}
           </div>
           <h2 className="text-2xl font-bold text-[#3A1F1F] mb-2">Payment Successful!</h2>
           <p className="text-[#8A8A8A] mb-6">
@@ -236,7 +241,7 @@ export default function PaymentGatewayPage() {
               <div className="text-blue-200 text-xs">UPI · Cards · Netbanking · Wallets</div>
             </div>
             <div className="bg-blue-900/60 border border-blue-400/30 text-blue-200 text-xs px-2.5 py-1 rounded-full flex items-center gap-1 font-mono">
-              <TestTube2 className="h-3.5 w-3.5 text-yellow-400" /> Test Mode
+              <TestTube2 className="h-3.5 w-3.5 text-yellow-400" /> {isLiveMode ? "Live Mode" : "Test Mode"}
             </div>
           </div>
 
@@ -245,7 +250,9 @@ export default function PaymentGatewayPage() {
             <div className="flex flex-col items-center bg-gray-50 border border-gray-100 rounded-xl p-4 text-center">
               <CreditCard className="h-8 w-8 text-[#FF2B2B] mb-2" />
               <p className="text-sm font-semibold text-[#3A1F1F]">Razorpay Secure Payment Gateway</p>
-              <p className="text-xs text-[#8A8A8A] mt-0.5">Pay safely using Test Cards, UPI, or Netbanking</p>
+              <p className="text-xs text-[#8A8A8A] mt-0.5">
+                {isLiveMode ? "Pay safely using UPI, Card, Netbanking, or Wallets" : "Pay safely using Test Cards, UPI, or Netbanking"}
+              </p>
             </div>
 
             {/* Order info */}

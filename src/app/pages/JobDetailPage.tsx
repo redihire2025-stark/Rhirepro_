@@ -359,7 +359,7 @@ export default function JobDetailPage() {
                       <div className="space-y-1 text-xs text-[#8A8A8A] mb-3">
                         <div className="flex items-center gap-1">
                           <MapPin className="h-3 w-3 text-[#FF2B2B]" />
-                          {job.location || "India"}
+                          {Array.isArray(job.locations) && job.locations.length > 0 ? job.locations.join(", ") : (job.location || "India")}
                         </div>
                         <div className="flex items-center gap-1">
                           <DollarSign className="h-3 w-3 text-[#FF2B2B]" />
@@ -383,7 +383,9 @@ export default function JobDetailPage() {
                 <div className="space-y-2 text-sm text-[#8A8A8A] mb-4">
                   <div className="flex items-center gap-2">
                     <MapPin className="h-4 w-4 text-[#FF2B2B]" />
-                    {currentJob.location}
+                    {Array.isArray((currentJob as any).locations) && (currentJob as any).locations.length > 0
+                      ? (currentJob as any).locations.join(", ")
+                      : currentJob.location}
                   </div>
                   <div className="flex items-center gap-2">
                     <DollarSign className="h-4 w-4 text-[#FF2B2B]" />
@@ -435,7 +437,11 @@ export default function JobDetailPage() {
                     <MapPin className="h-5 w-5 text-[#FF2B2B]" />
                     <div>
                       <p className="text-xs">Location</p>
-                      <p className="font-semibold text-[#3A1F1F]">{currentJob.location}</p>
+                      <p className="font-semibold text-[#3A1F1F]">
+                        {Array.isArray((currentJob as any).locations) && (currentJob as any).locations.length > 0
+                          ? (currentJob as any).locations.join(", ")
+                          : currentJob.location}
+                      </p>
                     </div>
                   </div>
                   <div className="flex items-center gap-3 text-[#8A8A8A]">

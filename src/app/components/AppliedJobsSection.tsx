@@ -212,6 +212,9 @@ function getStageState(
 }
 
 function formatLocation(job: AppliedJobWithJob["job"]): string {
+  if (job && Array.isArray((job as any).locations) && (job as any).locations.length > 0) {
+    return (job as any).locations.join(", ");
+  }
   return job?.location || job?.work_mode || "India";
 }
 
