@@ -3136,7 +3136,7 @@ function PostJobPage() {
           {/* Location & Openings */}
           <div className="border-b pb-6">
             <h2 className="text-lg font-semibold text-[#3A1F1F] mb-4">Location & Openings</h2>
-            <div className="grid md:grid-cols-2 gap-4 items-start">
+            <div className="grid md:grid-cols-2 gap-5 items-start">
               <div>
                 <label className="block mb-1.5 text-sm font-medium text-[#3A1F1F]">Job Location(s) *</label>
                 <LocationAutocomplete
@@ -3161,11 +3161,71 @@ function PostJobPage() {
                     ))}
                   </div>
                 )}
+                <div className="mt-2.5 flex flex-wrap gap-1.5 items-center">
+                  <span className="text-xs text-[#8A8A8A] font-medium mr-1">Popular:</span>
+                  {["Remote", "Bengaluru", "Hyderabad", "Mumbai", "Pune", "Delhi NCR"].map(loc => {
+                    const isSelected = formData.locations.some(l => l.toLowerCase().trim() === loc.toLowerCase().trim());
+                    return (
+                      <button
+                        key={loc}
+                        type="button"
+                        onClick={() => {
+                          if (isSelected) {
+                            removeLocation(loc);
+                          } else {
+                            addLocation(loc);
+                          }
+                        }}
+                        className={`text-xs px-2.5 py-1 rounded-full border transition-colors flex items-center gap-1 ${
+                          isSelected
+                            ? "bg-[#FFF0F0] text-[#FF2B2B] border-[#FF2B2B] font-medium"
+                            : "bg-white text-[#555] border-gray-200 hover:border-[#FF2B2B] hover:text-[#FF2B2B]"
+                        }`}
+                      >
+                        {isSelected ? <Check className="h-3 w-3" /> : <Plus className="h-3 w-3" />}
+                        {loc}
+                      </button>
+                    );
+                  })}
+                </div>
                 <p className="text-xs text-[#8A8A8A] mt-1.5">Select multiple cities where candidates can be located</p>
               </div>
               <div>
-                <label className="block mb-1.5 text-sm font-medium text-[#3A1F1F]">Number of Openings</label>
-                <Input type="number" min="1" value={formData.openings} onChange={e => setFormData({ ...formData, openings: e.target.value })} className="bg-[#F6F6F6] border-gray-200 rounded-xl" />
+                <label className="block mb-1.5 text-sm font-medium text-[#3A1F1F]">Number of Openings *</label>
+                <Input
+                  type="number"
+                  min="1"
+                  step="1"
+                  value={formData.openings}
+                  onChange={e => {
+                    const val = e.target.value.replace(/\D/g, "");
+                    setFormData({ ...formData, openings: val });
+                  }}
+                  onBlur={() => {
+                    if (!formData.openings || Number(formData.openings) < 1) {
+                      setFormData({ ...formData, openings: "1" });
+                    }
+                  }}
+                  className="bg-[#F6F6F6] border-gray-200 rounded-xl"
+                  placeholder="e.g. 1, 2, 5, 10, 25, 50, 100"
+                />
+                <div className="mt-2.5 flex flex-wrap gap-1.5 items-center">
+                  <span className="text-xs text-[#8A8A8A] font-medium mr-1">Preset:</span>
+                  {[1, 2, 5, 10, 25, 50, 100].map(num => (
+                    <button
+                      key={num}
+                      type="button"
+                      onClick={() => setFormData({ ...formData, openings: String(num) })}
+                      className={`text-xs px-2.5 py-1 rounded-full border transition-colors ${
+                        Number(formData.openings) === num
+                          ? "bg-[#FFF0F0] text-[#FF2B2B] border-[#FF2B2B] font-medium"
+                          : "bg-white text-[#555] border-gray-200 hover:border-[#FF2B2B] hover:text-[#FF2B2B]"
+                      }`}
+                    >
+                      {num}
+                    </button>
+                  ))}
+                </div>
               </div>
             </div>
           </div>
@@ -4148,36 +4208,78 @@ function ManageJobsPage() {
               </div>
             </div>
 
-            {/* Multi-Location */}
-            <div>
-              <label className="block text-sm font-medium text-[#3A1F1F] mb-1">Job Location(s)</label>
-              <LocationAutocomplete
-                value={editForm.locationInput}
-                onChange={loc => {
-                  if (loc) {
-                    const cleaned = loc.replace(/,/g, "").trim();
-                    if (cleaned && !editForm.locations.some(l => l.toLowerCase().trim() === cleaned.toLowerCase())) {
-                      setEditForm(f => ({ ...f, locations: [...f.locations, cleaned], locationInput: "" }));
-                    }
-                  }
-                }}
-                clearOnSelect={true}
-                existingLocations={editForm.locations}
-                placeholder="Search city to add"
-              />
-              {editForm.locations.length > 0 && (
-                <div className="flex flex-wrap gap-1.5 mt-1.5">
-                  {editForm.locations.map(loc => (
-                    <span key={loc} className="flex items-center gap-1 bg-[#FF2B2B]/10 text-[#FF2B2B] border border-[#FF2B2B]/20 px-2.5 py-1 rounded-full text-xs font-medium">
-                      <MapPin className="h-3 w-3" />
-                      {loc}
-                      <button type="button" onClick={() => setEditForm(f => ({ ...f, locations: f.locations.filter(l => l !== loc) }))} className="hover:text-red-800 ml-1">
-                        <XCircle className="h-3.5 w-3.5" />
-                      </button>
-                    </span>
-                  ))}
+            {/* Multi-Location & Openings */}
+            <div className="space-y-3 border-t border-b border-gray-100 py-3 my-2">
+              <p className="text-xs font-bold text-gray-500 uppercase tracking-wider">Location & Openings</p>
+              <div className="grid grid-cols-2 gap-3 items-start">
+                <div>
+                  <label className="block text-sm font-medium text-[#3A1F1F] mb-1">Job Location(s) *</label>
+                  <LocationAutocomplete
+                    value={editForm.locationInput}
+                    onChange={loc => {
+                      if (loc) {
+                        const cleaned = loc.replace(/,/g, "").trim();
+                        if (cleaned && !editForm.locations.some(l => l.toLowerCase().trim() === cleaned.toLowerCase())) {
+                          setEditForm(f => ({ ...f, locations: [...f.locations, cleaned], locationInput: "" }));
+                        }
+                      }
+                    }}
+                    clearOnSelect={true}
+                    existingLocations={editForm.locations}
+                    placeholder="Search city to add"
+                  />
+                  {editForm.locations.length > 0 && (
+                    <div className="flex flex-wrap gap-1.5 mt-1.5">
+                      {editForm.locations.map(loc => (
+                        <span key={loc} className="flex items-center gap-1 bg-[#FF2B2B]/10 text-[#FF2B2B] border border-[#FF2B2B]/20 px-2.5 py-1 rounded-full text-xs font-medium">
+                          <MapPin className="h-3 w-3" />
+                          {loc}
+                          <button type="button" onClick={() => setEditForm(f => ({ ...f, locations: f.locations.filter(l => l !== loc) }))} className="hover:text-red-800 ml-1">
+                            <XCircle className="h-3.5 w-3.5" />
+                          </button>
+                        </span>
+                      ))}
+                    </div>
+                  )}
                 </div>
-              )}
+
+                <div>
+                  <label className="block text-sm font-medium text-[#3A1F1F] mb-1">Number of Openings *</label>
+                  <Input
+                    type="number"
+                    min="1"
+                    step="1"
+                    value={editForm.openings}
+                    onChange={e => {
+                      const val = e.target.value.replace(/\D/g, "");
+                      setEditForm(f => ({ ...f, openings: val }));
+                    }}
+                    onBlur={() => {
+                      if (!editForm.openings || Number(editForm.openings) < 1) {
+                        setEditForm(f => ({ ...f, openings: "1" }));
+                      }
+                    }}
+                    className="bg-[#F6F6F6] border-gray-200 rounded-xl"
+                    placeholder="e.g. 1, 2, 5, 10, 25, 50, 100"
+                  />
+                  <div className="mt-1.5 flex flex-wrap gap-1 items-center">
+                    {[1, 2, 5, 10, 25, 50, 100].map(num => (
+                      <button
+                        key={num}
+                        type="button"
+                        onClick={() => setEditForm(f => ({ ...f, openings: String(num) }))}
+                        className={`text-[11px] px-2 py-0.5 rounded-full border transition-colors ${
+                          Number(editForm.openings) === num
+                            ? "bg-[#FFF0F0] text-[#FF2B2B] border-[#FF2B2B] font-medium"
+                            : "bg-white text-[#555] border-gray-200 hover:border-[#FF2B2B]"
+                        }`}
+                      >
+                        {num}
+                      </button>
+                    ))}
+                  </div>
+                </div>
+              </div>
             </div>
 
             {/* Work Mode & Joining Time */}
@@ -4273,16 +4375,10 @@ function ManageJobsPage() {
               )}
             </div>
 
-            {/* Openings & Skills */}
-            <div className="grid grid-cols-3 gap-3">
-              <div>
-                <label className="block text-sm font-medium text-[#3A1F1F] mb-1">Openings</label>
-                <Input type="number" min="1" value={editForm.openings} onChange={e => setEditForm(f => ({ ...f, openings: e.target.value }))} className="bg-[#F6F6F6] border-gray-200 rounded-xl" />
-              </div>
-              <div className="col-span-2">
-                <label className="block text-sm font-medium text-[#3A1F1F] mb-1">Key Skills (comma separated)</label>
-                <Input value={editForm.skills} onChange={e => setEditForm(f => ({ ...f, skills: e.target.value }))} className="bg-[#F6F6F6] border-gray-200 rounded-xl" placeholder="Enter required skills" />
-              </div>
+            {/* Key Skills */}
+            <div>
+              <label className="block text-sm font-medium text-[#3A1F1F] mb-1">Key Skills (comma separated)</label>
+              <Input value={editForm.skills} onChange={e => setEditForm(f => ({ ...f, skills: e.target.value }))} className="bg-[#F6F6F6] border-gray-200 rounded-xl" placeholder="Enter required skills" />
             </div>
 
             <div className="flex gap-3 pt-2">
