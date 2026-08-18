@@ -39,6 +39,11 @@ export interface Profile {
   linkedin_url: string | null;
   portfolio_url: string | null;
   about: string | null;
+  desired_job_title?: string | null;
+  job_type_pref?: string | null;
+  preferred_location?: string | string[] | null;
+  work_auth?: string | null;
+  willing_to_relocate?: string | null;
   preferred_interview_mode?: string[] | null;
   otp_code: string | null;
   otp_expires_at: string | null;

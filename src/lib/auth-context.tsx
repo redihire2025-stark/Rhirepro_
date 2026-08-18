@@ -25,7 +25,7 @@ export const SAFE_RECRUITER_COLUMNS =
   "id, email, recruiter_name, company_name, company_size, company_type, industry, company_description, website, location, logo_url, tagline, linkedin_url, cin, created_at, cover_image_url, cover_image_name, founded, org_role, org_admin_id, is_active, max_seats, is_org_admin, org_id, is_disabled, last_login_at, resumes_used, keywords_used, profiles_viewed, referral_email, referral_id, verification_status, rejection_reason, rejected_at, rejected_by, verified_at, verified_by, phone";
 
 export const SAFE_PROFILE_COLUMNS =
-  "id, email, first_name, last_name, phone, avatar_url, experience_type, total_experience, current_salary, expected_salary, location, skills, headline, resume_url, created_at, updated_at, last_active_at, about, languages, notice_period, current_company, current_title, linkedin_url, portfolio_url, preferred_interview_mode, otp_code, otp_expires_at, profile_views, recruiter_searches";
+  "id, email, first_name, last_name, phone, avatar_url, headline, location, experience_type, total_experience, current_company, current_title, current_salary, expected_salary, notice_period, skills, resume_url, linkedin_url, portfolio_url, about, otp_code, otp_expires_at, created_at, dob, gender, marital_status, desired_job_title, job_type_pref, preferred_location, work_auth, willing_to_relocate, languages, preferred_interview_mode, profile_views, recruiter_searches, is_disabled";
 
 export function AuthProvider({ children }: { children: ReactNode }) {
   const [user, setUser] = useState<User | null>(null);
@@ -52,21 +52,18 @@ export function AuthProvider({ children }: { children: ReactNode }) {
         setRecruiterProfile(data as RecruiterProfile | null);
         setProfile(null);
       } else {
-        const { data, error } = await supabase.from("profiles").select(SAFE_PROFILE_COLUMNS).eq("id", userId).single();
-        if (error) console.error("Error fetching jobseeker profile:", error);
+        let { data, error } = await supabase.from("profiles").select(SAFE_PROFILE_COLUMNS).eq("id", userId).single();
+        if (error) {
+          console.error("Error fetching jobseeker profile with SAFE_PROFILE_COLUMNS, trying fallback select('*'):", error);
+          const fallbackRes = await supabase.from("profiles").select("*").eq("id", userId).single();
+          data = fallbackRes.data;
+          if (fallbackRes.error) console.error("Fallback fetch jobseeker profile error:", fallbackRes.error);
+        }
         if (!data && retries > 0) {
           await new Promise(r => setTimeout(r, 800));
           return fetchProfile(userId, userRole, retries - 1);
         }
         const userProfile = data as Profile | null;
-        if (userProfile) {
-          const lastActiveMs = userProfile.last_active_at ? new Date(userProfile.last_active_at).getTime() : 0;
-          if (Date.now() - lastActiveMs > 5 * 60 * 1000) {
-            const nowIso = new Date().toISOString();
-            userProfile.last_active_at = nowIso;
-            void supabase.from("profiles").update({ last_active_at: nowIso }).eq("id", userId);
-          }
-        }
         setProfile(userProfile);
         setRecruiterProfile(null);
       }

@@ -116,7 +116,9 @@ export default async (request) => {
         });
       } else {
         // Update existing user profile in profiles or recruiter_profiles
-        const targetTable = user_type === "recruiter" ? "recruiter_profiles" : "profiles";
+        let targetTable = user_type === "recruiter" ? "recruiter_profiles" : "profiles";
+        let updatedCount = 0;
+
         const updateRes = await fetch(`${supabaseUrl}/rest/v1/${targetTable}?email=ilike.${encodeURIComponent(cleanEmail)}`, {
           method: "PATCH",
           headers: {
@@ -131,25 +133,55 @@ export default async (request) => {
           }),
         });
 
-        // If targetTable was default and updated 0 rows, attempt fallback to the other table
         if (updateRes.ok) {
           const updatedData = await updateRes.json();
-          if (Array.isArray(updatedData) && updatedData.length === 0 && !user_type) {
-            const fallbackTable = targetTable === "profiles" ? "recruiter_profiles" : "profiles";
-            await fetch(`${supabaseUrl}/rest/v1/${fallbackTable}?email=ilike.${encodeURIComponent(cleanEmail)}`, {
-              method: "PATCH",
-              headers: {
-                apikey: serviceKey,
-                Authorization: `Bearer ${serviceKey}`,
-                "Content-Type": "application/json",
-              },
-              body: JSON.stringify({
-                otp_code: otpHash,
-                otp_expires_at: expiresAt,
-              }),
-            });
+          if (Array.isArray(updatedData)) {
+            updatedCount = updatedData.length;
           }
         }
+
+        // If targetTable updated 0 rows, attempt fallback to the other table
+        if (updatedCount === 0) {
+          const fallbackTable = targetTable === "profiles" ? "recruiter_profiles" : "profiles";
+          const fallbackRes = await fetch(`${supabaseUrl}/rest/v1/${fallbackTable}?email=ilike.${encodeURIComponent(cleanEmail)}`, {
+            method: "PATCH",
+            headers: {
+              apikey: serviceKey,
+              Authorization: `Bearer ${serviceKey}`,
+              "Content-Type": "application/json",
+              Prefer: "return=representation",
+            },
+            body: JSON.stringify({
+              otp_code: otpHash,
+              otp_expires_at: expiresAt,
+            }),
+          });
+          if (fallbackRes.ok) {
+            const fallbackData = await fallbackRes.json();
+            if (Array.isArray(fallbackData)) {
+              updatedCount = fallbackData.length;
+            }
+          }
+        }
+
+        // If user is not found in either profiles or recruiter_profiles, store in pending_otps
+        if (updatedCount === 0) {
+          await fetch(`${supabaseUrl}/rest/v1/pending_otps`, {
+            method: "POST",
+            headers: {
+              apikey: serviceKey,
+              Authorization: `Bearer ${serviceKey}`,
+              "Content-Type": "application/json",
+              Prefer: "resolution=merge-duplicates",
+            },
+            body: JSON.stringify({
+              email: cleanEmail,
+              otp_code: otpHash,
+              otp_expires_at: expiresAt,
+            }),
+          });
+        }
+
       }
     } catch (dbErr) {
       console.warn("[send-otp] Storing OTP hash failed:", dbErr.message);
@@ -191,18 +223,23 @@ export default async (request) => {
   });
 
   if (!res.ok) {
-    const err = await res.text();
+    const errText = await res.text();
+    let errorMsg = errText;
+    try {
+      const parsed = JSON.parse(errText);
+      errorMsg = parsed.message || parsed.error || errText;
+    } catch {}
     await logEmail(supabaseUrl, serviceKey, {
       recipient_email: cleanEmail,
       email_type: "otp",
       subject: "Your RhirePro Verification Code",
       status: "failed",
-      error_message: err,
+      error_message: errorMsg,
     });
     await logApiRequest(supabaseUrl, serviceKey, {
-      function_name: "/api/send-otp", status_code: 500, duration_ms: Date.now() - requestStart, error_message: err,
+      function_name: "/api/send-otp", status_code: 500, duration_ms: Date.now() - requestStart, error_message: errorMsg,
     });
-    return new Response(JSON.stringify({ error: err }), {
+    return new Response(JSON.stringify({ error: errorMsg }), {
       status: 500,
       headers: { "Content-Type": "application/json" },
     });
