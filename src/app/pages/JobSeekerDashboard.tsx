@@ -3085,7 +3085,7 @@ function ProfilePage({ onPendingPrefsChange }: { onPendingPrefsChange?: (pending
   const emptyCert = { name: "", issuer: "", issueDate: "", expiryDate: "", noExpiry: false, credentialId: "" };
   const [certifications, setCertifications] = useState<Certification[]>([]);
   const [showAddCert, setShowAddCert] = useState(false);
-  const [editingCertId, setEditingCertId] = useState<number | null>(null);
+  const [editingCertId, setEditingCertId] = useState<number | string | null>(null);
   const [certForm, setCertForm] = useState<Omit<Certification, "id">>(emptyCert);
 
   // Languages
