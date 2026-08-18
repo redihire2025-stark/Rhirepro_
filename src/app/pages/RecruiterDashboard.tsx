@@ -5854,7 +5854,6 @@ function SearchCandidatesPage() {
     }, 250);
     return () => clearTimeout(timer);
   }, [
-    keywords,
     location,
     currentCompany,
     skillTags,
@@ -5976,6 +5975,7 @@ function SearchCandidatesPage() {
                 onClick={() => {
                   setKeywords("");
                   setSkillSuggestionsOpen(false);
+                  handleSearch("");
                 }}
                 className="absolute right-3 top-1/2 -translate-y-1/2 text-[#8A8A8A] hover:text-[#3A1F1F]"
                 title="Clear search"
