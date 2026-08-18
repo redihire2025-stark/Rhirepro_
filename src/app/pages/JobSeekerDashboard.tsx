@@ -399,7 +399,7 @@ function isRecommendedJobForProfile(job: DBJob, recommendationTerms: string[]): 
   return false;
 }
 
-const MONTHS = ["Jan","Feb","Mar","Apr","May","Jun","Jul","Aug","Sep","Oct","Nov","Dec"];
+const MONTHS = ["Jan", "Feb", "Mar", "Apr", "May", "Jun", "Jul", "Aug", "Sep", "Oct", "Nov", "Dec"];
 const YEARS = Array.from({ length: 17 }, (_, i) => String(2010 + i));
 const JOBS_PER_PAGE = 12;
 type EducationCatalog = Record<string, string[]>;
@@ -553,7 +553,7 @@ function parseCompanyDescription(text: string | null | undefined): { aboutCompan
 
   const splitRegex = /(?:<h\d[^>]*>\s*Company\s+Information\s*<\/h\d>|<p[^>]*>\s*<strong>\s*Company\s+Information\s*<\/strong>\s*<\/p>|<strong[^>]*>\s*Company\s+Information\s*<\/strong>|Company\s+Information)/i;
   const match = val.match(splitRegex);
-  
+
   const cleanEmptyTags = (html: string) => {
     let cleaned = html.trim();
     while (cleaned.startsWith("<p>&nbsp;</p>") || cleaned.startsWith("<p><br></p>") || cleaned.startsWith("<p></p>")) {
@@ -572,13 +572,13 @@ function parseCompanyDescription(text: string | null | undefined): { aboutCompan
   if (match && match.index !== undefined) {
     let aboutPart = val.substring(0, match.index).trim();
     let infoPart = val.substring(match.index + match[0].length).trim();
-    
+
     const aboutHeaderRegex = /^<h\d[^>]*>\s*About\s+Company\s*<\/h\d>/i;
     aboutPart = aboutPart.replace(aboutHeaderRegex, "").trim();
-    
+
     aboutPart = cleanEmptyTags(aboutPart);
     infoPart = cleanEmptyTags(infoPart);
-    
+
     return { aboutCompany: aboutPart, companyInfo: infoPart };
   } else {
     let aboutPart = val;
@@ -769,9 +769,8 @@ function SearchableComboboxInput({
                   onChange(opt);
                   setOpen(false);
                 }}
-                className={`flex w-full items-center justify-between rounded-lg px-3 py-2 text-left text-sm transition-colors ${
-                  value === opt ? "bg-[#FFF0F0] text-[#FF2B2B] font-medium" : "text-[#3A1F1F] hover:bg-gray-100"
-                }`}
+                className={`flex w-full items-center justify-between rounded-lg px-3 py-2 text-left text-sm transition-colors ${value === opt ? "bg-[#FFF0F0] text-[#FF2B2B] font-medium" : "text-[#3A1F1F] hover:bg-gray-100"
+                  }`}
               >
                 <span>{opt}</span>
                 {value === opt && <Check className="h-4 w-4 text-[#FF2B2B]" />}
@@ -891,8 +890,8 @@ export default function JobSeekerDashboard() {
   const location = useLocation();
   const activeTab = location.pathname.includes("/profile") ? "profile"
     : location.pathname.includes("/analytics") ? "analytics"
-    : location.pathname.includes("/insights") ? "insights"
-    : "find-job";
+      : location.pathname.includes("/insights") ? "insights"
+        : "find-job";
 
   // On root dashboard path: check profile completion on initial login/session start only.
   // Uses session storage so subsequent page reloads stay on the current page.
@@ -923,7 +922,7 @@ export default function JobSeekerDashboard() {
     if (authLoading || !user) return;
 
     if (!profile) {
-      refreshProfile().catch(() => {});
+      refreshProfile().catch(() => { });
       return;
     }
 
@@ -1230,9 +1229,8 @@ export default function JobSeekerDashboard() {
                           <div
                             key={n.id}
                             onClick={() => handleNotificationClick(n)}
-                            className={`group relative flex items-start justify-between p-3 rounded-lg cursor-pointer transition-colors ${
-                              !n.is_read ? "bg-red-50 hover:bg-red-100/70" : "bg-[#F6F6F6] hover:bg-gray-200/60"
-                            }`}
+                            className={`group relative flex items-start justify-between p-3 rounded-lg cursor-pointer transition-colors ${!n.is_read ? "bg-red-50 hover:bg-red-100/70" : "bg-[#F6F6F6] hover:bg-gray-200/60"
+                              }`}
                           >
                             <div className="flex-1 pr-5">
                               <p className="text-sm font-medium text-[#3A1F1F]">{n.title}</p>
@@ -1510,7 +1508,7 @@ function FindJobPage() {
     if (!queryStr) return 0;
     const cleanQuery = queryStr.toLowerCase().trim();
     const queryTokens = cleanQuery.split(/,|\b(?:and|or|not)\b|\s+/i).map(t => t.trim()).filter(Boolean);
-    
+
     const SYNONYM_MAP: Record<string, string[]> = {
       "hr": ["recruiter", "recruitment", "human resources", "talent acquisition"],
       "human resources": ["hr", "recruiter", "recruitment", "talent acquisition"],
@@ -1542,16 +1540,16 @@ function FindJobPage() {
     const skills = Array.isArray(job.skills)
       ? job.skills.map(s => String(s).toLowerCase())
       : typeof job.skills === "string"
-      ? [String(job.skills).toLowerCase()]
-      : [];
+        ? [String(job.skills).toLowerCase()]
+        : [];
 
     const department = (job.department || "").toLowerCase();
     const industry = (job.industry || job.recruiter?.industry || "").toLowerCase();
     const perks = Array.isArray(job.perks)
       ? job.perks.map(p => String(p).toLowerCase())
       : typeof job.perks === "string"
-      ? [String(job.perks).toLowerCase()]
-      : [];
+        ? [String(job.perks).toLowerCase()]
+        : [];
 
     searchTerms.forEach(term => {
       if (!term) return;
@@ -1606,16 +1604,16 @@ function FindJobPage() {
     let match;
     let lastOperatorIndex = -1;
     let lastOperatorLength = 0;
-    
+
     while ((match = operatorRegex.exec(text)) !== null) {
       lastOperatorIndex = match.index;
       lastOperatorLength = match[0].length;
     }
-    
+
     if (lastCommaIndex === -1 && lastOperatorIndex === -1) {
       return { token: text, prefix: "", separatorType: "none" as const };
     }
-    
+
     if (lastCommaIndex > lastOperatorIndex) {
       const prefix = text.slice(0, lastCommaIndex + 1);
       const token = text.slice(lastCommaIndex + 1);
@@ -1786,13 +1784,13 @@ function FindJobPage() {
             `&experience_min=${experienceFilter === "mid" ? "2" : experienceFilter === "senior" ? "5" : ""}` +
             `&experience_max=${experienceFilter === "entry" ? "1" : experienceFilter === "mid" ? "5" : ""}` +
             `&sort=${trimmedSearch ? "relevant" : "recent"}&page=${currentPage}&size=${JOBS_PER_PAGE}`;
-            
+
           const esRes = await fetch(esUrl);
           if (esRes.ok) {
             const esData = await esRes.json();
             const matchedIds = (esData.jobs || []).map((j: any) => j.id);
             count = esData.total || 0;
-            
+
             if (matchedIds.length > 0) {
               const { data: hydratedData, error: hydError } = await supabase
                 .from("jobs")
@@ -1804,7 +1802,7 @@ function FindJobPage() {
                    applicant_count`
                 )
                 .in("id", matchedIds);
-                
+
               if (hydratedData) {
                 const idToJobMap = new Map(hydratedData.map((j: any) => [j.id, j]));
                 data = matchedIds.map((id: string) => idToJobMap.get(id)).filter(Boolean) as DBJob[];
@@ -1878,7 +1876,7 @@ function FindJobPage() {
 
           const rawTokens = trimmedSearch.split(/,|\b(?:and|or|not)\b|\s+/i).map(t => t.replace(/[,%_\\]/g, '').trim()).filter(Boolean);
           const cleanFull = trimmedSearch.replace(/[,%_\\]/g, ' ').replace(/\s+/g, ' ').trim();
-          
+
           const expandedSynonyms = rawTokens.flatMap(t => SYNONYM_MAP[t.toLowerCase()] || []);
           const fullSynonyms = SYNONYM_MAP[cleanFull.toLowerCase()] || [];
           const fuzzyTerms = [...rawTokens, cleanFull].flatMap(t => getFuzzyExpandedTerms(t));
@@ -2295,10 +2293,10 @@ function FindJobPage() {
           jobTypeFilter === "fulltime"
             ? "Full-time"
             : jobTypeFilter === "parttime"
-            ? "Part-time"
-            : jobTypeFilter === "contract"
-            ? "Contract"
-            : null
+              ? "Part-time"
+              : jobTypeFilter === "contract"
+                ? "Contract"
+                : null
         );
       }
     }
@@ -2415,11 +2413,10 @@ function FindJobPage() {
                 <button
                   key={chip}
                   onClick={() => handleChipClick(chip)}
-                  className={`px-4 py-1.5 rounded-full text-sm font-medium border transition-all ${
-                    active
-                      ? "bg-[#FF2B2B] text-white border-[#FF2B2B]"
-                      : "bg-white text-[#3A1F1F] border-gray-300 hover:border-[#FF2B2B] hover:text-[#FF2B2B]"
-                  }`}
+                  className={`px-4 py-1.5 rounded-full text-sm font-medium border transition-all ${active
+                    ? "bg-[#FF2B2B] text-white border-[#FF2B2B]"
+                    : "bg-white text-[#3A1F1F] border-gray-300 hover:border-[#FF2B2B] hover:text-[#FF2B2B]"
+                    }`}
                 >
                   {chip}
                 </button>
@@ -2442,20 +2439,34 @@ function FindJobPage() {
               )}
             </div>
             {[
-              { label: "Location", value: locationFilter, onChange: setLocationFilter,
-                options: [["remote","Remote"],["bengaluru","Bengaluru"],["mumbai","Mumbai"],["hyderabad","Hyderabad"],["delhi","Delhi NCR"],["pune","Pune"]] },
-              { label: "Experience", value: experienceFilter, onChange: setExperienceFilter,
-                options: [["entry","Entry Level"],["mid","Mid Level"],["senior","Senior"]] },
-              { label: "Salary Range", value: salaryFilter, onChange: setSalaryFilter,
-                options: [["0-10","0-10 LPA"],["10-25","10-25 LPA"],["25+","25+ LPA"]] },
-              { label: "Industry", value: industryFilter, onChange: setIndustryFilter,
-                options: [["tech","Technology"],["finance","Finance"],["healthcare","Healthcare"],["marketing","Marketing"],["design","Design"],["media","Media"]] },
-              { label: "Job Type", value: jobTypeFilter, onChange: onChangeJobTypeFilter,
-                options: [["fulltime","Full-time"],["parttime","Part-time"],["contract","Contract"]] },
-              { label: "Remote", value: remoteFilter, onChange: onChangeRemoteFilter,
-                options: [["yes","Remote Only"],["no","On-site Only"]] },
-              { label: "Interview Mode", value: interviewModeFilter, onChange: setInterviewModeFilter,
-                options: [["in_person","In-Person"],["remote","Remote"],["hybrid","Hybrid"]] },
+              {
+                label: "Location", value: locationFilter, onChange: setLocationFilter,
+                options: [["remote", "Remote"], ["bengaluru", "Bengaluru"], ["mumbai", "Mumbai"], ["hyderabad", "Hyderabad"], ["delhi", "Delhi NCR"], ["pune", "Pune"]]
+              },
+              {
+                label: "Experience", value: experienceFilter, onChange: setExperienceFilter,
+                options: [["entry", "Entry Level"], ["mid", "Mid Level"], ["senior", "Senior"]]
+              },
+              {
+                label: "Salary Range", value: salaryFilter, onChange: setSalaryFilter,
+                options: [["0-10", "0-10 LPA"], ["10-25", "10-25 LPA"], ["25+", "25+ LPA"]]
+              },
+              {
+                label: "Industry", value: industryFilter, onChange: setIndustryFilter,
+                options: [["tech", "Technology"], ["finance", "Finance"], ["healthcare", "Healthcare"], ["marketing", "Marketing"], ["design", "Design"], ["media", "Media"]]
+              },
+              {
+                label: "Job Type", value: jobTypeFilter, onChange: onChangeJobTypeFilter,
+                options: [["fulltime", "Full-time"], ["parttime", "Part-time"], ["contract", "Contract"]]
+              },
+              {
+                label: "Remote", value: remoteFilter, onChange: onChangeRemoteFilter,
+                options: [["yes", "Remote Only"], ["no", "On-site Only"]]
+              },
+              {
+                label: "Interview Mode", value: interviewModeFilter, onChange: setInterviewModeFilter,
+                options: [["in_person", "In-Person"], ["remote", "Remote"], ["hybrid", "Hybrid"]]
+              },
             ].map(({ label, value, onChange, options }) => (
               <div key={label}>
                 <label className="block mb-1.5 text-xs text-[#3A1F1F] font-medium uppercase tracking-wide">{label}</label>
@@ -2523,7 +2534,7 @@ function FindJobPage() {
                       <JobShareButton jobId={String(job.id)} title={job.title} className="absolute right-4 top-4" />
                       {job.isDB && (
                         <>
-                          <div 
+                          <div
                             className="absolute top-3.5 right-16 bg-[#FFF2F2] text-[#FF2B2B] rounded-full px-2 py-1 text-[11px] font-semibold flex items-center gap-1 border border-red-100 shadow-sm shrink-0"
                             title={`${job.applicantCount || 0} candidates applied`}
                             onClick={(e) => e.stopPropagation()}
@@ -2662,7 +2673,7 @@ function FindJobPage() {
                   </div>
                   <div className="flex items-center gap-2">
                     {selectedJob.isDB && (
-                      <div 
+                      <div
                         className="bg-[#FFF2F2] text-[#FF2B2B] rounded-full px-2.5 py-1 text-xs font-semibold flex items-center gap-1.5 border border-red-100 shadow-sm shrink-0"
                         title={`${selectedJob.applicantCount || 0} candidates applied`}
                       >
@@ -2824,11 +2835,10 @@ function FindJobPage() {
                             </div>
                           )}
 
-                          <h5 className={`font-semibold text-[#3A1F1F] text-sm mb-1.5 mt-4 ${
-                            (selectedJob.dbJob.recruiter.tagline || hasAbout)
-                              ? "pt-3 border-t border-gray-200/60"
-                              : ""
-                          }`}>
+                          <h5 className={`font-semibold text-[#3A1F1F] text-sm mb-1.5 mt-4 ${(selectedJob.dbJob.recruiter.tagline || hasAbout)
+                            ? "pt-3 border-t border-gray-200/60"
+                            : ""
+                            }`}>
                             Company Information
                           </h5>
 
@@ -3014,7 +3024,7 @@ function ProfilePage({ onPendingPrefsChange }: { onPendingPrefsChange?: (pending
   const [experiences, setExperiences] = useState<WorkExp[]>([]);
   const [showAddExp, setShowAddExp] = useState(false);
   const [editingExpId, setEditingExpId] = useState<string | null>(null);
-  const [expForm, setExpForm] = useState<Omit<WorkExp,"id">>(emptyExp);
+  const [expForm, setExpForm] = useState<Omit<WorkExp, "id">>(emptyExp);
 
   // Education
   const emptyEdu: EducationForm = { degree: "", field: "", college: "", startYear: "2016", endYear: "2020", score: "", customField: "" };
@@ -3737,7 +3747,7 @@ function ProfilePage({ onPendingPrefsChange }: { onPendingPrefsChange?: (pending
                     />
                   </div>
                 ))}
-                
+
                 <div>
                   <label className="block text-sm text-[#3A1F1F] mb-1">Date of Birth</label>
                   <Popover open={dobPickerOpen} onOpenChange={setDobPickerOpen}>
@@ -3770,7 +3780,7 @@ function ProfilePage({ onPendingPrefsChange }: { onPendingPrefsChange?: (pending
                   <Select value={basicForm.gender} onValueChange={(v) => setBasicForm(f => ({ ...f, gender: v }))}>
                     <SelectTrigger className="bg-[#F6F6F6] border-gray-200 rounded-xl"><SelectValue /></SelectTrigger>
                     <SelectContent>
-                      {["Male","Female","Non-binary","Prefer not to say"].map(g => <SelectItem key={g} value={g}>{g}</SelectItem>)}
+                      {["Male", "Female", "Non-binary", "Prefer not to say"].map(g => <SelectItem key={g} value={g}>{g}</SelectItem>)}
                     </SelectContent>
                   </Select>
                 </div>
@@ -3779,7 +3789,7 @@ function ProfilePage({ onPendingPrefsChange }: { onPendingPrefsChange?: (pending
                   <Select value={basicForm.maritalStatus} onValueChange={(v) => setBasicForm(f => ({ ...f, maritalStatus: v }))}>
                     <SelectTrigger className="bg-[#F6F6F6] border-gray-200 rounded-xl"><SelectValue /></SelectTrigger>
                     <SelectContent>
-                      {["Single","Married","Divorced","Widowed"].map(s => <SelectItem key={s} value={s}>{s}</SelectItem>)}
+                      {["Single", "Married", "Divorced", "Widowed"].map(s => <SelectItem key={s} value={s}>{s}</SelectItem>)}
                     </SelectContent>
                   </Select>
                 </div>
@@ -4063,8 +4073,8 @@ function ProfilePage({ onPendingPrefsChange }: { onPendingPrefsChange?: (pending
                     </div>
                     <div className="flex gap-1 shrink-0 ml-4">
                       <Button variant="ghost" size="icon" className="h-8 w-8 text-[#8A8A8A] hover:text-[#FF2B2B]" onClick={() => editExp(exp)}><Pencil className="h-4 w-4" /></Button>
-                      <Button variant="ghost" size="icon" className="h-8 w-8 text-[#8A8A8A] hover:text-red-600" onClick={async () => { 
-                        setExperiences(p => p.filter(e => e.id !== exp.id)); 
+                      <Button variant="ghost" size="icon" className="h-8 w-8 text-[#8A8A8A] hover:text-red-600" onClick={async () => {
+                        setExperiences(p => p.filter(e => e.id !== exp.id));
                         if (profile?.id) {
                           const { error } = await supabase.from("work_experience").delete().eq("id", exp.id).eq("profile_id", profile.id);
                           if (error) {
@@ -4114,8 +4124,8 @@ function ProfilePage({ onPendingPrefsChange }: { onPendingPrefsChange?: (pending
                     </div>
                     <div className="flex gap-1 shrink-0 ml-4">
                       <Button variant="ghost" size="icon" className="h-8 w-8 text-[#8A8A8A] hover:text-[#FF2B2B]" onClick={() => editEdu(edu)}><Pencil className="h-4 w-4" /></Button>
-                      <Button variant="ghost" size="icon" className="h-8 w-8 text-[#8A8A8A] hover:text-red-600" onClick={async () => { 
-                        setEducation(p => p.filter(e => e.id !== edu.id)); 
+                      <Button variant="ghost" size="icon" className="h-8 w-8 text-[#8A8A8A] hover:text-red-600" onClick={async () => {
+                        setEducation(p => p.filter(e => e.id !== edu.id));
                         if (profile?.id) {
                           const { error } = await supabase.from("education").delete().eq("id", edu.id).eq("profile_id", profile.id);
                           if (error) {
@@ -4253,7 +4263,7 @@ function ProfilePage({ onPendingPrefsChange }: { onPendingPrefsChange?: (pending
               <Select value={langForm.proficiency} onValueChange={(v) => setLangForm(f => ({ ...f, proficiency: v }))}>
                 <SelectTrigger className="bg-[#F6F6F6] border-gray-200 rounded-xl w-40"><SelectValue /></SelectTrigger>
                 <SelectContent>
-                  {["Beginner","Intermediate","Proficient","Native"].map(p => <SelectItem key={p} value={p}>{p}</SelectItem>)}
+                  {["Beginner", "Intermediate", "Proficient", "Native"].map(p => <SelectItem key={p} value={p}>{p}</SelectItem>)}
                 </SelectContent>
               </Select>
               <Button className="bg-[#FF2B2B] hover:bg-[#e02525] text-white rounded-full" onClick={addLang}>Add</Button>
@@ -4660,7 +4670,7 @@ function ProfilePage({ onPendingPrefsChange }: { onPendingPrefsChange?: (pending
                   <Select value={prefsForm.jobType} onValueChange={(v) => setPrefsForm(f => ({ ...f, jobType: v }))}>
                     <SelectTrigger className="bg-[#F6F6F6] border-gray-200 rounded-xl"><SelectValue /></SelectTrigger>
                     <SelectContent>
-                      {["Full-time","Part-time","Contract","Internship","Freelance"].map(t => <SelectItem key={t} value={t}>{t}</SelectItem>)}
+                      {["Full-time", "Part-time", "Contract", "Internship", "Freelance"].map(t => <SelectItem key={t} value={t}>{t}</SelectItem>)}
                     </SelectContent>
                   </Select>
                 </div>
@@ -4669,7 +4679,7 @@ function ProfilePage({ onPendingPrefsChange }: { onPendingPrefsChange?: (pending
                   <Select value={prefsForm.willingToRelocate} onValueChange={(v) => setPrefsForm(f => ({ ...f, willingToRelocate: v }))}>
                     <SelectTrigger className="bg-[#F6F6F6] border-gray-200 rounded-xl"><SelectValue /></SelectTrigger>
                     <SelectContent>
-                      {["Yes","No","Maybe"].map(v => <SelectItem key={v} value={v}>{v}</SelectItem>)}
+                      {["Yes", "No", "Maybe"].map(v => <SelectItem key={v} value={v}>{v}</SelectItem>)}
                     </SelectContent>
                   </Select>
                 </div>
@@ -4725,15 +4735,29 @@ function ProfilePage({ onPendingPrefsChange }: { onPendingPrefsChange?: (pending
                     };
 
                     let { error } = await supabase.from("profiles").update(payload).eq("id", profile.id);
-                    if (error && typeof error.message === "string" && error.message.includes("preferred_interview_mode")) {
-                      console.warn("Preferred interview mode column missing in DB schema. Retrying without it.");
-                      delete payload.preferred_interview_mode;
-                      const retry = await supabase.from("profiles").update(payload).eq("id", profile.id);
-                      error = retry.error;
+                    if (error && typeof error.message === "string") {
+                      const msg = error.message.toLowerCase();
+                      const optionalCols = [
+                        "preferred_interview_mode",
+                        "preferred_location",
+                        "desired_job_title",
+                        "job_type_pref",
+                        "work_auth",
+                        "willing_to_relocate",
+                      ];
+                      for (const col of optionalCols) {
+                        if (msg.includes(col) && payload[col] !== undefined) {
+                          console.warn(`Column '${col}' missing in profiles DB schema. Retrying update without it.`);
+                          delete payload[col];
+                          const retry = await supabase.from("profiles").update(payload).eq("id", profile.id);
+                          error = retry.error;
+                          if (!error) break;
+                        }
+                      }
                     }
                     if (error) {
                       console.error("Preferences update error:", error.message);
-                      alert("Failed to save preferences. Please try again.");
+                      alert("Failed to save preferences: " + error.message);
                     } else {
                       clearPrefsDraft(profile.id);
                       await refreshProfile();
@@ -4780,8 +4804,8 @@ function ProfilePage({ onPendingPrefsChange }: { onPendingPrefsChange?: (pending
 
 // ── Sub-forms ──────────────────────────────────────────────────────────────────
 function ExpForm({ form, setForm, onSave, onCancel }: {
-  form: Omit<WorkExp,"id">;
-  setForm: (f: Omit<WorkExp,"id">) => void;
+  form: Omit<WorkExp, "id">;
+  setForm: (f: Omit<WorkExp, "id">) => void;
   onSave: () => void;
   onCancel: () => void;
 }) {
@@ -4903,7 +4927,7 @@ function EduForm({ form, setForm, onSave, onCancel, degreeOptions, specializatio
                 <SelectValue placeholder={form.degree ? "Select specialization" : "Select degree first"} />
               </SelectTrigger>
               <SelectContent>
-                {specializationOptions.map(s => <SelectItem key={s} value={s}>{s}</SelectItem>) }
+                {specializationOptions.map(s => <SelectItem key={s} value={s}>{s}</SelectItem>)}
               </SelectContent>
             </Select>
           ) : (
@@ -4971,8 +4995,8 @@ function EduForm({ form, setForm, onSave, onCancel, degreeOptions, specializatio
 }
 
 function ProjForm({ form, setForm, onSave, onCancel }: {
-  form: Omit<Project,"id">;
-  setForm: (f: Omit<Project,"id">) => void;
+  form: Omit<Project, "id">;
+  setForm: (f: Omit<Project, "id">) => void;
   onSave: () => void;
   onCancel: () => void;
 }) {
@@ -5015,8 +5039,8 @@ function ProjForm({ form, setForm, onSave, onCancel }: {
 }
 
 function CertForm({ form, setForm, onSave, onCancel }: {
-  form: Omit<Certification,"id">;
-  setForm: (f: Omit<Certification,"id">) => void;
+  form: Omit<Certification, "id">;
+  setForm: (f: Omit<Certification, "id">) => void;
   onSave: () => void;
   onCancel: () => void;
 }) {
@@ -5370,22 +5394,22 @@ function AnalyticsPage() {
   }, [profile, appliedJobs]);
 
   const interviewsCount = useMemo(() => {
-    return appliedJobs.filter(j => 
+    return appliedJobs.filter(j =>
       ["interview", "interview_completed", "interview_selected", "interview_rejected"].includes(j.displayStatus)
     ).length;
   }, [appliedJobs]);
 
   const stats = [
-    { label: "Applied Jobs",       value: appliedJobs.length,                                                Icon: Briefcase, action: () => { setAppliedJobsFilter(undefined); setActiveTab("applied"); } },
-    { label: "Profile Views",      value: profileViews,                                                      Icon: User,      action: () => navigate("/jobseeker/dashboard/profile") },
-    { label: "Recruiter Searches", value: recruiterSearches,                                                 Icon: Search,    action: () => navigate("/jobseeker/dashboard/profile") },
-    { label: "Interviews",         value: interviewsCount,                                                   Icon: Bell,      action: () => { setAppliedJobsFilter("interview"); setActiveTab("applied"); } },
+    { label: "Applied Jobs", value: appliedJobs.length, Icon: Briefcase, action: () => { setAppliedJobsFilter(undefined); setActiveTab("applied"); } },
+    { label: "Profile Views", value: profileViews, Icon: User, action: () => navigate("/jobseeker/dashboard/profile") },
+    { label: "Recruiter Searches", value: recruiterSearches, Icon: Search, action: () => navigate("/jobseeker/dashboard/profile") },
+    { label: "Interviews", value: interviewsCount, Icon: Bell, action: () => { setAppliedJobsFilter("interview"); setActiveTab("applied"); } },
   ];
 
   const tabs = [
-    { key: "applied",  label: `Applied Jobs (${appliedJobs.length})` },
-    { key: "saved",    label: `Saved Jobs (${savedJobs.length})` },
-    { key: "compare",  label: "Compare Jobs" },
+    { key: "applied", label: `Applied Jobs (${appliedJobs.length})` },
+    { key: "saved", label: `Saved Jobs (${savedJobs.length})` },
+    { key: "compare", label: "Compare Jobs" },
   ] as const;
 
   const normalizeApplicationStage = (status: string) => status.toLowerCase().trim().replace(/[\s-]+/g, "_");
@@ -5579,11 +5603,10 @@ function AnalyticsPage() {
                     setAppliedJobsFilter(undefined);
                   }
                 }}
-                className={`px-5 py-2 rounded-full text-sm font-medium border transition-colors duration-200 ${
-                  activeTab === key
-                    ? "bg-[#FF2B2B] text-white border-[#FF2B2B]"
-                    : "bg-[#F8FAFC] text-[#3A1F1F] border-gray-200 hover:bg-white"
-                }`}
+                className={`px-5 py-2 rounded-full text-sm font-medium border transition-colors duration-200 ${activeTab === key
+                  ? "bg-[#FF2B2B] text-white border-[#FF2B2B]"
+                  : "bg-[#F8FAFC] text-[#3A1F1F] border-gray-200 hover:bg-white"
+                  }`}
               >
                 {key === "applied" && appliedJobsFilter === "interview"
                   ? `${label} (Filtered)`
@@ -5684,7 +5707,7 @@ function AnalyticsPage() {
                       {selectedSavedJob.job.experience_min != null
                         ? `${selectedSavedJob.job.experience_min}${selectedSavedJob.job.experience_max ? `–${selectedSavedJob.job.experience_max}` : "+"} years`
                         : /* Canonical DB jobs expose experience through min/max numeric fields. */
-                          "Not specified"}
+                        "Not specified"}
                     </span>
                   </div>
                   {selectedSavedJob.job.preferred_joining_time && (
@@ -5838,17 +5861,17 @@ function AnalyticsPage() {
                     const joinUrl = explicitMeetingUrl || extractedFromMessage;
                     if (!joinUrl) return null;
                     return (
-                    <p>
-                      Join meeting:{" "}
-                      <a
-                        href={joinUrl}
-                        target="_blank"
-                        rel="noopener noreferrer"
-                        className="text-[#FF2B2B] underline hover:text-[#e02525]"
-                      >
-                        {joinUrl}
-                      </a>
-                    </p>
+                      <p>
+                        Join meeting:{" "}
+                        <a
+                          href={joinUrl}
+                          target="_blank"
+                          rel="noopener noreferrer"
+                          className="text-[#FF2B2B] underline hover:text-[#e02525]"
+                        >
+                          {joinUrl}
+                        </a>
+                      </p>
                     );
                   })()}
                   <p className="whitespace-pre-wrap">
@@ -5882,11 +5905,11 @@ function AnalyticsPage() {
               <h3 className="font-semibold text-[#3A1F1F] mb-4">Application Summary</h3>
               <div className="space-y-3">
                 {[
-                  { label: "In Progress",    count: appliedJobs.filter(j => !["offered", "offer_given", "rejected", "hired", "hire", "joined"].includes(normalizeApplicationStage(j.status))).length, color: "bg-blue-500" },
-                  { label: "Offer Received", count: appliedJobs.filter(j => ["offered", "offer_given"].includes(normalizeApplicationStage(j.status))).length,  color: "bg-orange-500" },
-                  { label: "Hired",         count: appliedJobs.filter(j => ["hired", "hire", "joined"].includes(normalizeApplicationStage(j.status))).length,     color: "bg-emerald-500" },
-                  { label: "Rejected",       count: appliedJobs.filter(j => normalizeApplicationStage(j.status) === "rejected").length, color: "bg-red-400" },
-                  { label: "Saved Jobs",     count: savedJobs.length,                                             color: "bg-amber-400" },
+                  { label: "In Progress", count: appliedJobs.filter(j => !["offered", "offer_given", "rejected", "hired", "hire", "joined"].includes(normalizeApplicationStage(j.status))).length, color: "bg-blue-500" },
+                  { label: "Offer Received", count: appliedJobs.filter(j => ["offered", "offer_given"].includes(normalizeApplicationStage(j.status))).length, color: "bg-orange-500" },
+                  { label: "Hired", count: appliedJobs.filter(j => ["hired", "hire", "joined"].includes(normalizeApplicationStage(j.status))).length, color: "bg-emerald-500" },
+                  { label: "Rejected", count: appliedJobs.filter(j => normalizeApplicationStage(j.status) === "rejected").length, color: "bg-red-400" },
+                  { label: "Saved Jobs", count: savedJobs.length, color: "bg-amber-400" },
                 ].map(({ label, count, color }) => (
                   <div key={label} className="flex items-center justify-between">
                     <div className="flex items-center gap-2 text-sm text-[#3A1F1F]">
@@ -6668,8 +6691,8 @@ function InsightsPage() {
                 <span className="font-semibold">Tip:</span> {tier === "entry"
                   ? "Build 2–3 strong portfolio projects to command higher packages."
                   : tier === "mid"
-                  ? "Upskill to the trending technologies above to unlock the next salary bracket."
-                  : "Consider leadership roles or specialized expertise for maximum compensation."}
+                    ? "Upskill to the trending technologies above to unlock the next salary bracket."
+                    : "Consider leadership roles or specialized expertise for maximum compensation."}
               </p>
             </div>
           </div>
@@ -6914,7 +6937,8 @@ function ResumePreviewPage() {
 
   return (
     <div className="min-h-screen bg-[#F6F6F6] py-10 px-4 flex flex-col items-center gap-6">
-      <style dangerouslySetInnerHTML={{__html: `
+      <style dangerouslySetInnerHTML={{
+        __html: `
         .resume-page {
           box-shadow: 0 10px 15px -3px rgba(0, 0, 0, 0.1), 0 4px 6px -2px rgba(0, 0, 0, 0.05);
           border: 1px solid #E5E7EB;
@@ -6945,7 +6969,7 @@ function ResumePreviewPage() {
 
       <div className="w-[794px] flex justify-between items-center mb-2 no-print bg-white px-6 py-3 rounded-xl shadow-sm border border-gray-100">
         <span className="text-sm font-semibold text-gray-700">Resume Preview Mode</span>
-        <button 
+        <button
           onClick={() => window.print()}
           className="bg-[#FF2B2B] hover:bg-[#e02525] text-white font-medium text-xs px-4 py-2 rounded-full cursor-pointer flex items-center gap-1.5 transition-colors"
         >
