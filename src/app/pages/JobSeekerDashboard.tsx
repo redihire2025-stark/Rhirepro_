@@ -222,6 +222,9 @@ function renderNotificationMessage(message: string) {
 }
 
 function formatDashboardLocation(job: DBJob): string {
+  if (Array.isArray(job.locations) && job.locations.length > 0) {
+    return job.locations.join(", ");
+  }
   if (job.location?.trim()) return job.location;
   if (job.work_mode?.trim()) return job.work_mode;
   return "India";
@@ -1793,7 +1796,7 @@ function FindJobPage() {
                 .from("jobs")
                 .select(
                   `id, title, description, roles_responsibilities, requirements, skills, perks, location, 
-                   salary_min, salary_max, salary_type, experience_min, experience_max, employment_type, 
+                   salary_min, salary_max, salary_type, experience_min, experience_max, employment_type, industry, 
                    work_mode, interview_mode, preferred_joining_time, created_at, status, deadline, deadline_time, recruiter_id,
                    recruiter:recruiter_profiles(logo_url, company_name, website, tagline, company_description, industry, company_type, company_size, founded, location),
                    applicant_count`
@@ -1821,7 +1824,7 @@ function FindJobPage() {
           .from("jobs")
           .select(
             `id, title, description, roles_responsibilities, requirements, skills, perks, location, 
-             salary_min, salary_max, salary_type, experience_min, experience_max, employment_type, 
+             salary_min, salary_max, salary_type, experience_min, experience_max, employment_type, industry, 
              work_mode, interview_mode, preferred_joining_time, created_at, status, deadline, deadline_time, recruiter_id,
              recruiter:recruiter_profiles(logo_url, company_name, website, tagline, company_description, industry, company_type, company_size, founded, location),
              applicant_count`,
@@ -6377,7 +6380,7 @@ function InsightsPage() {
       const [{ data }, marketJobs, geminiResult] = await Promise.all([
         supabase
           .from("jobs")
-          .select("id, title, company_name, location, salary_min, salary_max, salary_type, skills, employment_type, preferred_joining_time, status, deadline, deadline_time")
+          .select("id, title, company_name, location, locations, salary_min, salary_max, salary_type, skills, employment_type, preferred_joining_time, status, deadline, deadline_time")
           .eq("status", "Active")
           .limit(30),
         fetchRemotiveJobs(marketSearchTerm),

@@ -88,6 +88,9 @@ type DisplayJob = {
 };
 
 function formatLocation(job: DBJob): string {
+  if (Array.isArray(job.locations) && job.locations.length > 0) {
+    return job.locations.join(", ");
+  }
   if (job.location?.trim()) return job.location;
   if (job.work_mode?.trim()) return job.work_mode;
   return "India";
