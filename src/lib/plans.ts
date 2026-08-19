@@ -99,7 +99,7 @@ export function getPlanPriceBreakdown(plan: Plan, promo?: ClientPromoCode | null
   const basePrice = plan.price;
   const discountedBasePrice = promo ? applyPromo(basePrice, promo) : basePrice;
   const discountAmount = basePrice - discountedBasePrice;
-  const gstAmount = calculateGst(basePrice);
+  const gstAmount = promo && promo.discountType === "set_price" ? 0 : calculateGst(basePrice);
   const totalAmount = discountedBasePrice + gstAmount;
 
   return {

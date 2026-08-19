@@ -5,36 +5,36 @@ describe("activeTime helpers", () => {
   const baseTimeStr = "2026-08-13T12:00:00.000Z";
   const nowMs = new Date(baseTimeStr).getTime();
 
-  it("parses active date correctly from last_active_at, updated_at, or created_at", () => {
+  it("parses active date correctly from last_active_at only", () => {
     expect(parseActiveDate({ last_active_at: "2026-08-13T10:00:00.000Z" })?.toISOString()).toBe("2026-08-13T10:00:00.000Z");
-    expect(parseActiveDate({ updated_at: "2026-08-12T10:00:00.000Z" })?.toISOString()).toBe("2026-08-12T10:00:00.000Z");
-    expect(parseActiveDate({ created_at: "2026-08-11T10:00:00.000Z" })?.toISOString()).toBe("2026-08-11T10:00:00.000Z");
+    expect(parseActiveDate({ updated_at: "2026-08-12T10:00:00.000Z" })).toBeNull();
+    expect(parseActiveDate({ created_at: "2026-08-11T10:00:00.000Z" })).toBeNull();
     expect(parseActiveDate(null)).toBeNull();
     expect(parseActiveDate({})).toBeNull();
   });
 
-  it("formats active time within 24 hours as 'Active in a day'", () => {
+  it("formats active time within 24 hours as 'Active Today'", () => {
     // 5 hours ago
     const active5h = new Date(nowMs - 5 * 60 * 60 * 1000).toISOString();
-    expect(formatActiveTime(active5h, nowMs)).toBe("Active in a day");
+    expect(formatActiveTime(active5h, nowMs)).toBe("Active Today");
 
     // Exactly 24 hours ago
     const active24h = new Date(nowMs - 24 * 60 * 60 * 1000).toISOString();
-    expect(formatActiveTime(active24h, nowMs)).toBe("Active in a day");
+    expect(formatActiveTime(active24h, nowMs)).toBe("Active Today");
 
     // Future timestamp
     const activeFuture = new Date(nowMs + 1000).toISOString();
-    expect(formatActiveTime(activeFuture, nowMs)).toBe("Active in a day");
+    expect(formatActiveTime(activeFuture, nowMs)).toBe("Active Today");
   });
 
-  it("formats active time between 24 and 48 hours as 'Active a day ago'", () => {
+  it("formats active time between 24 and 48 hours as 'Active 1 day ago'", () => {
     // 25 hours ago
     const active25h = new Date(nowMs - 25 * 60 * 60 * 1000).toISOString();
-    expect(formatActiveTime(active25h, nowMs)).toBe("Active a day ago");
+    expect(formatActiveTime(active25h, nowMs)).toBe("Active 1 day ago");
 
     // 40 hours ago
     const active40h = new Date(nowMs - 40 * 60 * 60 * 1000).toISOString();
-    expect(formatActiveTime(active40h, nowMs)).toBe("Active a day ago");
+    expect(formatActiveTime(active40h, nowMs)).toBe("Active 1 day ago");
   });
 
   it("formats active time greater than 48 hours as 'Active N days ago'", () => {
@@ -57,8 +57,8 @@ describe("activeTime helpers", () => {
     expect(formatActiveTime(active90d, nowMs)).toBe("Active 3 months ago");
   });
 
-  it("returns empty string for missing or invalid dates", () => {
-    expect(formatActiveTime(null, nowMs)).toBe("");
-    expect(formatActiveTime("invalid-date", nowMs)).toBe("");
+  it("returns 'Active 6 months ago' for missing or invalid dates", () => {
+    expect(formatActiveTime(null, nowMs)).toBe("Active 6 months ago");
+    expect(formatActiveTime("invalid-date", nowMs)).toBe("Active 6 months ago");
   });
 });

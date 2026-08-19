@@ -1022,6 +1022,7 @@ def calculate_plan_price(plan_id: str, promo_code: str | None = None):
   base_price = plan["price"]
   gst_rate = 0.18
   discount_amount = 0
+  is_set_price = False
 
   if promo_code and promo_code.strip():
     code = promo_code.strip().upper()
@@ -1033,6 +1034,7 @@ def calculate_plan_price(plan_id: str, promo_code: str | None = None):
         discounted_base = round(base_price * (1 - dval / 100))
       elif dtype == "set_price":
         discounted_base = dval
+        is_set_price = True
       else:
         discounted_base = max(1, base_price - dval)
       discount_amount = base_price - discounted_base
@@ -1041,7 +1043,7 @@ def calculate_plan_price(plan_id: str, promo_code: str | None = None):
   else:
     discounted_base = base_price
 
-  gst_amount = round(base_price * gst_rate)
+  gst_amount = 0 if is_set_price else round(base_price * gst_rate)
   total_amount = discounted_base + gst_amount
   return {
     "base_price": base_price,
