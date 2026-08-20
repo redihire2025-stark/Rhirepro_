@@ -55,11 +55,6 @@ export interface Profile {
   dob?: string | null;
   gender?: string | null;
   marital_status?: string | null;
-  desired_job_title?: string | null;
-  job_type_pref?: string | null;
-  preferred_location?: string | null;
-  work_auth?: string | null;
-  willing_to_relocate?: string | null;
   languages?: Array<{ language: string; proficiency: string }> | null;
 }
 
