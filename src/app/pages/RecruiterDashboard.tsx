@@ -2818,10 +2818,12 @@ function PostJobPage() {
       };
 
       let { error } = await supabase.from("jobs").insert(insertPayload);
-      if (error && typeof error.message === "string" && (error.message.includes("preferred_joining_time") || error.message.includes("specialization") || error.message.includes("skill_experiences") || error.code === "PGRST204" || error.message.includes("column"))) {
+      if (error && typeof error.message === "string" && (error.message.includes("preferred_joining_time") || error.message.includes("specialization") || error.message.includes("skill_experiences") || error.message.includes("locations") || error.message.includes("industries") || error.code === "PGRST204" || error.message.includes("column"))) {
         delete insertPayload.preferred_joining_time;
         delete insertPayload.specialization;
         delete insertPayload.skill_experiences;
+        delete insertPayload.locations;
+        delete insertPayload.industries;
         const retryRes = await supabase.from("jobs").insert(insertPayload);
         error = retryRes.error;
       }
@@ -3765,10 +3767,12 @@ function ManageJobsPage() {
       perks: editForm.perks || [],
     };
     let { error } = await supabase.from("jobs").update(updatePayload).eq("id", editingJob.id);
-    if (error && typeof error.message === "string" && (error.message.includes("preferred_joining_time") || error.message.includes("specialization") || error.message.includes("skill_experiences") || error.code === "PGRST204" || error.message.includes("column"))) {
+    if (error && typeof error.message === "string" && (error.message.includes("preferred_joining_time") || error.message.includes("specialization") || error.message.includes("skill_experiences") || error.message.includes("locations") || error.message.includes("industries") || error.code === "PGRST204" || error.message.includes("column"))) {
       delete updatePayload.preferred_joining_time;
       delete updatePayload.specialization;
       delete updatePayload.skill_experiences;
+      delete updatePayload.locations;
+      delete updatePayload.industries;
       await supabase.from("jobs").update(updatePayload).eq("id", editingJob.id);
     }
     setJobs(prev => prev.map(j => j.id === editingJob.id ? {
