@@ -174,6 +174,7 @@ export interface Job {
   department: string | null;
   interview_mode: string | null;
   skills: string[] | null;
+  skill_experiences?: Record<string, number> | Array<{ skill: string; min_years: number }> | null;
   perks: string[] | null;
   education: string | null;
   specialization?: string | null;

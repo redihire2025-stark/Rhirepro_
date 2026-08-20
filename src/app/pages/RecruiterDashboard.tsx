@@ -37,6 +37,12 @@ import {
   getSpecializationsForQualification,
   matchQualificationOption,
 } from "../../lib/jobMasterData";
+import {
+  parseSkillExperiences,
+  evaluateOverallExperience,
+  evaluateJobSkillMatrix,
+  calculateCandidateExperienceMatch,
+} from "../../lib/experienceMatching";
 import logoImage from "../../logo/logo.png";
 import {
   Bell, LogOut, Plus, Edit, Pause, Trash2, User, Upload, Building2,
@@ -2443,7 +2449,7 @@ function PostJobPage() {
     location: "", locations: [] as string[], locationInput: "", workMode: "",
     salaryMin: "", salaryMax: "",
     experienceMin: "", experienceMax: "",
-    skills: "", employmentType: "", industry: "", customIndustry: "",
+    skills: "", skillExperiences: {} as Record<string, number>, employmentType: "", industry: "", customIndustry: "",
     openings: "1", education: "", customEducation: "", specialization: "", customSpecialization: "", perks: [] as string[], customPerk: "", department: "",
     interviewMode: "", interviewModes: [] as string[], preferredJoiningTime: "",
   });
@@ -2556,6 +2562,18 @@ function PostJobPage() {
     setDepartmentSearch(formData.department);
   }, [formData.department]);
 
+  const setSkillExpYears = (skill: string, years: number) => {
+    const key = skill.trim().toLowerCase();
+    if (!key) return;
+    setFormData(prev => ({
+      ...prev,
+      skillExperiences: {
+        ...prev.skillExperiences,
+        [key]: Math.max(0, years)
+      }
+    }));
+  };
+
   const addSkill = (skill: string, markMandatory = false) => {
     const s = skill.trim();
     if (!s) return;
@@ -2566,12 +2584,27 @@ function PostJobPage() {
       : [...selectedSkills, s];
 
     if (!alreadySelected) {
-      setFormData(prev => ({ ...prev, skills: nextSelected.join(", ") }));
+      setFormData(prev => ({
+        ...prev,
+        skills: nextSelected.join(", "),
+        skillExperiences: {
+          ...prev.skillExperiences,
+          [normalized]: prev.skillExperiences[normalized] ?? 1
+        }
+      }));
       if (markMandatory || mandatorySkillSet.size < 3) {
         setMandatorySkills(prev => (prev.some(existing => existing.toLowerCase() === normalized) ? prev : [...prev, s]));
       }
     } else {
-      setFormData(prev => ({ ...prev, skills: nextSelected.join(", ") }));
+      setFormData(prev => {
+        const nextExp = { ...prev.skillExperiences };
+        delete nextExp[normalized];
+        return {
+          ...prev,
+          skills: nextSelected.join(", "),
+          skillExperiences: nextExp
+        };
+      });
       setMandatorySkills(prev => prev.filter(existing => existing.toLowerCase() !== normalized));
     }
     setSkillSearch("");
@@ -2581,9 +2614,18 @@ function PostJobPage() {
   };
 
   const removeSkill = (skill: string) => {
-    const updated = selectedSkills.filter(s => s.toLowerCase() !== skill.toLowerCase());
-    setFormData(prev => ({ ...prev, skills: updated.join(", ") }));
-    setMandatorySkills(prev => prev.filter(s => s.toLowerCase() !== skill.toLowerCase()));
+    const key = skill.toLowerCase();
+    const updated = selectedSkills.filter(s => s.toLowerCase() !== key);
+    setFormData(prev => {
+      const nextExp = { ...prev.skillExperiences };
+      delete nextExp[key];
+      return {
+        ...prev,
+        skills: updated.join(", "),
+        skillExperiences: nextExp
+      };
+    });
+    setMandatorySkills(prev => prev.filter(s => s.toLowerCase() !== key));
   };
 
   const toggleMandatorySkill = (skill: string) => {
@@ -2765,6 +2807,7 @@ function PostJobPage() {
         industry: formData.industry,
         department: formData.department,
         skills: skillsArr,
+        skill_experiences: formData.skillExperiences,
         perks: formData.perks,
         education: resolvedEducation,
         interview_mode: resolvedInterviewMode,
@@ -2775,9 +2818,10 @@ function PostJobPage() {
       };
 
       let { error } = await supabase.from("jobs").insert(insertPayload);
-      if (error && typeof error.message === "string" && (error.message.includes("preferred_joining_time") || error.message.includes("specialization") || error.code === "PGRST204" || error.message.includes("column"))) {
+      if (error && typeof error.message === "string" && (error.message.includes("preferred_joining_time") || error.message.includes("specialization") || error.message.includes("skill_experiences") || error.code === "PGRST204" || error.message.includes("column"))) {
         delete insertPayload.preferred_joining_time;
         delete insertPayload.specialization;
+        delete insertPayload.skill_experiences;
         const retryRes = await supabase.from("jobs").insert(insertPayload);
         error = retryRes.error;
       }
@@ -2785,7 +2829,7 @@ function PostJobPage() {
       setPostSuccess(true);
       setShowPreview(false);
       setTimeout(() => { setPostSuccess(false); navigate("/recruiter/dashboard/manage-jobs"); }, 2000);
-      setFormData({ jobTitle: "", jobDescription: "", rolesResponsibilities: "", requirements: "", location: "", locations: [], locationInput: "", workMode: "", salaryMin: "", salaryMax: "", experienceMin: "", experienceMax: "", skills: "", employmentType: "", industry: "", customIndustry: "", openings: "1", education: "", customEducation: "", specialization: "", customSpecialization: "", perks: [], customPerk: "", department: "", interviewMode: "", interviewModes: [], preferredJoiningTime: "" });
+      setFormData({ jobTitle: "", jobDescription: "", rolesResponsibilities: "", requirements: "", location: "", locations: [], locationInput: "", workMode: "", salaryMin: "", salaryMax: "", experienceMin: "", experienceMax: "", skills: "", skillExperiences: {}, employmentType: "", industry: "", customIndustry: "", openings: "1", education: "", customEducation: "", specialization: "", customSpecialization: "", perks: [], customPerk: "", department: "", interviewMode: "", interviewModes: [], preferredJoiningTime: "" });
       setShowSkillInput(false);
       setSkillPickerOpen(false);
       setSkillSearch("");
@@ -2850,7 +2894,14 @@ function PostJobPage() {
             </div>
             {skillsArr.length > 0 && (
               <div className="flex flex-wrap gap-1.5 mt-4">
-                {skillsArr.map((s, i) => <Badge key={i} className="bg-[#ECECF4] text-[#3A1F1F] text-xs">{s}</Badge>)}
+                {skillsArr.map((s, i) => {
+                  const reqYears = formData.skillExperiences[s.toLowerCase()];
+                  return (
+                    <Badge key={i} className="bg-[#ECECF4] text-[#3A1F1F] text-xs">
+                      {s}{reqYears ? ` (${reqYears}+ yrs)` : ""}
+                    </Badge>
+                  );
+                })}
               </div>
             )}
             {formData.perks.length > 0 && (
@@ -3254,12 +3305,32 @@ function PostJobPage() {
                 )}
               </div>
               <div>
-                <label className="block mb-1.5 text-sm font-medium text-[#3A1F1F]">Experience Required *</label>
-                <div className="flex gap-2 items-center">
-                  <Input type="number" min="0" value={formData.experienceMin} onChange={e => setFormData({ ...formData, experienceMin: e.target.value })} className="bg-[#F6F6F6] border-gray-200 rounded-xl" placeholder="Min yrs" />
-                  <span className="text-[#8A8A8A]">–</span>
-                  <Input type="number" min="0" value={formData.experienceMax} onChange={e => setFormData({ ...formData, experienceMax: e.target.value })} className={`bg-[#F6F6F6] rounded-xl ${isExperienceRangeInvalid ? "border-red-500 text-red-900 focus-visible:ring-red-500" : "border-gray-200"}`} placeholder="Max yrs" />
+                <label className="block mb-1.5 text-sm font-medium text-[#3A1F1F]">Overall Candidate Experience *</label>
+                <div className="grid grid-cols-2 gap-2">
+                  <div>
+                    <label className="block text-[11px] font-semibold text-[#555] mb-1">Minimum Experience</label>
+                    <Input
+                      type="number"
+                      min="0"
+                      value={formData.experienceMin}
+                      onChange={e => setFormData({ ...formData, experienceMin: e.target.value })}
+                      className="bg-[#F6F6F6] border-gray-200 rounded-xl"
+                      placeholder="Min (e.g. 5)"
+                    />
+                  </div>
+                  <div>
+                    <label className="block text-[11px] font-semibold text-[#555] mb-1">Maximum Experience</label>
+                    <Input
+                      type="number"
+                      min="0"
+                      value={formData.experienceMax}
+                      onChange={e => setFormData({ ...formData, experienceMax: e.target.value })}
+                      className={`bg-[#F6F6F6] rounded-xl ${isExperienceRangeInvalid ? "border-red-500 text-red-900 focus-visible:ring-red-500" : "border-gray-200"}`}
+                      placeholder="Max (e.g. 8)"
+                    />
+                  </div>
                 </div>
+                <p className="text-xs text-[#8A8A8A] mt-1.5">Example: Minimum: 5 Years | Maximum: 8 Years</p>
                 {isExperienceRangeInvalid && (
                   <p className="text-xs text-red-500 mt-1.5">Maximum experience must be greater than or equal to minimum experience.</p>
                 )}
@@ -3354,6 +3425,66 @@ function PostJobPage() {
                 );
               })}
             </div>
+
+            {selectedSkills.length > 0 && (
+              <div className="mt-3 mb-4 bg-gray-50/80 border border-gray-200 rounded-2xl p-4">
+                <div className="flex flex-col sm:flex-row sm:items-center justify-between gap-1 mb-3">
+                  <h3 className="text-sm font-semibold text-[#3A1F1F]">Job Skill Matrix — Skill-Specific Experience Requirements</h3>
+                  <span className="text-xs text-[#8A8A8A]">Specify required years of experience per skill</span>
+                </div>
+                <div className="space-y-2">
+                  {selectedSkills.map((skill) => {
+                    const key = skill.toLowerCase();
+                    const years = formData.skillExperiences[key] ?? 1;
+                    const isMandatory = mandatorySkillSet.has(key);
+                    return (
+                      <div key={skill} className="flex flex-wrap sm:flex-nowrap items-center justify-between gap-3 bg-white px-3 py-2 rounded-xl border border-gray-200 shadow-sm">
+                        <div className="flex items-center gap-2 min-w-[150px]">
+                          <button
+                            type="button"
+                            onClick={() => toggleMandatorySkill(skill)}
+                            className={`text-sm ${isMandatory ? "text-[#FF2B2B]" : "text-[#8A8A8A]"}`}
+                            title={isMandatory ? "Mandatory skill" : "Mark as mandatory"}
+                          >
+                            {isMandatory ? "★" : "☆"}
+                          </button>
+                          <span className="font-medium text-sm text-[#3A1F1F]">{skill}</span>
+                          {isMandatory && <Badge className="bg-[#FFF0F0] text-[#FF2B2B] text-[10px] px-1.5 py-0.5">Mandatory</Badge>}
+                        </div>
+                        <div className="flex items-center gap-2">
+                          <span className="text-xs text-[#666]">Req. Experience:</span>
+                          <div className="flex items-center gap-1.5">
+                            <Input
+                              type="number"
+                              min="0"
+                              max="30"
+                              value={years}
+                              onChange={(e) => setSkillExpYears(skill, Number(e.target.value))}
+                              className="w-20 h-8 text-xs text-center bg-[#F6F6F6] rounded-lg border-gray-200"
+                            />
+                            <span className="text-xs text-[#666]">Years</span>
+                          </div>
+                          <div className="hidden sm:flex items-center gap-1 ml-2">
+                            {[1, 2, 3, 5].map((y) => (
+                              <button
+                                key={y}
+                                type="button"
+                                onClick={() => setSkillExpYears(skill, y)}
+                                className={`text-[11px] px-2 py-0.5 rounded-md border transition-colors ${
+                                  years === y ? "bg-[#FF2B2B] text-white border-[#FF2B2B]" : "bg-white text-[#666] border-gray-200 hover:border-gray-300"
+                                }`}
+                              >
+                                {y}y
+                              </button>
+                            ))}
+                          </div>
+                        </div>
+                      </div>
+                    );
+                  })}
+                </div>
+              </div>
+            )}
             {nonRelevantSelectedSkills.length > 0 && (
               <div className="mb-3 rounded-xl border border-[#FFB4B4] bg-[#FFF6F6] px-3 py-2 text-xs text-[#B42318]">
                 <span className="font-semibold">Skill alignment warning:</span> {nonRelevantSelectedSkills.join(", ")} {nonRelevantSelectedSkills.length === 1 ? "does not" : "do not"} match the job title / JD context. Keep at least 3 role-aligned skills from the JD suggestions or close variants before publishing.
@@ -3550,7 +3681,8 @@ function ManageJobsPage() {
   const [editForm, setEditForm] = useState({
     title: "", location: "", locations: [] as string[], locationInput: "",
     salaryMin: "", salaryMax: "", salaryType: "LPA", employmentType: "", workMode: "",
-    preferredJoiningTime: "", openings: "1", skills: "",
+    experienceMin: "", experienceMax: "",
+    preferredJoiningTime: "", openings: "1", skills: "", skillExperiences: {} as Record<string, number>,
     industry: "", customIndustry: "", education: "", customEducation: "", specialization: "", customSpecialization: "", interviewMode: "", interviewModes: [] as string[],
     perks: [] as string[], customPerk: "",
   });
@@ -3584,9 +3716,12 @@ function ManageJobsPage() {
       salaryType: "LPA",
       employmentType: job.employment_type || "",
       workMode: job.work_mode || "",
+      experienceMin: job.experience_min != null ? String(job.experience_min) : "",
+      experienceMax: job.experience_max != null ? String(job.experience_max) : "",
       preferredJoiningTime: job.preferred_joining_time || "",
       openings: String(job.openings),
       skills: (job.skills || []).join(", "),
+      skillExperiences: parseSkillExperiences((job as any).skill_experiences),
       industry: job.industry || "",
       customIndustry: "",
       education: eduCategory,
@@ -3616,20 +3751,24 @@ function ManageJobsPage() {
       salary_min: Number(editForm.salaryMin),
       salary_max: Number(editForm.salaryMax),
       salary_type: "LPA",
+      experience_min: editForm.experienceMin ? Number(editForm.experienceMin) : null,
+      experience_max: editForm.experienceMax ? Number(editForm.experienceMax) : null,
       employment_type: editForm.employmentType,
       work_mode: editForm.workMode,
       preferred_joining_time: editForm.preferredJoiningTime || null,
       openings: Number(editForm.openings) || 1,
       skills: skillsArr,
+      skill_experiences: editForm.skillExperiences,
       industry: editForm.industry || null,
       education: resolvedEducation || null,
       interview_mode: resolvedInterviewMode || null,
       perks: editForm.perks || [],
     };
     let { error } = await supabase.from("jobs").update(updatePayload).eq("id", editingJob.id);
-    if (error && typeof error.message === "string" && (error.message.includes("preferred_joining_time") || error.message.includes("specialization") || error.code === "PGRST204" || error.message.includes("column"))) {
+    if (error && typeof error.message === "string" && (error.message.includes("preferred_joining_time") || error.message.includes("specialization") || error.message.includes("skill_experiences") || error.code === "PGRST204" || error.message.includes("column"))) {
       delete updatePayload.preferred_joining_time;
       delete updatePayload.specialization;
+      delete updatePayload.skill_experiences;
       await supabase.from("jobs").update(updatePayload).eq("id", editingJob.id);
     }
     setJobs(prev => prev.map(j => j.id === editingJob.id ? {
@@ -3639,11 +3778,14 @@ function ManageJobsPage() {
       salary_min: Number(editForm.salaryMin),
       salary_max: Number(editForm.salaryMax),
       salary_type: "LPA",
+      experience_min: editForm.experienceMin ? Number(editForm.experienceMin) : null,
+      experience_max: editForm.experienceMax ? Number(editForm.experienceMax) : null,
       employment_type: editForm.employmentType,
       work_mode: editForm.workMode,
       preferred_joining_time: editForm.preferredJoiningTime,
       openings: Number(editForm.openings) || 1,
       skills: skillsArr,
+      skill_experiences: editForm.skillExperiences,
       industry: editForm.industry,
       education: resolvedEducation,
       specialization: editForm.specialization,
@@ -4373,6 +4515,36 @@ function ManageJobsPage() {
               {isEditSalaryRangeInvalid && (
                 <p className="text-xs text-red-500 mt-1.5">Maximum salary must be greater than or equal to minimum salary.</p>
               )}
+            </div>
+
+            {/* Overall Candidate Experience */}
+            <div>
+              <label className="block text-sm font-medium text-[#3A1F1F] mb-1">Overall Candidate Experience</label>
+              <div className="grid grid-cols-2 gap-2">
+                <div>
+                  <label className="block text-[11px] font-semibold text-[#555] mb-1">Minimum Experience</label>
+                  <Input
+                    type="number"
+                    min="0"
+                    value={editForm.experienceMin}
+                    onChange={e => setEditForm(f => ({ ...f, experienceMin: e.target.value }))}
+                    className="bg-[#F6F6F6] border-gray-200 rounded-xl"
+                    placeholder="Min (e.g. 5)"
+                  />
+                </div>
+                <div>
+                  <label className="block text-[11px] font-semibold text-[#555] mb-1">Maximum Experience</label>
+                  <Input
+                    type="number"
+                    min="0"
+                    value={editForm.experienceMax}
+                    onChange={e => setEditForm(f => ({ ...f, experienceMax: e.target.value }))}
+                    className="bg-[#F6F6F6] border-gray-200 rounded-xl"
+                    placeholder="Max (e.g. 8)"
+                  />
+                </div>
+              </div>
+              <p className="text-xs text-[#8A8A8A] mt-1">Example: Minimum: 5 Years | Maximum: 8 Years</p>
             </div>
 
             {/* Key Skills */}
