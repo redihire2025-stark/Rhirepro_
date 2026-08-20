@@ -26,7 +26,7 @@ export async function checkIfEmailExists(email: string): Promise<boolean> {
   try {
     const [{ data: profs }, { data: recs }] = await Promise.all([
       supabase.from("profiles").select("id").ilike("email", cleanEmail).limit(1),
-      supabase.from("recruiters").select("id").ilike("email", cleanEmail).limit(1),
+      supabase.from("recruiter_profiles").select("id").ilike("email", cleanEmail).limit(1),
     ]);
 
     if ((profs && profs.length > 0) || (recs && recs.length > 0)) {

@@ -93,7 +93,13 @@ export default function JobDetailPage() {
 
       const { data: currentJob, error: jobError } = await supabase
         .from("jobs")
-        .select("*, recruiter:recruiter_profiles(*)")
+        .select(
+          // Explicit column list, not "*": this page is public, and selecting every
+          // column would require anon to hold SELECT on recruiter email and internal
+          // billing/verification fields. Keep in sync with the anon grant in
+          // supabase/rls_public_exposure_fix.sql.
+          "*, recruiter:recruiter_profiles(id, recruiter_name, company_name, company_size, company_type, industry, company_description, website, location, logo_url, cover_image_url, tagline, linkedin_url, cin, founded, phone)"
+        )
         .eq("id", id)
         .maybeSingle();
 

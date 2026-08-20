@@ -1,4 +1,4 @@
-import { useState, useEffect } from "react";
+import { useState, useEffect, useRef } from "react";
 import { useNavigate, Link, useLocation } from "react-router";
 
 const logoImage = new URL("../../logo/logo.png", import.meta.url).href;
@@ -6,7 +6,7 @@ import { Eye, EyeOff, Loader2, ShieldCheck, RefreshCw, Mail } from "lucide-react
 import { Button } from "../components/ui/button";
 import { Input } from "../components/ui/input";
 import { supabase } from "../../lib/supabase";
-import { useAuth } from "../../lib/auth-context";
+import { useAuth, setPendingRole } from "../../lib/auth-context";
 import { requestOTP, verifyOTP, sendPasswordResetOTP, resetPasswordWithOTP, secureSignIn } from "../../lib/email";
 
 // ─── OTP helpers ─────────────────────────────────────────────────────────────
@@ -66,6 +66,20 @@ export default function JobSeekerSignIn() {
   const [showNewPassword, setShowNewPassword] = useState(false);
   const [resetSuccess, setResetSuccess] = useState(false);
   const navigate = useNavigate();
+
+  // A session this page did not create — a Google OAuth return, or a bounce from
+  // a dashboard auth guard — must not strand an authenticated user on the login
+  // form. The OTP step legitimately runs with a live session, so it is excluded.
+  const { user: authedUser, role: authedRole, loading: authLoading } = useAuth();
+  const startedSignInHere = useRef(false);
+
+  useEffect(() => {
+    if (authLoading || startedSignInHere.current) return;
+    if (step !== "credentials" || !authedUser) return;
+    const effectiveRole = authedUser.user_metadata?.role || authedRole;
+    navigate(effectiveRole === "recruiter" ? "/recruiter/dashboard" : "/jobseeker/dashboard", { replace: true });
+  }, [authLoading, authedUser, authedRole, step, navigate]);
+
   const { refreshProfile } = useAuth();
   const location = useLocation();
   const redirectTo = new URLSearchParams(location.search).get("redirect");
@@ -114,6 +128,9 @@ export default function JobSeekerSignIn() {
     e.preventDefault();
     setError("");
     setLoading(true);
+    // Claim the session about to be created so the redirect effect leaves the
+    // OTP step alone.
+    startedSignInHere.current = true;
     try {
       // 1. Authenticate with Supabase securely (SHA-256 pre-hashed password)
       const { data, error: authErr } = await secureSignIn(email, password);
@@ -206,6 +223,7 @@ export default function JobSeekerSignIn() {
     setError("");
     setLoading(true);
     try {
+      setPendingRole("jobseeker");
       const { error } = await supabase.auth.signInWithOAuth({
         provider: "google",
         options: {
