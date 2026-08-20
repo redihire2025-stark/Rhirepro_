@@ -1324,11 +1324,21 @@ export default function RecruiterDashboard() {
   const [activeSub, setActiveSub] = useState<RecruiterSubscription | null>(null);
   const [loadingSub, setLoadingSub] = useState(true);
 
-  // Auth guard — redirect to sign-in if not authenticated
+  // Auth guard — redirect to sign-in if not authenticated.
+  // OAuth lands directly on this route with the session still in the URL, and
+  // context `loading` can settle before that session is committed. Confirm with
+  // the client before bouncing: a false negative here throws away a valid login
+  // and strands the user on the sign-in page.
   useEffect(() => {
-    if (!authLoading && !user) {
-      navigate("/signin", { replace: true });
-    }
+    if (authLoading || user) return;
+    let cancelled = false;
+    (async () => {
+      const { data } = await supabase.auth.getSession();
+      if (!cancelled && !data.session) {
+        navigate("/signin", { replace: true });
+      }
+    })();
+    return () => { cancelled = true; };
   }, [authLoading, user, navigate]);
 
   useEffect(() => {
