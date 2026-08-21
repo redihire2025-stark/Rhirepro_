@@ -145,7 +145,6 @@ type DirectFeedbackReview = {
   id: string;
   user_id: string;
   user_type: "jobseeker" | "recruiter";
-  user_email: string | null;
   rating: number;
   comment: string | null;
 };
@@ -202,17 +201,6 @@ const getInitials = (name: string) =>
     .map((part) => part[0])
     .join("")
     .toUpperCase();
-
-const getNameFromEmail = (email: string | null) => {
-  const emailName = email?.split("@")[0]?.replace(/[._-]+/g, " ").trim();
-  if (!emailName) return "RhirePro User";
-
-  return emailName
-    .split(" ")
-    .filter(Boolean)
-    .map((part) => part[0].toUpperCase() + part.slice(1))
-    .join(" ");
-};
 
 const getReviewText = (comment: string | null, rating: number) =>
   comment?.trim() || `Rated RhirePro ${rating} out of 5 stars.`;
@@ -376,7 +364,10 @@ export default function LandingPage() {
       if (realTestimonials.length === 0) {
         const { data: feedbackData } = await supabase
           .from("feedback")
-          .select("id,user_id,user_type,user_email,rating,comment")
+          // Deliberately excludes user_email. It was shipped to every visitor's
+          // browser and turned into a display name, publishing reviewers'
+          // identities; anon/authenticated no longer hold SELECT on that column.
+          .select("id,user_id,user_type,rating,comment")
           .order("created_at", { ascending: false })
           .limit(24);
 
@@ -386,7 +377,7 @@ export default function LandingPage() {
 
             return {
               id: review.user_id || review.id,
-              name: getNameFromEmail(review.user_email),
+              name: review.user_type === "recruiter" ? "Verified Recruiter" : "Verified Job Seeker",
               role: review.user_type === "recruiter" ? "Recruiter" : "Job Seeker",
               rating,
               text: getReviewText(review.comment, rating),

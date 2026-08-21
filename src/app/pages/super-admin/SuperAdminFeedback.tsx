@@ -28,7 +28,10 @@ export default function SuperAdminFeedback() {
 
   const fetchRows = useCallback(async () => {
     setLoading(true);
-    let query = supabase.from("feedback").select("*", { count: "exact" });
+    // anon/authenticated no longer hold SELECT on feedback.user_email, so read
+    // through the SECURITY DEFINER function instead. It returns SETOF feedback,
+    // so PostgREST still applies the filters/order/range chained below.
+    let query = supabase.rpc("admin_feedback", {}, { count: "exact" });
     if (ratingFilter !== "all") query = query.eq("rating", Number(ratingFilter));
     if (userTypeFilter !== "all") query = query.eq("user_type", userTypeFilter);
     const from = (page - 1) * PAGE_SIZE;
