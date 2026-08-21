@@ -26,19 +26,19 @@
 # longer exist on the current deploy — and because of the SPA rule above those
 # requests fall through and return index.html itself, so the browser receives
 # HTML where it expects JavaScript and the app never boots.
+# Every route is served the same index.html by the SPA rule above, so the policy
+# has to cover all paths — not just "/index.html". A request for
+# /recruiter/dashboard/company-profile returns HTML, and naming only /index.html
+# would leave those deep routes relying on Netlify's default behaviour.
 [[headers]]
-  for = "/index.html"
+  for = "/*"
   [headers.values]
     Cache-Control = "public, max-age=0, must-revalidate"
 
-[[headers]]
-  for = "/"
-  [headers.values]
-    Cache-Control = "public, max-age=0, must-revalidate"
-
-# Hashed assets are immutable by construction: any content change produces a new
-# filename, so these can be cached indefinitely and a new deploy is picked up via
-# the fresh index.html rather than by expiry.
+# Declared after /* so it wins for asset paths. Hashed assets are immutable by
+# construction: any content change produces a new filename, so these can be
+# cached indefinitely and a new deploy is picked up via the fresh index.html
+# rather than by expiry.
 [[headers]]
   for = "/assets/*"
   [headers.values]
