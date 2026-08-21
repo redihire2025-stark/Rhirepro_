@@ -27,6 +27,60 @@ export const SAFE_RECRUITER_COLUMNS =
 export const SAFE_PROFILE_COLUMNS =
   "id, email, first_name, last_name, phone, avatar_url, headline, location, experience_type, total_experience, current_company, current_title, current_salary, expected_salary, notice_period, skills, resume_url, linkedin_url, portfolio_url, about, otp_code, otp_expires_at, created_at, dob, gender, marital_status, desired_job_title, job_type_pref, preferred_location, work_auth, willing_to_relocate, languages, preferred_interview_mode, profile_views, recruiter_searches, is_disabled";
 
+/**
+ * Google OAuth never populates `user_metadata.role` — the provider has no idea
+ * which tab the user picked. Sign-in pages stash the intended role here before
+ * redirecting out, so the session can be classified correctly on the way back.
+ */
+export const PENDING_ROLE_KEY = "rhirepro_pending_role";
+
+export function readPendingRole(): "jobseeker" | "recruiter" | null {
+  try {
+    const v = localStorage.getItem(PENDING_ROLE_KEY);
+    return v === "recruiter" || v === "jobseeker" ? v : null;
+  } catch {
+    return null;
+  }
+}
+
+export function setPendingRole(role: "jobseeker" | "recruiter") {
+  try {
+    localStorage.setItem(PENDING_ROLE_KEY, role);
+  } catch {
+    // Private mode / storage disabled — role falls back to "jobseeker".
+  }
+}
+
+/**
+ * Classify a session. Password sign-up writes `role` into user_metadata, but an
+ * OAuth session arrives with it unset — defaulting those to "jobseeker" is what
+ * sends Google-authenticated recruiters to the wrong dashboard. Fall back to the
+ * role captured before the redirect, then write it back so the next sign-in on
+ * any device no longer depends on this browser's localStorage.
+ */
+function resolveRole(user: User): "jobseeker" | "recruiter" | "super_admin" {
+  const metaRole = user.user_metadata?.role;
+  if (metaRole === "recruiter" || metaRole === "jobseeker" || metaRole === "super_admin") {
+    return metaRole;
+  }
+  const pending = readPendingRole();
+  if (pending) {
+    // Deferred: calling auth methods synchronously inside onAuthStateChange can
+    // deadlock the client. The resulting USER_UPDATED event re-enters this
+    // function, but metaRole is set by then so it returns above — no loop.
+    setTimeout(() => {
+      supabase.auth.updateUser({ data: { role: pending } }).catch(() => {});
+      try {
+        localStorage.removeItem(PENDING_ROLE_KEY);
+      } catch {
+        // Nothing to clean up if storage is unavailable.
+      }
+    }, 0);
+    return pending;
+  }
+  return "jobseeker";
+}
+
 export function AuthProvider({ children }: { children: ReactNode }) {
   const [user, setUser] = useState<User | null>(null);
   const [session, setSession] = useState<Session | null>(null);
@@ -77,7 +131,7 @@ export function AuthProvider({ children }: { children: ReactNode }) {
       setSession(session);
       setUser(session?.user ?? null);
       if (session?.user) {
-        const userRole = session.user.user_metadata?.role || "jobseeker";
+        const userRole = resolveRole(session.user);
         setRole(userRole);
         fetchProfile(session.user.id, userRole).finally(() => setLoading(false));
       } else {
@@ -92,7 +146,7 @@ export function AuthProvider({ children }: { children: ReactNode }) {
       setSession(session);
       setUser(session?.user ?? null);
       if (session?.user) {
-        const userRole = session.user.user_metadata?.role || "jobseeker";
+        const userRole = resolveRole(session.user);
         setRole(userRole);
         fetchProfile(session.user.id, userRole);
       } else {

@@ -83,7 +83,7 @@ export default async (request) => {
   const expiresAt = new Date(Date.now() + 10 * 60 * 1000).toISOString();
 
   if (targetTable === "pending_otps") {
-    await fetch(`${supabaseUrl}/rest/v1/pending_otps`, {
+    await fetch(`${supabaseUrl}/rest/v1/pending_otps?on_conflict=email`, {
       method: "POST",
       headers: {
         apikey: serviceKey,

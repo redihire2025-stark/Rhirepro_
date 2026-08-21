@@ -76,7 +76,7 @@ export default async (request) => {
           fetch(`${supabaseUrl}/rest/v1/profiles?id=eq.${recipient.id}&select=email`, {
             headers: { apikey: serviceKey, Authorization: `Bearer ${serviceKey}` },
           }),
-          fetch(`${supabaseUrl}/rest/v1/recruiters?id=eq.${recipient.id}&select=email`, {
+          fetch(`${supabaseUrl}/rest/v1/recruiter_profiles?id=eq.${recipient.id}&select=email`, {
             headers: { apikey: serviceKey, Authorization: `Bearer ${serviceKey}` },
           }),
           fetch(`${supabaseUrl}/auth/v1/admin/users/${recipient.id}`, {

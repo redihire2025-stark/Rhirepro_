@@ -47,6 +47,9 @@ function formatSalary(job: NonNullable<SavedJobWithJob["job"]>): string {
 }
 
 function formatLocation(job: NonNullable<SavedJobWithJob["job"]>): string {
+  if (Array.isArray((job as any).locations) && (job as any).locations.length > 0) {
+    return (job as any).locations.join(", ");
+  }
   if (job.location?.trim()) return job.location.trim();
   if (job.work_mode?.trim()) return job.work_mode.trim();
   return "N/A";

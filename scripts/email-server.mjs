@@ -159,7 +159,7 @@ const server = http.createServer(async (req, res) => {
       const admin = adminClient();
       const [{ data: profs }, { data: recs }, authRes] = await Promise.all([
         admin.from("profiles").select("id").ilike("email", cleanEmail).limit(1),
-        admin.from("recruiters").select("id").ilike("email", cleanEmail).limit(1),
+        admin.from("recruiter_profiles").select("id").ilike("email", cleanEmail).limit(1),
         admin.auth.admin.listUsers({ page: 1, perPage: 1000 }).catch(() => ({ data: { users: [] } })),
       ]);
 
@@ -552,7 +552,7 @@ const server = http.createServer(async (req, res) => {
           try {
             const [{ data: prof }, { data: rec }, authRes] = await Promise.all([
               admin.from("profiles").select("email").eq("id", r.id).maybeSingle(),
-              admin.from("recruiters").select("email").eq("id", r.id).maybeSingle(),
+              admin.from("recruiter_profiles").select("email").eq("id", r.id).maybeSingle(),
               admin.auth.admin.getUserById(r.id).catch(() => null),
             ]);
             if (prof && prof.email) emailAddr = prof.email.trim();

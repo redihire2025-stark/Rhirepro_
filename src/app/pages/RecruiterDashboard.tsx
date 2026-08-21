@@ -384,21 +384,17 @@ function LocationAutocomplete({
 }
 
 function IndustryCombobox({
-  value,
+  selected = [],
   onChange,
   placeholder = "Select or type industry",
 }: {
-  value: string;
-  onChange: (value: string) => void;
+  selected: string[];
+  onChange: (selected: string[]) => void;
   placeholder?: string;
 }) {
   const [open, setOpen] = useState(false);
-  const [search, setSearch] = useState(value);
+  const [search, setSearch] = useState("");
   const wrapperRef = useRef<HTMLDivElement>(null);
-
-  useEffect(() => {
-    setSearch(value);
-  }, [value]);
 
   useEffect(() => {
     if (!open) return;
@@ -413,25 +409,40 @@ function IndustryCombobox({
 
   const filteredOptions = useMemo(() => {
     const query = search.trim().toLowerCase();
-    const valNorm = value.trim().toLowerCase();
-    if (!query || query === valNorm) return INDUSTRY_OPTIONS;
+    if (!query) return INDUSTRY_OPTIONS;
     return INDUSTRY_OPTIONS.filter(opt => opt.toLowerCase().includes(query));
-  }, [search, value]);
+  }, [search]);
 
   const handleInputChange = (e: React.ChangeEvent<HTMLInputElement>) => {
-    const val = e.target.value;
-    setSearch(val);
-    onChange(val);
+    setSearch(e.target.value);
     if (!open) setOpen(true);
   };
 
+  const handleKeyDown = (e: React.KeyboardEvent<HTMLInputElement>) => {
+    if (e.key === "Enter") {
+      e.preventDefault();
+      const cleaned = search.trim();
+      if (cleaned) {
+        if (!selected.some(item => item.toLowerCase().trim() === cleaned.toLowerCase())) {
+          onChange([...selected, cleaned]);
+        }
+        setSearch("");
+      }
+      setOpen(false);
+    }
+  };
+
   const selectOption = (opt: string) => {
-    if (opt === "Others" || opt === "Other") {
-      onChange("");
+    const cleaned = opt.trim();
+    if (cleaned === "Others" || cleaned === "Other") {
       setSearch("");
-    } else {
-      onChange(opt);
-      setSearch(opt);
+    } else if (cleaned) {
+      if (selected.some(item => item.toLowerCase().trim() === cleaned.toLowerCase())) {
+        onChange(selected.filter(item => item.toLowerCase().trim() !== cleaned.toLowerCase()));
+      } else {
+        onChange([...selected, cleaned]);
+      }
+      setSearch("");
     }
     setOpen(false);
   };
@@ -443,6 +454,7 @@ function IndustryCombobox({
           value={search}
           onFocus={() => setOpen(true)}
           onChange={handleInputChange}
+          onKeyDown={handleKeyDown}
           placeholder={placeholder}
           className="bg-[#F6F6F6] border-gray-200 focus:border-[#FF2B2B] focus:ring-1 focus:ring-[#FF2B2B] focus-visible:ring-[#FF2B2B] focus-visible:border-[#FF2B2B] rounded-xl pr-10 text-[#3A1F1F] placeholder:text-[#8A8A8A]"
         />
@@ -460,15 +472,26 @@ function IndustryCombobox({
           <div className="max-h-60 overflow-y-auto p-1">
             {filteredOptions.length === 0 ? (
               search.trim() ? (
-                <div className="px-3 py-2 text-xs text-[#8A8A8A] italic">
+                <button
+                  type="button"
+                  onClick={() => {
+                    const cleaned = search.trim();
+                    if (cleaned && !selected.some(item => item.toLowerCase().trim() === cleaned.toLowerCase())) {
+                      onChange([...selected, cleaned]);
+                    }
+                    setSearch("");
+                    setOpen(false);
+                  }}
+                  className="w-full text-left rounded-lg px-3 py-2 text-xs text-[#8A8A8A] italic hover:bg-[#FFF0F0] hover:text-[#FF2B2B]"
+                >
                   Keep typing to enter "{search.trim()}"
-                </div>
+                </button>
               ) : (
                 <div className="px-3 py-2 text-xs text-[#8A8A8A] italic text-center">No options found</div>
               )
             ) : (
               filteredOptions.map((opt) => {
-                const isSelected = value.trim().toLowerCase() === opt.trim().toLowerCase();
+                const isSelected = selected.some(item => item.toLowerCase().trim() === opt.toLowerCase().trim());
                 return (
                   <button
                     key={opt}
@@ -484,6 +507,20 @@ function IndustryCombobox({
               })
             )}
           </div>
+        </div>
+      )}
+
+      {selected.length > 0 && (
+        <div className="flex flex-wrap gap-1.5 mt-2">
+          {selected.map(ind => (
+            <span key={ind} className="flex items-center gap-1.5 bg-[#FF2B2B]/10 text-[#FF2B2B] border border-[#FF2B2B]/20 px-2.5 py-1 rounded-full text-xs font-semibold">
+              <Briefcase className="h-3 w-3" />
+              {ind}
+              <button type="button" onClick={() => onChange(selected.filter(item => item !== ind))} className="hover:text-red-800 ml-1">
+                <XCircle className="h-3.5 w-3.5" />
+              </button>
+            </span>
+          ))}
         </div>
       )}
     </div>
@@ -2449,7 +2486,7 @@ function PostJobPage() {
     location: "", locations: [] as string[], locationInput: "", workMode: "",
     salaryMin: "", salaryMax: "",
     experienceMin: "", experienceMax: "",
-    skills: "", skillExperiences: {} as Record<string, number>, employmentType: "", industry: "", customIndustry: "",
+    skills: "", skillExperiences: {} as Record<string, number>, employmentType: "", industry: "", industries: [] as string[], industryInput: "", customIndustry: "",
     openings: "1", education: "", customEducation: "", specialization: "", customSpecialization: "", perks: [] as string[], customPerk: "", department: "",
     interviewMode: "", interviewModes: [] as string[], preferredJoiningTime: "",
   });
@@ -2672,6 +2709,15 @@ function PostJobPage() {
         : [...prev.interviewModes, mode]
     }));
   };
+  const handleOpeningsKeyDown = (e: React.KeyboardEvent<HTMLInputElement>) => {
+    if (["e", "E", ".", ",", "+", "-"].includes(e.key)) {
+      e.preventDefault();
+    }
+  };
+  const handleOpeningsChange = (val: string) => {
+    const cleaned = val.replace(/\D/g, "").replace(/^0+/, "");
+    setFormData(prev => ({ ...prev, openings: cleaned }));
+  };
 
   const bulletPrefix = "\u2022 ";
 
@@ -2781,11 +2827,22 @@ function PostJobPage() {
       setPostError("Maximum experience must be greater than or equal to minimum experience.");
       return;
     }
+    if (formData.industries.length === 0) {
+      setPostError("Please select at least one industry.");
+      return;
+    }
+    const openingsVal = (formData.openings || "").trim();
+    if (!openingsVal || !/^[1-9]\d*$/.test(openingsVal)) {
+      setPostError("Number of Openings must be a positive whole number (e.g. 1, 2, 5, 10).");
+      return;
+    }
     setPosting(true);
     try {
       const deadline = buildJobExpiryTimestamp();
       const skillsArr = formData.skills.split(",").map(s => s.trim()).filter(Boolean);
       const resolvedLocation = formData.locations.length > 0 ? formData.locations.join(", ") : formData.locationInput;
+      const resolvedLocations = formData.locations.length > 0 ? formData.locations : (formData.locationInput ? [formData.locationInput.trim()] : []);
+      const resolvedIndustry = formData.industries.join(", ");
       const resolvedInterviewMode = formData.interviewModes.length > 0 ? formData.interviewModes.join(", ") : formData.interviewMode;
       const resolvedEducation = formData.specialization ? `${formData.education} - ${formData.specialization}` : formData.education;
       const insertPayload: Record<string, any> = {
@@ -2796,6 +2853,7 @@ function PostJobPage() {
         requirements: formData.requirements || null,
         company_name: recruiterProfile.company_name || "",
         location: resolvedLocation,
+        locations: resolvedLocations,
         work_mode: formData.workMode,
         preferred_joining_time: formData.preferredJoiningTime || null,
         salary_min: Number(formData.salaryMin),
@@ -2804,14 +2862,15 @@ function PostJobPage() {
         experience_min: formData.experienceMin ? Number(formData.experienceMin) : null,
         experience_max: formData.experienceMax ? Number(formData.experienceMax) : null,
         employment_type: formData.employmentType,
-        industry: formData.industry,
+        industry: resolvedIndustry,
+        industries: formData.industries,
         department: formData.department,
         skills: skillsArr,
         skill_experiences: formData.skillExperiences,
         perks: formData.perks,
         education: resolvedEducation,
         interview_mode: resolvedInterviewMode,
-        openings: Number(formData.openings) || 1,
+        openings: Number(openingsVal),
         deadline,
         deadline_time: null,
         status: "Active",
@@ -2831,7 +2890,7 @@ function PostJobPage() {
       setPostSuccess(true);
       setShowPreview(false);
       setTimeout(() => { setPostSuccess(false); navigate("/recruiter/dashboard/manage-jobs"); }, 2000);
-      setFormData({ jobTitle: "", jobDescription: "", rolesResponsibilities: "", requirements: "", location: "", locations: [], locationInput: "", workMode: "", salaryMin: "", salaryMax: "", experienceMin: "", experienceMax: "", skills: "", skillExperiences: {}, employmentType: "", industry: "", customIndustry: "", openings: "1", education: "", customEducation: "", specialization: "", customSpecialization: "", perks: [], customPerk: "", department: "", interviewMode: "", interviewModes: [], preferredJoiningTime: "" });
+      setFormData({ jobTitle: "", jobDescription: "", rolesResponsibilities: "", requirements: "", location: "", locations: [], locationInput: "", workMode: "", salaryMin: "", salaryMax: "", experienceMin: "", experienceMax: "", skills: "", skillExperiences: {}, employmentType: "", industry: "", industries: [], industryInput: "", customIndustry: "", openings: "1", education: "", customEducation: "", specialization: "", customSpecialization: "", perks: [], customPerk: "", department: "", interviewMode: "", interviewModes: [], preferredJoiningTime: "" });
       setShowSkillInput(false);
       setSkillPickerOpen(false);
       setSkillSearch("");
@@ -2847,6 +2906,8 @@ function PostJobPage() {
   const skillsArr = formData.skills.split(",").map(s => s.trim()).filter(Boolean);
 
   if (showPreview) {
+    const previewLocation = formData.locations.length > 0 ? formData.locations.join(", ") : (formData.locationInput || formData.location);
+    const previewIndustry = formData.industries.length > 0 ? formData.industries.join(", ") : formData.industry;
     return (
       <div className="container mx-auto px-4 py-8 max-w-4xl">
         <div className="flex items-center gap-3 mb-6">
@@ -2880,7 +2941,7 @@ function PostJobPage() {
                 <h1 className="text-2xl font-bold text-[#3A1F1F]">{formData.jobTitle || "Job Title"}</h1>
                 <p className="text-[#FF2B2B] font-medium mt-0.5">{recruiterProfile?.company_name || "Your Company"}</p>
                 <div className="flex flex-wrap gap-3 mt-3 text-sm text-[#5A5A5A]">
-                  {formData.location && <span className="flex items-center gap-1"><MapPin className="h-3.5 w-3.5" />{formData.location}</span>}
+                  {previewLocation && <span className="flex items-center gap-1"><MapPin className="h-3.5 w-3.5" />{previewLocation}</span>}
                   {formData.experienceMin && <span className="flex items-center gap-1"><Briefcase className="h-3.5 w-3.5" />{formData.experienceMin}–{formData.experienceMax} yrs</span>}
                   {formData.salaryMin && formData.salaryMax && <span className="flex items-center gap-1"><TrendingUp className="h-3.5 w-3.5" />{formatSalaryRangeFromValues(formData.salaryMin, formData.salaryMax)}</span>}
                   {formData.workMode && <span className="flex items-center gap-1"><Globe className="h-3.5 w-3.5" />{formData.workMode}</span>}
@@ -2945,7 +3006,7 @@ function PostJobPage() {
             <div className="grid grid-cols-2 md:grid-cols-4 gap-4 pt-2 border-t border-gray-100">
               {formData.education && <div><p className="text-xs text-[#8A8A8A]">Min. Education</p><p className="text-sm font-medium text-[#3A1F1F]">{formData.education}</p></div>}
               {formData.department && <div><p className="text-xs text-[#8A8A8A]">Department</p><p className="text-sm font-medium text-[#3A1F1F]">{formData.department}</p></div>}
-              {formData.industry && <div><p className="text-xs text-[#8A8A8A]">Industry</p><p className="text-sm font-medium text-[#3A1F1F]">{formData.industry}</p></div>}
+              {previewIndustry && <div><p className="text-xs text-[#8A8A8A]">Industry</p><p className="text-sm font-medium text-[#3A1F1F]">{previewIndustry}</p></div>}
               {formData.interviewMode && <div><p className="text-xs text-[#8A8A8A]">Interview Mode</p><p className="text-sm font-medium text-[#3A1F1F]">{formData.interviewMode}</p></div>}
               <div>
                 <p className="text-xs text-[#8A8A8A]">Expires</p>
@@ -3149,10 +3210,10 @@ function PostJobPage() {
                 </div>
               </div>
               <div>
-                <label className="block mb-1.5 text-sm font-medium text-[#3A1F1F]">Industry *</label>
+                <label className="block mb-1.5 text-sm font-medium text-[#3A1F1F]">Industry(s) *</label>
                 <IndustryCombobox
-                  value={formData.industry}
-                  onChange={v => setFormData({ ...formData, industry: v })}
+                  selected={formData.industries}
+                  onChange={inds => setFormData({ ...formData, industries: inds })}
                   placeholder="Select or type industry"
                 />
               </div>
@@ -3250,10 +3311,8 @@ function PostJobPage() {
                   min="1"
                   step="1"
                   value={formData.openings}
-                  onChange={e => {
-                    const val = e.target.value.replace(/\D/g, "");
-                    setFormData({ ...formData, openings: val });
-                  }}
+                  onKeyDown={handleOpeningsKeyDown}
+                  onChange={e => handleOpeningsChange(e.target.value)}
                   onBlur={() => {
                     if (!formData.openings || Number(formData.openings) < 1) {
                       setFormData({ ...formData, openings: "1" });
@@ -3685,19 +3744,36 @@ function ManageJobsPage() {
     salaryMin: "", salaryMax: "", salaryType: "LPA", employmentType: "", workMode: "",
     experienceMin: "", experienceMax: "",
     preferredJoiningTime: "", openings: "1", skills: "", skillExperiences: {} as Record<string, number>,
-    industry: "", customIndustry: "", education: "", customEducation: "", specialization: "", customSpecialization: "", interviewMode: "", interviewModes: [] as string[],
+    industry: "", industries: [] as string[], industryInput: "", customIndustry: "", education: "", customEducation: "", specialization: "", customSpecialization: "", interviewMode: "", interviewModes: [] as string[],
     perks: [] as string[], customPerk: "",
   });
   const [saving, setSaving] = useState(false);
   const [refreshingJobId, setRefreshingJobId] = useState<string | null>(null);
+  const [editError, setEditError] = useState("");
 
   const isEditSalaryRangeInvalid =
     Boolean(editForm.salaryMin && editForm.salaryMax) &&
     Number(editForm.salaryMax) < Number(editForm.salaryMin);
 
+  const handleOpeningsKeyDown = (e: React.KeyboardEvent<HTMLInputElement>) => {
+    if (["e", "E", ".", ",", "+", "-"].includes(e.key)) {
+      e.preventDefault();
+    }
+  };
+  const handleOpeningsChange = (val: string) => {
+    const cleaned = val.replace(/\D/g, "").replace(/^0+/, "");
+    setEditForm(f => ({ ...f, openings: cleaned }));
+  };
+
   const openEdit = (job: Job) => {
+    setEditError("");
     setEditingJob(job);
-    const existingLocations = (job.location || "").split(",").map(s => s.trim()).filter(Boolean);
+    const existingLocations = Array.isArray(job.locations) && job.locations.length > 0
+      ? job.locations
+      : (job.location || "").split(",").map(s => s.trim()).filter(Boolean);
+    const existingIndustries = Array.isArray(job.industries) && job.industries.length > 0
+      ? job.industries
+      : (job.industry || "").split(",").map(s => s.trim()).filter(Boolean);
     const existingModes = (job.interview_mode || "").split(",").map(s => s.trim()).filter(Boolean);
     let eduCategory = job.education || "";
     let spec = (job as any).specialization || "";
@@ -3725,6 +3801,8 @@ function ManageJobsPage() {
       skills: (job.skills || []).join(", "),
       skillExperiences: parseSkillExperiences((job as any).skill_experiences),
       industry: job.industry || "",
+      industries: existingIndustries.length > 0 ? existingIndustries : (job.industry ? [job.industry] : []),
+      industryInput: "",
       customIndustry: "",
       education: eduCategory,
       customEducation: "",
@@ -3739,17 +3817,37 @@ function ManageJobsPage() {
 
   const saveEdit = async () => {
     if (!editingJob) return;
-    if (!editForm.salaryMin || !editForm.salaryMax) return;
-    if (isEditSalaryRangeInvalid) return;
+    setEditError("");
+    if (!editForm.salaryMin || !editForm.salaryMax) {
+      setEditError("Please select both minimum and maximum salary.");
+      return;
+    }
+    if (isEditSalaryRangeInvalid) {
+      setEditError("Maximum salary must be greater than or equal to minimum salary.");
+      return;
+    }
+    if (editForm.industries.length === 0) {
+      setEditError("Please select at least one industry.");
+      return;
+    }
+    const openingsVal = (editForm.openings || "").trim();
+    if (!openingsVal || !/^[1-9]\d*$/.test(openingsVal)) {
+      setEditError("Number of Openings must be a positive whole number (e.g. 1, 2, 5, 10).");
+      return;
+    }
+
     setSaving(true);
     const skillsArr = editForm.skills.split(",").map(s => s.trim()).filter(Boolean);
     const resolvedLocation = editForm.locations.length > 0 ? editForm.locations.join(", ") : (editForm.locationInput || editForm.location);
+    const resolvedLocations = editForm.locations.length > 0 ? editForm.locations : (editForm.locationInput ? [editForm.locationInput.trim()] : (editForm.location ? [editForm.location] : []));
+    const resolvedIndustry = editForm.industries.join(", ");
     const resolvedInterviewMode = editForm.interviewModes.length > 0 ? editForm.interviewModes.join(", ") : editForm.interviewMode;
     const resolvedEducation = editForm.specialization ? `${editForm.education} - ${editForm.specialization}` : editForm.education;
 
     const updatePayload: Record<string, any> = {
       title: editForm.title,
       location: resolvedLocation,
+      locations: resolvedLocations,
       salary_min: Number(editForm.salaryMin),
       salary_max: Number(editForm.salaryMax),
       salary_type: "LPA",
@@ -3758,46 +3856,56 @@ function ManageJobsPage() {
       employment_type: editForm.employmentType,
       work_mode: editForm.workMode,
       preferred_joining_time: editForm.preferredJoiningTime || null,
-      openings: Number(editForm.openings) || 1,
-      skills: skillsArr,
+      openings: Number(openingsVal),
       skill_experiences: editForm.skillExperiences,
-      industry: editForm.industry || null,
+      industry: resolvedIndustry,
+      industries: editForm.industries,
       education: resolvedEducation || null,
       interview_mode: resolvedInterviewMode || null,
       perks: editForm.perks || [],
     };
-    let { error } = await supabase.from("jobs").update(updatePayload).eq("id", editingJob.id);
-    if (error && typeof error.message === "string" && (error.message.includes("preferred_joining_time") || error.message.includes("specialization") || error.message.includes("skill_experiences") || error.message.includes("locations") || error.message.includes("industries") || error.code === "PGRST204" || error.message.includes("column"))) {
-      delete updatePayload.preferred_joining_time;
-      delete updatePayload.specialization;
-      delete updatePayload.skill_experiences;
-      delete updatePayload.locations;
-      delete updatePayload.industries;
-      await supabase.from("jobs").update(updatePayload).eq("id", editingJob.id);
+    try {
+      let { error } = await supabase.from("jobs").update(updatePayload).eq("id", editingJob.id);
+      if (error && typeof error.message === "string" && (error.message.includes("preferred_joining_time") || error.message.includes("specialization") || error.message.includes("skill_experiences") || error.message.includes("locations") || error.message.includes("industries") || error.code === "PGRST204" || error.message.includes("column"))) {
+        delete updatePayload.preferred_joining_time;
+        delete updatePayload.specialization;
+        delete updatePayload.skill_experiences;
+        delete updatePayload.locations;
+        delete updatePayload.industries;
+        const retryRes = await supabase.from("jobs").update(updatePayload).eq("id", editingJob.id);
+        error = retryRes.error;
+      }
+      if (error) throw error;
+
+      setJobs(prev => prev.map(j => j.id === editingJob.id ? {
+        ...j,
+        title: editForm.title,
+        location: resolvedLocation,
+        locations: resolvedLocations,
+        salary_min: Number(editForm.salaryMin),
+        salary_max: Number(editForm.salaryMax),
+        salary_type: "LPA",
+        experience_min: editForm.experienceMin ? Number(editForm.experienceMin) : null,
+        experience_max: editForm.experienceMax ? Number(editForm.experienceMax) : null,
+        employment_type: editForm.employmentType,
+        work_mode: editForm.workMode,
+        preferred_joining_time: editForm.preferredJoiningTime,
+        openings: Number(openingsVal),
+        skills: skillsArr,
+        skill_experiences: editForm.skillExperiences,
+        industry: resolvedIndustry,
+        industries: editForm.industries,
+        education: resolvedEducation,
+        specialization: editForm.specialization,
+        interview_mode: resolvedInterviewMode,
+        perks: editForm.perks,
+      } : j));
+      setEditingJob(null);
+    } catch (err: any) {
+      setEditError(err?.message || "Failed to save job changes.");
+    } finally {
+      setSaving(false);
     }
-    setJobs(prev => prev.map(j => j.id === editingJob.id ? {
-      ...j,
-      title: editForm.title,
-      location: resolvedLocation,
-      salary_min: Number(editForm.salaryMin),
-      salary_max: Number(editForm.salaryMax),
-      salary_type: "LPA",
-      experience_min: editForm.experienceMin ? Number(editForm.experienceMin) : null,
-      experience_max: editForm.experienceMax ? Number(editForm.experienceMax) : null,
-      employment_type: editForm.employmentType,
-      work_mode: editForm.workMode,
-      preferred_joining_time: editForm.preferredJoiningTime,
-      openings: Number(editForm.openings) || 1,
-      skills: skillsArr,
-      skill_experiences: editForm.skillExperiences,
-      industry: editForm.industry,
-      education: resolvedEducation,
-      specialization: editForm.specialization,
-      interview_mode: resolvedInterviewMode,
-      perks: editForm.perks,
-    } : j));
-    setSaving(false);
-    setEditingJob(null);
   };
 
   const fetchJobs = useCallback(async () => {
@@ -4338,10 +4446,10 @@ function ManageJobsPage() {
             {/* Industry & Employment Type */}
             <div className="grid grid-cols-2 gap-3">
               <div>
-                <label className="block text-sm font-medium text-[#3A1F1F] mb-1">Industry</label>
+                <label className="block text-sm font-medium text-[#3A1F1F] mb-1">Industry(s)</label>
                 <IndustryCombobox
-                  value={editForm.industry}
-                  onChange={v => setEditForm(f => ({ ...f, industry: v }))}
+                  selected={editForm.industries}
+                  onChange={inds => setEditForm(f => ({ ...f, industries: inds }))}
                   placeholder="Select or type industry"
                 />
               </div>
@@ -4547,6 +4655,19 @@ function ManageJobsPage() {
                     placeholder="Max (e.g. 8)"
                   />
                 </div>
+                <Input
+                  type="number"
+                  min="1"
+                  value={editForm.openings}
+                  onKeyDown={handleOpeningsKeyDown}
+                  onChange={e => handleOpeningsChange(e.target.value)}
+                  className="bg-[#F6F6F6] border-gray-200 rounded-xl"
+                />
+              </div>
+              <div className="col-span-2">
+                <label className="block text-sm font-medium text-[#3A1F1F] mb-1">Key Skills (comma separated)</label>
+                <Input value={editForm.skills} onChange={e => setEditForm(f => ({ ...f, skills: e.target.value }))} className="bg-[#F6F6F6] border-gray-200 rounded-xl" placeholder="Enter required skills" />
+>>>>>>> origin/main
               </div>
               <p className="text-xs text-[#8A8A8A] mt-1">Example: Minimum: 5 Years | Maximum: 8 Years</p>
             </div>
@@ -4556,6 +4677,10 @@ function ManageJobsPage() {
               <label className="block text-sm font-medium text-[#3A1F1F] mb-1">Key Skills (comma separated)</label>
               <Input value={editForm.skills} onChange={e => setEditForm(f => ({ ...f, skills: e.target.value }))} className="bg-[#F6F6F6] border-gray-200 rounded-xl" placeholder="Enter required skills" />
             </div>
+
+            {editError && (
+              <p className="text-sm text-red-500 font-medium mt-1">{editError}</p>
+            )}
 
             <div className="flex gap-3 pt-2">
               <Button className="flex-1 bg-[#FF2B2B] hover:bg-[#e02525] text-white rounded-full" onClick={saveEdit} disabled={saving || !editForm.title || !editForm.salaryMin || !editForm.salaryMax || isEditSalaryRangeInvalid}>
@@ -5408,7 +5533,7 @@ function SearchCandidatesPage() {
   };
 
   const parseActiveDate = (c: DBCandidate): Date | null => {
-    const dateStr = (c as any).last_active_at || (c as any).updated_at || c.created_at;
+    const dateStr = (c as any).last_active_at;
     if (!dateStr) return null;
     const d = new Date(dateStr);
     return isNaN(d.getTime()) ? null : d;
@@ -5791,14 +5916,16 @@ function SearchCandidatesPage() {
               `)
               .in("id", matchedIds);
 
-            if (hydratedData) {
+            if (hydratedData && hydratedData.length > 0) {
               const idToCandidateMap = new Map(hydratedData.map((c: any) => [c.id, c]));
               raw = matchedIds
                 .map((id: string) => idToCandidateMap.get(id))
                 .filter(Boolean) as DBCandidate[];
+              if (raw.length > 0) {
+                esSuccess = true;
+              }
             }
           }
-          esSuccess = true;
         }
       } catch (err) {
         console.error("Elasticsearch candidate query failed, falling back to local database search:", err);
@@ -5808,7 +5935,7 @@ function SearchCandidatesPage() {
         let q = supabase
           .from("profiles")
           .select(`
-            id, first_name, last_name, avatar_url, headline, current_title, current_company, location, experience_type, total_experience, skills, about,
+            id, first_name, last_name, avatar_url, headline, current_title, current_company, location, experience_type, total_experience, skills, about, created_at, updated_at, last_active_at, preferred_location, desired_job_title, job_type_pref, work_auth, willing_to_relocate, preferred_interview_mode,
             work_experience(id, company, title, start_date, end_date, description, is_current),
             education(id, institution, degree, field, start_year, end_year)
           `);
@@ -5885,7 +6012,7 @@ function SearchCandidatesPage() {
           let broadSkillQuery = supabase
             .from("profiles")
             .select(`
-              id, first_name, last_name, avatar_url, headline, current_title, current_company, location, experience_type, total_experience, skills, about,
+              id, first_name, last_name, avatar_url, headline, current_title, current_company, location, experience_type, total_experience, skills, about, created_at, updated_at, last_active_at, preferred_location, desired_job_title, job_type_pref, work_auth, willing_to_relocate, preferred_interview_mode,
               work_experience(id, company, title, start_date, end_date, description, is_current),
               education(id, institution, degree, field, start_year, end_year)
             `);
@@ -6124,7 +6251,6 @@ function SearchCandidatesPage() {
     }, 250);
     return () => clearTimeout(timer);
   }, [
-    keywords,
     location,
     currentCompany,
     skillTags,
@@ -6246,6 +6372,7 @@ function SearchCandidatesPage() {
                 onClick={() => {
                   setKeywords("");
                   setSkillSuggestionsOpen(false);
+                  handleSearch("");
                 }}
                 className="absolute right-3 top-1/2 -translate-y-1/2 text-[#8A8A8A] hover:text-[#3A1F1F]"
                 title="Clear search"
@@ -7658,17 +7785,19 @@ Best regards,
             const { data: hydratedData } = await supabase
               .from("profiles")
               .select(`
-                id, first_name, last_name, avatar_url, headline, current_title, current_company, location, experience_type, total_experience, skills, about, email, phone,
+                id, first_name, last_name, avatar_url, headline, current_title, current_company, location, experience_type, total_experience, skills, about, email, phone, created_at, updated_at, last_active_at, preferred_location, desired_job_title, job_type_pref, work_auth, willing_to_relocate, preferred_interview_mode,
                 work_experience(id, company, title, start_date, end_date, description, is_current),
                 education(id, institution, degree, field, start_year, end_year)
               `)
               .in("id", matchedIds);
-            if (hydratedData) {
+            if (hydratedData && hydratedData.length > 0) {
               const idToMap = new Map(hydratedData.map((c: any) => [c.id, c]));
               raw = matchedIds.map((id: string) => idToMap.get(id)).filter(Boolean) as DBCandidate[];
+              if (raw.length > 0) {
+                esSuccess = true;
+              }
             }
           }
-          esSuccess = true;
         }
       } catch (e) {
         console.warn("ES candidate search fallback:", e);
@@ -7678,7 +7807,7 @@ Best regards,
         let q = supabase
           .from("profiles")
           .select(`
-            id, first_name, last_name, avatar_url, headline, current_title, current_company, location, experience_type, total_experience, skills, about, email, phone,
+            id, first_name, last_name, avatar_url, headline, current_title, current_company, location, experience_type, total_experience, skills, about, email, phone, created_at, updated_at, last_active_at, preferred_location, desired_job_title, job_type_pref, work_auth, willing_to_relocate, preferred_interview_mode,
             work_experience(id, company, title, start_date, end_date, description, is_current),
             education(id, institution, degree, field, start_year, end_year)
           `);
@@ -11320,7 +11449,7 @@ function PlansPage({ activeSub, loading }: { activeSub: RecruiterSubscription | 
   const handleApplyPromo = () => {
     const found = validatePromo(promoInput);
     if (!found) {
-      setPromoError("Invalid promo code. Try RHIRE10, RHIRE20, HIRE50, or NEWJOIN.");
+      setPromoError("Invalid promo code. Try RHIRE10, RHIRE20, HIRE50, NEWJOIN, or RHIRE99.");
       setAppliedPromo(null);
       setPromoSuccess("");
       return;
@@ -11432,6 +11561,17 @@ function PlansPage({ activeSub, loading }: { activeSub: RecruiterSubscription | 
           </div>
         )}
         {promoError && <p className="text-xs text-red-500 mt-1.5">{promoError}</p>}
+        {!appliedPromo && !promoError && (
+          <p className="text-xs text-[#8A8A8A] mt-1.5">
+            Try: <span className="font-mono text-[#3A1F1F] cursor-pointer hover:text-[#FF2B2B]" onClick={() => setPromoInput("RHIRE10")}>RHIRE10</span>
+            {", "}
+            <span className="font-mono text-[#3A1F1F] cursor-pointer hover:text-[#FF2B2B]" onClick={() => setPromoInput("RHIRE20")}>RHIRE20</span>
+            {", "}
+            <span className="font-mono text-[#3A1F1F] cursor-pointer hover:text-[#FF2B2B]" onClick={() => setPromoInput("NEWJOIN")}>NEWJOIN</span>
+            {" or "}
+            <span className="font-mono text-[#3A1F1F] cursor-pointer hover:text-[#FF2B2B]" onClick={() => setPromoInput("RHIRE99")}>RHIRE99</span>
+          </p>
+        )}
       </div>
 
       {/* Plan Cards */}
@@ -11439,7 +11579,7 @@ function PlansPage({ activeSub, loading }: { activeSub: RecruiterSubscription | 
         {PLANS.map(plan => {
           const isCurrentPlan = activeSub?.plan_id === plan.id;
           const priceBreakdown = getPlanPriceBreakdown(plan, appliedPromo);
-          const { basePrice, discountAmount, gstAmount, totalAmount } = priceBreakdown;
+          const { basePrice, discountedBasePrice, discountAmount, gstAmount, totalAmount } = priceBreakdown;
 
           return (
             <div
@@ -11469,9 +11609,9 @@ function PlansPage({ activeSub, loading }: { activeSub: RecruiterSubscription | 
               <div className="mb-1">
                 <div className="flex items-baseline gap-1">
                   {discountAmount > 0 && (
-                    <span className="text-lg text-[#8A8A8A] line-through">₹{basePrice + gstAmount}</span>
+                    <span className="text-lg text-[#8A8A8A] line-through">₹{basePrice}</span>
                   )}
-                  <span className="text-4xl font-bold text-[#3A1F1F]">₹{basePrice}</span>
+                  <span className="text-4xl font-bold text-[#3A1F1F]">₹{discountedBasePrice}</span>
                   <span className="text-[#8A8A8A] text-sm">/{plan.period}</span>
                 </div>
                 <p className="text-xs text-[#8A8A8A]">+ GST ₹{gstAmount} · Total ₹{totalAmount}</p>

@@ -1,5 +1,6 @@
-import { useState, useEffect } from "react";
+import { useState, useEffect, useRef } from "react";
 import { useNavigate, useSearchParams } from "react-router";
+import { useAuth, setPendingRole } from "../../lib/auth-context";
 import { Button } from "../components/ui/button";
 import { Input } from "../components/ui/input";
 import { User, Briefcase, Mail, Lock, Eye, EyeOff, Loader2, ShieldCheck, RefreshCw } from "lucide-react";
@@ -53,6 +54,21 @@ export default function SignInPage() {
       document.body.style.backgroundColor = originalBg;
     };
   }, []);
+
+  // Password sign-in deliberately leaves a live Supabase session in place while
+  // the OTP step runs, so "already signed in" must NOT mean "skip to dashboard".
+  // Only a session this page did not create — a Google OAuth return, or a
+  // dashboard auth-guard bounce that landed here — should be forwarded on.
+  // Without this a fully authenticated user is stranded on the login form.
+  const { user, role, loading: authLoading } = useAuth();
+  const startedSignInHere = useRef(false);
+
+  useEffect(() => {
+    if (authLoading || startedSignInHere.current) return;
+    if (step !== "credentials" || !user) return;
+    const effectiveRole = user.user_metadata?.role || role;
+    navigate(effectiveRole === "recruiter" ? "/recruiter/dashboard" : "/jobseeker/dashboard", { replace: true });
+  }, [authLoading, user, role, step, navigate]);
 
   const parseError = (err: unknown, fallback: string): string => {
     if (!err) return fallback;
@@ -115,6 +131,9 @@ export default function SignInPage() {
     e.preventDefault();
     setError("");
     setLoading(true);
+    // Claim the session about to be created so the redirect effect above leaves
+    // the OTP step alone.
+    startedSignInHere.current = true;
     try {
       const { data, error: authErr } = await secureSignIn(email, password);
       if (authErr) throw new Error(authErr.message || "Invalid email or password. Please try again.");
@@ -222,10 +241,15 @@ export default function SignInPage() {
     setError("");
     setLoading(true);
     try {
+      // Google returns no role, so the tab the user selected has to be carried
+      // across the redirect — otherwise a recruiter lands on the jobseeker
+      // dashboard and is treated as a jobseeker for the rest of the session.
+      setPendingRole(userType);
+      const dashboard = userType === "recruiter" ? "/recruiter/dashboard" : "/jobseeker/dashboard";
       const { error } = await supabase.auth.signInWithOAuth({
         provider: "google",
         options: {
-          redirectTo: `${window.location.origin}/jobseeker/dashboard`,
+          redirectTo: `${window.location.origin}${dashboard}`,
           queryParams: { access_type: "offline", prompt: "consent" },
           scopes: "email profile",
         },

@@ -8,6 +8,7 @@ import { Input } from "../components/ui/input";
 import { RadioGroup, RadioGroupItem } from "../components/ui/radio-group";
 import { Label } from "../components/ui/label";
 import { supabase } from "../../lib/supabase";
+import { setPendingRole } from "../../lib/auth-context";
 import { requestOTP, verifyOTP, checkIfEmailExists, secureHashPassword } from "../../lib/email";
 import { encryptPhone } from "../../lib/phoneProtection";
 
@@ -181,6 +182,7 @@ export default function JobSeekerSignUp() {
     setError("");
     setLoading(true);
     try {
+      setPendingRole("jobseeker");
       const { error } = await supabase.auth.signInWithOAuth({
         provider: "google",
         options: {

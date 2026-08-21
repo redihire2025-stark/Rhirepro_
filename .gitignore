@@ -67,3 +67,6 @@ venv/
 scripts/*.exe
 .env
 *.exe
+
+# Local Netlify folder
+.netlify

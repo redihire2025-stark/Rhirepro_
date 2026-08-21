@@ -158,6 +158,7 @@ export interface Job {
   requirements: string | null;
   company_name: string;
   location: string | null;
+  locations: string[] | null;
   work_mode: string | null;
   salary_min: number | null;
   salary_max: number | null;
@@ -166,6 +167,7 @@ export interface Job {
   experience_max: number | null;
   employment_type: string | null;
   industry: string | null;
+  industries: string[] | null;
   department: string | null;
   interview_mode: string | null;
   skills: string[] | null;
