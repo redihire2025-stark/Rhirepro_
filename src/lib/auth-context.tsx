@@ -7,7 +7,7 @@ interface AuthContextType {
   session: Session | null;
   profile: Profile | null;
   recruiterProfile: RecruiterProfile | null;
-  role: "jobseeker" | "recruiter" | null;
+  role: "jobseeker" | "recruiter" | "super_admin" | null;
   orgRole: "admin" | "member" | null;
   isOrgAdmin: boolean;
   loading: boolean;
@@ -86,7 +86,7 @@ export function AuthProvider({ children }: { children: ReactNode }) {
   const [session, setSession] = useState<Session | null>(null);
   const [profile, setProfile] = useState<Profile | null>(null);
   const [recruiterProfile, setRecruiterProfile] = useState<RecruiterProfile | null>(null);
-  const [role, setRole] = useState<"jobseeker" | "recruiter" | null>(null);
+  const [role, setRole] = useState<"jobseeker" | "recruiter" | "super_admin" | null>(null);
   const [loading, setLoading] = useState(true);
 
   const fetchProfile = async (userId: string, userRole: string, retries = 3) => {

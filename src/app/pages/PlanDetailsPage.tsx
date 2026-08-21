@@ -1,6 +1,6 @@
 import { useState } from "react";
 import { useNavigate, useSearchParams } from "react-router";
-import { PLANS, PROMO_CODES, validatePromo, getPlanById, getPlanPriceBreakdown } from "../../lib/plans";
+import { PLANS, PROMO_CODES, validatePromo, getPlanById, getPlanPriceBreakdown, calculateGst } from "../../lib/plans";
 import { Button } from "../components/ui/button";
 import { Input } from "../components/ui/input";
 import {

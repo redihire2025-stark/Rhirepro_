@@ -3801,7 +3801,7 @@ function ManageJobsPage() {
       skills: (job.skills || []).join(", "),
       skillExperiences: parseSkillExperiences((job as any).skill_experiences),
       industry: job.industry || "",
-      industries: existingIndustries.length > 0 ? existingIndustries : (job.industry ? [job.industry] : []),
+      industries: existingIndustries.length > 0 ? existingIndustries : ((job as any).industries || (job.industry ? [job.industry] : [])),
       industryInput: "",
       customIndustry: "",
       education: eduCategory,
@@ -3840,9 +3840,9 @@ function ManageJobsPage() {
     const skillsArr = editForm.skills.split(",").map(s => s.trim()).filter(Boolean);
     const resolvedLocation = editForm.locations.length > 0 ? editForm.locations.join(", ") : (editForm.locationInput || editForm.location);
     const resolvedLocations = editForm.locations.length > 0 ? editForm.locations : (editForm.locationInput ? [editForm.locationInput.trim()] : (editForm.location ? [editForm.location] : []));
-    const resolvedIndustry = editForm.industries.join(", ");
     const resolvedInterviewMode = editForm.interviewModes.length > 0 ? editForm.interviewModes.join(", ") : editForm.interviewMode;
     const resolvedEducation = editForm.specialization ? `${editForm.education} - ${editForm.specialization}` : editForm.education;
+    const resolvedIndustry = editForm.industries.length > 0 ? editForm.industries.join(", ") : (editForm.industryInput || editForm.industry);
 
     const updatePayload: Record<string, any> = {
       title: editForm.title,
@@ -4655,21 +4655,21 @@ function ManageJobsPage() {
                     placeholder="Max (e.g. 8)"
                   />
                 </div>
-                <Input
-                  type="number"
-                  min="1"
-                  value={editForm.openings}
-                  onKeyDown={handleOpeningsKeyDown}
-                  onChange={e => handleOpeningsChange(e.target.value)}
-                  className="bg-[#F6F6F6] border-gray-200 rounded-xl"
-                />
-              </div>
-              <div className="col-span-2">
-                <label className="block text-sm font-medium text-[#3A1F1F] mb-1">Key Skills (comma separated)</label>
-                <Input value={editForm.skills} onChange={e => setEditForm(f => ({ ...f, skills: e.target.value }))} className="bg-[#F6F6F6] border-gray-200 rounded-xl" placeholder="Enter required skills" />
->>>>>>> origin/main
               </div>
               <p className="text-xs text-[#8A8A8A] mt-1">Example: Minimum: 5 Years | Maximum: 8 Years</p>
+            </div>
+
+            {/* Openings */}
+            <div>
+              <label className="block text-sm font-medium text-[#3A1F1F] mb-1">Openings</label>
+              <Input
+                type="number"
+                min="1"
+                value={editForm.openings}
+                onKeyDown={handleOpeningsKeyDown}
+                onChange={e => handleOpeningsChange(e.target.value)}
+                className="bg-[#F6F6F6] border-gray-200 rounded-xl"
+              />
             </div>
 
             {/* Key Skills */}
