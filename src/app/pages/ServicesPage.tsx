@@ -1,4 +1,4 @@
-import { useState, useEffect } from "react";
+import { useState } from "react";
 import { ChevronRight, ArrowRight, Users, Award, Briefcase, TrendingUp, CheckCircle2, Clock, Star } from "lucide-react";
 import { Button } from "../components/ui/button";
 import { useNavigate, Link } from "react-router";
@@ -59,9 +59,9 @@ const fallbackServices = [
 
 export default function ServicesPage() {
   const navigate = useNavigate();
-  const [servicesList, setServicesList] = useState<any[]>(fallbackServices);
-  const [plansList, setPlansList] = useState<any[]>(PLANS);
-  const [testimonialsList, setTestimonialsList] = useState<any[]>([
+  const [servicesList] = useState<any[]>(fallbackServices);
+  const [plansList] = useState<any[]>(PLANS);
+  const [testimonialsList] = useState<any[]>([
     {
       name: "Sarah Johnson",
       role: "Software Engineer",
@@ -70,54 +70,12 @@ export default function ServicesPage() {
     }
   ]);
 
-  useEffect(() => {
-    const apiUrl = import.meta.env.VITE_API_URL || "http://localhost:8000";
-
-    // 1. Fetch services
-    fetch(`${apiUrl}/services`)
-      .then((res) => {
-        if (!res.ok) throw new Error("Failed to fetch services");
-        return res.json();
-      })
-      .then((data) => {
-        if (Array.isArray(data)) {
-          setServicesList(data);
-        }
-      })
-      .catch((err) => {
-        console.error("Services fetch error, using local fallback:", err);
-      });
-
-    // 2. Fetch plans
-    fetch(`${apiUrl}/plans`)
-      .then((res) => {
-        if (!res.ok) throw new Error("Failed to fetch plans");
-        return res.json();
-      })
-      .then((data) => {
-        if (Array.isArray(data)) {
-          setPlansList(data);
-        }
-      })
-      .catch((err) => {
-        console.error("Plans fetch error, using local fallback:", err);
-      });
-
-    // 3. Fetch testimonials
-    fetch(`${apiUrl}/testimonials`)
-      .then((res) => {
-        if (!res.ok) throw new Error("Failed to fetch testimonials");
-        return res.json();
-      })
-      .then((data) => {
-        if (Array.isArray(data)) {
-          setTestimonialsList(data);
-        }
-      })
-      .catch((err) => {
-        console.error("Testimonials fetch error, using local fallback:", err);
-      });
-  }, []);
+  // The services, plans and testimonials endpoints lived on a FastAPI service
+  // that was never deployed, so these three calls always failed against
+  // http://localhost:8000 in production and the page fell back to the local
+  // constants below anyway. The Python simply returned hardcoded lists, so the
+  // round-trip added nothing but console noise - the local data is the source
+  // of truth now.
 
   const iconMap: Record<string, React.ComponentType<any>> = {
     Users,

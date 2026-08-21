@@ -8,6 +8,21 @@
 [functions]
   directory = "netlify/functions"
 
+# Payment endpoints are nested, so the /api/* splat below would resolve them to
+# /.netlify/functions/payments/create-order — a path that does not exist. The
+# functions declare these paths themselves via `config.path`, but map them
+# explicitly here too so routing does not depend on which mechanism wins.
+# Must precede the splat.
+[[redirects]]
+  from = "/api/payments/create-order"
+  to = "/.netlify/functions/payments-create-order"
+  status = 200
+
+[[redirects]]
+  from = "/api/payments/verify-payment"
+  to = "/.netlify/functions/payments-verify-payment"
+  status = 200
+
 # Route /api/* calls directly to Netlify serverless functions
 [[redirects]]
   from = "/api/*"

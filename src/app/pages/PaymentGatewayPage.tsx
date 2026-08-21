@@ -73,10 +73,12 @@ export default function PaymentGatewayPage() {
         throw new Error("Failed to load Razorpay SDK. Check your internet connection.");
       }
 
-      const apiUrl = import.meta.env.VITE_API_URL || "http://localhost:8000";
+      // Payments now run as Netlify Functions alongside the site, so these are
+      // same-origin. The old VITE_API_URL pointed at a FastAPI service that was
+      // never deployed, leaving every purchase failing on http://localhost:8000.
 
       // 1. Create order on FastAPI backend
-      const res = await fetch(`${apiUrl}/payments/create-order`, {
+      const res = await fetch("/api/payments/create-order", {
         method: "POST",
         headers: { "Content-Type": "application/json" },
         body: JSON.stringify({
@@ -106,7 +108,7 @@ export default function PaymentGatewayPage() {
           try {
             setStatus("loading");
             // 3. Verify payment signature on FastAPI backend
-            const verifyRes = await fetch(`${apiUrl}/payments/verify-payment`, {
+            const verifyRes = await fetch("/api/payments/verify-payment", {
               method: "POST",
               headers: { "Content-Type": "application/json" },
               body: JSON.stringify({
