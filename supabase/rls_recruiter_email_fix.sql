@@ -45,7 +45,13 @@ GRANT SELECT (
   org_admin_id,
   org_id,
   is_active,
-  is_disabled
+  is_disabled,
+  -- Read directly by RecruiterSignIn.tsx to decide org-admin routing. Omitting
+  -- these broke recruiter sign-in outright: the select 42501'd, rpErr was
+  -- truthy, and the handler signed the user out with "No recruiter account
+  -- found". Neither is personal data - a boolean flag and a seat count.
+  is_org_admin,
+  max_seats
 ) ON public.recruiter_profiles TO authenticated;
 
 
