@@ -19,12 +19,17 @@
  */
 (function () {
   var FLAG = "_fresh";
+  // The origin is currently serving several builds at random, so one retry is
+  // not enough — a reload has a real chance of landing on another stale copy.
+  // Bounded so a genuinely broken deploy still surfaces instead of looping.
+  var MAX_TRIES = 4;
 
   try {
     var url = new URL(window.location.href);
-    if (url.searchParams.has(FLAG)) {
-      // Already retried once — reloading again would spin. Leave the page alone
-      // so the failure is visible rather than an endless refresh.
+    var tries = parseInt(url.searchParams.get(FLAG) || "0", 10);
+    if (!(tries >= 0)) tries = 0;
+    if (tries >= MAX_TRIES) {
+      // Give up rather than spin forever; leave the failure visible.
       return;
     }
 
@@ -41,7 +46,9 @@
     }
 
     cleared.then(function () {
-      url.searchParams.set(FLAG, Date.now().toString());
+      url.searchParams.set(FLAG, String(tries + 1));
+      // Vary the URL each attempt so no layer can answer from a cached copy.
+      url.searchParams.set("_t", Date.now().toString());
       window.location.replace(url.toString());
     });
   } catch (e) {
