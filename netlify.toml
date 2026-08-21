@@ -45,6 +45,12 @@
   for = "/*"
   [headers.values]
     Cache-Control = "public, max-age=0, must-revalidate"
+    # Cache-Control alone governs the browser; Netlify's edge kept its own entry
+    # and was observed holding this HTML with ttl=31535936 (365 days), so two
+    # edge nodes served two different releases of the app and never revalidated.
+    # Netlify-CDN-Cache-Control targets the edge specifically and takes
+    # precedence there, forcing it to revalidate on every request.
+    Netlify-CDN-Cache-Control = "public, max-age=0, must-revalidate"
 
 # Declared after /* so it wins for asset paths. Hashed assets are immutable by
 # construction: any content change produces a new filename, so these can be
