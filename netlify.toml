@@ -14,6 +14,17 @@
   to = "/.netlify/functions/:splat"
   status = 200
 
+# Stale-bundle recovery. Netlify serves real files ahead of non-forced
+# redirects, so an existing hashed asset is unaffected and this only fires for
+# an /assets/ path that is gone — which means the caller is running an
+# index.html cached from an older deploy. Without this the SPA rule below
+# returned HTML for a .js request and the app silently failed to boot.
+# Must precede the catch-all.
+[[redirects]]
+  from = "/assets/*"
+  to = "/stale-bundle.js"
+  status = 200
+
 # SPA fallback — all routes served from index.html
 [[redirects]]
   from = "/*"
