@@ -14,7 +14,7 @@ interface TransactionRow {
   transaction_ref: string | null;
   created_at: string;
   completed_at: string | null;
-  recruiter_profiles: { recruiter_name: string | null; company_name: string | null; email: string } | null;
+  recruiter_profiles: { recruiter_name: string | null; company_name: string | null } | null;
 }
 
 const PAGE_SIZE = 15;
@@ -44,7 +44,7 @@ export default function SuperAdminTransactions() {
     let query = supabase
       .from("payment_transactions")
       .select(
-        "id,plan_id,amount,discount_amount,final_amount,status,payment_method,transaction_ref,created_at,completed_at,recruiter_profiles(recruiter_name,company_name,email)",
+        "id,plan_id,amount,discount_amount,final_amount,status,payment_method,transaction_ref,created_at,completed_at,recruiter_profiles(recruiter_name,company_name)",
         { count: "exact" }
       );
 
@@ -76,7 +76,7 @@ export default function SuperAdminTransactions() {
       header: "Recruiter",
       render: (row) => (
         <div>
-          <p className="font-medium">{row.recruiter_profiles?.recruiter_name || row.recruiter_profiles?.email}</p>
+          <p className="font-medium">{row.recruiter_profiles?.recruiter_name || row.recruiter_profiles?.company_name || "—"}</p>
           <p className="text-xs text-muted-foreground">{row.recruiter_profiles?.company_name || "—"}</p>
         </div>
       ),

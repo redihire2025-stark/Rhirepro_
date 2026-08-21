@@ -48,11 +48,13 @@ export default function SuperAdminRecruiters() {
 
   const fetchRows = useCallback(async () => {
     setLoading(true);
+    // Reads through the SECURITY DEFINER function because `authenticated` no
+    // longer holds SELECT on recruiter_profiles.email. It returns SETOF
+    // recruiter_profiles, so the embed and filters below still resolve.
     let query = supabase
-      .from("recruiter_profiles")
+      .rpc("admin_recruiter_profiles", {}, { count: "exact" })
       .select(
-        "id,email,recruiter_name,company_name,industry,is_disabled,org_role,created_at,last_login_at,recruiter_subscriptions(status,plan_id,expires_at)",
-        { count: "exact" }
+        "id,email,recruiter_name,company_name,industry,is_disabled,org_role,created_at,last_login_at,recruiter_subscriptions(status,plan_id,expires_at)"
       );
 
     if (search.trim()) {

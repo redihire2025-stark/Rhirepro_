@@ -97,7 +97,12 @@ export function AuthProvider({ children }: { children: ReactNode }) {
     }
     try {
       if (userRole === "recruiter") {
-        const { data, error } = await supabase.from("recruiter_profiles").select(SAFE_RECRUITER_COLUMNS).eq("id", userId).single();
+        // `authenticated` no longer holds SELECT on the sensitive columns of
+        // recruiter_profiles (email, billing counters, seat limits) — that
+        // stopped any signed-in user reading every recruiter's address. A
+        // recruiter still needs their own full row, so read it through the
+        // SECURITY DEFINER function, which is scoped to auth.uid().
+        const { data, error } = await supabase.rpc("my_recruiter_profile").maybeSingle();
         if (error) console.error("Error fetching recruiter profile:", error);
         if (!data && retries > 0) {
           await new Promise(r => setTimeout(r, 800));

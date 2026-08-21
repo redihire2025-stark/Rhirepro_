@@ -21,7 +21,7 @@ interface SubscriptionRow {
   started_at: string;
   expires_at: string;
   daily_job_posts: number | null;
-  recruiter_profiles: { recruiter_name: string | null; company_name: string | null; email: string } | null;
+  recruiter_profiles: { recruiter_name: string | null; company_name: string | null } | null;
 }
 
 const PAGE_SIZE = 15;
@@ -45,7 +45,7 @@ export default function SuperAdminSubscriptions() {
     setLoading(true);
     let query = supabase
       .from("recruiter_subscriptions")
-      .select("id,recruiter_id,plan_id,status,started_at,expires_at,daily_job_posts,recruiter_profiles(recruiter_name,company_name,email)", {
+      .select("id,recruiter_id,plan_id,status,started_at,expires_at,daily_job_posts,recruiter_profiles(recruiter_name,company_name)", {
         count: "exact",
       });
 
@@ -111,7 +111,7 @@ export default function SuperAdminSubscriptions() {
       header: "Recruiter",
       render: (row) => (
         <div>
-          <p className="font-medium">{row.recruiter_profiles?.recruiter_name || row.recruiter_profiles?.email}</p>
+          <p className="font-medium">{row.recruiter_profiles?.recruiter_name || row.recruiter_profiles?.company_name || "—"}</p>
           <p className="text-xs text-muted-foreground">{row.recruiter_profiles?.company_name || "—"}</p>
         </div>
       ),
