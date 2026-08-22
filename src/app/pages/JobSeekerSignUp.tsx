@@ -427,7 +427,10 @@ export default function JobSeekerSignUp() {
             </div>
 
             <p className="text-xs text-[#8A8A8A]">
-              By registering, you agree to our Terms of Use and Privacy Policy.
+              By registering, you agree to our{" "}
+              <Link to="/terms-of-service" target="_blank" rel="noreferrer" onClick={(e) => e.stopPropagation()} className="text-[#FF2B2B] hover:underline">Terms of Service</Link>{" "}
+              and{" "}
+              <Link to="/privacy-policy" target="_blank" rel="noreferrer" onClick={(e) => e.stopPropagation()} className="text-[#FF2B2B] hover:underline">Privacy Policy</Link>.
             </p>
 
             <Button

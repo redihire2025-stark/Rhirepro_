@@ -126,7 +126,10 @@ export default function PublicFooter() {
 
         <div className="border-t border-white/20 mt-12 pt-8 flex flex-col md:flex-row justify-between items-center gap-4 text-white/80 text-sm">
           <p>Copyright © 2025 RhirePro. All Rights Reserved.</p>
-          <Link to="/privacy-policy" className="hover:text-white transition-colors">Privacy Policy</Link>
+          <div className="flex items-center gap-6">
+            <Link to="/terms-of-service" className="hover:text-white transition-colors">Terms of Service</Link>
+            <Link to="/privacy-policy" className="hover:text-white transition-colors">Privacy Policy</Link>
+          </div>
         </div>
       </div>
     </footer>

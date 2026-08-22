@@ -1,5 +1,5 @@
 import { useState, useEffect } from "react";
-import { useNavigate, useSearchParams } from "react-router";
+import { useNavigate, useSearchParams, Link } from "react-router";
 import { Button } from "../components/ui/button";
 import { Input } from "../components/ui/input";
 import { Checkbox } from "../components/ui/checkbox";
@@ -448,9 +448,9 @@ export default function SignUpPage() {
                     onCheckedChange={checked => setAgreeTerms(checked as boolean)} className="mt-1" />
                   <label htmlFor="terms" className="text-sm text-[#3A1F1F] cursor-pointer">
                     I agree to the{" "}
-                    <a href="#" className="text-[#FF2B2B] hover:underline">Terms & Conditions</a>{" "}
+                    <Link to="/terms-of-service" target="_blank" rel="noreferrer" onClick={(e) => e.stopPropagation()} className="text-[#FF2B2B] hover:underline">Terms of Service</Link>{" "}
                     and{" "}
-                    <a href="#" className="text-[#FF2B2B] hover:underline">Privacy Policy</a>
+                    <Link to="/privacy-policy" target="_blank" rel="noreferrer" onClick={(e) => e.stopPropagation()} className="text-[#FF2B2B] hover:underline">Privacy Policy</Link>
                   </label>
                 </div>
 

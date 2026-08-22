@@ -333,6 +333,12 @@ export default function RecruiterSignUp() {
               <label className="block mb-1.5 text-sm font-medium text-[#3A1F1F]">Confirm Password *</label>
               <Input type="password" value={formData.confirmPassword} onChange={e => setFormData({ ...formData, confirmPassword: e.target.value })} className="bg-[#F6F6F6] border-gray-200 rounded-xl" placeholder="Re-enter password" required autoComplete="new-password" />
             </div>
+            <p className="text-xs text-[#8A8A8A]">
+              By creating an account, you agree to our{" "}
+              <Link to="/terms-of-service" target="_blank" rel="noreferrer" className="text-[#FF2B2B] hover:underline">Terms of Service</Link>{" "}
+              and{" "}
+              <Link to="/privacy-policy" target="_blank" rel="noreferrer" className="text-[#FF2B2B] hover:underline">Privacy Policy</Link>.
+            </p>
             <Button type="submit" disabled={loading} className="w-full bg-[#FF2B2B] hover:bg-[#e02525] text-white rounded-full py-6">
               {loading ? <><Loader2 className="mr-2 h-4 w-4 animate-spin" /> Creating Account...</> : "Create Recruiter Account"}
             </Button>
