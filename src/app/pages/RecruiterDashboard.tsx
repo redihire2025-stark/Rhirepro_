@@ -3637,6 +3637,22 @@ function ManageJobsPage() {
     Boolean(editForm.experienceMin && editForm.experienceMax) &&
     Number(editForm.experienceMax) < Number(editForm.experienceMin);
 
+  /**
+   * Business rule: once a job has applicants its experience requirement is
+   * locked. People applied against the stated requirement, so changing it after
+   * the fact silently moves the goalposts for them. A revised requirement has to
+   * go out as a new posting instead.
+   */
+  const editingJobApplicantCount = Number((editingJob as unknown as { applicant_count?: number } | null)?.applicant_count ?? 0);
+  const editingJobHasApplicants = editingJobApplicantCount > 0;
+
+  const asExperienceValue = (value: number | null | undefined) =>
+    value === null || value === undefined ? "" : String(value);
+  const experienceWasChanged =
+    Boolean(editingJob) &&
+    (editForm.experienceMin !== asExperienceValue(editingJob?.experience_min) ||
+      editForm.experienceMax !== asExperienceValue(editingJob?.experience_max));
+
   const handleOpeningsKeyDown = (e: React.KeyboardEvent<HTMLInputElement>) => {
     if (["e", "E", ".", ",", "+", "-"].includes(e.key)) {
       e.preventDefault();
@@ -3699,6 +3715,16 @@ function ManageJobsPage() {
   const saveEdit = async () => {
     if (!editingJob) return;
     setEditError("");
+    if (experienceWasChanged && editingJobHasApplicants) {
+      window.alert(
+        "Applicants Found\n\n" +
+        "This job already has applicants. To avoid changing the requirements for " +
+        "existing applicants, please create and post a new job with the updated " +
+        "experience requirements.",
+      );
+      return;
+    }
+
     const editTextError =
       validateJobTextField("Job Title", editForm.title) ||
       editForm.industries.map((i) => validateJobTextField("Industry", i)).find(Boolean);
@@ -3787,8 +3813,29 @@ function ManageJobsPage() {
         specialization: editForm.specialization,
         interview_mode: resolvedInterviewMode,
         perks: editForm.perks,
+        experience_min: editForm.experienceMin === "" ? null : Number(editForm.experienceMin),
+        experience_max: editForm.experienceMax === "" ? null : Number(editForm.experienceMax),
       } : j));
+
+      // Only relevant when the requirement actually moved and nobody has applied
+      // yet — the guard above already turned back the case where applicants
+      // exist. Reposting pushes the revised requirement back out with a fresh
+      // expiry so candidates see the current terms.
+      const shouldRepost = experienceWasChanged && !editingJobHasApplicants;
+      const savedJob = editingJob;
       setEditingJob(null);
+
+      if (shouldRepost && savedJob) {
+        await refreshJob({
+          ...savedJob,
+          experience_min: editForm.experienceMin === "" ? null : Number(editForm.experienceMin),
+          experience_max: editForm.experienceMax === "" ? null : Number(editForm.experienceMax),
+        });
+        window.alert(
+          "Job Updated Successfully\n\n" +
+          "The experience requirement has been updated and the job has been reposted successfully.",
+        );
+      }
     } catch (err: any) {
       setEditError(err?.message || "Failed to save job changes.");
     } finally {
@@ -4507,23 +4554,38 @@ function ManageJobsPage() {
                 <Input
                   type="number"
                   min="0"
+                  disabled={editingJobHasApplicants}
                   value={editForm.experienceMin}
                   onChange={e => setEditForm(f => ({ ...f, experienceMin: e.target.value }))}
-                  className="bg-[#F6F6F6] border-gray-200 rounded-xl"
+                  className="bg-[#F6F6F6] border-gray-200 rounded-xl disabled:opacity-60 disabled:cursor-not-allowed"
                   placeholder="Min yrs"
                 />
                 <span className="text-[#8A8A8A]">–</span>
                 <Input
                   type="number"
                   min="0"
+                  disabled={editingJobHasApplicants}
                   value={editForm.experienceMax}
                   onChange={e => setEditForm(f => ({ ...f, experienceMax: e.target.value }))}
-                  className={`bg-[#F6F6F6] rounded-xl ${isEditExperienceRangeInvalid ? "border-red-500 text-red-900 focus-visible:ring-red-500" : "border-gray-200"}`}
+                  className={`bg-[#F6F6F6] rounded-xl disabled:opacity-60 disabled:cursor-not-allowed ${isEditExperienceRangeInvalid ? "border-red-500 text-red-900 focus-visible:ring-red-500" : "border-gray-200"}`}
                   placeholder="Max yrs"
                 />
               </div>
-              {isEditExperienceRangeInvalid && (
+              {/*
+                Locked rather than merely rejected on save: candidates applied
+                against the stated requirement, so it must not move underneath
+                them. Telling the recruiter up front beats letting them type a
+                new range and only then refusing it.
+              */}
+              {editingJobHasApplicants ? (
+                <p className="text-xs text-[#8A5A00] mt-1.5">
+                  Locked — {editingJobApplicantCount} {editingJobApplicantCount === 1 ? "candidate has" : "candidates have"} already applied.
+                  Post a new job to change the experience requirement.
+                </p>
+              ) : isEditExperienceRangeInvalid ? (
                 <p className="text-xs text-red-500 mt-1.5">Maximum experience must be greater than or equal to minimum experience.</p>
+              ) : (
+                <p className="text-xs text-[#8A8A8A] mt-1.5">Changing this will repost the job with the updated requirement.</p>
               )}
             </div>
 
