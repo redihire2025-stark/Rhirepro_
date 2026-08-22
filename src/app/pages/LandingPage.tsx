@@ -617,7 +617,7 @@ export default function LandingPage() {
   ];
 
   const BLOG_ROUTE = "/blog" as const;
-  const MAX_FEATURED_BLOGS = 2;
+  const MAX_FEATURED_BLOGS = 3;
   const BLOG_FALLBACK_IMAGE = "https://images.unsplash.com/photo-1434030216411-0b793f4b4173?auto=format&fit=crop&w=400&h=250&q=80";
 
   const [publishedArticles, setPublishedArticles] = useState<RecruiterArticle[]>([]);
@@ -664,7 +664,9 @@ export default function LandingPage() {
       description: pub.summary ?? (pub.content ? pub.content.slice(0, 90) + "..." : ""),
       category: pub.category,
       image: pub.cover_image_url ?? BLOG_FALLBACK_IMAGE,
-      path: `/blog/${pub.id}`,
+      // recruiter_articles rows are Articles, not Blogs — /blog/:id reads the
+      // separate blogs table and would not find them.
+      path: `/articles/${pub.id}`,
     }));
   }, [realPublishedArticles]);
 
@@ -1432,92 +1434,43 @@ export default function LandingPage() {
             </p>
           </div>
 
+          {/*
+            These were three hardcoded cards linking to /blog/1, /blog/2 and
+            /blog/3 — literal ids that match no record. Since /blog/:id now reads
+            the Super Admin `blogs` table, the lookup found nothing, the page fell
+            back to static content with no cover image, and "More Articles" listed
+            blogs instead of articles. Both reported symptoms came from that.
+            These cards show recruiter articles, so they link to /articles/:id
+            with the real row id.
+          */}
           <div className="grid md:grid-cols-3 gap-8">
-            <div className="bg-white rounded-2xl overflow-hidden shadow-md hover:shadow-lg transition-shadow border border-gray-100">
-              <ImageWithFallback
-                src="https://images.unsplash.com/photo-1690192435015-319c1d5065b2?crop=entropy&cs=tinysrgb&fit=max&fm=jpg&ixid=M3w3Nzg4Nzd8MHwxfHNlYXJjaHwxfHxzb2Z0JTIwc2tplHMlMjwY29tbXVuaWNhdGlvbiUyMHRlYW13b3JrfGVufDF8fHx8MTc3MjgwODE4Nnww&ixlib=rb-4.1.0&q=80&w=1080"
-                alt="Soft skills communication"
-                className="h-56 w-full object-cover"
-              />
-              <div className="p-6">
-                <span className="inline-block bg-[#ECECF4] text-[#3A1F1F] px-3 py-1 rounded-full text-sm mb-3 font-semibold">
-                  Career Tips
-                </span>
-                <h3 className="text-xl font-bold text-[#3A1F1F] mb-3">
-                  Why Soft Skills Matter More Than Ever
-                </h3>
-                <p className="text-[#8A8A8A] mb-4 line-clamp-3">
-                  Explore why employers are prioritizing soft
-                  skills and how you can showcase yours
-                  effectively.
-                </p>
-                <Button
-                  variant="link"
-                  className="text-[#FF2B2B] p-0 h-auto font-semibold cursor-pointer"
-                  onClick={() => navigate("/blog/1")}
-                >
-                  Read More{" "}
-                  <ArrowRight className="ml-1 h-4 w-4" />
-                </Button>
+            {blogFeaturedCards.map((card) => (
+              <div key={card.id} className="bg-white rounded-2xl overflow-hidden shadow-md hover:shadow-lg transition-shadow border border-gray-100 flex flex-col">
+                <ImageWithFallback
+                  src={card.image}
+                  alt={card.title}
+                  className="h-56 w-full object-cover"
+                />
+                <div className="p-6 flex flex-col flex-1">
+                  <span className="inline-block bg-[#ECECF4] text-[#3A1F1F] px-3 py-1 rounded-full text-sm mb-3 font-semibold self-start">
+                    {card.category}
+                  </span>
+                  <h3 className="text-xl font-bold text-[#3A1F1F] mb-3">{card.title}</h3>
+                  <p className="text-[#8A8A8A] mb-4 line-clamp-3 flex-1">{card.description}</p>
+                  <Button
+                    variant="link"
+                    className="text-[#FF2B2B] p-0 h-auto font-semibold cursor-pointer self-start"
+                    onClick={() => navigate(card.path)}
+                  >
+                    Read More <ArrowRight className="ml-1 h-4 w-4" />
+                  </Button>
+                </div>
               </div>
-            </div>
-            <div className="bg-white rounded-2xl overflow-hidden shadow-md hover:shadow-lg transition-shadow border border-gray-100">
-              <ImageWithFallback
-                src="https://images.unsplash.com/photo-1758518730162-09a142505bfd?crop=entropy&cs=tinysrgb&fit=max&fm=jpg&ixid=M3w3Nzg4Nzd8MHwxfHNlYXJjaHwxfHx0YWxlbnQlMjBhY3F1aXNpdGlvbiUyMGhpcmluZyUyMHByb2Nlc3N8ZW58MXx8fHwxNzcyODIyNTA4fDA&ixlib=rb-4.1.0&q=80&w=1080"
-                alt="Talent acquisition"
-                className="h-56 w-full object-cover"
-              />
-              <div className="p-6">
-                <span className="inline-block bg-[#ECECF4] text-[#3A1F1F] px-3 py-1 rounded-full text-sm mb-3 font-semibold">
-                  Industry Insights
-                </span>
-                <h3 className="text-xl font-bold text-[#3A1F1F] mb-3">
-                  How Companies Are Battling Talent Shortages
-                </h3>
-                <p className="text-[#8A8A8A] mb-4 line-clamp-3">
-                  Discover innovative strategies companies use
-                  to attract and retain top talent in
-                  competitive markets.
-                </p>
-                <Button
-                  variant="link"
-                  className="text-[#FF2B2B] p-0 h-auto font-semibold cursor-pointer"
-                  onClick={() => navigate("/blog/2")}
-                >
-                  Read More{" "}
-                  <ArrowRight className="ml-1 h-4 w-4" />
-                </Button>
-              </div>
-            </div>
-            <div className="bg-white rounded-2xl overflow-hidden shadow-md hover:shadow-lg transition-shadow border border-gray-100">
-              <ImageWithFallback
-                src="https://images.unsplash.com/photo-1626065838283-d338b7702fed?crop=entropy&cs=tinysrgb&fit=max&fm=jpg&ixid=M3w3Nzg4Nzd8MHwxfHNlYXJjaHwxfHxyZW1vdGUlMjB3b3JrJTIwaG9tZSUyMG9mZmljZXxlbnwxfHx8fDE3NzI3MTU3NjZ8MA&ixlib=rb-4.1.0&q=80&w=1080"
-                alt="Remote work"
-                className="h-56 w-full object-cover"
-              />
-              <div className="p-6">
-                <span className="inline-block bg-[#ECECF4] text-[#3A1F1F] px-3 py-1 rounded-full text-sm mb-3 font-semibold">
-                  Trends
-                </span>
-                <h3 className="text-xl font-bold text-[#3A1F1F] mb-3">
-                  Recruiters Now Focus on Candidate Experience
-                </h3>
-                <p className="text-[#8A8A8A] mb-4 line-clamp-3">
-                  Learn how the recruitment landscape is
-                  shifting to prioritize candidate satisfaction
-                  and engagement.
-                </p>
-                <Button
-                  variant="link"
-                  className="text-[#FF2B2B] p-0 h-auto font-semibold cursor-pointer"
-                  onClick={() => navigate("/blog/3")}
-                >
-                  Read More{" "}
-                  <ArrowRight className="ml-1 h-4 w-4" />
-                </Button>
-              </div>
-            </div>
+            ))}
           </div>
+          {blogFeaturedCards.length === 0 && (
+            <p className="text-center text-[#8A8A8A]">No articles published yet. Check back soon.</p>
+          )}
         </div>
       </section>
 
