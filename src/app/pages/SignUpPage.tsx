@@ -152,8 +152,20 @@ export default function SignUpPage() {
     }
 
     const { data: { session } } = await supabase.auth.getSession();
+
+    // Job seekers are live immediately. Recruiters are not: the account starts
+    // at verification_status='Pending' awaiting Super Admin approval, and
+    // signup leaves a live session behind, so entering the dashboard here would
+    // bypass the approval gate that the sign-in pages enforce.
+    if (pendingUserType === "recruiter") {
+      await supabase.auth.signOut();
+      setSuccess(true);
+      setTimeout(() => navigate("/signin?role=recruiter"), 4000);
+      return;
+    }
+
     if (session) {
-      navigate(pendingUserType === "jobseeker" ? "/jobseeker/dashboard" : "/recruiter/dashboard");
+      navigate("/jobseeker/dashboard");
       return;
     }
 
@@ -205,8 +217,17 @@ export default function SignUpPage() {
             Welcome, <strong>{formData.name}</strong>!
           </p>
           <p className="text-[#8A8A8A] text-sm mb-6">
-            Your account has been created successfully.<br />
-            Please sign in to continue.
+            {pendingUserType === "recruiter" ? (
+              <>
+                Your recruiter account is <strong>awaiting approval</strong> from our team.<br />
+                We&apos;ll email you as soon as it&apos;s approved, and you can sign in then.
+              </>
+            ) : (
+              <>
+                Your account has been created successfully.<br />
+                Please sign in to continue.
+              </>
+            )}
           </p>
           <div className="w-full bg-gray-100 rounded-full h-1 mb-4 overflow-hidden">
             <div className="bg-[#FF2B2B] h-full rounded-full animate-pulse w-full" />

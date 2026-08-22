@@ -1341,6 +1341,25 @@ export default function RecruiterDashboard() {
     return () => { cancelled = true; };
   }, [authLoading, user, navigate]);
 
+  // Approval gate, enforced here as well as on the sign-in pages. Signup leaves
+  // a live session behind, and any future path that authenticates without going
+  // through a sign-in form would otherwise land straight in the dashboard while
+  // still Pending. verification_status is only readable via the RPC.
+  useEffect(() => {
+    if (authLoading || !user) return;
+    let cancelled = false;
+    (async () => {
+      const { data } = await supabase.rpc("my_recruiter_profile").maybeSingle();
+      if (cancelled || !data) return;
+      const profile = data as { verification_status?: string | null };
+      if (profile.verification_status && profile.verification_status !== "Verified") {
+        await supabase.auth.signOut();
+        navigate("/recruiter/signin", { replace: true });
+      }
+    })();
+    return () => { cancelled = true; };
+  }, [authLoading, user, navigate]);
+
   useEffect(() => {
     if (!recruiterProfile?.id) {
       setLoadingSub(false);
