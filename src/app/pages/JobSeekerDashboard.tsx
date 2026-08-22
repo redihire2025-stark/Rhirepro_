@@ -2174,46 +2174,54 @@ function FindJobPage() {
     preferredInterviewModeKey,
   ]);
 
-  // Subscribe to real-time jobs table changes to update counts automatically
+  // Keep the seeker's view of a job in step with the recruiter's edits.
   useEffect(() => {
     const channel = supabase
       .channel("jobseeker-jobs-realtime")
       .on(
         "postgres_changes",
-        {
-          event: "UPDATE",
-          schema: "public",
-          table: "jobs",
-        },
+        { event: "UPDATE", schema: "public", table: "jobs" },
         (payload) => {
           const updatedJob = payload.new as DBJob;
-          if (updatedJob && updatedJob.id) {
-            setDbJobs((prev) =>
-              prev.map((job) => {
-                if (job.id === updatedJob.id) {
-                  return {
-                    ...job,
-                    applicant_count: updatedJob.applicant_count || 0,
-                  };
-                }
-                return job;
-              })
+          if (!updatedJob?.id) return;
+
+          // This used to copy applicant_count across and nothing else, so a
+          // recruiter changing the title, salary, location or status left the
+          // seeker on stale details until they reloaded. Merge the whole row.
+          //
+          // payload.new carries table columns only, never the embedded recruiter
+          // relation, so the existing nested object is kept rather than being
+          // wiped to undefined.
+          const stillVisible = isJobVisibleToSeekers(updatedJob) && isIndianLocation(updatedJob.location);
+
+          setDbJobs((prev) => {
+            if (!stillVisible) {
+              // Closed, paused or expired while the seeker was looking at it.
+              return prev.filter((job) => job.id !== updatedJob.id);
+            }
+            return prev.map((job) =>
+              job.id === updatedJob.id
+                ? { ...job, ...updatedJob, recruiter: job.recruiter ?? updatedJob.recruiter }
+                : job,
             );
-            setSelectedJob((prev) => {
-              if (prev && prev.id === updatedJob.id) {
-                return {
-                  ...prev,
-                  applicantCount: updatedJob.applicant_count || 0,
-                  dbJob: {
-                    ...prev.dbJob,
-                    applicant_count: updatedJob.applicant_count || 0,
-                  },
-                };
-              }
-              return prev;
-            });
-          }
-        }
+          });
+
+          setSelectedJob((prev) => {
+            if (!prev || String(prev.id) !== String(updatedJob.id)) return prev;
+            if (!stillVisible) return null;
+            return {
+              ...prev,
+              title: updatedJob.title ?? prev.title,
+              location: updatedJob.location ?? prev.location,
+              applicantCount: updatedJob.applicant_count || 0,
+              dbJob: {
+                ...prev.dbJob,
+                ...updatedJob,
+                recruiter: prev.dbJob?.recruiter ?? updatedJob.recruiter,
+              },
+            };
+          });
+        },
       )
       .subscribe();
 

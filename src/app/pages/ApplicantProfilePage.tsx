@@ -369,6 +369,31 @@ export default function ApplicantProfilePage() {
               localStorage.removeItem(viewKey);
             }
           });
+
+          // Tell the candidate their profile was viewed. Keyed per recruiter,
+          // per candidate, per day and upserted, so a recruiter flicking back
+          // and forth through a shortlist does not bury them in notifications.
+          // notifications is published to Realtime, so the bell updates without
+          // a reload. Best-effort: never let this break profile loading.
+          const viewerName = recruiterProfile.company_name || recruiterProfile.recruiter_name || "A recruiter";
+          void supabase
+            .from("notifications")
+            .upsert(
+              {
+                user_id: profData.id,
+                user_type: "jobseeker",
+                title: "Your profile was viewed",
+                message: `A recruiter from ${viewerName} has viewed your profile.`,
+                type: "profile_view",
+                related_id: recruiterProfile.id,
+                is_read: false,
+                notification_key: `profile-view:${profData.id}:${recruiterProfile.id}:${new Date().toISOString().slice(0, 10)}`,
+              },
+              { onConflict: "notification_key" },
+            )
+            .then(({ error: notifyError }) => {
+              if (notifyError) console.warn("Profile-view notification failed:", notifyError.message);
+            });
         }
       }
 
