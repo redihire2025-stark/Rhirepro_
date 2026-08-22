@@ -12,6 +12,7 @@ import {
 } from "./ui/pagination";
 import { Dialog, DialogContent, DialogHeader, DialogTitle } from "./ui/dialog";
 import { AppliedJobWithJob, getAppliedJobs } from "../services/jobService";
+import { isJobVisibleToSeekers } from "../../lib/jobs";
 import { supabase } from "../../lib/supabase";
 
 const JOBS_PER_PAGE = 6;
@@ -29,6 +30,12 @@ interface AppliedJobsSectionProps {
    */
   onJobSelect?: (job: AppliedJobWithJob) => void;
   selectedJobId?: string | null;
+  /**
+   * Drops applications whose job is no longer live. The dashboard surfaces those
+   * under its own "Expired Jobs" filter, so leaving them here would list the
+   * same application twice.
+   */
+  hideExpired?: boolean;
 }
 
 const PIPELINE_STAGES = [
@@ -232,7 +239,7 @@ function formatDate(value: string): string {
   });
 }
 
-export default function AppliedJobsSection({ userId, compact = false, onJobsLoaded, onInterviewDetailsOpen, onOfferDetailsOpen, filterStatus, onJobSelect, selectedJobId }: AppliedJobsSectionProps) {
+export default function AppliedJobsSection({ userId, compact = false, onJobsLoaded, onInterviewDetailsOpen, onOfferDetailsOpen, filterStatus, onJobSelect, selectedJobId, hideExpired = false }: AppliedJobsSectionProps) {
   const [appliedJobs, setAppliedJobs] = useState<AppliedJobWithJob[]>([]);
   const [loading, setLoading] = useState(true);
   const [error, setError] = useState("");
@@ -246,15 +253,19 @@ export default function AppliedJobsSection({ userId, compact = false, onJobsLoad
   }, [currentPage]);
 
   const filteredJobs = useMemo(() => {
-    if (!filterStatus) return appliedJobs;
+    // Same liveness rule the listings use, so "expired" means the same thing everywhere.
+    const liveJobs = hideExpired
+      ? appliedJobs.filter((j) => !j.job || isJobVisibleToSeekers(j.job))
+      : appliedJobs;
+    if (!filterStatus) return liveJobs;
     if (filterStatus === "interview") {
-      return appliedJobs.filter(j => {
+      return liveJobs.filter(j => {
         const nStatus = normalizeStatus(j.status);
         return ["interview_scheduled", "interview_completed", "interview_selected", "interview_rejected"].includes(nStatus);
       });
     }
-    return appliedJobs;
-  }, [appliedJobs, filterStatus]);
+    return liveJobs;
+  }, [appliedJobs, filterStatus, hideExpired]);
 
   useEffect(() => {
     const currentUserId = userId;
@@ -382,7 +393,11 @@ export default function AppliedJobsSection({ userId, compact = false, onJobsLoad
     return (
       <div className={`${compact ? "py-8" : "bg-white rounded-2xl p-12 shadow-md"} text-center`}>
         <Briefcase className="h-12 w-12 text-gray-300 mx-auto mb-3" />
-        <p className="text-[#8A8A8A]">No interview-related applications found</p>
+        <p className="text-[#8A8A8A]">
+          {filterStatus === "interview"
+            ? "No interview-related applications found"
+            : "All your applications are for jobs that have expired. Check the Expired Jobs filter."}
+        </p>
       </div>
     );
   }

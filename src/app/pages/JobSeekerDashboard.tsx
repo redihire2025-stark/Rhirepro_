@@ -858,6 +858,7 @@ interface ProfileScoreFields {
   resume_url?: string | null;
   expected_salary?: string | null;
   notice_period?: string | null;
+  experience_type?: "fresher" | "experienced" | null;
 }
 
 interface ProfileSectionCounts {
@@ -876,7 +877,10 @@ export function calculateProfileCompletionScore(
   score += Math.round(([name, profile.phone, profile.email, profile.location].filter(Boolean).length / 4) * 15);
   if ((profile.about || "").trim().length > 20) score += 10;
   score += Math.min(10, Math.round(((profile.skills?.length || 0) / 3) * 10));
-  if (counts.workExperience > 0) score += 20;
+  // A fresher has declared they have no work history, so withholding these points
+  // would keep them permanently under 100 and bounce them to the profile page on
+  // every fresh login.
+  if (counts.workExperience > 0 || profile.experience_type === "fresher") score += 20;
   if (counts.education > 0) score += 15;
   if (counts.projects > 0) score += 5;
   if (counts.certifications > 0) score += 5;
@@ -2193,6 +2197,84 @@ function FindJobPage() {
    * looking at one job — not several views. Held in a ref rather than state so
    * recording a view never triggers a re-render.
    */
+  /*
+   * AI match scores for the jobs on screen, including Recommended Jobs.
+   *
+   * The percentage on a card is getJdSkillMatchPercentage — a keyword overlap
+   * between the seeker's skills and the JD. That is a real measurement but a
+   * shallow one: it cannot tell a Django developer from someone who merely
+   * listed Python. Where Gemini has already scored a pairing, the card shows
+   * that instead and labels it, so the two are never confused.
+   *
+   * Only cached scores are read here. A results page renders a dozen cards and
+   * scoring each on render would be a model call per card; the seeker asks for
+   * one from the detail panel and it is reused afterwards.
+   */
+  type AiMatch = { score: number; summary: string | null; strengths: string[]; gaps: string[] };
+  const [aiJobMatches, setAiJobMatches] = useState<Record<string, AiMatch>>({});
+  const [aiScoringJobId, setAiScoringJobId] = useState<string | null>(null);
+
+  useEffect(() => {
+    const jobIds = dbJobs.map((job) => job.id).filter(Boolean);
+    if (!profile?.id || jobIds.length === 0) return;
+    let cancelled = false;
+    void supabase
+      .from("ai_match_scores")
+      .select("job_id, score, summary, strengths, gaps")
+      .eq("profile_id", profile.id)
+      .in("job_id", jobIds)
+      .then(({ data, error }) => {
+        if (cancelled || error || !data) return;
+        setAiJobMatches((prev) => {
+          const next = { ...prev };
+          for (const row of data as any[]) {
+            next[row.job_id] = {
+              score: row.score,
+              summary: row.summary ?? null,
+              strengths: row.strengths ?? [],
+              gaps: row.gaps ?? [],
+            };
+          }
+          return next;
+        });
+      });
+    return () => { cancelled = true; };
+  }, [dbJobs, profile?.id]);
+
+  const scoreJobWithAi = async (jobId?: string | null) => {
+    if (!jobId || !profile?.id || aiScoringJobId) return;
+    setAiScoringJobId(jobId);
+    try {
+      const { data: sessionData } = await supabase.auth.getSession();
+      const accessToken = sessionData.session?.access_token;
+      if (!accessToken) return;
+      const res = await fetch("/api/match-score", {
+        method: "POST",
+        headers: { "Content-Type": "application/json", Authorization: `Bearer ${accessToken}` },
+        body: JSON.stringify({ profile_id: profile.id, job_id: jobId }),
+      });
+      const payload = await res.json().catch(() => null);
+      if (!res.ok || typeof payload?.score !== "number") {
+        toast.error("Could not score this job", { description: payload?.error || "Please try again shortly." });
+        return;
+      }
+      setAiJobMatches((prev) => ({
+        ...prev,
+        [jobId]: {
+          score: payload.score,
+          summary: payload.summary ?? null,
+          strengths: payload.strengths ?? [],
+          gaps: payload.gaps ?? [],
+        },
+      }));
+    } catch (err) {
+      console.warn("Match scoring failed:", err);
+      toast.error("Could not score this job", { description: "Please try again shortly." });
+    } finally {
+      setAiScoringJobId(null);
+    }
+  };
+
   const countedJobViewsRef = useRef<Set<string>>(new Set());
 
   const countJobView = useCallback((jobId?: string | null) => {
@@ -2635,7 +2717,12 @@ function FindJobPage() {
                   const isApplied = appliedJobIds.includes(String(job.id));
                   const isSaved = savedJobIds.includes(String(job.id));
                   const isSelected = selectedJob?.id === job.id;
-                  const matchPercentage = job.isDB ? getJdSkillMatchPercentage(job.dbJob, profileSkills) : 0;
+                  const cardAiMatch = job.dbJob ? aiJobMatches[job.dbJob.id] : undefined;
+                  // An AI score, where one exists, is the better answer; fall
+                  // back to the keyword overlap otherwise.
+                  const matchPercentage = cardAiMatch
+                    ? cardAiMatch.score
+                    : job.isDB ? getJdSkillMatchPercentage(job.dbJob, profileSkills) : 0;
                   const matchBadgeClass = getMatchBadgeClass(matchPercentage);
                   const openJob = () => {
                     setSelectedJob(isSelected ? null : job);
@@ -2669,8 +2756,11 @@ function FindJobPage() {
                         <div className="flex flex-wrap items-center gap-1.5 min-w-0">
                           {job.isDB && (
                             <>
-                              <span className={`rounded-full px-2.5 py-1 text-[11px] font-semibold whitespace-nowrap ${matchBadgeClass}`}>
-                                {matchPercentage}% match
+                              <span
+                                className={`rounded-full px-2.5 py-1 text-[11px] font-semibold whitespace-nowrap ${matchBadgeClass}`}
+                                title={cardAiMatch?.summary || undefined}
+                              >
+                                {matchPercentage}% {cardAiMatch ? "AI match" : "match"}
                               </span>
                               <span
                                 className="bg-[#FFF2F2] text-[#FF2B2B] rounded-full px-2.5 py-1 text-[11px] font-semibold flex items-center gap-1 border border-red-100 whitespace-nowrap"
@@ -2876,6 +2966,52 @@ function FindJobPage() {
                     </div>
                   ) : null}
                 </div>
+
+                {/*
+                  Where the AI has assessed this pairing, show what it actually
+                  said. A bare percentage invites the reader to trust a number
+                  without knowing what drove it, and the strengths and gaps are
+                  the part a candidate can act on.
+                */}
+                {selectedJob.dbJob && (() => {
+                  const panelMatch = aiJobMatches[selectedJob.dbJob.id];
+                  if (panelMatch) {
+                    return (
+                      <div className="mb-6 rounded-xl border border-gray-200 bg-[#FAFAFA] p-4">
+                        <div className="flex items-center gap-2 mb-2">
+                          <span className={`rounded-full px-2.5 py-1 text-[11px] font-semibold ${getMatchBadgeClass(panelMatch.score)}`}>
+                            {panelMatch.score}% AI match
+                          </span>
+                          {panelMatch.summary && (
+                            <p className="text-xs text-[#5A5A5A] flex-1">{panelMatch.summary}</p>
+                          )}
+                        </div>
+                        {panelMatch.strengths.length > 0 && (
+                          <p className="text-xs text-[#3A1F1F] mb-1">
+                            <span className="font-semibold text-green-700">In your favour:</span>{" "}
+                            {panelMatch.strengths.join("; ")}
+                          </p>
+                        )}
+                        {panelMatch.gaps.length > 0 && (
+                          <p className="text-xs text-[#3A1F1F]">
+                            <span className="font-semibold text-[#B42318]">Worth addressing:</span>{" "}
+                            {panelMatch.gaps.join("; ")}
+                          </p>
+                        )}
+                      </div>
+                    );
+                  }
+                  return (
+                    <Button
+                      variant="outline"
+                      className="mb-6 rounded-full border-[#FF2B2B] text-[#FF2B2B] hover:bg-[#FFF0F0]"
+                      disabled={aiScoringJobId === selectedJob.dbJob.id}
+                      onClick={() => { void scoreJobWithAi(selectedJob.dbJob?.id); }}
+                    >
+                      {aiScoringJobId === selectedJob.dbJob.id ? "Checking your fit..." : "Check my AI match"}
+                    </Button>
+                  );
+                })()}
 
                 <div className="flex gap-2 mb-6">
                   <Button
@@ -3278,6 +3414,9 @@ function ProfilePage({ onPendingPrefsChange }: { onPendingPrefsChange?: (pending
     if (profile?.resume_url) setResumeFile(profile.resume_url);
     if (profile?.about) { setSummary(profile.about); setSummaryForm(profile.about); }
     setSkills(profile?.skills ?? []);
+    // Legacy rows can have a null experience_type; "experienced" matches what the
+    // recruiter side already shows for those, so the two views stay consistent.
+    setExperienceType(profile?.experience_type === "fresher" ? "fresher" : "experienced");
     // Preferences
     if (profile) {
       const p = profile as any;
@@ -3307,6 +3446,15 @@ function ProfilePage({ onPendingPrefsChange }: { onPendingPrefsChange?: (pending
   const [showAddExp, setShowAddExp] = useState(false);
   const [editingExpId, setEditingExpId] = useState<string | null>(null);
   const [expForm, setExpForm] = useState<Omit<WorkExp, "id">>(emptyExp);
+  /*
+   * A fresher has nothing to add here, and an empty list read as an unfinished
+   * profile rather than a deliberate "no experience yet". The flag persists to
+   * profiles.experience_type, which recruiter search already filters on, so the
+   * values must stay "fresher" / "experienced".
+   */
+  const [experienceType, setExperienceType] = useState<"fresher" | "experienced">("experienced");
+  const [savingExperienceType, setSavingExperienceType] = useState(false);
+  const isFresher = experienceType === "fresher";
 
   // Education
   const emptyEdu: EducationForm = { degree: "", field: "", college: "", startYear: "2016", endYear: "2020", score: "", customField: "" };
@@ -3558,7 +3706,10 @@ function ProfilePage({ onPendingPrefsChange }: { onPendingPrefsChange?: (pending
     score += Math.round((basicFields.filter(Boolean).length / 4) * 15);
     if (summary.trim().length > 20) score += 10;
     score += Math.min(10, Math.round((skills.length / 3) * 10));
-    if (experiences.length > 0) score += 20;
+    // Freshers earn the experience points by declaring themselves freshers —
+    // otherwise the banner would never clear for them. Mirrors
+    // calculateProfileCompletionScore.
+    if (experiences.length > 0 || isFresher) score += 20;
     if (education.length > 0) score += 15;
     if (projects.length > 0) score += 5;
     if (certifications.length > 0) score += 5;
@@ -3566,7 +3717,7 @@ function ProfilePage({ onPendingPrefsChange }: { onPendingPrefsChange?: (pending
     const prefFields = [preferences.desiredJobTitle, preferences.expectedSalary, preferences.noticePeriod];
     score += Math.round((prefFields.filter(Boolean).length / 3) * 10);
     return Math.min(100, score);
-  }, [basicInfo, summary, skills, experiences, education, projects, certifications, resumeFile, preferences]);
+  }, [basicInfo, summary, skills, experiences, isFresher, education, projects, certifications, resumeFile, preferences]);
 
   const completionColor = completion >= 80 ? "bg-green-500" : completion >= 50 ? "bg-yellow-500" : "bg-[#FF2B2B]";
   const filteredSkillOptions = useMemo(() => {
@@ -3774,6 +3925,28 @@ function ProfilePage({ onPendingPrefsChange }: { onPendingPrefsChange?: (pending
       (currentLocation) => currentLocation.toLowerCase() !== location.toLowerCase(),
     );
     setPrefsForm((form) => ({ ...form, preferredLocation: joinPreferredLocations(updated) }));
+  }
+
+  async function updateExperienceType(next: "fresher" | "experienced") {
+    if (next === experienceType || savingExperienceType) return;
+    const previous = experienceType;
+    setExperienceType(next);
+    if (next === "fresher") {
+      // Leaving an add/edit form open would contradict the state we just picked.
+      setShowAddExp(false);
+      setEditingExpId(null);
+      setExpForm(emptyExp);
+    }
+    if (!profile?.id) return;
+    setSavingExperienceType(true);
+    const { error } = await supabase.from("profiles").update({ experience_type: next }).eq("id", profile.id);
+    setSavingExperienceType(false);
+    if (error) {
+      console.error("Experience type update error:", error.message);
+      setExperienceType(previous);
+      return;
+    }
+    await refreshProfile();
   }
 
   async function saveExp() {
@@ -4371,11 +4544,47 @@ function ProfilePage({ onPendingPrefsChange }: { onPendingPrefsChange?: (pending
         <div className="bg-white rounded-2xl p-6 shadow-md">
           <div className="flex justify-between items-center mb-4">
             <h3 className="text-xl font-semibold text-[#3A1F1F] flex items-center gap-2"><Briefcase className="h-5 w-5 text-[#FF2B2B]" /> Work Experience</h3>
-            <Button variant="outline" size="sm" className="border-[#FF2B2B] text-[#FF2B2B] rounded-full" onClick={() => { setShowAddExp(true); setEditingExpId(null); setExpForm(emptyExp); }}>
-              <Plus className="h-4 w-4 mr-1" /> Add
-            </Button>
+            {!isFresher && (
+              <Button variant="outline" size="sm" className="border-[#FF2B2B] text-[#FF2B2B] rounded-full" onClick={() => { setShowAddExp(true); setEditingExpId(null); setExpForm(emptyExp); }}>
+                <Plus className="h-4 w-4 mr-1" /> Add
+              </Button>
+            )}
           </div>
 
+          {/* Fresher / Experienced — decides whether the entry list applies at all */}
+          <div className="mb-4">
+            <p className="text-sm text-[#8A8A8A] mb-2">Are you a fresher or do you have work experience?</p>
+            <div className="inline-flex rounded-full border border-gray-200 bg-[#F6F6F6] p-1">
+              {([
+                { value: "fresher", label: "Fresher" },
+                { value: "experienced", label: "Experienced" },
+              ] as const).map((option) => (
+                <button
+                  key={option.value}
+                  type="button"
+                  disabled={savingExperienceType}
+                  onClick={() => { void updateExperienceType(option.value); }}
+                  className={`px-5 py-1.5 rounded-full text-sm font-medium transition-colors duration-200 disabled:opacity-60 ${experienceType === option.value
+                    ? "bg-[#FF2B2B] text-white shadow-sm"
+                    : "text-[#3A1F1F] hover:bg-white"
+                    }`}
+                >
+                  {option.label}
+                </button>
+              ))}
+            </div>
+          </div>
+
+          {isFresher ? (
+            <div className="rounded-xl border border-dashed border-gray-200 bg-[#F6F6F6] p-5 text-center">
+              <GraduationCap className="h-8 w-8 text-[#FF2B2B] mx-auto mb-2" />
+              <p className="text-sm font-medium text-[#3A1F1F]">You are listed as a fresher</p>
+              <p className="text-[#8A8A8A] text-xs mt-1">
+                Work experience is not required. Recruiters will see you as a fresher — add your Education, Projects and Skills to stand out.
+                {experiences.length > 0 && " Your saved experience entries are kept but hidden while this is set to Fresher."}
+              </p>
+            </div>
+          ) : (
           <div className="space-y-4">
             {experiences.map((exp) => (
               <div key={exp.id}>
@@ -4418,6 +4627,7 @@ function ProfilePage({ onPendingPrefsChange }: { onPendingPrefsChange?: (pending
             )}
             {showAddExp && <ExpForm form={expForm} setForm={setExpForm} onSave={saveExp} onCancel={cancelExp} />}
           </div>
+          )}
         </div>
 
         {/* ── Education ── */}
@@ -4703,6 +4913,7 @@ function ProfilePage({ onPendingPrefsChange }: { onPendingPrefsChange?: (pending
             certifications={certifications}
             languages={languages}
             profilePic={profilePic}
+            isFresher={isFresher}
           />
         </div>
 
@@ -5402,6 +5613,21 @@ function CertForm({ form, setForm, onSave, onCancel }: {
 }
 
 // ── Analytics Page ─────────────────────────────────────────────────────────────
+type AnalyticsTab = "applied" | "saved" | "compare" | "expired";
+
+/*
+ * A saved/applied job whose posting has lapsed. Both lists feed this one view so
+ * the seeker still has a record of what they engaged with, without dead postings
+ * padding out the lists they actually act on.
+ */
+type ExpiredJobEntry = {
+  key: string;
+  source: "Applied" | "Saved";
+  jobId: string;
+  job: DBJob;
+  contextLabel: string;
+};
+
 function AnalyticsPage() {
   const { profile } = useAuth();
   const navigate = useNavigate();
@@ -5412,13 +5638,13 @@ function AnalyticsPage() {
     const tabParam = searchParams.get("tab");
     const stateTab = (location.state as { tab?: string } | null)?.tab;
     const target = tabParam || stateTab;
-    if (target === "saved" || target === "compare" || target === "applied") {
+    if (target === "saved" || target === "compare" || target === "applied" || target === "expired") {
       return target;
     }
     return "applied";
   }, [location.search, location.state]);
 
-  const [activeTab, setActiveTab] = useState<"applied" | "saved" | "compare">(initialTab);
+  const [activeTab, setActiveTab] = useState<AnalyticsTab>(initialTab);
   const [appliedJobs, setAppliedJobs] = useState<AppliedJobWithJob[]>([]);
   const [savedJobs, setSavedJobs] = useState<SavedJobWithJob[]>([]);
   const [selectedInterviewJob, setSelectedInterviewJob] = useState<AppliedJobWithJob | null>(null);
@@ -5440,7 +5666,7 @@ function AnalyticsPage() {
     const tabParam = searchParams.get("tab");
     const stateTab = (location.state as { tab?: string } | null)?.tab;
     const target = tabParam || stateTab;
-    if (target === "saved" || target === "compare" || target === "applied") {
+    if (target === "saved" || target === "compare" || target === "applied" || target === "expired") {
       setActiveTab(target);
     }
   }, [location.search, location.state]);
@@ -5723,10 +5949,66 @@ function AnalyticsPage() {
     { label: "Interviews", value: interviewsCount, Icon: Bell, action: () => { setAppliedJobsFilter("interview"); setActiveTab("applied"); } },
   ];
 
+  /*
+   * Expiry is decided by isJobVisibleToSeekers — the same rule the listings,
+   * job detail page and landing page use — so a posting never reads as live in
+   * one place and expired in another.
+   */
+  const expiredEntries = useMemo<ExpiredJobEntry[]>(() => {
+    const entries: ExpiredJobEntry[] = [];
+    const seenJobIds = new Set<string>();
+
+    appliedJobs.forEach((application) => {
+      const job = application.job;
+      if (!job || isJobVisibleToSeekers(job)) return;
+      const jobId = String(application.job_id || job.id);
+      seenJobIds.add(jobId);
+      entries.push({
+        key: `applied-${application.id}`,
+        source: "Applied",
+        jobId,
+        job,
+        contextLabel: application.applied_at ? `Applied ${formatDateDisplay(application.applied_at)}` : "Applied",
+      });
+    });
+
+    savedJobs.forEach((savedJob) => {
+      const job = savedJob.job;
+      if (!job || isJobVisibleToSeekers(job)) return;
+      const jobId = String(savedJob.job_id || job.id);
+      // An applied job the seeker also saved is one posting, so keep the Applied row.
+      if (seenJobIds.has(jobId)) return;
+      seenJobIds.add(jobId);
+      entries.push({
+        key: `saved-${savedJob.id}`,
+        source: "Saved",
+        jobId,
+        job,
+        contextLabel: savedJob.saved_at ? `Saved ${formatDateDisplay(savedJob.saved_at)}` : "Saved",
+      });
+    });
+
+    return entries;
+  }, [appliedJobs, savedJobs]);
+
+  /*
+   * The dropdown counts have to match what each list actually renders, and both
+   * lists now hand their expired rows over to the Expired filter.
+   */
+  const liveAppliedCount = useMemo(
+    () => appliedJobs.filter((application) => !application.job || isJobVisibleToSeekers(application.job)).length,
+    [appliedJobs],
+  );
+  const liveSavedCount = useMemo(
+    () => savedJobs.filter((savedJob) => !savedJob.job || isJobVisibleToSeekers(savedJob.job)).length,
+    [savedJobs],
+  );
+
   const tabs = [
-    { key: "applied", label: `Applied Jobs (${appliedJobs.length})` },
-    { key: "saved", label: `Saved Jobs (${savedJobs.length})` },
+    { key: "applied", label: `Applied Jobs (${liveAppliedCount})` },
+    { key: "saved", label: `Saved Jobs (${liveSavedCount})` },
     { key: "compare", label: "Compare Jobs" },
+    { key: "expired", label: `Expired Jobs (${expiredEntries.length})` },
   ] as const;
 
   const normalizeApplicationStage = (status: string) => status.toLowerCase().trim().replace(/[\s-]+/g, "_");
@@ -5908,28 +6190,34 @@ function AnalyticsPage() {
 
         {/* Left — Tabs */}
         <div className={activeTab === "compare" ? "w-full" : "lg:col-span-2"}>
-          {/* Tab buttons */}
-          <div className="flex gap-2 mb-4 flex-wrap">
-            {tabs.map(({ key, label }) => (
-              <button
-                key={key}
-                onClick={() => {
-                  setActiveTab(key);
-                  setSelectedSavedJob(null);
-                  if (key === "applied") {
-                    setAppliedJobsFilter(undefined);
-                  }
-                }}
-                className={`px-5 py-2 rounded-full text-sm font-medium border transition-colors duration-200 ${activeTab === key
-                  ? "bg-[#FF2B2B] text-white border-[#FF2B2B]"
-                  : "bg-[#F8FAFC] text-[#3A1F1F] border-gray-200 hover:bg-white"
-                  }`}
-              >
-                {key === "applied" && appliedJobsFilter === "interview"
-                  ? `${label} (Filtered)`
-                  : label}
-              </button>
-            ))}
+          {/* View filter — one dropdown instead of a row of pills, so a fourth
+              option (Expired) fits without pushing the list further down. */}
+          <div className="flex items-center gap-2 mb-4">
+            <Filter className="h-4 w-4 text-[#8A8A8A] shrink-0" />
+            <Select
+              value={activeTab}
+              onValueChange={(value) => {
+                const nextTab = value as AnalyticsTab;
+                setActiveTab(nextTab);
+                setSelectedSavedJob(null);
+                if (nextTab === "applied") {
+                  setAppliedJobsFilter(undefined);
+                }
+              }}
+            >
+              <SelectTrigger className="w-full sm:w-[280px] bg-white border-gray-200 rounded-full text-sm">
+                <SelectValue />
+              </SelectTrigger>
+              <SelectContent>
+                {tabs.map(({ key, label }) => (
+                  <SelectItem key={key} value={key}>
+                    {key === "applied" && appliedJobsFilter === "interview"
+                      ? `${label} (Filtered)`
+                      : label}
+                  </SelectItem>
+                ))}
+              </SelectContent>
+            </Select>
           </div>
 
           {/* Applied Jobs */}
@@ -5942,6 +6230,7 @@ function AnalyticsPage() {
               filterStatus={appliedJobsFilter}
               onJobSelect={setSelectedSavedJob}
               selectedJobId={selectedSavedJob ? String(selectedSavedJob.job_id || selectedSavedJob.job?.id) : null}
+              hideExpired
             />
           )}
           {/* Saved Jobs */}
@@ -5953,6 +6242,7 @@ function AnalyticsPage() {
               onJobSelect={setSelectedSavedJob}
               selectedJobId={selectedSavedJob ? String(selectedSavedJob.job_id || selectedSavedJob.job?.id) : null}
               showComparisonControls={false}
+              hideExpired
             />
           )}
           {/* Job Comparison */}
@@ -5965,10 +6255,52 @@ function AnalyticsPage() {
                 onJobSelect={setSelectedSavedJob}
                 selectedJobId={selectedSavedJob ? String(selectedSavedJob.job_id || selectedSavedJob.job?.id) : null}
                 showComparisonControls
+                hideExpired
                 onCompareRequested={setCompareState}
               />
               {compareState && <SavedJobsComparePage forcedState={compareState} embedded />}
             </div>
+          )}
+          {/* Expired Jobs — saved + applied postings that are no longer live */}
+          {activeTab === "expired" && (
+            expiredEntries.length === 0 ? (
+              <div className="bg-white rounded-2xl p-12 shadow-md text-center">
+                <Clock className="h-12 w-12 text-gray-300 mx-auto mb-3" />
+                <p className="text-[#8A8A8A]">No expired jobs. Everything you saved or applied to is still live.</p>
+              </div>
+            ) : (
+              <div className="space-y-4">
+                {expiredEntries.map((entry) => {
+                  const isSelected = selectedSavedJob
+                    ? String(selectedSavedJob.job_id || selectedSavedJob.job?.id) === entry.jobId
+                    : false;
+                  return (
+                    <div
+                      key={entry.key}
+                      onClick={() => setSelectedSavedJob({ job_id: entry.jobId, job: entry.job })}
+                      className={`rounded-2xl border border-gray-100 bg-white p-5 shadow-[0_2px_8px_rgba(16,24,40,0.08)] transition-all hover:shadow-[0_6px_16px_rgba(16,24,40,0.10)] cursor-pointer ${isSelected ? "ring-2 ring-[#FF2B2B]" : ""}`}
+                    >
+                      <div className="flex flex-col gap-3 md:flex-row md:items-start md:justify-between">
+                        <div>
+                          <h3 className="font-semibold text-[#3A1F1F] hover:text-[#FF2B2B] transition-colors">{entry.job.title}</h3>
+                          <p className="text-[#7C8593] text-sm">{entry.job.company_name} · {formatDashboardLocation(entry.job)}</p>
+                          <div className="flex flex-wrap items-center gap-3 mt-1 text-xs text-[#7C8593]">
+                            <span className="flex items-center gap-1"><DollarSign className="h-3 w-3" />{formatJobSalary(entry.job)}</span>
+                            <span>{entry.contextLabel}</span>
+                            {entry.job.deadline && <span>Closed {formatDateDisplay(entry.job.deadline)}</span>}
+                          </div>
+                        </div>
+                        <div className="flex flex-wrap items-center gap-2 shrink-0">
+                          {/* Which list this came from — the two are merged here, so the origin has to stay visible. */}
+                          <Badge variant="outline" className="bg-[#F8FAFC] text-[#3A1F1F] border-gray-200">From {entry.source}</Badge>
+                          <Badge variant="outline" className="bg-red-50 text-red-700 border-red-200">Expired</Badge>
+                        </div>
+                      </div>
+                    </div>
+                  );
+                })}
+              </div>
+            )
           )}
         </div>
 
@@ -6042,6 +6374,15 @@ function AnalyticsPage() {
                   {(() => {
                     const targetId = String(selectedSavedJob.job_id || selectedSavedJob.job.id);
                     const isApplied = appliedJobs.some(a => String(a.job_id) === targetId || String(a.job?.id) === targetId);
+                    // The Expired filter can open this panel, and applying to a
+                    // closed posting would silently fail on the recruiter side.
+                    if (!isApplied && !isJobVisibleToSeekers(selectedSavedJob.job)) {
+                      return (
+                        <Badge className="bg-red-50 text-red-700 text-xs rounded-full px-4 py-2 font-medium border border-red-200">
+                          <Clock className="h-4 w-4 mr-1.5" /> No longer accepting applications
+                        </Badge>
+                      );
+                    }
                     return isApplied ? (
                       <Badge className="bg-emerald-100 text-emerald-700 text-xs rounded-full px-4 py-2 font-medium border-0">
                         <CheckCircle className="h-4 w-4 mr-1.5" /> Applied
@@ -7250,6 +7591,7 @@ function ResumePreviewPage() {
     certifications,
     languages,
     profilePic: resolvedPic,
+    isFresher: profile?.experience_type === "fresher",
   };
 
   const htmlContent = buildResumeHTML(resumeProps, resolvedPic, selectedTemplate);

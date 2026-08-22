@@ -73,6 +73,12 @@ export interface ResumeBuilderProps {
   certifications: Certification[];
   languages: Language[];
   profilePic: string | null;
+  /**
+   * Mirrors profiles.experience_type === "fresher". A fresher has no work
+   * history, so every template must drop the experience section instead of
+   * printing an empty heading, and the completeness check must not demand one.
+   */
+  isFresher?: boolean;
 }
 
 // ── Image to Data URL converter (bypasses CORS) ─────────────────────────────
@@ -128,7 +134,8 @@ function validateProfile(props: ResumeBuilderProps): ValidationResult {
   if (!props.basicInfo.location.trim()) missing.push("Location");
   if (props.summary.trim().length < 20) missing.push("Professional Summary (min 20 characters)");
   if (props.skills.length < 1) missing.push("At least 1 Skill");
-  if (props.experiences.length < 1) missing.push("At least 1 Work Experience");
+  // A fresher can never satisfy this, so requiring it would lock them out of the builder entirely.
+  if (!props.isFresher && props.experiences.length < 1) missing.push("At least 1 Work Experience");
   if (props.education.length < 1) missing.push("At least 1 Education entry");
   return { isComplete: missing.length === 0, missingFields: missing };
 }
@@ -139,9 +146,17 @@ export function buildResumeHTML(
   resolvedProfilePic: string | null,
   templateId: string = "template-3"
 ): string {
-  const { basicInfo, summary: rawSummary, skills: rawSkills, experiences, education, projects, certifications, languages } = props;
+  const { basicInfo, summary: rawSummary, skills: rawSkills, education, projects, certifications, languages } = props;
 
-  const headline = basicInfo.headline || (experiences.length > 0 ? experiences[0].title : "Professional");
+  /*
+   * Stale work_experience rows can survive a switch to Fresher, so the flag —
+   * not the array length — decides whether the templates get any experience at
+   * all. Every template already guards on the partitioned arrays being empty,
+   * which means clearing here is enough to drop the heading everywhere.
+   */
+  const experiences = props.isFresher ? [] : props.experiences;
+
+  const headline = basicInfo.headline || (experiences.length > 0 ? experiences[0].title : props.isFresher ? "Fresher" : "Professional");
 
   const skills = rawSkills && rawSkills.length > 0 
     ? rawSkills 

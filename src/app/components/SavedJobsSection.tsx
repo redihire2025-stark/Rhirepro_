@@ -14,7 +14,7 @@ import {
   PaginationEllipsis,
 } from "./ui/pagination";
 import { getAppliedJobs, getSavedJobs, removeSavedJob, SavedJobWithJob } from "../services/jobService";
-import { formatJobSalary } from "../../lib/jobs";
+import { formatJobSalary, isJobVisibleToSeekers } from "../../lib/jobs";
 import { supabase, Job } from "../../lib/supabase";
 import { useAuth } from "../../lib/auth-context";
 
@@ -29,6 +29,12 @@ interface SavedJobsSectionProps {
   onJobSelect?: (job: SavedJobWithJob) => void;
   selectedJobId?: string | null;
   showComparisonControls?: boolean;
+  /**
+   * Drops saved jobs that are no longer live. The dashboard lists those under
+   * its own "Expired Jobs" filter, so keeping them here would show the same job
+   * twice — and an expired job is not something you can still apply to or compare.
+   */
+  hideExpired?: boolean;
   onCompareRequested?: (state: {
     fromSavedJobs: true;
     selectedJobIds: string[];
@@ -67,6 +73,7 @@ export default function SavedJobsSection({
   onJobSelect,
   selectedJobId,
   showComparisonControls = true,
+  hideExpired = false,
   onCompareRequested,
 }: SavedJobsSectionProps) {
   const location = useLocation();
@@ -164,10 +171,16 @@ export default function SavedJobsSection({
     };
   }, [onJobsLoaded, userId]);
 
-  const totalPages = Math.max(1, Math.ceil(savedJobs.length / JOBS_PER_PAGE));
+  // Same liveness rule the listings use, so "expired" means the same thing everywhere.
+  const visibleJobs = useMemo(
+    () => (hideExpired ? savedJobs.filter((savedJob) => !savedJob.job || isJobVisibleToSeekers(savedJob.job)) : savedJobs),
+    [hideExpired, savedJobs],
+  );
+
+  const totalPages = Math.max(1, Math.ceil(visibleJobs.length / JOBS_PER_PAGE));
   const paginatedJobs = useMemo(
-    () => savedJobs.slice((currentPage - 1) * JOBS_PER_PAGE, currentPage * JOBS_PER_PAGE),
-    [currentPage, savedJobs],
+    () => visibleJobs.slice((currentPage - 1) * JOBS_PER_PAGE, currentPage * JOBS_PER_PAGE),
+    [currentPage, visibleJobs],
   );
 
   useEffect(() => {
@@ -176,12 +189,12 @@ export default function SavedJobsSection({
 
   useEffect(() => {
     const savedIdSet = new Set(
-      savedJobs
+      visibleJobs
         .map((savedJob) => savedJob.job_id)
         .filter((jobId): jobId is string => typeof jobId === "string" && jobId.length > 0),
     );
     setCompareJobIds((prev) => prev.filter((jobId) => savedIdSet.has(jobId)));
-  }, [savedJobs]);
+  }, [visibleJobs]);
 
   useEffect(() => {
     if (!compareError) return;
@@ -270,11 +283,15 @@ export default function SavedJobsSection({
     );
   }
 
-  if (savedJobs.length === 0) {
+  if (visibleJobs.length === 0) {
     return (
       <div className={`${compact ? "py-8" : "bg-white rounded-2xl p-12 shadow-md"} text-center`}>
         <Bookmark className="h-12 w-12 text-gray-300 mx-auto mb-3" />
-        <p className="text-[#8A8A8A]">No saved jobs found</p>
+        <p className="text-[#8A8A8A]">
+          {savedJobs.length > 0
+            ? "All your saved jobs have expired. Check the Expired Jobs filter."
+            : "No saved jobs found"}
+        </p>
         {showComparisonControls && (
           <p className="text-xs text-red-600 mt-1">Save at least 2 jobs to compare.</p>
         )}
