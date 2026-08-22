@@ -116,6 +116,52 @@ export default async (request) => {
     );
   }
 
+  /*
+   * Refuse to invite an address that already has a recruiter account.
+   *
+   * A seat is granted by attaching an existing recruiter_profiles row to the
+   * organisation, so inviting someone who already signed up on their own
+   * either does nothing visible or quietly moves their account between orgs.
+   * Worse, if that account carries its own paid plan, absorbing it into a team
+   * seat would strand the subscription. Both cases need the admin to act
+   * first, so say which one it is rather than failing vaguely.
+   */
+  const existingRes = await fetch(
+    `${supabaseUrl}/rest/v1/recruiter_profiles?email=eq.${encodeURIComponent(invited_email)}` +
+      `&select=id,org_admin_id`,
+    { headers: { apikey: serviceKey, Authorization: `Bearer ${serviceKey}` } }
+  );
+  const existing = existingRes.ok ? await existingRes.json().catch(() => []) : [];
+  const existingAccount = Array.isArray(existing) ? existing[0] : null;
+
+  if (existingAccount) {
+    // Already a member of this organisation — nothing to invite.
+    if (existingAccount.org_admin_id === org_admin_id) {
+      return new Response(
+        JSON.stringify({ error: "This recruiter is already a member of your team." }),
+        { status: 409, headers: { "Content-Type": "application/json" } }
+      );
+    }
+
+    const subRes = await fetch(
+      `${supabaseUrl}/rest/v1/recruiter_subscriptions?recruiter_id=eq.${existingAccount.id}` +
+        `&status=eq.active&select=id&limit=1`,
+      { headers: { apikey: serviceKey, Authorization: `Bearer ${serviceKey}` } }
+    );
+    const subs = subRes.ok ? await subRes.json().catch(() => []) : [];
+    const hasActivePlan = Array.isArray(subs) && subs.length > 0;
+
+    return new Response(
+      JSON.stringify({
+        error: hasActivePlan
+          ? "Cannot assign a seat — a plan is already activated on this account. Ask them to cancel it before joining your team."
+          : "A recruiter account already exists for this email. Ask them to delete that account before you invite them.",
+        code: hasActivePlan ? "account_has_plan" : "account_exists",
+      }),
+      { status: 409, headers: { "Content-Type": "application/json" } }
+    );
+  }
+
   // 1. Generate token and insert invitation into DB via service role (bypasses RLS)
   const token = randomBytes(32).toString("hex");
 

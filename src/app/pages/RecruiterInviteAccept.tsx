@@ -137,19 +137,31 @@ export default function RecruiterInviteAccept() {
         if (pCheck) { profileCreated = true; break; }
       }
 
+      /*
+       * 3. Link the profile to the org and mark the invitation accepted.
+       *
+       * Both writes used to be done straight from here, but the only UPDATE
+       * policy on recruiter_invitations is `org_admin_id = auth.uid()`, so the
+       * status write was silently dropped for the invitee — and the error was
+       * never checked. Every member who joined stayed under "Pending
+       * Invitations" indefinitely. The RPC does both writes with the token as
+       * proof, and re-checks that the caller's email matches the invitation.
+       */
       if (profileCreated) {
-        // 3. Link profile to org
-        await supabase.from("recruiter_profiles").update({
-          org_role: invite.role || "member",
-          org_admin_id: invite.org_admin_id,
-        }).eq("id", authData.user.id);
+        const { data: acceptResult, error: acceptError } = await supabase.rpc(
+          "accept_recruiter_invitation",
+          { p_token: token! },
+        );
+        const result = acceptResult as { ok?: boolean; error?: string } | null;
+        if (acceptError || !result?.ok) {
+          const detail = acceptError?.message || result?.error || "unknown";
+          console.error("Could not complete invitation:", detail);
+          setError(
+            "Your account was created, but we could not add you to the team. Please ask your admin to re-send the invitation.",
+          );
+          return;
+        }
       }
-
-      // 4. Mark invitation as accepted (using the public policy or admin context)
-      await supabase
-        .from("recruiter_invitations")
-        .update({ status: "accepted" })
-        .eq("token", token!);
 
       setSuccess(true);
       // Auto-redirect to sign-in after 3 seconds

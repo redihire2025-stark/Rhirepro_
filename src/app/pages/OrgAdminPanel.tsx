@@ -178,6 +178,9 @@ export default function OrgAdminPanel() {
   const [blogSaving, setBlogSaving] = useState(false);
   const [blogError, setBlogError] = useState("");
   const [blogSearchQuery, setBlogSearchQuery] = useState("");
+  // Analytics and Subscription Usage list every member with no way to find
+  // one; both tables are driven by this.
+  const [memberSearchQuery, setMemberSearchQuery] = useState("");
   const [blogStatusFilter, setBlogStatusFilter] = useState<"all" | "Published" | "Draft">("all");
   const [deleteBlogId, setDeleteBlogId] = useState<string | null>(null);
 
@@ -710,9 +713,52 @@ export default function OrgAdminPanel() {
     return matchesStatus && matchesSearch;
   }), [teamBlogs, blogStatusFilter, blogSearchQuery]);
 
-  // Overview tab KPIs — derived from data already fetched for the other tabs, no extra queries.
+  /*
+   * Overview KPIs come from the database rather than from teamApps.
+   *
+   * teamApps is fetched with .limit(500) for the applications table below. One
+   * org already has 996 distinct candidates, so deriving "Total Candidates"
+   * from that list reported a truncated figure — and because the cap is applied
+   * before the DISTINCT, it was not even a stable undercount. The RPC counts
+   * server side and is scoped to the calling admin's own team.
+   */
+  const [serverKpis, setServerKpis] = useState<{
+    total_recruiters: number; active_recruiters: number;
+    total_jobs: number; active_jobs: number; closed_jobs: number;
+    total_candidates: number; applications_today: number;
+    interviews_scheduled: number; offers_released: number; successful_hires: number;
+  } | null>(null);
+
+  useEffect(() => {
+    if (!user?.id) return;
+    let cancelled = false;
+    void supabase.rpc("org_admin_overview_kpis").maybeSingle().then(({ data, error }) => {
+      if (cancelled) return;
+      if (error) {
+        console.warn("Overview KPIs unavailable, falling back to loaded rows:", error.message);
+        return;
+      }
+      if (data) setServerKpis(data as typeof serverKpis);
+    });
+    return () => { cancelled = true; };
+  }, [user?.id]);
+
+  // Fallback keeps the tab populated if the RPC has not been run against this
+  // database yet; it carries the old truncation, which is still better than
+  // blank tiles.
   const todayStr = new Date().toDateString();
-  const overviewKpis = useMemo(() => ({
+  const overviewKpis = useMemo(() => serverKpis ? {
+    totalRecruiters: serverKpis.total_recruiters,
+    activeRecruiters: serverKpis.active_recruiters,
+    totalJobs: serverKpis.total_jobs,
+    activeJobs: serverKpis.active_jobs,
+    closedJobs: serverKpis.closed_jobs,
+    totalCandidates: serverKpis.total_candidates,
+    applicationsToday: serverKpis.applications_today,
+    interviewsScheduled: serverKpis.interviews_scheduled,
+    offersReleased: serverKpis.offers_released,
+    successfulHires: serverKpis.successful_hires,
+  } : {
     totalRecruiters: members.length,
     activeRecruiters: activeCount,
     totalJobs: teamJobs.length,
@@ -723,7 +769,16 @@ export default function OrgAdminPanel() {
     interviewsScheduled: teamApps.filter(a => a.status === "Interview Scheduled").length,
     offersReleased: teamApps.filter(a => a.status === "Offered").length,
     successfulHires: teamApps.filter(a => ["Hired", "Joined"].includes(a.status)).length,
-  }), [members.length, activeCount, teamJobs, teamApps, todayStr]);
+  }, [serverKpis, members.length, activeCount, teamJobs, teamApps, todayStr]);
+
+  const filteredMembers = useMemo(() => {
+    const q = memberSearchQuery.toLowerCase().trim();
+    if (!q) return members;
+    return members.filter(m =>
+      (m.recruiter_name || "").toLowerCase().includes(q) ||
+      (m.email || "").toLowerCase().includes(q),
+    );
+  }, [members, memberSearchQuery]);
 
   // ── Header Render Helper ────────────────────────────────────
   const renderHeader = () => (
@@ -1382,6 +1437,16 @@ export default function OrgAdminPanel() {
                   <AnalyticsCard label="Active Members" value={activeCount} color="text-[#FF2B2B]" />
                 </div>
 
+                <div className="relative mb-4 max-w-sm">
+                  <Search className="absolute left-3 top-1/2 h-4 w-4 -translate-y-1/2 text-[#8A8A8A]" />
+                  <Input
+                    placeholder="Search member by name or email…"
+                    value={memberSearchQuery}
+                    onChange={e => setMemberSearchQuery(e.target.value)}
+                    className="pl-9 bg-white border-gray-200 rounded-xl"
+                  />
+                </div>
+
                 {/* Per-member breakdown */}
                 <div className="bg-white rounded-2xl shadow-sm overflow-hidden">
                   <div className="px-6 py-4 border-b border-gray-100">
@@ -1399,7 +1464,7 @@ export default function OrgAdminPanel() {
                         </tr>
                       </thead>
                       <tbody className="divide-y divide-gray-50">
-                        {members.map(m => {
+                        {filteredMembers.map(m => {
                           const hireRate = m.applications_count > 0
                             ? ((m.hires_count / m.applications_count) * 100).toFixed(1)
                             : "0.0";
@@ -1501,6 +1566,15 @@ export default function OrgAdminPanel() {
                 </div>
 
                 {/* Per-member usage breakdown */}
+                                <div className="relative mb-4 max-w-sm">
+                  <Search className="absolute left-3 top-1/2 h-4 w-4 -translate-y-1/2 text-[#8A8A8A]" />
+                  <Input
+                    placeholder="Search member by name or email…"
+                    value={memberSearchQuery}
+                    onChange={e => setMemberSearchQuery(e.target.value)}
+                    className="pl-9 bg-white border-gray-200 rounded-xl"
+                  />
+                </div>
                 <div className="bg-white rounded-2xl shadow-sm overflow-hidden">
                   <div className="px-6 py-4 border-b border-gray-100">
                     <h3 className="font-semibold text-[#3A1F1F]">Recruiter Usage Statistics</h3>
@@ -1517,7 +1591,7 @@ export default function OrgAdminPanel() {
                         </tr>
                       </thead>
                       <tbody className="divide-y divide-gray-50">
-                        {members.map(m => (
+                        {filteredMembers.map(m => (
                           <tr
                             key={m.id}
                             className="hover:bg-[#FFF8F8] transition-colors cursor-pointer"
