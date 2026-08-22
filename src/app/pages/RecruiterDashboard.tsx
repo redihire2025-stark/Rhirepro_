@@ -9856,7 +9856,7 @@ function AnalyticsPage() {
   const [avgTimeToHire, setAvgTimeToHire] = useState<string>("—");
   const [jobViews, setJobViews] = useState<number | null>(null);
   const [offerAcceptanceRate, setOfferAcceptanceRate] = useState<string>("—");
-  const [profileVisitRate, setProfileVisitRate] = useState<string>("—");
+  const [offerCounts, setOfferCounts] = useState<{ offered: number; joined: number }>({ offered: 0, joined: 0 });
   const [timePeriod, setTimePeriod] = useState("30d");
   const [applicationsGrowth, setApplicationsGrowth] = useState<string>("+0%");
   const [funnelCounts, setFunnelCounts] = useState({
@@ -9925,7 +9925,7 @@ function AnalyticsPage() {
           setTotalApplications(null);
           setJobViews(null);
           setOfferAcceptanceRate("—");
-          setProfileVisitRate("—");
+          setOfferCounts({ offered: 0, joined: 0 });
           setApplicationsGrowth("+0%");
           setAvgTimeToHire("—");
           setFunnelCounts({ reviewed: 0, shortlisted: 0, interviewScheduled: 0, selectedInInterview: 0, offered: 0, hired: 0 });
@@ -9983,13 +9983,12 @@ function AnalyticsPage() {
         }
         setApplicationsGrowth(growthText);
 
-        // ── 3. Calculate Job Views & Profile Visit Rate ──
-        const totalViewsCount = filteredJobs.reduce((sum, j) => sum + (j.views || 0), 0);
-        const profileViews = new Set(filteredApplications.map(app => app.profile_id)).size;
-        setJobViews(totalViewsCount > 0 ? totalViewsCount : profileViews);
-
-        const profileAppearances = filteredApplications.length;
-        setProfileVisitRate(profileAppearances > 0 ? `${Math.round((profileViews / profileAppearances) * 100)}%` : "—");
+        // ── 3. Job Views ──
+        // jobs.views is now genuinely incremented on each job page view. It used
+        // to fall back to the count of distinct applicants whenever it was 0 —
+        // which was always — so the tile showed a completely unrelated number
+        // dressed up as view count. Report the real figure, zero included.
+        setJobViews(filteredJobs.reduce((sum, j) => sum + (j.views || 0), 0));
 
         // ── 4. Calculate Offer Acceptance Rate ──
         const offeredApps = filteredApplications.filter((app) => {
@@ -10001,6 +10000,7 @@ function AnalyticsPage() {
           return stage === "Joined" || app.status === "Joined" || app.status === "Hired";
         });
 
+        setOfferCounts({ offered: offeredApps.length, joined: joinedApps.length });
         if (offeredApps.length > 0) {
           setOfferAcceptanceRate(`${Math.round((joinedApps.length / offeredApps.length) * 100)}%`);
         } else if (filteredApplications.length > 0) {
@@ -10129,7 +10129,7 @@ function AnalyticsPage() {
         setTotalApplications(null);
         setJobViews(null);
         setOfferAcceptanceRate("—");
-        setProfileVisitRate("—");
+        setOfferCounts({ offered: 0, joined: 0 });
         setApplicationsGrowth("+0%");
         setAvgTimeToHire("—");
         setFunnelCounts({ reviewed: 0, shortlisted: 0, interviewScheduled: 0, selectedInInterview: 0, offered: 0, hired: 0 });
@@ -10220,10 +10220,16 @@ function AnalyticsPage() {
   const metrics = [
     { label: "Total Jobs Posted", value: totalJobsPosted !== null ? `${totalJobsPosted}` : "—", sub: timePeriod === "7d" ? "Last 7 days" : timePeriod === "90d" ? "Last 90 days" : "Last 30 days", icon: Briefcase, color: "text-blue-600", bg: "bg-blue-50" },
     { label: "Total Applications", value: totalApplications !== null ? `${totalApplications}` : "—", sub: `${applicationsGrowth} vs previous ${timePeriod === "7d" ? "7 days" : timePeriod === "90d" ? "90 days" : "30 days"}`, icon: Users, color: "text-green-600", bg: "bg-green-50", onClick: () => navigate("/recruiter/dashboard/applicants") },
-    { label: "Avg. Time to Hire", value: avgTimeToHire, sub: "Industry avg: 25 days", icon: Clock, color: "text-purple-600", bg: "bg-purple-50", onClick: () => navigate("/recruiter/dashboard/applicants") },
-    { label: "Offer Acceptance Rate", value: offerAcceptanceRate, sub: "+5% vs last quarter", icon: CheckCircle, color: "text-[#FF2B2B]", bg: "bg-red-50" },
+    { label: "Avg. Time to Hire", value: avgTimeToHire, sub: "From application to hire", icon: Clock, color: "text-purple-600", bg: "bg-purple-50", onClick: () => navigate("/recruiter/dashboard/applicants") },
+    // Captions describe the number shown. They previously read "+5% vs last
+    // quarter" and "Industry avg: 25 days" — both hardcoded, neither measured,
+    // which is a large part of why these tiles looked like dummy data.
+    { label: "Offer Acceptance Rate", value: offerAcceptanceRate, sub: offerCounts.offered > 0 ? `${offerCounts.joined} of ${offerCounts.offered} offers accepted` : "No offers made yet", icon: CheckCircle, color: "text-[#FF2B2B]", bg: "bg-red-50" },
     { label: "Job Views", value: jobViews !== null ? jobViews.toLocaleString() : "—", sub: "Across all active jobs", icon: Eye, color: "text-orange-600", bg: "bg-orange-50" },
-    { label: "Profile View Rate", value: profileVisitRate, sub: "Profile Appearances", icon: TrendingUp, color: "text-teal-600", bg: "bg-teal-50" },
+    // Replaces "Profile View Rate", which divided distinct applicants by total
+    // applications — a ratio that measured nothing. profiles_viewed is a real
+    // counter the platform already maintains for each recruiter.
+    { label: "Candidate Profiles Viewed", value: (recruiterProfile?.profiles_viewed ?? 0).toLocaleString(), sub: "By your team, all time", icon: TrendingUp, color: "text-teal-600", bg: "bg-teal-50" },
   ];
 
   const totalApplicationsValue = totalApplications ?? 0;
