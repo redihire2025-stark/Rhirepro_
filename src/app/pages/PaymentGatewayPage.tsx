@@ -1,6 +1,7 @@
 import { useState, useCallback, useEffect, useMemo } from "react";
 import { useNavigate, useSearchParams } from "react-router";
 import { useAuth } from "../../lib/auth-context";
+import { decryptPhone } from "../../lib/phoneProtection";
 import { calculateGst, getPlanById } from "../../lib/plans";
 import { Button } from "../components/ui/button";
 import {
@@ -77,7 +78,7 @@ export default function PaymentGatewayPage() {
       // same-origin. The old VITE_API_URL pointed at a FastAPI service that was
       // never deployed, leaving every purchase failing on http://localhost:8000.
 
-      // 1. Create order on FastAPI backend
+      // 1. Create the Razorpay order server-side
       const res = await fetch("/api/payments/create-order", {
         method: "POST",
         headers: { "Content-Type": "application/json" },
@@ -100,14 +101,20 @@ export default function PaymentGatewayPage() {
         key: orderData.key_id || import.meta.env.VITE_RAZORPAY_KEY_ID || "rzp_test_TOksXioBHbSu5W",
         amount: orderData.amount,
         currency: orderData.currency || "INR",
-        name: "RhirePro",
+        /*
+         * The Razorpay merchant account is registered to Redihire, not to the
+         * RhirePro product brand. The name shown on the checkout modal has to
+         * be the registered entity — a customer seeing one name here and
+         * another on their statement is how a payment gets disputed.
+         */
+        name: "Redihire",
         description: `${plan?.name ?? "Recruiter"} Plan Subscription`,
         image: logoImage,
         order_id: orderData.order_id,
         handler: async function (response: any) {
           try {
             setStatus("loading");
-            // 3. Verify payment signature on FastAPI backend
+            // 3. Verify the payment signature server-side
             const verifyRes = await fetch("/api/payments/verify-payment", {
               method: "POST",
               headers: { "Content-Type": "application/json" },
@@ -139,7 +146,9 @@ export default function PaymentGatewayPage() {
         prefill: {
           name: recruiterProfile.recruiter_name || recruiterProfile.company_name || "",
           email: recruiterProfile.email || "",
-          contact: recruiterProfile.phone || "",
+          // Stored phones are "enc:..."; sending that raw gave Razorpay a
+          // string that is not a phone number at all.
+          contact: decryptPhone(recruiterProfile.phone) || "",
         },
         notes: {
           plan_id: planId,
@@ -200,7 +209,20 @@ export default function PaymentGatewayPage() {
             <XCircle className="h-10 w-10 text-[#FF2B2B]" />
           </div>
           <h2 className="text-2xl font-bold text-[#3A1F1F] mb-2">Payment Failed</h2>
-          <p className="text-[#8A8A8A] mb-8">{errorMsg || "Could not complete payment. Please try again."}</p>
+          <p className="text-[#8A8A8A] mb-3">{errorMsg || "Could not complete payment. Please try again."}</p>
+          {/*
+            A failed payment is exactly when someone needs a human, and the page
+            previously offered no way to reach one. Billing is handled by
+            Redihire, so this is deliberately not the rhirepro.com support
+            address used elsewhere in the product.
+          */}
+          <p className="text-sm text-[#8A8A8A] mb-8">
+            If you were charged, contact{" "}
+            <a href="mailto:redihire2025@gmail.com" className="text-[#FF2B2B] font-medium hover:underline">
+              redihire2025@gmail.com
+            </a>{" "}
+            with your payment reference.
+          </p>
           <div className="space-y-3">
             <Button onClick={() => setStatus("idle")}
               className="w-full bg-[#FF2B2B] hover:bg-[#e02525] text-white rounded-full py-6">
