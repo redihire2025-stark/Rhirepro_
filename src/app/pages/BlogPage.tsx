@@ -65,7 +65,14 @@ const shuffleItems = <T,>(items: T[]) => {
   return shuffled;
 };
 
-export default function BlogPage() {
+/**
+ * Backs both /blog (Super Admin posts, table `blogs`) and /articles (recruiter
+ * posts, table `recruiter_articles`). Same card layout for both, as requested —
+ * only the source table and the detail route differ.
+ */
+export default function BlogPage({ source = "blogs" }: { source?: "blogs" | "articles" } = {}) {
+  const sourceTable = source === "articles" ? "recruiter_articles" : "blogs";
+  const detailBase = source === "articles" ? "/articles" : "/blog";
   const [isMenuOpen, setIsMenuOpen] = useState(false);
   const [email, setEmail] = useState("");
   const [subscribeStatus, setSubscribeStatus] = useState<{ type: "idle" | "success" | "error"; message: string }>({ type: "idle", message: "" });
@@ -85,7 +92,7 @@ export default function BlogPage() {
   useEffect(() => {
     async function loadPublishedArticles() {
       const { data } = await supabase
-        .from("recruiter_articles")
+        .from(sourceTable)
         .select("*")
         .eq("status", "Published")
         .order("published_at", { ascending: false, nullsFirst: false })
@@ -95,7 +102,7 @@ export default function BlogPage() {
     }
 
     void loadPublishedArticles();
-  }, []);
+  }, [sourceTable]);
 
   const realBlogs = useMemo<BlogPageItem[]>(() => {
     return publishedArticles
@@ -261,7 +268,7 @@ export default function BlogPage() {
                   <Button
                     variant="link"
                     className="text-[#FF2B2B] p-0 h-auto font-semibold"
-                    onClick={() => navigate(`/blog/${blog.id}`)}
+                    onClick={() => navigate(`${detailBase}/${blog.id}`)}
                   >
                     Read More <ArrowRight className="ml-1 h-4 w-4" />
                   </Button>
@@ -340,7 +347,7 @@ export default function BlogPage() {
               <Button
                 key={topic}
                 variant="outline"
-                onClick={() => navigate(`/blog?category=${encodeURIComponent(topic)}`)}
+                onClick={() => navigate(`${detailBase}?category=${encodeURIComponent(topic)}`)}
                 className={`border-2 rounded-full px-6 ${
                   selectedCategory === topic
                     ? "border-[#FF2B2B] bg-[#FF2B2B] text-white"

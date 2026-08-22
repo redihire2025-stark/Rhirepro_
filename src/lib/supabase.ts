@@ -106,6 +106,32 @@ export interface RecruiterInvitation {
   expires_at: string;
 }
 
+/**
+ * Super Admin authored blog post. Deliberately separate from RecruiterArticle:
+ * Blogs are written by the platform, Articles by recruiters. They previously
+ * shared the recruiter_articles table, which is why the two listings showed the
+ * same content. Field names mirror RecruiterArticle so the same card and detail
+ * rendering works for both.
+ */
+export interface Blog {
+  id: string;
+  author_id?: string | null;
+  author_name?: string | null;
+  title: string;
+  category: string;
+  tags?: string[] | null;
+  summary: string | null;
+  key_takeaway: string | null;
+  content: string;
+  cover_image_url: string | null;
+  cover_image_name: string | null;
+  read_time: number;
+  status: "Published" | "Draft";
+  created_at: string;
+  updated_at: string;
+  published_at: string | null;
+}
+
 export interface RecruiterArticle {
   id: string;
   recruiter_id: string;

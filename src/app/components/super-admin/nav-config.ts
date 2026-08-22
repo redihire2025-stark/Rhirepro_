@@ -113,6 +113,13 @@ export const superAdminNavGroups: SuperAdminNavGroup[] = [
         description: "Delivery logs and templates for every transactional email sent through Resend.",
       },
       {
+        label: "Blogs",
+        path: "/super-admin/blogs",
+        icon: Newspaper,
+        status: "active",
+        description: "Write and publish platform blog posts. Recruiter-written Articles are separate.",
+      },
+      {
         label: "Newsletter",
         path: "/super-admin/newsletter",
         icon: Newspaper,

@@ -81,11 +81,32 @@ describe('Router — route definitions', () => {
     expect(getChildPaths()).toContain('*');
   });
 
-  it('has 28 child routes total', () => {
+  it('defines the articles route (/articles)', () => {
+    expect(getChildPaths()).toContain('/articles');
+  });
+
+  it('defines the article detail route (/articles/:id)', () => {
+    expect(getChildPaths()).toContain('/articles/:id');
+  });
+
+  it('keeps Blogs and Articles on separate routes', () => {
+    // They are different content: Blogs are Super Admin authored (blogs table),
+    // Articles are recruiter authored (recruiter_articles). They previously
+    // shared both the route and the table, which is why one listing could never
+    // reach the other's content.
+    const paths = getChildPaths();
+    expect(paths).toContain('/blog');
+    expect(paths).toContain('/articles');
+    expect(paths).toContain('/blog/:id');
+    expect(paths).toContain('/articles/:id');
+  });
+
+  it('has 36 child routes total', () => {
     // /, /signin, /signup, /jobs, /job/:id, /services, /blog, /blog/:id,
-    // /jobseeker/signin, /jobseeker/signup, /recruiter/signin, /recruiter/signup,
-    // /jobseeker/dashboard/*, /recruiter/dashboard/*, *
-    expect(getChildPaths().length).toBe(34);
+    // /articles, /articles/:id, /jobseeker/signin, /jobseeker/signup,
+    // /recruiter/signin, /recruiter/signup, /jobseeker/dashboard/*,
+    // /recruiter/dashboard/*, *
+    expect(getChildPaths().length).toBe(36);
   });
 
   it('each child route has a Component', () => {

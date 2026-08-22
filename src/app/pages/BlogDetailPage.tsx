@@ -260,7 +260,10 @@ const shuffleArticles = <T,>(items: T[]) => {
   return shuffled;
 };
 
-export default function BlogDetailPage() {
+/** Detail view for both /blog/:id and /articles/:id — see BlogPage. */
+export default function BlogDetailPage({ source = "blogs" }: { source?: "blogs" | "articles" } = {}) {
+  const sourceTable = source === "articles" ? "recruiter_articles" : "blogs";
+  const listBase = source === "articles" ? "/articles" : "/blog";
   const [isMenuOpen, setIsMenuOpen] = useState(false);
   const [email, setEmail] = useState("");
   const [isSubscribed, setIsSubscribed] = useState(false);
@@ -289,7 +292,7 @@ export default function BlogDetailPage() {
 
       setArticleLoading(true);
       const articleResult = await supabase
-        .from("recruiter_articles")
+        .from(sourceTable)
         .select("*")
         .eq("id", id)
         .eq("status", "Published")
@@ -307,7 +310,7 @@ export default function BlogDetailPage() {
   useEffect(() => {
     async function loadPublishedArticles() {
       const { data } = await supabase
-        .from("recruiter_articles")
+        .from(sourceTable)
         .select("*")
         .eq("status", "Published")
         .order("published_at", { ascending: false, nullsFirst: false })
@@ -441,7 +444,7 @@ export default function BlogDetailPage() {
               Jobs
             </button>
             <Button
-              onClick={() => navigate('/blog')}
+              onClick={() => navigate(listBase)}
               className="bg-[#FF2B2B] hover:bg-[#e02525] text-white rounded-full px-6"
             >
               Blog
@@ -582,7 +585,7 @@ export default function BlogDetailPage() {
                   ← Previous Article
                 </Button>
                 <Button
-                  onClick={() => navigate('/blog')}
+                  onClick={() => navigate(listBase)}
                   variant="outline"
                   className="border-2 border-gray-300 text-[#3A1F1F] hover:bg-gray-100 rounded-full px-6"
                 >
@@ -625,7 +628,7 @@ export default function BlogDetailPage() {
                     <div
                       key={a.id}
                       className="cursor-pointer hover:bg-[#F6F6F6] p-3 rounded-xl transition-colors flex gap-3 items-center"
-                      onClick={() => navigate(`/blog/${a.id}`)}
+                      onClick={() => navigate(`${listBase}/${a.id}`)}
                     >
                       {a.image ? (
                         <img src={a.image} alt={a.title} className="w-14 h-14 rounded-lg object-cover flex-shrink-0" />
@@ -647,7 +650,7 @@ export default function BlogDetailPage() {
                   )}
                 </div>
                 <Button
-                  onClick={() => navigate('/blog')}
+                  onClick={() => navigate(listBase)}
                   variant="outline"
                   className="w-full mt-4 border-2 border-[#FF2B2B] text-[#FF2B2B] hover:bg-[#FF2B2B] hover:text-white rounded-full"
                 >
@@ -663,7 +666,7 @@ export default function BlogDetailPage() {
                     <button
                       key={topic}
                       type="button"
-                      onClick={() => navigate(`/blog?category=${encodeURIComponent(topic)}`)}
+                      onClick={() => navigate(`${listBase}?category=${encodeURIComponent(topic)}`)}
                       className="bg-[#ECECF4] text-[#3A1F1F] px-3 py-1 rounded-full text-sm hover:bg-[#FF2B2B] hover:text-white cursor-pointer transition-colors"
                     >
                       {topic}

@@ -44,6 +44,7 @@ import SuperAdminTransactions from "./pages/super-admin/SuperAdminTransactions";
 import SuperAdminCommunications from "./pages/super-admin/SuperAdminCommunications";
 import SuperAdminEmails from "./pages/super-admin/SuperAdminEmails";
 import SuperAdminNewsletter from "./pages/super-admin/SuperAdminNewsletter";
+import SuperAdminBlogs from "./pages/super-admin/SuperAdminBlogs";
 import SuperAdminNotifications from "./pages/super-admin/SuperAdminNotifications";
 import SuperAdminReports from "./pages/super-admin/SuperAdminReports";
 import SuperAdminAnalytics from "./pages/super-admin/SuperAdminAnalytics";
@@ -147,6 +148,17 @@ export const router = createBrowserRouter([
     path: "/blog/:id",
     Component: BlogDetailPage,
     errorElement: <ErrorPage />,
+  },
+  {
+    // Articles are recruiter-authored and live in recruiter_articles; Blogs are
+    // Super Admin authored and live in the separate blogs table. Same page
+    // components, different source — see BlogPage.
+    path: "/articles",
+    Component: () => <BlogPage source="articles" />,
+  },
+  {
+    path: "/articles/:id",
+    Component: () => <BlogDetailPage source="articles" />,
   },
   {
     path: "/jobseeker/signin",
@@ -254,6 +266,7 @@ export const router = createBrowserRouter([
       { path: "/super-admin/communications", Component: SuperAdminCommunications },
       { path: "/super-admin/emails", Component: SuperAdminEmails },
       { path: "/super-admin/newsletter", Component: SuperAdminNewsletter },
+      { path: "/super-admin/blogs", Component: SuperAdminBlogs },
       { path: "/super-admin/notifications", Component: SuperAdminNotifications },
       { path: "/super-admin/reports", Component: SuperAdminReports },
       { path: "/super-admin/analytics", Component: SuperAdminAnalytics },
