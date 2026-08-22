@@ -23,6 +23,12 @@ interface AppliedJobsSectionProps {
   onInterviewDetailsOpen?: (job: AppliedJobWithJob) => void;
   onOfferDetailsOpen?: (job: AppliedJobWithJob) => void;
   filterStatus?: string;
+  /**
+   * Opens the job detail panel, matching Saved Jobs. Without this an applied
+   * job card had no way to show the JD the candidate had applied against.
+   */
+  onJobSelect?: (job: AppliedJobWithJob) => void;
+  selectedJobId?: string | null;
 }
 
 const PIPELINE_STAGES = [
@@ -226,7 +232,7 @@ function formatDate(value: string): string {
   });
 }
 
-export default function AppliedJobsSection({ userId, compact = false, onJobsLoaded, onInterviewDetailsOpen, onOfferDetailsOpen, filterStatus }: AppliedJobsSectionProps) {
+export default function AppliedJobsSection({ userId, compact = false, onJobsLoaded, onInterviewDetailsOpen, onOfferDetailsOpen, filterStatus, onJobSelect, selectedJobId }: AppliedJobsSectionProps) {
   const [appliedJobs, setAppliedJobs] = useState<AppliedJobWithJob[]>([]);
   const [loading, setLoading] = useState(true);
   const [error, setError] = useState("");
@@ -486,10 +492,16 @@ export default function AppliedJobsSection({ userId, compact = false, onJobsLoad
           return { clickable: false, onClick: undefined };
         };
 
+        const currentJobId = String(application.job_id || application.job.id);
+        const isSelected = selectedJobId === currentJobId;
+
         return (
           <div
             key={application.id}
-            className={`rounded-2xl border border-gray-100 bg-white ${compact ? "p-4" : "p-5"} shadow-[0_2px_8px_rgba(16,24,40,0.08)]`}
+            onClick={() => onJobSelect?.(application)}
+            className={`rounded-2xl border border-gray-100 bg-white ${compact ? "p-4" : "p-5"} shadow-[0_2px_8px_rgba(16,24,40,0.08)] ${
+              onJobSelect ? "cursor-pointer transition-all hover:shadow-[0_6px_16px_rgba(16,24,40,0.10)]" : ""
+            } ${isSelected ? "ring-2 ring-[#FF2B2B]" : ""}`}
           >
             <div>
               <h3 className={`font-semibold text-[#2D1A1A] ${compact ? "text-base" : "text-lg"}`}>{application.job.title}</h3>
@@ -528,10 +540,16 @@ export default function AppliedJobsSection({ userId, compact = false, onJobsLoad
                           <button
                             key={stage}
                             type="button"
-                            onClick={clickableInfo.onClick}
+                            onClick={(event) => {
+                              // The card now opens the JD, so a pipeline stage
+                              // must not do both.
+                              event.stopPropagation();
+                              clickableInfo.onClick?.();
+                            }}
                             onKeyDown={(event) => {
                               if (event.key === "Enter" || event.key === " ") {
                                 event.preventDefault();
+                                event.stopPropagation();
                                 clickableInfo.onClick?.();
                               }
                             }}

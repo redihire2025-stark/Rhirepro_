@@ -5,12 +5,30 @@ describe("activeTime helpers", () => {
   const baseTimeStr = "2026-08-13T12:00:00.000Z";
   const nowMs = new Date(baseTimeStr).getTime();
 
-  it("parses active date correctly from last_active_at only", () => {
-    expect(parseActiveDate({ last_active_at: "2026-08-13T10:00:00.000Z" })?.toISOString()).toBe("2026-08-13T10:00:00.000Z");
-    expect(parseActiveDate({ updated_at: "2026-08-12T10:00:00.000Z" })).toBeNull();
-    expect(parseActiveDate({ created_at: "2026-08-11T10:00:00.000Z" })).toBeNull();
+  it("prefers last_active_at, then updated_at, then created_at", () => {
+    // last_active_at wins whenever it is present.
+    expect(
+      parseActiveDate({
+        last_active_at: "2026-08-13T10:00:00.000Z",
+        updated_at: "2026-08-12T10:00:00.000Z",
+        created_at: "2026-08-11T10:00:00.000Z",
+      })?.toISOString(),
+    ).toBe("2026-08-13T10:00:00.000Z");
+
+    /*
+     * Falling back matters because last_active_at is null for any account that
+     * has not signed in since it started being written. Returning null for
+     * those made them all render as the "Active 6 months ago" placeholder,
+     * which looked like a measurement and was not one.
+     */
+    expect(parseActiveDate({ updated_at: "2026-08-12T10:00:00.000Z" })?.toISOString()).toBe("2026-08-12T10:00:00.000Z");
+    expect(parseActiveDate({ created_at: "2026-08-11T10:00:00.000Z" })?.toISOString()).toBe("2026-08-11T10:00:00.000Z");
+  });
+
+  it("returns null only when there is genuinely nothing to go on", () => {
     expect(parseActiveDate(null)).toBeNull();
     expect(parseActiveDate({})).toBeNull();
+    expect(parseActiveDate({ last_active_at: "not-a-date" })).toBeNull();
   });
 
   it("formats active time within 24 hours as 'Active Today'", () => {
@@ -57,8 +75,10 @@ describe("activeTime helpers", () => {
     expect(formatActiveTime(active90d, nowMs)).toBe("Active 3 months ago");
   });
 
-  it("returns 'Active 6 months ago' for missing or invalid dates", () => {
-    expect(formatActiveTime(null, nowMs)).toBe("Active 6 months ago");
-    expect(formatActiveTime("invalid-date", nowMs)).toBe("Active 6 months ago");
+  it("says activity is unknown rather than inventing a duration", () => {
+    // This used to claim "Active 6 months ago" for anyone with no timestamp,
+    // which a recruiter reasonably read as a fact about the candidate.
+    expect(formatActiveTime(null, nowMs)).toBe("Activity unknown");
+    expect(formatActiveTime("invalid-date", nowMs)).toBe("Activity unknown");
   });
 });

@@ -25,7 +25,7 @@ export const SAFE_RECRUITER_COLUMNS =
   "id, email, recruiter_name, company_name, company_size, company_type, industry, company_description, website, location, logo_url, tagline, linkedin_url, cin, created_at, cover_image_url, cover_image_name, founded, org_role, org_admin_id, is_active, max_seats, is_org_admin, org_id, is_disabled, last_login_at, resumes_used, keywords_used, profiles_viewed, referral_email, referral_id, verification_status, rejection_reason, rejected_at, rejected_by, verified_at, verified_by, phone";
 
 export const SAFE_PROFILE_COLUMNS =
-  "id, email, first_name, last_name, phone, avatar_url, headline, location, experience_type, total_experience, current_company, current_title, current_salary, expected_salary, notice_period, skills, resume_url, linkedin_url, portfolio_url, about, otp_code, otp_expires_at, created_at, dob, gender, marital_status, desired_job_title, job_type_pref, preferred_location, work_auth, willing_to_relocate, languages, preferred_interview_mode, profile_views, recruiter_searches, is_disabled";
+  "id, email, first_name, last_name, phone, avatar_url, headline, location, experience_type, total_experience, current_company, current_title, current_salary, expected_salary, notice_period, skills, resume_url, linkedin_url, portfolio_url, about, otp_code, otp_expires_at, created_at, dob, gender, marital_status, desired_job_title, job_type_pref, preferred_location, work_auth, willing_to_relocate, languages, preferred_interview_mode, profile_views, recruiter_searches, is_disabled, last_active_at";
 
 /**
  * Google OAuth never populates `user_metadata.role` — the provider has no idea
@@ -89,6 +89,34 @@ export function AuthProvider({ children }: { children: ReactNode }) {
   const [role, setRole] = useState<"jobseeker" | "recruiter" | null>(null);
   const [loading, setLoading] = useState(true);
 
+  /*
+   * Keep last_active_at honest.
+   *
+   * It was only written by the OTP sign-in path, so Google sign-ins and every
+   * returning session left it untouched — 1021 of 1025 profiles had it null,
+   * and recruiters saw the "Active 6 months ago" placeholder for candidates
+   * who were on the site that minute. Writing it whenever a session resolves
+   * covers every way in.
+   *
+   * Throttled to once an hour: this runs on each profile load, and the value
+   * is displayed at day granularity, so a write per page view would be pure
+   * noise against the database.
+   */
+  const touchLastActive = (userId: string, currentValue: string | null) => {
+    const ONE_HOUR_MS = 60 * 60 * 1000;
+    if (currentValue) {
+      const seen = new Date(currentValue).getTime();
+      if (!isNaN(seen) && Date.now() - seen < ONE_HOUR_MS) return;
+    }
+    void supabase
+      .from("profiles")
+      .update({ last_active_at: new Date().toISOString() })
+      .eq("id", userId)
+      .then(({ error }) => {
+        if (error) console.warn("Could not record activity:", error.message);
+      });
+  };
+
   const fetchProfile = async (userId: string, userRole: string, retries = 3) => {
     if (userRole === "super_admin") {
       setProfile(null);
@@ -125,6 +153,7 @@ export function AuthProvider({ children }: { children: ReactNode }) {
         const userProfile = data as Profile | null;
         setProfile(userProfile);
         setRecruiterProfile(null);
+        touchLastActive(userId, userProfile?.last_active_at ?? null);
       }
     } catch (err) {
       console.error("fetchProfile error:", err);

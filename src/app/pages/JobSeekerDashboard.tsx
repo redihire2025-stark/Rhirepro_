@@ -2283,6 +2283,9 @@ function FindJobPage() {
     // Applying without opening the panel is possible straight from a card, and
     // an application with no view behind it makes the funnel nonsensical.
     countJobView(job.id);
+    // Applying is the strongest activity signal there is; a recruiter should
+    // never see "Active 6 months ago" on someone who just applied to their job.
+    void supabase.from("profiles").update({ last_active_at: new Date().toISOString() }).eq("id", userId);
     setApplyingId(job.id);
     try {
       await supabase.from("applications").insert({
@@ -5420,7 +5423,13 @@ function AnalyticsPage() {
   const [savedJobs, setSavedJobs] = useState<SavedJobWithJob[]>([]);
   const [selectedInterviewJob, setSelectedInterviewJob] = useState<AppliedJobWithJob | null>(null);
   const [selectedOfferJob, setSelectedOfferJob] = useState<AppliedJobWithJob | null>(null);
-  const [selectedSavedJob, setSelectedSavedJob] = useState<SavedJobWithJob | null>(null);
+  /*
+   * Applied and Saved both open the same detail panel, and the panel only ever
+   * reads .job and .job_id. Typing the state to that shared shape lets either
+   * list feed it without a second copy of the panel.
+   */
+  type JobDetailSelection = { job_id?: string | number | null; job?: SavedJobWithJob["job"] | null };
+  const [selectedSavedJob, setSelectedSavedJob] = useState<JobDetailSelection | null>(null);
   const [applyingId, setApplyingId] = useState<string | null>(null);
   const [selectedOfferDetails, setSelectedOfferDetails] = useState<OfferPanelDetails | null>(null);
   const [analyticsLoading, setAnalyticsLoading] = useState(true);
@@ -5931,6 +5940,8 @@ function AnalyticsPage() {
               onInterviewDetailsOpen={setSelectedInterviewJob}
               onOfferDetailsOpen={setSelectedOfferJob}
               filterStatus={appliedJobsFilter}
+              onJobSelect={setSelectedSavedJob}
+              selectedJobId={selectedSavedJob ? String(selectedSavedJob.job_id || selectedSavedJob.job?.id) : null}
             />
           )}
           {/* Saved Jobs */}
