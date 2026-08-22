@@ -2562,6 +2562,22 @@ function PostJobPage() {
     () => selectedSkills.filter(skill => !relevantSelectedSkills.some(related => related.toLowerCase() === skill.toLowerCase())),
     [selectedSkills, relevantSelectedSkills],
   );
+  /**
+   * Skill relevance is derived from the job title and description. When those
+   * are malformed there is no context to match against, so every selected skill
+   * looks non-relevant and the alignment warning fires no matter what the
+   * recruiter picks — blaming the skills for a problem in the title. Detect that
+   * case so the message can point at the actual cause instead.
+   */
+  const jobContextIssue = useMemo(() => {
+    const titleProblem = validateJobTextField("Job Title", formData.jobTitle);
+    if (titleProblem) return titleProblem;
+    const jdText = extractTextFromHtml(formData.jobDescription).trim();
+    if (formData.jobTitle.trim().length < 3 && jdText.length < 40) {
+      return "Add a job title and description first — skill suggestions are based on them.";
+    }
+    return null;
+  }, [formData.jobTitle, formData.jobDescription]);
   const mandatorySkillSet = useMemo(() => new Set(mandatorySkills), [mandatorySkills]);
   const isSalaryRangeInvalid = useMemo(() => {
     const minSalary = Number(formData.salaryMin);
@@ -3404,7 +3420,11 @@ function PostJobPage() {
                 );
               })}
             </div>
-            {nonRelevantSelectedSkills.length > 0 && (
+            {jobContextIssue ? (
+              <div className="mb-3 rounded-xl border border-[#FFD9A8] bg-[#FFFBF3] px-3 py-2 text-xs text-[#8A5A00]">
+                <span className="font-semibold">Can&apos;t check skill alignment:</span> {jobContextIssue}
+              </div>
+            ) : nonRelevantSelectedSkills.length > 0 && (
               <div className="mb-3 rounded-xl border border-[#FFB4B4] bg-[#FFF6F6] px-3 py-2 text-xs text-[#B42318]">
                 <span className="font-semibold">Skill alignment warning:</span> {nonRelevantSelectedSkills.join(", ")} {nonRelevantSelectedSkills.length === 1 ? "does not" : "do not"} match the job title / JD context. Keep at least 3 role-aligned skills from the JD suggestions or close variants before publishing.
               </div>
