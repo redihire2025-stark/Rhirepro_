@@ -489,21 +489,44 @@ export const JSON_SEED_DATA = {
   recommendationKeywordMapping: RECOMMENDATION_KEYWORD_MAPPING,
 };
 
+/**
+ * How much edit distance to forgive for a token of this length.
+ *
+ * A flat "distance <= 2" was allowed regardless of length, which is far too
+ * loose on short input: at 3 characters almost any word is within 2 edits.
+ * That is why typing "hyd" listed Bid, Khed and Kud, and "html" listed ETL,
+ * Home Care and HT LT Panels — every one of those is exactly 2 edits away.
+ *
+ * Substring matches are handled before this is consulted, so short queries
+ * still find their target ("hyd" matches Hyderabad); they just no longer match
+ * unrelated words of similar length. Real typo tolerance is kept for longer
+ * tokens, where 1-2 edits is genuinely a misspelling rather than a different
+ * word ("javascrpt" still finds JavaScript).
+ */
+function allowedEditDistance(tokenLength: number): number {
+  if (tokenLength <= 3) return 0;
+  if (tokenLength <= 5) return 1;
+  return 2;
+}
+
 export function fuzzyMatch(query: string, target: string): boolean {
   const q = query.toLowerCase().trim();
   const t = target.toLowerCase().trim();
-  
+
   if (!q) return true;
   if (t.includes(q)) return true;
-  
+
   const qTokens = q.split(/\s+/).filter(Boolean);
   const tTokens = t.split(/\s+/).filter(Boolean);
-  
+
   return qTokens.every(qToken => {
+    const tolerance = allowedEditDistance(qToken.length);
     return tTokens.some(tToken => {
       if (tToken.includes(qToken)) return true;
-      const dist = computeLevenshtein(qToken, tToken);
-      return dist <= 2;
+      if (tolerance === 0) return false;
+      // Length alone can rule it out without walking the matrix.
+      if (Math.abs(tToken.length - qToken.length) > tolerance) return false;
+      return computeLevenshtein(qToken, tToken) <= tolerance;
     });
   });
 }
