@@ -1,6 +1,7 @@
 import { useState, useEffect, useCallback, useMemo, useRef } from "react";
 import { useParams, useNavigate } from "react-router";
 import { supabase, Profile, Application } from "../../lib/supabase";
+import { decryptPhone } from "../../lib/phoneProtection";
 import { useAuth, SAFE_PROFILE_COLUMNS } from "../../lib/auth-context";
 import { formatActiveTime, parseActiveDate } from "../../lib/activeTime";
 import {
@@ -394,6 +395,34 @@ export default function ApplicantProfilePage() {
             .then(({ error: notifyError }) => {
               if (notifyError) console.warn("Profile-view notification failed:", notifyError.message);
             });
+
+          /*
+           * Email as well as the bell. The in-app notification only reaches a
+           * seeker who happens to be logged in, which is the opposite of the
+           * people this is meant to bring back. The function re-checks the
+           * once-per-day limit server side, so the localStorage guard above
+           * being cleared cannot turn this into a mail flood.
+           */
+          void (async () => {
+            try {
+              const { data: sessionData } = await supabase.auth.getSession();
+              const accessToken = sessionData.session?.access_token;
+              if (!accessToken) return;
+              const res = await fetch("/api/profile-view-email", {
+                method: "POST",
+                headers: {
+                  "Content-Type": "application/json",
+                  Authorization: `Bearer ${accessToken}`,
+                },
+                body: JSON.stringify({ profile_id: profData.id }),
+              });
+              if (!res.ok) {
+                console.warn("Profile-view email failed:", res.status, await res.text().catch(() => ""));
+              }
+            } catch (mailErr) {
+              console.warn("Profile-view email failed:", mailErr);
+            }
+          })();
         }
       }
 
@@ -731,7 +760,7 @@ export default function ApplicantProfilePage() {
                   </div>
                   <div className="flex flex-wrap gap-x-4 gap-y-2 mt-3 text-sm text-[#8A8A8A]">
                     {profile?.location && <span className="flex items-center gap-1"><MapPin className="h-4 w-4 text-[#8A8A8A]" />{profile.location}</span>}
-                    {profile?.phone && <span className="flex items-center gap-1"><Phone className="h-4 w-4 text-[#8A8A8A]" />{profile.phone}</span>}
+                    {profile?.phone && <span className="flex items-center gap-1"><Phone className="h-4 w-4 text-[#8A8A8A]" />{decryptPhone(profile.phone)}</span>}
                     {profile?.email && <span className="flex items-center gap-1"><Mail className="h-4 w-4 text-[#8A8A8A]" />{profile.email}</span>}
                     {profile?.linkedin_url && (
                       <a href={profile.linkedin_url} target="_blank" rel="noopener noreferrer" className="flex items-center gap-1 text-[#FF2B2B] hover:underline">

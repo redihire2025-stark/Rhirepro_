@@ -2198,9 +2198,27 @@ function FindJobPage() {
   const countJobView = useCallback((jobId?: string | null) => {
     if (!jobId || countedJobViewsRef.current.has(jobId)) return;
     countedJobViewsRef.current.add(jobId);
-    // Fire and forget: a failed counter must never interfere with browsing.
-    void supabase.rpc("increment_job_views", { p_job_id: jobId });
+    // Fire and forget so a failed counter never interferes with browsing, but
+    // do report the failure — this was silent, which made it impossible to tell
+    // "nobody opened a job" apart from "every call is being rejected".
+    void supabase.rpc("increment_job_views", { p_job_id: jobId }).then(({ error }) => {
+      if (error) {
+        countedJobViewsRef.current.delete(jobId);
+        console.warn("increment_job_views failed:", error.message);
+      }
+    });
   }, []);
+
+  /*
+   * Anchoring the count on the selected job rather than on one card's onClick:
+   * the panel also opens from Recommended Jobs, Saved Jobs and a restored
+   * selection, and Apply Now stops propagation so applying straight from a card
+   * never counted a view at all. Every path that shows a job now goes through
+   * here, and the ref keeps it to one view per job per session.
+   */
+  useEffect(() => {
+    if (selectedJob?.isDB && selectedJob.dbJob) countJobView(selectedJob.dbJob.id);
+  }, [selectedJob, countJobView]);
 
   // Keep the seeker's view of a job in step with the recruiter's edits.
   useEffect(() => {
@@ -2262,6 +2280,9 @@ function FindJobPage() {
     if (!userId) return;
     if (appliedJobIds.includes(job.id)) return;
     if (!isJobVisibleToSeekers(job)) return;
+    // Applying without opening the panel is possible straight from a card, and
+    // an application with no view behind it makes the funnel nonsensical.
+    countJobView(job.id);
     setApplyingId(job.id);
     try {
       await supabase.from("applications").insert({
@@ -3013,7 +3034,7 @@ function FindJobPage() {
                       {selectedJob.dbJob.recruiter.phone && (
                         <div>
                           <span className="text-xs text-[#8A8A8A] block mb-0.5">Phone</span>
-                          <span className="font-semibold text-[#3A1F1F] text-sm">{selectedJob.dbJob.recruiter.phone}</span>
+                          <span className="font-semibold text-[#3A1F1F] text-sm">{decryptPhone(selectedJob.dbJob.recruiter.phone)}</span>
                         </div>
                       )}
                       {selectedJob.dbJob.recruiter.cin && (

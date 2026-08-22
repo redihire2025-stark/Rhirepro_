@@ -6,6 +6,7 @@ import { Sheet, SheetContent, SheetTrigger, SheetTitle, SheetDescription } from 
 import { useNavigate, useParams, Link } from "react-router";
 import logoImage from "../../logo/logo.png";
 import { supabase, type Job as DBJob } from "../../lib/supabase";
+import { decryptPhone } from "../../lib/phoneProtection";
 import { formatJobSalary, isJobVisibleToSeekers } from "../../lib/jobs";
 import { isIndianLocation } from "../../lib/locationData";
 import { useAuth } from "../../lib/auth-context";
@@ -634,7 +635,7 @@ export default function JobDetailPage() {
                       {job.recruiter.phone && (
                         <div>
                           <span className="text-[#8A8A8A] block text-sm mb-0.5">Phone</span>
-                          <span className="font-semibold text-[#3A1F1F] text-base">{job.recruiter.phone}</span>
+                          <span className="font-semibold text-[#3A1F1F] text-base">{decryptPhone(job.recruiter.phone)}</span>
                         </div>
                       )}
                       {job.recruiter.cin && (

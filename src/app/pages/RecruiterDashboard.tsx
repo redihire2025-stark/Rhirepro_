@@ -1224,7 +1224,7 @@ function CandidateProfileModal({ candidate, open, onClose }: { candidate: Candid
                 <Button size="sm" variant="outline" className="border-white/40 text-white hover:bg-white/20 text-xs rounded-full" onClick={() => { if (candidate.email) window.location.href = `mailto:${candidate.email}`; }}>
                   <Mail className="h-3 w-3 mr-1" /> Send Message
                 </Button>
-                <Button size="sm" variant="outline" className="border-white/40 text-white hover:bg-white/20 text-xs rounded-full" onClick={() => { if (candidate.phone) window.location.href = `tel:${candidate.phone}`; }}>
+                <Button size="sm" variant="outline" className="border-white/40 text-white hover:bg-white/20 text-xs rounded-full" onClick={() => { if (candidate.phone) window.location.href = `tel:${decryptPhone(candidate.phone)}`; }}>
                   <Phone className="h-3 w-3 mr-1" /> Call
                 </Button>
                 <Button size="sm" variant="outline" className="border-white/40 text-white hover:bg-white/20 text-xs rounded-full" onClick={() => { if (candidate.email) window.location.href = `mailto:${candidate.email}?subject=Interview Invitation`; }}>
@@ -1275,7 +1275,7 @@ function CandidateProfileModal({ candidate, open, onClose }: { candidate: Candid
                   <h4 className="font-semibold text-[#3A1F1F] mb-2 text-sm">Contact Information</h4>
                   <div className="grid grid-cols-2 gap-2 text-sm">
                     <div className="flex items-center gap-2 text-[#5A5A5A]"><Mail className="h-4 w-4 text-[#FF2B2B]" />{candidate.email}</div>
-                    <div className="flex items-center gap-2 text-[#5A5A5A]"><Phone className="h-4 w-4 text-[#FF2B2B]" />{candidate.phone}</div>
+                    <div className="flex items-center gap-2 text-[#5A5A5A]"><Phone className="h-4 w-4 text-[#FF2B2B]" />{decryptPhone(candidate.phone)}</div>
                   </div>
                 </div>
                 <div className="bg-[#F6F6F6] rounded-xl p-4">
@@ -9757,6 +9757,27 @@ function ApplicantsPage() {
                         evtMap.set(v, { val: v, pct: toPct(v), label: fmtLabel(v, isCurrent), type, tooltips: associated.map(s => s.tooltip) });
                       });
                       const evts = Array.from(evtMap.values());
+                      /*
+                       * Every label used to sit in one row under the axis, so
+                       * back-to-back dates printed on top of each other. Ends go
+                       * above the line and starts below it, which splits most
+                       * collisions apart on its own; where two labels land on the
+                       * same side and are still too close, the second drops to an
+                       * outer row.
+                       */
+                      const MIN_GAP_PCT = 7;
+                      const lastPctBySide: Record<"above" | "below", number> = { above: -999, below: -999 };
+                      const lastRowBySide: Record<"above" | "below", number> = { above: 0, below: 0 };
+                      const placed = evts.map((ev) => {
+                        const side: "above" | "below" = spans.some(sp => sp.endVal === ev.val) ? "above" : "below";
+                        const row = ev.pct - lastPctBySide[side] < MIN_GAP_PCT ? (lastRowBySide[side] === 0 ? 1 : 0) : 0;
+                        lastPctBySide[side] = ev.pct;
+                        lastRowBySide[side] = row;
+                        return { ...ev, side, row };
+                      });
+                      const AXIS_TOP = 46;
+                      const labelTop = (side: "above" | "below", row: number) =>
+                        side === "above" ? (row === 0 ? 22 : 6) : (row === 0 ? 56 : 72);
                       // Segments: determine color per gap
                       const segments = evts.slice(0, -1).map((ev, i) => {
                         const next = evts[i + 1];
@@ -9772,33 +9793,48 @@ function ApplicantsPage() {
                       });
                       return (
                         <div className="border-t border-gray-100 px-5 pt-3 pb-3">
-                          <div className="relative" style={{ height: 56 }}>
+                          <div className="relative" style={{ height: 92 }}>
                             {/* Segments (colored + grey gaps) */}
                             {segments.map((seg, i) => (
-                              <div key={i} className="absolute h-0.5" style={{ left: `${seg.leftPct}%`, width: `${seg.widthPct}%`, top: 22, background: seg.color }} />
+                              <div key={i} className="absolute h-0.5" style={{ left: `${seg.leftPct}%`, width: `${seg.widthPct}%`, top: AXIS_TOP, background: seg.color }} />
                             ))}
                             {/* Gap labels */}
                             {segments.filter(s => s.isGap).map((seg, i) => (
-                              <div key={i} className="absolute flex flex-col items-center" style={{ left: `${seg.leftPct + seg.widthPct / 2}%`, transform: 'translateX(-50%)', top: 15 }}>
+                              <div key={i} className="absolute flex flex-col items-center" style={{ left: `${seg.leftPct + seg.widthPct / 2}%`, transform: "translateX(-50%)", top: AXIS_TOP - 7 }}>
                                 <span className="text-[8px] text-gray-400 bg-white px-1 rounded whitespace-nowrap border border-gray-200">gap</span>
                               </div>
                             ))}
                             {/* Event markers with hover tooltips */}
-                            {evts.map((ev, i) => {
-                              const Icon = ev.type === 'edu' ? GraduationCap : Briefcase;
-                              const color = ev.type === 'edu' ? '#60A5FA' : '#A78BFA';
+                            {placed.map((ev, i) => {
+                              const Icon = ev.type === "edu" ? GraduationCap : Briefcase;
+                              const color = ev.type === "edu" ? "#60A5FA" : "#A78BFA";
                               return (
-                                <div key={i} className="absolute flex flex-col items-center group/tip cursor-default" style={{ left: `${ev.pct}%`, transform: 'translateX(-50%)', top: 0, width: 44 }}>
-                                  {/* Tooltip — appears above marker */}
-                                  <div className="absolute bottom-[calc(100%+4px)] left-1/2 -translate-x-1/2 hidden group-hover/tip:flex flex-col gap-0.5 bg-[#1C1C1C] text-white rounded-lg px-2.5 py-1.5 z-30 shadow-xl pointer-events-none min-w-max max-w-[220px]">
+                                <div key={i} className="absolute group/tip cursor-default" style={{ left: `${ev.pct}%`, transform: "translateX(-50%)", top: 0, height: 92 }}>
+                                  {/* Tooltip — always above the marker, clear of both label rows */}
+                                  <div className="absolute left-1/2 -translate-x-1/2 hidden group-hover/tip:flex flex-col gap-0.5 bg-[#1C1C1C] text-white rounded-lg px-2.5 py-1.5 z-30 shadow-xl pointer-events-none min-w-max max-w-[220px]" style={{ bottom: 92 - AXIS_TOP + 14 }}>
                                     {ev.tooltips.map((t, ti) => (
                                       <span key={ti} className="text-[10px] leading-snug">{t}</span>
                                     ))}
                                     <div className="absolute top-full left-1/2 -translate-x-1/2 border-4 border-transparent border-t-[#1C1C1C]" />
                                   </div>
-                                  <Icon style={{ color, width: 13, height: 13, flexShrink: 0 }} />
-                                  <div className="w-2.5 h-2.5 bg-white border-2 rotate-45 mt-0.5 flex-shrink-0" style={{ borderColor: color }} />
-                                  <span className="text-[9px] text-[#8A8A8A] whitespace-nowrap mt-0.5 leading-tight text-center">{ev.label}</span>
+                                  {/* Marker sits on the axis; the label is offset above or below it */}
+                                  <div className="absolute left-1/2 -translate-x-1/2 w-2.5 h-2.5 bg-white border-2 rotate-45 z-10" style={{ top: AXIS_TOP - 5, borderColor: color }} />
+                                  {/* Leader line from label to the axis, so a staggered label still reads as belonging to its marker */}
+                                  <div
+                                    className="absolute left-1/2 -translate-x-1/2 border-l border-dashed border-gray-200"
+                                    style={
+                                      ev.side === "above"
+                                        ? { top: labelTop(ev.side, ev.row) + 12, height: Math.max(0, AXIS_TOP - labelTop(ev.side, ev.row) - 16) }
+                                        : { top: AXIS_TOP + 6, height: Math.max(0, labelTop(ev.side, ev.row) - AXIS_TOP - 6) }
+                                    }
+                                  />
+                                  <div
+                                    className="absolute left-1/2 -translate-x-1/2 flex items-center gap-0.5 bg-white px-0.5 z-10"
+                                    style={{ top: labelTop(ev.side, ev.row) }}
+                                  >
+                                    <Icon style={{ color, width: 11, height: 11, flexShrink: 0 }} />
+                                    <span className="text-[9px] text-[#8A8A8A] whitespace-nowrap leading-tight">{ev.label}</span>
+                                  </div>
                                 </div>
                               );
                             })}
