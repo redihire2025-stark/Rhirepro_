@@ -125,10 +125,23 @@ export default function PublicFooter() {
         </div>
 
         <div className="border-t border-white/20 mt-12 pt-8 flex flex-col md:flex-row justify-between items-center gap-4 text-white/80 text-sm">
-          <p>Copyright © 2025 RhirePro. All Rights Reserved.</p>
-          <div className="flex items-center gap-6">
+          {/*
+            Naming the operating entity, not just the product brand: payments are
+            collected by Redihire Global Services Private Limited and that is the
+            name a customer sees on their statement, so it has to be findable
+            here too.
+          */}
+          <p>
+            Copyright © 2025 RhirePro. All Rights Reserved.
+            <span className="block text-white/60 text-xs mt-1">
+              A product of Redihire Global Services Private Limited
+            </span>
+          </p>
+          <div className="flex items-center gap-6 flex-wrap justify-center">
             <Link to="/terms-of-service" className="hover:text-white transition-colors">Terms of Service</Link>
             <Link to="/privacy-policy" className="hover:text-white transition-colors">Privacy Policy</Link>
+            <Link to="/refund-policy" className="hover:text-white transition-colors">Refund &amp; Cancellation</Link>
+            <Link to="/contact" className="hover:text-white transition-colors">Contact Us</Link>
           </div>
         </div>
       </div>

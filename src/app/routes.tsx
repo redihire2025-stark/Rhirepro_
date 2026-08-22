@@ -28,6 +28,8 @@ import NotFound from "./pages/NotFound";
 import ErrorPage from "./pages/ErrorPage";
 import PrivacyPolicyPage from "./pages/PrivacyPolicyPage";
 import TermsOfServicePage from "./pages/TermsOfServicePage";
+import RefundPolicyPage from "./pages/RefundPolicyPage";
+import ContactUsPage from "./pages/ContactUsPage";
 import OrgAdminPanel from "./pages/OrgAdminPanel";
 import RecruiterInviteAccept from "./pages/RecruiterInviteAccept";
 import SuperAdminLoginPage from "./pages/super-admin/SuperAdminLoginPage";
@@ -228,6 +230,19 @@ export const router = createBrowserRouter([
   {
     path: "/terms-of-service",
     Component: TermsOfServicePage,
+    errorElement: <ErrorPage />,
+  },
+  // Razorpay's website review requires a reachable refund/cancellation policy
+  // and a dedicated contact page before it will approve a domain on a live
+  // merchant account; a contact section inside the landing page does not count.
+  {
+    path: "/refund-policy",
+    Component: RefundPolicyPage,
+    errorElement: <ErrorPage />,
+  },
+  {
+    path: "/contact",
+    Component: ContactUsPage,
     errorElement: <ErrorPage />,
   },
   {

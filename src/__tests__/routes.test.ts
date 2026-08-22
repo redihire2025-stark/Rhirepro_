@@ -101,12 +101,28 @@ describe('Router — route definitions', () => {
     expect(paths).toContain('/articles/:id');
   });
 
-  it('has 36 child routes total', () => {
+  it('exposes the policy pages a payment gateway requires', () => {
+    /*
+     * Razorpay blocked every live payment with "website does not match
+     * registered website(s)", and approving a new domain requires a reachable
+     * refund/cancellation policy and a dedicated contact page. A contact
+     * section inside the landing page does not satisfy that check, and because
+     * this is an SPA an unknown path still returns 200 — so a missing route
+     * looks fine from the outside and only fails the review.
+     */
+    const paths = getChildPaths();
+    expect(paths).toContain('/refund-policy');
+    expect(paths).toContain('/contact');
+    expect(paths).toContain('/privacy-policy');
+    expect(paths).toContain('/terms-of-service');
+  });
+
+  it('has 38 child routes total', () => {
     // /, /signin, /signup, /jobs, /job/:id, /services, /blog, /blog/:id,
     // /articles, /articles/:id, /jobseeker/signin, /jobseeker/signup,
     // /recruiter/signin, /recruiter/signup, /jobseeker/dashboard/*,
-    // /recruiter/dashboard/*, *
-    expect(getChildPaths().length).toBe(36);
+    // /recruiter/dashboard/*, /refund-policy, /contact, *
+    expect(getChildPaths().length).toBe(38);
   });
 
   it('each child route has a Component', () => {
