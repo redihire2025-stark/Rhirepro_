@@ -3965,11 +3965,30 @@ function ManageJobsPage() {
   useEffect(() => {
     fetchJobs();
     if (!recruiterProfile?.id) return;
+    /*
+     * Filtered to this recruiter's own rows. Unfiltered, every recruiter woke up
+     * and refetched their whole job list on any change to any of the ~1000 jobs
+     * on the platform. That was tolerable when jobs only changed on edit, but
+     * views are now incremented on every job open, so it would have meant a full
+     * refetch per view site-wide.
+     *
+     * Coalesced too: an apply writes an application and bumps the job's counters
+     * at nearly the same moment, and one refetch covers both.
+     */
+    let refetchTimer: ReturnType<typeof setTimeout> | undefined;
+    const scheduleRefetch = () => {
+      clearTimeout(refetchTimer);
+      refetchTimer = setTimeout(() => { void fetchJobs(); }, 300);
+    };
+
     const channel = supabase.channel(`manage-jobs-realtime-${recruiterProfile.id}`)
-      .on("postgres_changes", { event: "*", schema: "public", table: "jobs" }, fetchJobs)
-      .on("postgres_changes", { event: "*", schema: "public", table: "applications" }, fetchJobs)
+      .on("postgres_changes", { event: "*", schema: "public", table: "jobs", filter: `recruiter_id=eq.${recruiterProfile.id}` }, scheduleRefetch)
+      .on("postgres_changes", { event: "*", schema: "public", table: "applications", filter: `recruiter_id=eq.${recruiterProfile.id}` }, scheduleRefetch)
       .subscribe();
-    return () => { supabase.removeChannel(channel); };
+    return () => {
+      clearTimeout(refetchTimer);
+      supabase.removeChannel(channel);
+    };
   }, [recruiterProfile?.id, fetchJobs]);
 
   const filtered = filter === "All" ? jobs : jobs.filter(j => getEffectiveJobStatus(j) === filter);

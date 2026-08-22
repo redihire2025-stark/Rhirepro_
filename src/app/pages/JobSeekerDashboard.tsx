@@ -2175,6 +2175,21 @@ function FindJobPage() {
     preferredInterviewModeKey,
   ]);
 
+  /*
+   * Job ids already counted this session. Seekers open a card, close it and
+   * reopen it constantly while comparing roles, and each of those is one person
+   * looking at one job — not several views. Held in a ref rather than state so
+   * recording a view never triggers a re-render.
+   */
+  const countedJobViewsRef = useRef<Set<string>>(new Set());
+
+  const countJobView = useCallback((jobId?: string | null) => {
+    if (!jobId || countedJobViewsRef.current.has(jobId)) return;
+    countedJobViewsRef.current.add(jobId);
+    // Fire and forget: a failed counter must never interfere with browsing.
+    void supabase.rpc("increment_job_views", { p_job_id: jobId });
+  }, []);
+
   // Keep the seeker's view of a job in step with the recruiter's edits.
   useEffect(() => {
     const channel = supabase
@@ -2593,6 +2608,10 @@ function FindJobPage() {
                         setSelectedJob(isSelected ? null : job);
                         if (!isSelected && job.isDB && job.dbJob) {
                           recordJobInteraction(job.dbJob, profile?.id);
+                          // Only the public /job/:id page counted views, so jobs
+                          // opened here — where signed-in seekers actually browse
+                          // — never reached the recruiter's Job Views figure.
+                          countJobView(job.dbJob.id);
                         }
                       }}
                       className={`bg-white rounded-2xl p-5 shadow-sm hover:shadow-md transition-all cursor-pointer relative flex flex-col ${isSelected ? "ring-2 ring-[#FF2B2B]" : ""}`}
