@@ -1,6 +1,14 @@
 import { useState, useMemo, useEffect, useCallback, useRef, type MouseEvent as ReactMouseEvent } from "react";
 import { useNavigate, Routes, Route, Link, useLocation } from "react-router";
 import { supabase, Job as DBJob, Notification } from "../../lib/supabase";
+import {
+  DropdownMenu,
+  DropdownMenuContent,
+  DropdownMenuItem,
+  DropdownMenuSeparator,
+  DropdownMenuLabel,
+  DropdownMenuTrigger,
+} from "../components/ui/dropdown-menu";
 import { formatJobSalary, isJobVisibleToSeekers } from "../../lib/jobs";
 import { recordJobInteraction, recordJobSearch } from "../../lib/jobRecommendations";
 import { SKILL_OPTIONS, skillsMatch, fuzzyMatch, SEARCH_SUGGESTION_DATASET } from "../../lib/skillKeywords";
@@ -1182,15 +1190,18 @@ export default function JobSeekerDashboard() {
 
       <header className="bg-white shadow-sm sticky top-0 z-50">
         <div className="container mx-auto px-4 py-4">
-          <div className="flex items-center justify-between">
-            <div className="flex items-center gap-3 cursor-pointer" onClick={() => navigate("/jobseeker/dashboard")}>
-              <img src={logoImage} alt="RhirePro Logo" className="w-10 h-10" />
-              <div className="text-2xl font-bold text-[#3A1F1F]">Rhire<span className="text-[#FF2B2B]">Pro</span></div>
+          {/* Logo and controls each take flex-1 so the nav sits centred on the
+              page rather than centred in whatever space is left over. */}
+          <div className="flex items-center gap-4">
+            <div className="flex-1 flex justify-start">
+              <div className="flex items-center gap-3 cursor-pointer" onClick={() => navigate("/jobseeker/dashboard")}>
+                <img src={logoImage} alt="RhirePro Logo" className="w-10 h-10" />
+                <div className="text-2xl font-bold text-[#3A1F1F]">Rhire<span className="text-[#FF2B2B]">Pro</span></div>
+              </div>
             </div>
-            <nav className="hidden md:flex items-center gap-4">
+            <nav className="hidden md:flex items-center justify-center gap-2">
               {[
                 { label: "Find a Job", tab: "find-job", to: "/jobseeker/dashboard" },
-                { label: "Profile", tab: "profile", to: "/jobseeker/dashboard/profile" },
                 { label: "Job Analytics", tab: "analytics", to: "/jobseeker/dashboard/analytics" },
                 { label: "Career Insights", tab: "insights", to: "/jobseeker/dashboard/insights" },
               ].map(({ label, tab, to }) => (
@@ -1203,7 +1214,9 @@ export default function JobSeekerDashboard() {
                   </Button>
                 </Link>
               ))}
+            </nav>
 
+            <div className="flex-1 flex items-center justify-end gap-2">
               <div className="relative" ref={notifRef}>
                 <Button variant="ghost" size="icon" className="relative" onClick={async () => {
                   const opening = !notificationsOpen;
@@ -1266,38 +1279,54 @@ export default function JobSeekerDashboard() {
 
               {(profile || user) && (
                 /*
-                 * The avatar looked clickable but had no handler at all. It goes
-                 * to the Profile tab rather than opening a menu, because Sign Out
-                 * already sits next to it as its own button — a dropdown would
-                 * just duplicate it. Routed through handleDashboardLinkClick so
-                 * it honours the same unsaved-preferences guard as the nav links,
-                 * which a plain navigate() would skip.
+                 * Profile moved out of the top nav and into this menu, so the
+                 * avatar is now the single place identity lives — View Profile
+                 * and Sign Out both hang off it, and the separate Sign Out button
+                 * is gone. View Profile still routes through
+                 * handleDashboardLinkClick so it warns about unsaved preferred-job
+                 * settings, which a plain navigate() would skip.
                  */
-                <Link
-                  to="/jobseeker/dashboard/profile"
-                  onClick={(event) => handleDashboardLinkClick(event, "/jobseeker/dashboard/profile")}
-                  aria-label="View your profile"
-                  title={`${headerFirstName} ${headerLastName}`.trim() || "View your profile"}
-                  className="w-8 h-8 rounded-full overflow-hidden flex-shrink-0 block ring-offset-2 transition-shadow hover:ring-2 hover:ring-[#FF2B2B] focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-[#FF2B2B]"
-                >
-                  {headerAvatar ? (
-                    <img src={headerAvatar} alt="Profile" className="w-full h-full object-cover" referrerPolicy="no-referrer" />
-                  ) : (
-                    <div className="w-full h-full bg-[#FF2B2B] flex items-center justify-center text-white text-xs font-bold">
-                      {userInitials}
-                    </div>
-                  )}
-                </Link>
+                <DropdownMenu>
+                  <DropdownMenuTrigger asChild>
+                    <button
+                      type="button"
+                      aria-label="Account menu"
+                      className="w-9 h-9 rounded-full overflow-hidden flex-shrink-0 ring-offset-2 transition-shadow hover:ring-2 hover:ring-[#FF2B2B] focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-[#FF2B2B]"
+                    >
+                      {headerAvatar ? (
+                        <img src={headerAvatar} alt="Profile" className="w-full h-full object-cover" referrerPolicy="no-referrer" />
+                      ) : (
+                        <div className="w-full h-full bg-[#FF2B2B] flex items-center justify-center text-white text-xs font-bold">
+                          {userInitials}
+                        </div>
+                      )}
+                    </button>
+                  </DropdownMenuTrigger>
+                  <DropdownMenuContent align="end" className="w-56">
+                    <DropdownMenuLabel className="font-normal">
+                      <p className="text-sm font-medium text-[#3A1F1F] truncate">
+                        {`${headerFirstName} ${headerLastName}`.trim() || "Your account"}
+                      </p>
+                      <p className="text-xs text-muted-foreground truncate">{profile?.email || user?.email}</p>
+                    </DropdownMenuLabel>
+                    <DropdownMenuSeparator />
+                    <DropdownMenuItem asChild>
+                      <Link
+                        to="/jobseeker/dashboard/profile"
+                        onClick={(event) => handleDashboardLinkClick(event, "/jobseeker/dashboard/profile")}
+                        className="cursor-pointer"
+                      >
+                        <User className="mr-2 h-4 w-4" /> View Profile
+                      </Link>
+                    </DropdownMenuItem>
+                    <DropdownMenuSeparator />
+                    <DropdownMenuItem onClick={handleSignOut} className="cursor-pointer text-[#FF2B2B] focus:text-[#FF2B2B]">
+                      <LogOut className="mr-2 h-4 w-4" /> Sign Out
+                    </DropdownMenuItem>
+                  </DropdownMenuContent>
+                </DropdownMenu>
               )}
-
-              <Button
-                variant="outline"
-                className="border-[#FF2B2B] text-[#FF2B2B] hover:bg-[#FF2B2B] hover:text-white rounded-full"
-                onClick={handleSignOut}
-              >
-                <LogOut className="mr-2 h-4 w-4" /> Sign Out
-              </Button>
-            </nav>
+            </div>
           </div>
         </div>
       </header>
