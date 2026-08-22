@@ -24,7 +24,7 @@ import {
   matchesMultiLevelLocation,
 } from "../../lib/locationData";
 import { SEARCH_SUGGESTION_DATASET, SKILL_OPTIONS, getSkillSearchTerms, skillsMatch, fuzzyMatch } from "../../lib/skillKeywords";
-import { inferSkillSuggestions, extractTextFromHtml, getRelevantSkillsForJobContext } from "../../lib/recruiterJobHelpers";
+import { inferSkillSuggestions, extractTextFromHtml, getRelevantSkillsForJobContext, validateJobTextField } from "../../lib/recruiterJobHelpers";
 import { useAuth } from "../../lib/auth-context";
 import { sendRecruiterCandidateEmail } from "../../lib/email";
 import { formatActiveTime, parseActiveDate } from "../../lib/activeTime";
@@ -2791,6 +2791,16 @@ function PostJobPage() {
       );
       return;
     }
+    // Job Title, Department and Industry accepted anything at all, so values
+    // like "qwe233+-/" were published as live postings.
+    const postTextError =
+      validateJobTextField("Job Title", formData.jobTitle) ||
+      validateJobTextField("Department", formData.department) ||
+      formData.industries.map((i) => validateJobTextField("Industry", i)).find(Boolean);
+    if (postTextError) {
+      setPostError(postTextError);
+      return;
+    }
     if (!formData.employmentType) {
       setPostError("Please select employment type.");
       return;
@@ -3669,6 +3679,13 @@ function ManageJobsPage() {
   const saveEdit = async () => {
     if (!editingJob) return;
     setEditError("");
+    const editTextError =
+      validateJobTextField("Job Title", editForm.title) ||
+      editForm.industries.map((i) => validateJobTextField("Industry", i)).find(Boolean);
+    if (editTextError) {
+      setEditError(editTextError);
+      return;
+    }
     if (!editForm.salaryMin || !editForm.salaryMax) {
       setEditError("Please select both minimum and maximum salary.");
       return;

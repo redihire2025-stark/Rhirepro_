@@ -104,3 +104,40 @@ export function inferSkillSuggestions(description: string, limit = 6): string[] 
 
   return Array.from(new Set([...suggestions, ...fallbackTokens])).slice(0, limit);
 }
+
+/**
+ * Validates free-text job fields (Job Title, Department, Industry).
+ *
+ * These accepted anything at all, so values like "qwe233+-/", "sdf4d55,,,," and
+ * "421.+-/12" were saved and published as real job postings.
+ *
+ * A plain symbol blacklist is wrong here — "C++ Developer", "R&D Manager",
+ * ".NET Developer" and "Front-end / Back-end Engineer" are all legitimate. The
+ * rules instead target what actually makes a value junk:
+ *   1. only characters that genuinely appear in job titles
+ *   2. at least one real word, so "421.+-/12" is rejected
+ *   3. no run of three or more symbols, which is what "+-/" and ",,,," are,
+ *      while leaving "++" in C++ alone
+ *
+ * Returns an error message, or null when the value is acceptable. An empty
+ * value is treated as valid — required-ness is enforced separately.
+ */
+const JOB_TEXT_ALLOWED = /^[\p{L}\p{N} .,'&\-/()+#]+$/u;
+const JOB_TEXT_HAS_WORD = /\p{L}{2,}/u;
+const JOB_TEXT_SYMBOL_RUN = /[.,'&\-/()+#]{3,}/;
+
+export function validateJobTextField(label: string, value: string): string | null {
+  const trimmed = (value || "").trim();
+  if (!trimmed) return null;
+
+  if (!JOB_TEXT_ALLOWED.test(trimmed)) {
+    return `${label} contains unsupported characters. Use letters, numbers and basic punctuation only.`;
+  }
+  if (!JOB_TEXT_HAS_WORD.test(trimmed)) {
+    return `${label} must contain at least one word.`;
+  }
+  if (JOB_TEXT_SYMBOL_RUN.test(trimmed)) {
+    return `${label} contains too many symbols in a row.`;
+  }
+  return null;
+}
