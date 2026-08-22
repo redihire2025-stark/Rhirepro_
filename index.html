@@ -7,10 +7,55 @@
   <meta name="viewport" content="width=device-width, initial-scale=1.0" />
   <link rel="icon" type="image/png" href="/favicon.png" />
   <title>RhirePro &mdash; Find Your Next Career Move</title>
+  <meta name="description"
+    content="RhirePro is a recruitment platform by Redihire Global Services Private Limited. Recruiters subscribe to post jobs and search candidates; job seekers apply free." />
+  <meta name="author" content="Redihire Global Services Private Limited" />
 </head>
 
 <body>
   <div id="root"></div>
+  <!--
+    Everything above #root is rendered by React, so the HTML a non-JavaScript
+    client receives is an empty shell — 867 bytes with no text, no links and no
+    company name. That is fine for browsers and wrong for automated reviewers:
+    Razorpay's website verification crawls the URL looking for the operating
+    entity, contact details and the policy pages, and a payment gateway scanner
+    is not guaranteed to execute JavaScript before deciding.
+
+    This block gives any such crawler the same facts the rendered site shows,
+    with real links it can follow. It is inert for anyone with JavaScript on.
+  -->
+  <noscript>
+    <h1>RhirePro &mdash; Recruitment Platform</h1>
+    <p>
+      RhirePro is a recruitment platform operated by
+      <strong>Redihire Global Services Private Limited</strong>, Hyderabad, Telangana, India.
+      Recruiters purchase prepaid subscription plans to post jobs and search candidates.
+      Job seekers use the platform free of charge.
+    </p>
+    <p>
+      Subscription payments are collected by Redihire Global Services Private Limited,
+      which is the name that appears on a customer's card or bank statement.
+    </p>
+    <h2>Contact</h2>
+    <ul>
+      <li>Product and account support: <a href="mailto:support@rhirepro.com">support@rhirepro.com</a></li>
+      <li>Billing, payments and refunds: <a href="mailto:redihire2025@gmail.com">redihire2025@gmail.com</a></li>
+      <li>Support hours: Monday to Friday, 10:00 &ndash; 18:00 IST</li>
+    </ul>
+    <h2>Policies</h2>
+    <ul>
+      <li><a href="/terms-of-service">Terms of Service</a></li>
+      <li><a href="/privacy-policy">Privacy Policy</a></li>
+      <li><a href="/refund-policy">Refund &amp; Cancellation Policy</a></li>
+      <li><a href="/contact">Contact Us</a></li>
+      <li><a href="/recruiter/plan-details">Pricing and Plans</a></li>
+    </ul>
+    <p>
+      This site requires JavaScript. Please enable it, or contact
+      <a href="mailto:support@rhirepro.com">support@rhirepro.com</a> for assistance.
+    </p>
+  </noscript>
   <script type="module" src="/src/main.tsx"></script>
 </body>
 
