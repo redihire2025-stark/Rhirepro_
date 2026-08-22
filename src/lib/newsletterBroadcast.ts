@@ -726,15 +726,17 @@ export async function sendNewsletterBroadcast(params: {
     let failedCount = 0;
     const logs: any[] = [];
 
-    const resendApiKey =
-      (import.meta.env && (import.meta.env.VITE_RESEND_API_KEY || import.meta.env.RESEND_API_KEY)) ||
-      "";
-    const resendSenderEmail =
-      (import.meta.env && (import.meta.env.VITE_RESEND_SENDER_EMAIL || import.meta.env.RESEND_SENDER_EMAIL)) ||
-      "support@rhirepro.com";
-    const resendSenderName =
-      (import.meta.env && (import.meta.env.VITE_RESEND_SENDER_NAME || import.meta.env.RESEND_SENDER_NAME)) ||
-      "RhirePro";
+    // Access each variable directly. Vite can only statically replace
+    // `import.meta.env.SOMETHING`; a bare `import.meta.env` reference — as the
+    // previous `(import.meta.env && ...)` guards were — makes it serialise the
+    // ENTIRE env object into the client bundle. That is how VITE_GROQ_API_KEY
+    // ended up published verbatim in dist/assets/index-*.js.
+    // Only VITE_-prefixed values are ever exposed, so nothing server-side (the
+    // service role key, the Supabase access token) was affected — but any
+    // future VITE_ secret would leak the same way.
+    const resendApiKey = import.meta.env.VITE_RESEND_API_KEY || "";
+    const resendSenderEmail = import.meta.env.VITE_RESEND_SENDER_EMAIL || "support@rhirepro.com";
+    const resendSenderName = import.meta.env.VITE_RESEND_SENDER_NAME || "RhirePro";
 
     // 3. Fallback: Direct Resend API Delivery
     for (const recipientEmail of emailList) {

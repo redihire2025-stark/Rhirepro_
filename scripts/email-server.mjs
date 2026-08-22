@@ -832,6 +832,34 @@ const server = http.createServer(async (req, res) => {
     return;
   }
 
+  // ── POST /api/ai-insights  (delegates to netlify/functions/ai-insights.mjs) ──
+  // Dev parity only: vite proxies /api to this server, so without this route the
+  // Career Insights panel would 404 locally while working in production. The
+  // Netlify handler is a plain Request -> Response function, so reuse it
+  // verbatim rather than duplicating the prompt and retry logic here.
+  if (req.method === "POST" && req.url === "/api/ai-insights") {
+    const body = await readBody(req);
+    try {
+      const { default: aiInsights } = await import("../netlify/functions/ai-insights.mjs");
+      const response = await aiInsights(
+        new Request("http://localhost:3001/api/ai-insights", {
+          method: "POST",
+          headers: { "Content-Type": "application/json" },
+          body: JSON.stringify(body ?? {}),
+        })
+      );
+      const text = await response.text();
+      if (response.ok) {
+        logApiRequest({ function_name: routeName, status_code: response.status, duration_ms: Date.now() - requestStart });
+      } else {
+        logApiRequest({ function_name: routeName, status_code: response.status, duration_ms: Date.now() - requestStart, error_message: text });
+      }
+      res.writeHead(response.status, { "Content-Type": "application/json" });
+      res.end(text);
+    } catch (err) { fail(500, err.message || "AI insights failed"); }
+    return;
+  }
+
   res.writeHead(404); res.end("Not found");
 });
 

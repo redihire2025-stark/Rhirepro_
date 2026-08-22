@@ -17,7 +17,11 @@ export interface GeminiInsightsResult {
 }
 
 const CACHE_TTL_MS = 24 * 60 * 60 * 1000;
-const CACHE_PREFIX = "rhirepro_groq_v4_"; // bump = clears all previous caches
+const CACHE_PREFIX = "rhirepro_gemini_v5_"; // bump = clears all previous caches
+
+// Server-side proxy. The model key lives in GEMINI_API_KEY on the function and
+// is never shipped to the browser — see netlify/functions/ai-insights.mjs.
+const AI_INSIGHTS_ENDPOINT = "/api/ai-insights";
 
 const VALID_DEMAND = new Set(["High", "Medium", "Growing"]);
 const VALID_VALUE = new Set(["High ROI", "High Demand", "In-Demand", "Recommended", "Growing"]);
@@ -55,14 +59,25 @@ function writeCache(key: string, data: GeminiInsightsResult): void {
   }
 }
 
+// Gemini frequently wraps its answer in a ```json fence even when asked for raw
+// JSON, and occasionally adds a sentence around it — so strip the fence first
+// and, failing that, fall back to the outermost { … } span.
+function extractJsonPayload(text: string): string {
+  const trimmed = text.trim();
+
+  const fenced = trimmed.match(/```(?:json)?\s*([\s\S]*?)\s*```/i);
+  if (fenced && fenced[1].trim()) return fenced[1].trim();
+
+  const first = trimmed.indexOf("{");
+  const last = trimmed.lastIndexOf("}");
+  if (first !== -1 && last > first) return trimmed.slice(first, last + 1);
+
+  return trimmed;
+}
+
 function parseResponse(text: string): GeminiInsightsResult | null {
   try {
-    const cleaned = text
-      .replace(/^```json\s*/i, "")
-      .replace(/^```\s*/i, "")
-      .replace(/```\s*$/i, "")
-      .trim();
-    const parsed = JSON.parse(cleaned);
+    const parsed = JSON.parse(extractJsonPayload(text));
 
     if (!Array.isArray(parsed.trendingSkills) || !Array.isArray(parsed.certifications)) {
       console.error("[AI Insights] Unexpected shape:", parsed);
@@ -111,81 +126,24 @@ export async function fetchGeminiInsights(
     return cached;
   }
 
-  const apiKey = import.meta.env.VITE_GROQ_API_KEY as string | undefined;
-  if (!apiKey || apiKey === "your_groq_api_key_here") {
-    console.error("[AI Insights] VITE_GROQ_API_KEY not set");
-    return null;
-  }
-
   const skillList = skills.slice(0, 20).join(", ");
-  console.log("[AI Insights] Calling Groq for skills:", skillList);
-
-  const systemMessage = `You are a senior tech recruiter with expertise across ALL technology domains — web development, mobile, cloud, DevOps, data science, machine learning, game development, XR/AR/VR, cybersecurity, embedded systems, and more. You analyze real 2024-2025 job postings to identify in-demand skills for any technology stack. You ALWAYS match recommendations to the exact domain of the input skills — never crossing into unrelated domains.`;
-
-  const userMessage = `Professional's current skills: ${skillList}
-
-Your job:
-1. Detect what technology domain(s) these skills belong to (e.g., web dev, game dev, data science, DevOps, etc.)
-2. Based on that domain, identify the 8 skills that appear most frequently in 2024-2025 job postings alongside these specific skills
-3. Identify 4 certifications with the highest career ROI for this exact skill set
-
-Critical rules:
-- Suggest ONLY skills from the SAME domain as: ${skillList}
-- Do NOT suggest skills from unrelated domains (e.g., do not suggest game dev skills for a web developer)
-- Do NOT include any skill already in: ${skillList}
-- Be specific — name exact tools, frameworks, libraries, platforms (not vague concepts)
-
-Return ONLY valid JSON (absolutely no text outside the JSON object):
-{
-  "trendingSkills": [
-    {"skill": "exact tool or technology name", "demand": "High", "reason": "why this is trending for this exact skill set"},
-    {"skill": "exact tool or technology name", "demand": "High", "reason": "why employers want this with these skills"},
-    {"skill": "exact tool or technology name", "demand": "Growing", "reason": "emerging demand in this domain"},
-    {"skill": "exact tool or technology name", "demand": "High", "reason": "core requirement in this stack"},
-    {"skill": "exact tool or technology name", "demand": "Medium", "reason": "increasingly listed in job postings"},
-    {"skill": "exact tool or technology name", "demand": "Growing", "reason": "future-facing for this profile"},
-    {"skill": "exact tool or technology name", "demand": "High", "reason": "standard alongside these skills"},
-    {"skill": "exact tool or technology name", "demand": "Medium", "reason": "valuable addition to this stack"}
-  ],
-  "certifications": [
-    {"name": "official certification name", "provider": "certifying body", "value": "High ROI", "reason": "why this cert is valuable for this profile"},
-    {"name": "official certification name", "provider": "certifying body", "value": "In-Demand", "reason": "employers actively request this"},
-    {"name": "official certification name", "provider": "certifying body", "value": "Recommended", "reason": "boosts this profile significantly"},
-    {"name": "official certification name", "provider": "certifying body", "value": "Growing", "reason": "emerging value for this domain"}
-  ]
-}
-
-demand must be exactly one of: "High", "Medium", "Growing"
-value must be exactly one of: "High ROI", "High Demand", "In-Demand", "Recommended", "Growing"
-Skill names must be under 40 characters.`;
+  console.log("[AI Insights] Requesting Gemini insights for skills:", skillList);
 
   try {
-    const res = await fetch("https://api.groq.com/openai/v1/chat/completions", {
+    const res = await fetch(AI_INSIGHTS_ENDPOINT, {
       method: "POST",
-      headers: {
-        "Content-Type": "application/json",
-        "Authorization": `Bearer ${apiKey}`,
-      },
-      body: JSON.stringify({
-        model: "llama-3.3-70b-versatile",
-        messages: [
-          { role: "system", content: systemMessage },
-          { role: "user", content: userMessage },
-        ],
-        temperature: 0.2,
-        max_tokens: 1024,
-        response_format: { type: "json_object" },
-      }),
+      headers: { "Content-Type": "application/json" },
+      body: JSON.stringify({ skills: skills.slice(0, 20) }),
     });
 
     if (!res.ok) {
-      const errText = await res.text();
+      const errText = await res.text().catch(() => "");
       console.error(`[AI Insights] HTTP ${res.status}:`, errText);
       return null;
     }
 
-    const payload = await res.json();
-    const text: string | undefined = payload?.choices?.[0]?.message?.content;
+    const payload = await res.json().catch(() => null);
+    const text: string | undefined = payload?.text;
     if (!text) {
       console.error("[AI Insights] No content in response:", payload);
       return null;

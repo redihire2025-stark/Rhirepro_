@@ -6639,7 +6639,7 @@ function InsightsPage() {
           </h3>
           <p className="text-xs text-[#8A8A8A] mb-4">
             Based on your {skills.length > 0 ? `${skills.length} skills` : "profile"}
-            {aiInsights ? " · Groq AI" : " · Remotive market API"}
+            {aiInsights ? " · Gemini AI" : " · Remotive market API"}
           </p>
           {loadingJobs ? (
             <div className="flex items-center justify-center py-10 text-[#8A8A8A]">
@@ -6714,7 +6714,7 @@ function InsightsPage() {
             <Award className="h-5 w-5 text-[#FF2B2B]" /> Suggested Certifications
           </h3>
           <p className="text-xs text-[#8A8A8A] mb-4">
-            {aiInsights ? "AI-curated for your skills · Groq AI" : "Tailored for your domain and experience level"}
+            {aiInsights ? "AI-curated for your skills · Gemini AI" : "Tailored for your domain and experience level"}
           </p>
           {loadingAI ? (
             <div className="flex items-center justify-center py-10 text-[#8A8A8A]">
