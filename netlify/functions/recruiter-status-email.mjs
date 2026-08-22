@@ -107,7 +107,7 @@ function buildMessage(action, name, reason, siteUrl) {
           greeting: `Hi ${who},`,
           body: "Your recruiter account has been reviewed and approved. You can now sign in and start posting jobs and searching candidates.",
           ctaLabel: "Sign in to RhirePro",
-          ctaUrl: `${siteUrl}/recruiter/signin`,
+          ctaUrl: `${siteUrl}/signin?role=recruiter`,
           footerNote: "Welcome aboard.",
         }),
       };
@@ -146,7 +146,7 @@ function buildMessage(action, name, reason, siteUrl) {
           greeting: `Hi ${who},`,
           body: "Your recruiter account has been re-enabled. You can sign in and pick up where you left off.",
           ctaLabel: "Sign in to RhirePro",
-          ctaUrl: `${siteUrl}/recruiter/signin`,
+          ctaUrl: `${siteUrl}/signin?role=recruiter`,
           footerNote: "Thanks for your patience.",
         }),
       };
@@ -209,6 +209,8 @@ export default async (request) => {
 
   const senderEmail = process.env.RESEND_SENDER_EMAIL || "support@rhirepro.com";
   const senderName = process.env.RESEND_SENDER_NAME || "RhirePro";
+  // Link to the unified /signin with the Recruiter tab preselected — that is the
+  // canonical sign-in page. /recruiter/signin is the older bare-bones variant.
   const siteUrl = process.env.URL || "https://rhirepro.com";
 
   const message = buildMessage(action, recruiter.recruiter_name, reason, siteUrl);

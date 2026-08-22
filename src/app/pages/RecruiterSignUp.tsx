@@ -118,7 +118,7 @@ export default function RecruiterSignUp() {
       // approval gate on the sign-in pages. End the session instead.
       await supabase.auth.signOut();
       setSuccess(true);
-      setTimeout(() => navigate("/recruiter/signin"), 4000);
+      setTimeout(() => navigate("/signin?role=recruiter"), 4000);
   };
 
   const handleVerifyOTP = async (e: React.FormEvent) => {

@@ -1354,7 +1354,7 @@ export default function RecruiterDashboard() {
       const profile = data as { verification_status?: string | null };
       if (profile.verification_status && profile.verification_status !== "Verified") {
         await supabase.auth.signOut();
-        navigate("/recruiter/signin", { replace: true });
+        navigate("/signin?role=recruiter", { replace: true });
       }
     })();
     return () => { cancelled = true; };
