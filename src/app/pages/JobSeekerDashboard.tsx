@@ -2197,84 +2197,6 @@ function FindJobPage() {
    * looking at one job — not several views. Held in a ref rather than state so
    * recording a view never triggers a re-render.
    */
-  /*
-   * AI match scores for the jobs on screen, including Recommended Jobs.
-   *
-   * The percentage on a card is getJdSkillMatchPercentage — a keyword overlap
-   * between the seeker's skills and the JD. That is a real measurement but a
-   * shallow one: it cannot tell a Django developer from someone who merely
-   * listed Python. Where Gemini has already scored a pairing, the card shows
-   * that instead and labels it, so the two are never confused.
-   *
-   * Only cached scores are read here. A results page renders a dozen cards and
-   * scoring each on render would be a model call per card; the seeker asks for
-   * one from the detail panel and it is reused afterwards.
-   */
-  type AiMatch = { score: number; summary: string | null; strengths: string[]; gaps: string[] };
-  const [aiJobMatches, setAiJobMatches] = useState<Record<string, AiMatch>>({});
-  const [aiScoringJobId, setAiScoringJobId] = useState<string | null>(null);
-
-  useEffect(() => {
-    const jobIds = dbJobs.map((job) => job.id).filter(Boolean);
-    if (!profile?.id || jobIds.length === 0) return;
-    let cancelled = false;
-    void supabase
-      .from("ai_match_scores")
-      .select("job_id, score, summary, strengths, gaps")
-      .eq("profile_id", profile.id)
-      .in("job_id", jobIds)
-      .then(({ data, error }) => {
-        if (cancelled || error || !data) return;
-        setAiJobMatches((prev) => {
-          const next = { ...prev };
-          for (const row of data as any[]) {
-            next[row.job_id] = {
-              score: row.score,
-              summary: row.summary ?? null,
-              strengths: row.strengths ?? [],
-              gaps: row.gaps ?? [],
-            };
-          }
-          return next;
-        });
-      });
-    return () => { cancelled = true; };
-  }, [dbJobs, profile?.id]);
-
-  const scoreJobWithAi = async (jobId?: string | null) => {
-    if (!jobId || !profile?.id || aiScoringJobId) return;
-    setAiScoringJobId(jobId);
-    try {
-      const { data: sessionData } = await supabase.auth.getSession();
-      const accessToken = sessionData.session?.access_token;
-      if (!accessToken) return;
-      const res = await fetch("/api/match-score", {
-        method: "POST",
-        headers: { "Content-Type": "application/json", Authorization: `Bearer ${accessToken}` },
-        body: JSON.stringify({ profile_id: profile.id, job_id: jobId }),
-      });
-      const payload = await res.json().catch(() => null);
-      if (!res.ok || typeof payload?.score !== "number") {
-        toast.error("Could not score this job", { description: payload?.error || "Please try again shortly." });
-        return;
-      }
-      setAiJobMatches((prev) => ({
-        ...prev,
-        [jobId]: {
-          score: payload.score,
-          summary: payload.summary ?? null,
-          strengths: payload.strengths ?? [],
-          gaps: payload.gaps ?? [],
-        },
-      }));
-    } catch (err) {
-      console.warn("Match scoring failed:", err);
-      toast.error("Could not score this job", { description: "Please try again shortly." });
-    } finally {
-      setAiScoringJobId(null);
-    }
-  };
-
   const countedJobViewsRef = useRef<Set<string>>(new Set());
 
   const countJobView = useCallback((jobId?: string | null) => {
@@ -2717,12 +2639,7 @@ function FindJobPage() {
                   const isApplied = appliedJobIds.includes(String(job.id));
                   const isSaved = savedJobIds.includes(String(job.id));
                   const isSelected = selectedJob?.id === job.id;
-                  const cardAiMatch = job.dbJob ? aiJobMatches[job.dbJob.id] : undefined;
-                  // An AI score, where one exists, is the better answer; fall
-                  // back to the keyword overlap otherwise.
-                  const matchPercentage = cardAiMatch
-                    ? cardAiMatch.score
-                    : job.isDB ? getJdSkillMatchPercentage(job.dbJob, profileSkills) : 0;
+                  const matchPercentage = job.isDB ? getJdSkillMatchPercentage(job.dbJob, profileSkills) : 0;
                   const matchBadgeClass = getMatchBadgeClass(matchPercentage);
                   const openJob = () => {
                     setSelectedJob(isSelected ? null : job);
@@ -2756,11 +2673,8 @@ function FindJobPage() {
                         <div className="flex flex-wrap items-center gap-1.5 min-w-0">
                           {job.isDB && (
                             <>
-                              <span
-                                className={`rounded-full px-2.5 py-1 text-[11px] font-semibold whitespace-nowrap ${matchBadgeClass}`}
-                                title={cardAiMatch?.summary || undefined}
-                              >
-                                {matchPercentage}% {cardAiMatch ? "AI match" : "match"}
+                              <span className={`rounded-full px-2.5 py-1 text-[11px] font-semibold whitespace-nowrap ${matchBadgeClass}`}>
+                                {matchPercentage}% match
                               </span>
                               <span
                                 className="bg-[#FFF2F2] text-[#FF2B2B] rounded-full px-2.5 py-1 text-[11px] font-semibold flex items-center gap-1 border border-red-100 whitespace-nowrap"
@@ -2966,52 +2880,6 @@ function FindJobPage() {
                     </div>
                   ) : null}
                 </div>
-
-                {/*
-                  Where the AI has assessed this pairing, show what it actually
-                  said. A bare percentage invites the reader to trust a number
-                  without knowing what drove it, and the strengths and gaps are
-                  the part a candidate can act on.
-                */}
-                {selectedJob.dbJob && (() => {
-                  const panelMatch = aiJobMatches[selectedJob.dbJob.id];
-                  if (panelMatch) {
-                    return (
-                      <div className="mb-6 rounded-xl border border-gray-200 bg-[#FAFAFA] p-4">
-                        <div className="flex items-center gap-2 mb-2">
-                          <span className={`rounded-full px-2.5 py-1 text-[11px] font-semibold ${getMatchBadgeClass(panelMatch.score)}`}>
-                            {panelMatch.score}% AI match
-                          </span>
-                          {panelMatch.summary && (
-                            <p className="text-xs text-[#5A5A5A] flex-1">{panelMatch.summary}</p>
-                          )}
-                        </div>
-                        {panelMatch.strengths.length > 0 && (
-                          <p className="text-xs text-[#3A1F1F] mb-1">
-                            <span className="font-semibold text-green-700">In your favour:</span>{" "}
-                            {panelMatch.strengths.join("; ")}
-                          </p>
-                        )}
-                        {panelMatch.gaps.length > 0 && (
-                          <p className="text-xs text-[#3A1F1F]">
-                            <span className="font-semibold text-[#B42318]">Worth addressing:</span>{" "}
-                            {panelMatch.gaps.join("; ")}
-                          </p>
-                        )}
-                      </div>
-                    );
-                  }
-                  return (
-                    <Button
-                      variant="outline"
-                      className="mb-6 rounded-full border-[#FF2B2B] text-[#FF2B2B] hover:bg-[#FFF0F0]"
-                      disabled={aiScoringJobId === selectedJob.dbJob.id}
-                      onClick={() => { void scoreJobWithAi(selectedJob.dbJob?.id); }}
-                    >
-                      {aiScoringJobId === selectedJob.dbJob.id ? "Checking your fit..." : "Check my AI match"}
-                    </Button>
-                  );
-                })()}
 
                 <div className="flex gap-2 mb-6">
                   <Button
