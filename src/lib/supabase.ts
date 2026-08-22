@@ -230,6 +230,7 @@ export interface Application {
     | "Applied"
     | "Under Review"
     | "Shortlisted"
+    | "Not Shortlisted"
     | "Interview Scheduled"
     | "Interview Completed"
     | "Interview Selected"
@@ -246,6 +247,10 @@ export interface Application {
   cover_letter: string | null;
   resume_url: string | null;
   applied_at: string;
+  /** Recruiter's note explaining a decline. NULL for advancing transitions. */
+  status_reason?: string | null;
+  /** When status last changed; NULL for rows untouched since the column existed. */
+  status_updated_at?: string | null;
   /**
    * Which surface the candidate applied from — "Job Search", "Saved Jobs", etc.
    * NULL on rows created before the column existed; recruiter Analytics reports

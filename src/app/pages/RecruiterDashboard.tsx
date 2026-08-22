@@ -24,7 +24,7 @@ import {
   matchesMultiLevelLocation,
 } from "../../lib/locationData";
 import { SEARCH_SUGGESTION_DATASET, SKILL_OPTIONS, getSkillSearchTerms, skillsMatch, fuzzyMatch } from "../../lib/skillKeywords";
-import { inferSkillSuggestions, extractTextFromHtml, getRelevantSkillsForJobContext, validateJobTextField, validateBooleanSearch } from "../../lib/recruiterJobHelpers";
+import { extractTextFromHtml, validateJobTextField, validateBooleanSearch } from "../../lib/recruiterJobHelpers";
 import { useAuth } from "../../lib/auth-context";
 import { sendRecruiterCandidateEmail } from "../../lib/email";
 import { formatActiveTime, parseActiveDate } from "../../lib/activeTime";
@@ -80,6 +80,7 @@ import FeedbackPopup from "../components/FeedbackPopup";
 import InterviewDetailsModal from "../components/InterviewDetailsModal";
 import InterviewFeedbackModal from "../components/InterviewFeedbackModal";
 import OfferDetailsModal from "../components/OfferDetailsModal";
+import DeclineReasonModal from "../components/DeclineReasonModal";
 import ResumePreviewDialog, { getStorageObjectFromUrl, buildPreviewUrl, getResumePreviewKind } from "../components/ResumePreviewDialog";
 import JobShareButton from "../components/JobShareButton";
 import ApplicantProfilePage from "./ApplicantProfilePage";
@@ -958,6 +959,7 @@ const PIPELINE_STAGES = [
   "Applied",
   "Under Review",
   "Shortlisted",
+  "Not Shortlisted",
   "Interview Scheduled",
   "Interview Completed",
   "Interview Selected",
@@ -971,6 +973,11 @@ const PIPELINE_STAGES = [
 type PipelineStage = typeof PIPELINE_STAGES[number];
 
 const PIPELINE_STAGE_STYLES: Record<PipelineStage, { bar: string; badge: string; text: string }> = {
+  "Not Shortlisted": {
+    bar: "bg-[#F97316]/70",
+    badge: "bg-orange-50 border-orange-100 hover:bg-orange-100",
+    text: "text-[#C2410C]",
+  },
   Applied: {
     bar: "bg-[#4F8EF7]/70",
     badge: "bg-gray-50 border-gray-100 hover:bg-gray-100",
@@ -1033,6 +1040,7 @@ function mapApplicationStatusToPipelineStage(status: string | null | undefined):
   if (normalized === "applied" || normalized === "new") return "Applied";
   if (normalized === "under_review" || normalized === "screening" || normalized === "reviewed") return "Under Review";
   if (normalized === "shortlisted") return "Shortlisted";
+  if (normalized === "not_shortlisted") return "Not Shortlisted";
   if (normalized === "interview_scheduled" || normalized === "interview") return "Interview Scheduled";
   if (normalized === "interview_completed") return "Interview Completed";
   if (normalized === "interview_selected") return "Interview Selected";
@@ -1052,6 +1060,7 @@ function statusColor(status: string) {
     case "Applied": return "bg-gray-100 text-gray-700";
     case "Under Review": return "bg-blue-100 text-blue-700";
     case "Shortlisted": return "bg-pink-100 text-pink-700";
+    case "Not Shortlisted": return "bg-orange-100 text-orange-700";
     case "Interview Scheduled": return "bg-purple-100 text-purple-700";
     case "Interview Completed": return "bg-indigo-100 text-indigo-700";
     case "Interview Selected": return "bg-teal-100 text-teal-700";
@@ -1064,11 +1073,22 @@ function statusColor(status: string) {
   }
 }
 
+/*
+ * A candidate could previously only be turned down from "Interview Completed"
+ * onwards, so a recruiter screening an unsuitable application had to march it
+ * all the way to interview before they could close it. The two screening
+ * stages now have a "Not Shortlisted" outcome, and Shortlisted / Interview
+ * Scheduled can be rejected outright.
+ *
+ * Every decline stays reversible back to Under Review — a recruiter who
+ * changes their mind should not have to ask the candidate to reapply.
+ */
 const STATUS_TRANSITIONS: Record<PipelineStage, PipelineStage[]> = {
-  Applied: ["Under Review"],
-  "Under Review": ["Shortlisted"],
-  Shortlisted: ["Interview Scheduled"],
-  "Interview Scheduled": ["Interview Completed"],
+  Applied: ["Under Review", "Not Shortlisted"],
+  "Under Review": ["Shortlisted", "Not Shortlisted"],
+  Shortlisted: ["Interview Scheduled", "Rejected"],
+  "Not Shortlisted": ["Under Review"],
+  "Interview Scheduled": ["Interview Completed", "Rejected"],
   "Interview Completed": ["Interview Selected", "Interview Rejected"],
   "Interview Selected": ["Offered"],
   "Interview Rejected": ["Under Review"],
@@ -2499,7 +2519,6 @@ function PostJobPage() {
   const [showSkillInput, setShowSkillInput] = useState(false);
   const [skillPickerOpen, setSkillPickerOpen] = useState(false);
   const [skillSearch, setSkillSearch] = useState("");
-  const [suggestedSkills, setSuggestedSkills] = useState<string[]>([]);
   const [mandatorySkills, setMandatorySkills] = useState<string[]>([]);
   const skillFieldRef = useRef<HTMLDivElement>(null);
   const skillInputRef = useRef<HTMLInputElement>(null);
@@ -2574,30 +2593,6 @@ function PostJobPage() {
     () => formData.skills.split(",").map(s => s.trim()).filter(Boolean),
     [formData.skills],
   );
-  const relevantSelectedSkills = useMemo(
-    () => getRelevantSkillsForJobContext(formData.jobTitle, formData.jobDescription, selectedSkills, suggestedSkills),
-    [formData.jobTitle, formData.jobDescription, selectedSkills, suggestedSkills],
-  );
-  const nonRelevantSelectedSkills = useMemo(
-    () => selectedSkills.filter(skill => !relevantSelectedSkills.some(related => related.toLowerCase() === skill.toLowerCase())),
-    [selectedSkills, relevantSelectedSkills],
-  );
-  /**
-   * Skill relevance is derived from the job title and description. When those
-   * are malformed there is no context to match against, so every selected skill
-   * looks non-relevant and the alignment warning fires no matter what the
-   * recruiter picks — blaming the skills for a problem in the title. Detect that
-   * case so the message can point at the actual cause instead.
-   */
-  const jobContextIssue = useMemo(() => {
-    const titleProblem = validateJobTextField("Job Title", formData.jobTitle);
-    if (titleProblem) return titleProblem;
-    const jdText = extractTextFromHtml(formData.jobDescription).trim();
-    if (formData.jobTitle.trim().length < 3 && jdText.length < 40) {
-      return "Add a job title and description first — skill suggestions are based on them.";
-    }
-    return null;
-  }, [formData.jobTitle, formData.jobDescription]);
   const mandatorySkillSet = useMemo(() => new Set(mandatorySkills), [mandatorySkills]);
   const isSalaryRangeInvalid = useMemo(() => {
     const minSalary = Number(formData.salaryMin);
@@ -2615,15 +2610,6 @@ function PostJobPage() {
     return options.filter(skill => fuzzyMatch(query, skill)).slice(0, 120);
   }, [skillSearch]);
 
-  // The "Suggested from Job Description" chips were removed from the form. The
-  // inference itself stays because getRelevantSkillsForJobContext uses it to
-  // decide which selected skills actually match the JD — that is the skill
-  // alignment warning, which is a separate feature and still wanted.
-  useEffect(() => {
-    const jobText = extractTextFromHtml(formData.jobDescription);
-    const nextSuggestions = inferSkillSuggestions(jobText, 8).filter(skill => !selectedSkills.some(existing => existing.toLowerCase() === skill.toLowerCase()));
-    setSuggestedSkills(nextSuggestions);
-  }, [formData.jobDescription, selectedSkills]);
   const filteredDepartmentOptions = useMemo(() => {
     const query = departmentSearch.trim().toLowerCase();
     if (!query) return DEPARTMENT_OPTIONS;
@@ -3150,20 +3136,6 @@ function PostJobPage() {
             return;
           }
 
-          const relevantSelectedSkills = getRelevantSkillsForJobContext(
-            formData.jobTitle,
-            formData.jobDescription,
-            selectedSkills,
-            suggestedSkills,
-          );
-
-          if (relevantSelectedSkills.length < 3) {
-            setPostError("Please add at least 3 skills relevant to the job title and JD before publishing.");
-            setShowSkillInput(true);
-            setSkillPickerOpen(true);
-            return;
-          }
-
           if (mandatorySkills.length < 3) {
             setPostError("Please mark at least three key skills as mandatory before publishing.");
             setShowSkillInput(true);
@@ -3452,14 +3424,10 @@ function PostJobPage() {
             <div className="flex flex-wrap gap-2 mb-3">
               {selectedSkills.map((skill) => {
                 const isMandatory = mandatorySkillSet.has(skill.toLowerCase());
-                const isOffRole = nonRelevantSelectedSkills.some(existing => existing.toLowerCase() === skill.toLowerCase());
                 return (
                   <span
                     key={skill}
-                    className={`flex items-center gap-1 px-3 py-1.5 rounded-full text-sm font-medium border ${isOffRole
-                      ? "border-[#FF2B2B] bg-[#FFF0F0] text-[#A61B1B]"
-                      : "border-transparent bg-[#ECECF4] text-[#3A1F1F]"
-                      }`}
+                    className="flex items-center gap-1 px-3 py-1.5 rounded-full text-sm font-medium border border-transparent bg-[#ECECF4] text-[#3A1F1F]"
                     title={isOffRole ? "This skill is not aligned with the job title/JD." : "Role-aligned skill"}
                   >
                     <button type="button" onClick={() => toggleMandatorySkill(skill)} className={`mr-1 ${isMandatory ? "text-[#FF2B2B]" : "text-[#8A8A8A]"}`} title={isMandatory ? "Mandatory skill" : "Mark as mandatory"}>
@@ -3473,15 +3441,6 @@ function PostJobPage() {
                 );
               })}
             </div>
-            {jobContextIssue ? (
-              <div className="mb-3 rounded-xl border border-[#FFD9A8] bg-[#FFFBF3] px-3 py-2 text-xs text-[#8A5A00]">
-                <span className="font-semibold">Can&apos;t check skill alignment:</span> {jobContextIssue}
-              </div>
-            ) : nonRelevantSelectedSkills.length > 0 && (
-              <div className="mb-3 rounded-xl border border-[#FFB4B4] bg-[#FFF6F6] px-3 py-2 text-xs text-[#B42318]">
-                <span className="font-semibold">Skill alignment warning:</span> {nonRelevantSelectedSkills.join(", ")} {nonRelevantSelectedSkills.length === 1 ? "does not" : "do not"} match the job title / JD context. Keep at least 3 role-aligned skills from the JD suggestions or close variants before publishing.
-              </div>
-            )}
             {showSkillInput && (
               <div className="flex max-w-xl gap-2">
                 <div className="relative flex-1" ref={skillFieldRef}>
@@ -8631,6 +8590,11 @@ function ApplicantsPage() {
   const [interviewModalData, setInterviewModalData] = useState<{ applicant: AppWithProfile; initialRound?: "L1" | "L2" | "L3" | "HR Round" } | null>(null);
   const [feedbackModalApplicant, setFeedbackModalApplicant] = useState<AppWithProfile | null>(null);
   const [offerModalApplicant, setOfferModalApplicant] = useState<AppWithProfile | null>(null);
+  // Declines route through a dialog so the recruiter records why.
+  const [declineRequest, setDeclineRequest] = useState<
+    { applicant: AppWithProfile; outcome: "Not Shortlisted" | "Rejected" | "Interview Rejected" } | null
+  >(null);
+  const [isSavingDecline, setIsSavingDecline] = useState(false);
   const [isSendingInterviewDetails, setIsSendingInterviewDetails] = useState(false);
   const [isSendingInterviewFeedback, setIsSendingInterviewFeedback] = useState(false);
   const [isSendingOfferDetails, setIsSendingOfferDetails] = useState(false);
@@ -8817,7 +8781,7 @@ function ApplicantsPage() {
     window.scrollTo({ top: 0, behavior: "smooth" });
   }, [currentPage]);
 
-  const updateStatus = async (id: string, newStatus: Application["status"]) => {
+  const updateStatus = async (id: string, newStatus: Application["status"], reason?: string) => {
     const statusWriteAttempts: Record<Application["status"], string[]> = {
       Applied: ["Applied", "New", "applied"],
       New: ["Applied", "New", "applied"],
@@ -8840,14 +8804,24 @@ function ApplicantsPage() {
     let lastError: { message?: string } | null = null;
 
     for (const candidateStatus of attempts) {
+      const patch: Record<string, unknown> = {
+        status: candidateStatus as Application["status"],
+        status_updated_at: new Date().toISOString(),
+      };
+      // Only overwrite the note when this transition supplies one, so
+      // reinstating a candidate does not silently keep the old decline reason.
+      if (reason !== undefined) patch.status_reason = reason || null;
+
       const { error } = await supabase
         .from("applications")
-        .update({ status: candidateStatus as Application["status"] })
+        .update(patch)
         .eq("id", id);
 
       if (!error) {
         const resolved = candidateStatus as Application["status"];
-        setApplicants(prev => prev.map(a => a.id === id ? { ...a, status: resolved } : a));
+        setApplicants(prev => prev.map(a => a.id === id
+          ? { ...a, status: resolved, ...(reason !== undefined ? { status_reason: reason || null } : {}) }
+          : a));
         return resolved;
       }
       lastError = error;
@@ -8901,7 +8875,50 @@ function ApplicantsPage() {
     setFeedbackModalApplicant(applicant);
   };
 
-  const quickUpdateStatus = async (applicantId: string, nextStatus: Application["status"]) => {
+  /*
+   * Tell the candidate their application moved. Keyed per application per
+   * status so a recruiter toggling a value back and forth updates one row
+   * rather than stacking duplicates in the bell.
+   */
+  const notifyCandidateOfStageChange = async (
+    applicantId: string,
+    status: Application["status"],
+    reason?: string,
+  ) => {
+    const applicant = applicants.find(a => a.id === applicantId);
+    if (!applicant?.profile_id) return;
+
+    const companyName = recruiterProfile?.company_name || "the hiring team";
+    const roleName = applicant.job?.title ? ` for ${applicant.job.title}` : "";
+    const stage = mapApplicationStatusToPipelineStage(status);
+
+    const headline =
+      stage === "Not Shortlisted"
+        ? `Your application${roleName} was not shortlisted`
+        : stage === "Rejected" || stage === "Interview Rejected"
+          ? `Update on your application${roleName}`
+          : `Your application${roleName} moved to ${stage}`;
+
+    const lines = [`Status: ${stage}`, `Company: ${companyName}`];
+    if (reason) lines.push("", "Feedback from the recruiter:", reason);
+
+    const { error } = await supabase.from("notifications").upsert(
+      {
+        user_id: applicant.profile_id,
+        user_type: "jobseeker",
+        title: headline,
+        message: lines.join("\n"),
+        type: "status_change",
+        related_id: applicantId,
+        is_read: false,
+        notification_key: `application-stage:${applicantId}:${stage}`,
+      },
+      { onConflict: "notification_key" },
+    );
+    if (error) console.warn("Stage-change notification failed:", error.message);
+  };
+
+  const quickUpdateStatus = async (applicantId: string, nextStatus: Application["status"], reason?: string) => {
     if (statusUpdateInFlight.has(applicantId)) return;
 
     const currentStatus = applicants.find(a => a.id === applicantId)?.status;
@@ -8915,11 +8932,15 @@ function ApplicantsPage() {
 
     try {
       // Hire should behave exactly like other actions: one direct status update only.
-      updated = await updateStatus(applicantId, nextStatus);
+      updated = await updateStatus(applicantId, nextStatus, reason);
 
       if (updated) {
         const resolvedStatus = updated;
         setProfileModal(prev => prev && prev.id === applicantId ? { ...prev, status: resolvedStatus } : prev);
+        // Interview and offer moves send their own richer notification; every
+        // other transition was previously silent, so the candidate only found
+        // out by logging in and re-reading their application.
+        void notifyCandidateOfStageChange(applicantId, resolvedStatus, reason);
       } else {
         // Fallback for development/testing: update local state even if DB rejects the new status due to unmigrated constraints
         console.warn(`Database update failed. Applying fallback state update for status "${nextStatus}" (local testing only).`);
@@ -8990,7 +9011,24 @@ function ApplicantsPage() {
       handleOfferStatusRequest(applicant);
       return;
     }
+    // A decline has to say why — the note is stored on the application and
+    // sent to the candidate, so it cannot be a bare status write.
+    if (targetStatus === "Not Shortlisted" || targetStatus === "Rejected" || targetStatus === "Interview Rejected") {
+      setDeclineRequest({ applicant, outcome: targetStatus });
+      return;
+    }
     await quickUpdateStatus(applicant.id, targetStatus);
+  };
+
+  const confirmDecline = async (reason: string) => {
+    if (!declineRequest) return;
+    setIsSavingDecline(true);
+    try {
+      await quickUpdateStatus(declineRequest.applicant.id, declineRequest.outcome, reason);
+      setDeclineRequest(null);
+    } finally {
+      setIsSavingDecline(false);
+    }
   };
 
   const sendInterviewDetails = async (message: string, meetingUrl: string, round: "L1" | "L2" | "L3" | "HR Round") => {
@@ -9219,20 +9257,23 @@ function ApplicantsPage() {
   const moveToOptionsForApplicant = (applicant: AppWithProfile): string[] => {
     const stage = getEffectiveApplicationStage(applicant);
     if (stage === "Shortlisted") {
-      return ["Interview"];
+      return ["Interview", "Rejected"];
+    }
+    if (stage === "Not Shortlisted") {
+      return ["Under Review"];
     }
     if (stage === "Interview Scheduled") {
       const currentRound = getInterviewRound(applicant);
       if (currentRound === "L1") {
-        return ["Interview L2", "Interview Complete"];
+        return ["Interview L2", "Interview Complete", "Rejected"];
       } else if (currentRound === "L2") {
-        return ["Interview L3", "Interview Complete"];
+        return ["Interview L3", "Interview Complete", "Rejected"];
       } else if (currentRound === "L3") {
-        return ["Interview HR Round", "Interview Complete"];
+        return ["Interview HR Round", "Interview Complete", "Rejected"];
       } else if (currentRound === "HR Round") {
-        return ["Interview Complete"];
+        return ["Interview Complete", "Rejected"];
       } else {
-        return ["Interview L1", "Interview Complete"];
+        return ["Interview L1", "Interview Complete", "Rejected"];
       }
     }
     if (stage === "Interview Completed") {
@@ -9293,7 +9334,7 @@ function ApplicantsPage() {
         ) : (
           <Button size="sm" variant="outline" disabled={disableActions || !canHire} className={`${isHireActive ? "border-2 border-emerald-600 bg-emerald-50 text-emerald-700" : "border-emerald-500 text-emerald-600 hover:bg-emerald-50 opacity-40"} rounded-full text-xs h-7 ${hireDisabledClass}`} onClick={() => void quickUpdateStatus(applicant.id, "Joined")}>Hire</Button>
         )}
-        <Button size="sm" variant="outline" disabled={disableActions || !canReject} className={`${isRejectActive ? "border-2 border-red-600 bg-red-50 text-red-700" : "border-red-400 text-red-500 hover:bg-red-50 opacity-40"} rounded-full text-xs h-7 ${rejectDisabledClass} ${fadedAfterHire}`} onClick={() => void quickUpdateStatus(applicant.id, "Rejected")}><ThumbsDown className="h-3.5 w-3.5 mr-1" /> Reject</Button>
+        <Button size="sm" variant="outline" disabled={disableActions || !canReject} className={`${isRejectActive ? "border-2 border-red-600 bg-red-50 text-red-700" : "border-red-400 text-red-500 hover:bg-red-50 opacity-40"} rounded-full text-xs h-7 ${rejectDisabledClass} ${fadedAfterHire}`} onClick={() => setDeclineRequest({ applicant, outcome: "Rejected" })}><ThumbsDown className="h-3.5 w-3.5 mr-1" /> Reject</Button>
         <Button size="sm" variant="outline" disabled={disableActions || !canOnHold} className={`${isOnHoldActive ? "border-2 border-amber-600 bg-amber-50 text-amber-700" : "border-amber-400 text-amber-600 hover:bg-amber-50 opacity-40"} rounded-full text-xs h-7 ${onHoldDisabledClass} ${fadedAfterHire}`} onClick={() => void quickUpdateStatus(applicant.id, "On Hold")}>On Hold</Button>
       </div>
     );
@@ -9954,6 +9995,22 @@ function ApplicantsPage() {
         onSubmit={sendInterviewFeedback}
         submitting={isSendingInterviewFeedback}
         initialRound={feedbackInitialRound}
+      />
+      <DeclineReasonModal
+        open={Boolean(declineRequest)}
+        candidateName={
+          declineRequest
+            ? [declineRequest.applicant.profile?.first_name, declineRequest.applicant.profile?.last_name]
+                .filter(Boolean)
+                .join(" ") || null
+            : null
+        }
+        outcome={declineRequest?.outcome ?? null}
+        onOpenChange={(open) => {
+          if (!open && !isSavingDecline) setDeclineRequest(null);
+        }}
+        onSubmit={confirmDecline}
+        submitting={isSavingDecline}
       />
       <ResumePreviewDialog resume={resumePreview} onClose={() => setResumePreview(null)} />
     </div>
