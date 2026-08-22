@@ -1264,7 +1264,21 @@ export default function JobSeekerDashboard() {
               </div>
 
               {(profile || user) && (
-                <div className="w-8 h-8 rounded-full overflow-hidden cursor-pointer flex-shrink-0" title={`${headerFirstName} ${headerLastName}`.trim()}>
+                /*
+                 * The avatar looked clickable but had no handler at all. It goes
+                 * to the Profile tab rather than opening a menu, because Sign Out
+                 * already sits next to it as its own button — a dropdown would
+                 * just duplicate it. Routed through handleDashboardLinkClick so
+                 * it honours the same unsaved-preferences guard as the nav links,
+                 * which a plain navigate() would skip.
+                 */
+                <Link
+                  to="/jobseeker/dashboard/profile"
+                  onClick={(event) => handleDashboardLinkClick(event, "/jobseeker/dashboard/profile")}
+                  aria-label="View your profile"
+                  title={`${headerFirstName} ${headerLastName}`.trim() || "View your profile"}
+                  className="w-8 h-8 rounded-full overflow-hidden flex-shrink-0 block ring-offset-2 transition-shadow hover:ring-2 hover:ring-[#FF2B2B] focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-[#FF2B2B]"
+                >
                   {headerAvatar ? (
                     <img src={headerAvatar} alt="Profile" className="w-full h-full object-cover" referrerPolicy="no-referrer" />
                   ) : (
@@ -1272,7 +1286,7 @@ export default function JobSeekerDashboard() {
                       {userInitials}
                     </div>
                   )}
-                </div>
+                </Link>
               )}
 
               <Button
