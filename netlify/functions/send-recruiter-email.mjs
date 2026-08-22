@@ -121,22 +121,57 @@ export default async (request) => {
         }
       }
 
-      const formattedHtml = `
-        <div style="font-family: Arial, sans-serif; background-color: #f6f6f6; padding: 24px;">
-          <div style="max-width: 600px; margin: 0 auto; background: #ffffff; border-radius: 16px; overflow: hidden; box-shadow: 0 4px 12px rgba(0,0,0,0.05); border: 1px solid #e5e7eb;">
-            <div style="background-color: #3A1F1F; color: #ffffff; padding: 16px 24px; display: flex; align-items: center; justify-content: space-between;">
-              <span style="font-weight: bold; font-size: 18px; color: #ffffff;">RhirePro</span>
-              <span style="background-color: #FF2B2B; color: #ffffff; padding: 4px 10px; border-radius: 99px; font-size: 11px; font-weight: bold;">Recruiter Message</span>
-            </div>
-            <div style="padding: 24px; color: #3A1F1F; font-size: 14px; line-height: 1.6;">
-              <div style="white-space: pre-wrap;">${recipientBody.replace(/\n/g, "<br/>")}</div>
-            </div>
-            <div style="background-color: #f9fafb; border-top: 1px solid #f3f4f6; padding: 16px 24px; text-align: center; font-size: 12px; color: #8A8A8A;">
-              Sent via RhirePro Talent Acquisition Platform • <a href="https://rhirepro.com" style="color: #FF2B2B; text-decoration: none; font-weight: bold;">RhirePro</a>
-            </div>
-          </div>
-        </div>
-      `;
+      /*
+       * Table-based with inline styles on every cell. The previous template was
+       * nested <div>s whose header used `display: flex`, which Outlook and Gmail
+       * both ignore, so the RhirePro wordmark and the "Recruiter Message" pill
+       * collapsed together and the message rendered as a cramped, unstyled
+       * block. border-radius and box-shadow are dropped by Outlook too, so the
+       * design no longer relies on them.
+       *
+       * The body is escaped before newlines become <br />. It is recruiter-authored
+       * text that was being interpolated raw, so any < or & in a message was
+       * treated as markup.
+       */
+      const escapeHtml = (value) =>
+        String(value ?? "")
+          .replace(/&/g, "&amp;")
+          .replace(/</g, "&lt;")
+          .replace(/>/g, "&gt;")
+          .replace(/"/g, "&quot;");
+
+      const bodyHtml = escapeHtml(recipientBody)
+        .split(/\n{2,}/)
+        .map((para) => para.trim())
+        .filter(Boolean)
+        .map(
+          (para) =>
+            `<p style="margin:0 0 14px;font-size:15px;line-height:1.65;color:#3A1F1F;">${para.replace(/\n/g, "<br />")}</p>`,
+        )
+        .join("");
+
+      const formattedHtml = `<!doctype html>
+<html><body style="margin:0;padding:0;background:#f4f4f5;">
+  <table role="presentation" width="100%" cellpadding="0" cellspacing="0" border="0" style="background:#f4f4f5;padding:24px 12px;">
+    <tr><td align="center">
+      <table role="presentation" width="100%" cellpadding="0" cellspacing="0" border="0" style="max-width:600px;background:#ffffff;border:1px solid #e5e7eb;font-family:-apple-system,BlinkMacSystemFont,'Segoe UI',Roboto,Arial,sans-serif;">
+        <tr><td style="background:#3A1F1F;padding:16px 24px;">
+          <table role="presentation" width="100%" cellpadding="0" cellspacing="0" border="0">
+            <tr>
+              <td align="left" style="font-weight:bold;font-size:18px;color:#ffffff;">RhirePro</td>
+              <td align="right"><span style="background:#FF2B2B;color:#ffffff;padding:5px 12px;font-size:11px;font-weight:bold;">Recruiter Message</span></td>
+            </tr>
+          </table>
+        </td></tr>
+        <tr><td style="padding:24px;">${bodyHtml}</td></tr>
+        <tr><td style="background:#f9fafb;border-top:1px solid #f3f4f6;padding:16px 24px;text-align:center;font-size:12px;color:#8A8A8A;">
+          Sent via RhirePro Talent Acquisition Platform &bull;
+          <a href="https://rhirepro.com" style="color:#FF2B2B;text-decoration:none;font-weight:bold;">RhirePro</a>
+        </td></tr>
+      </table>
+    </td></tr>
+  </table>
+</body></html>`;
 
       const res = await fetch("https://api.resend.com/emails", {
         method: "POST",
