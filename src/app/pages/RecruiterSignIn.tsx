@@ -101,12 +101,11 @@ export default function RecruiterSignIn() {
         throw new Error("This is a Job Seeker account. Please use Job Seeker Sign In.");
       }
 
-      // 3. Check recruiter profile exists in DB
-      const { data: rp, error: rpErr } = await supabase
-        .from("recruiter_profiles")
-        .select("id, recruiter_name, is_org_admin, is_disabled, org_role, max_seats")
-        .eq("id", data.user.id)
-        .single();
+      // 3. Check recruiter profile exists in DB.
+      // Read through my_recruiter_profile() rather than the table: `authenticated`
+      // holds SELECT on only the public columns, and the gate below needs
+      // verification_status and rejection_reason, which it does not.
+      const { data: rp, error: rpErr } = await supabase.rpc("my_recruiter_profile").maybeSingle();
 
       if (rpErr || !rp) {
         await supabase.auth.signOut();
@@ -116,6 +115,25 @@ export default function RecruiterSignIn() {
       if (rp.is_disabled) {
         await supabase.auth.signOut();
         throw new Error("This account has been disabled. Please contact your organization admin.");
+      }
+
+      // 3b. Super Admin approval gate. recruiter_profiles.verification_status
+      // defaults to 'Pending', so a brand-new account cannot get in until an
+      // admin approves it.
+      if (rp.verification_status === "Rejected") {
+        await supabase.auth.signOut();
+        throw new Error(
+          rp.rejection_reason
+            ? `Your account application was declined: ${rp.rejection_reason}`
+            : "Your account application was declined. Please contact support@rhirepro.com.",
+        );
+      }
+
+      if (rp.verification_status !== "Verified") {
+        await supabase.auth.signOut();
+        throw new Error(
+          "Your account is awaiting approval from our team. You'll receive an email once it's approved.",
+        );
       }
 
       setUserId(data.user.id);

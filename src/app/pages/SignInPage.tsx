@@ -182,12 +182,35 @@ export default function SignInPage() {
           throw new Error("This is a Job Seeker account. Please select Job Seeker and try again.");
         }
 
-        const { data: rp, error: rpErr } = await supabase
-          .from("recruiter_profiles").select("id, recruiter_name").eq("id", data.user.id).single();
+        // Via the RPC so the approval gate below can see verification_status,
+        // which `authenticated` cannot select from the table directly.
+        const { data: rp, error: rpErr } = await supabase.rpc("my_recruiter_profile").maybeSingle();
 
         if (rpErr || !rp) {
           await supabase.auth.signOut();
           throw new Error("No recruiter account found. Please sign up first.");
+        }
+
+        if (rp.is_disabled) {
+          await supabase.auth.signOut();
+          throw new Error("This account has been disabled. Please contact your organization admin.");
+        }
+
+        // Super Admin approval gate — see RecruiterSignIn for the same check.
+        if (rp.verification_status === "Rejected") {
+          await supabase.auth.signOut();
+          throw new Error(
+            rp.rejection_reason
+              ? `Your account application was declined: ${rp.rejection_reason}`
+              : "Your account application was declined. Please contact support@rhirepro.com.",
+          );
+        }
+
+        if (rp.verification_status !== "Verified") {
+          await supabase.auth.signOut();
+          throw new Error(
+            "Your account is awaiting approval from our team. You'll receive an email once it's approved.",
+          );
         }
 
         setUserId(data.user.id);

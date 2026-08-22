@@ -1,6 +1,6 @@
 import { useEffect, useState, useCallback } from "react";
 import { toast } from "sonner";
-import { Ban, CheckCircle2, MoreHorizontal } from "lucide-react";
+import { Ban, CheckCircle2, MoreHorizontal, ShieldCheck, ShieldX } from "lucide-react";
 import { DataTable, DataTableColumn, exportRowsAsCsv } from "../../components/ui/data-table";
 import { Badge } from "../../components/ui/badge";
 import { Button } from "../../components/ui/button";
@@ -27,6 +27,8 @@ interface RecruiterRow {
   company_name: string | null;
   industry: string | null;
   is_disabled: boolean;
+  verification_status: string | null;
+  rejection_reason: string | null;
   org_role: string | null;
   created_at: string;
   last_login_at: string | null;
@@ -54,7 +56,7 @@ export default function SuperAdminRecruiters() {
     let query = supabase
       .rpc("admin_recruiter_profiles", {}, { count: "exact" })
       .select(
-        "id,email,recruiter_name,company_name,industry,is_disabled,org_role,created_at,last_login_at,recruiter_subscriptions(status,plan_id,expires_at)"
+        "id,email,recruiter_name,company_name,industry,is_disabled,verification_status,rejection_reason,org_role,created_at,last_login_at,recruiter_subscriptions(status,plan_id,expires_at)"
       );
 
     if (search.trim()) {
@@ -63,6 +65,9 @@ export default function SuperAdminRecruiters() {
     }
     if (statusFilter === "active") query = query.eq("is_disabled", false);
     if (statusFilter === "disabled") query = query.eq("is_disabled", true);
+    if (statusFilter === "pending") query = query.eq("verification_status", "Pending");
+    if (statusFilter === "verified") query = query.eq("verification_status", "Verified");
+    if (statusFilter === "rejected") query = query.eq("verification_status", "Rejected");
 
     const from = (page - 1) * PAGE_SIZE;
     const to = from + PAGE_SIZE - 1;
@@ -102,6 +107,84 @@ export default function SuperAdminRecruiters() {
     fetchRows();
   };
 
+  /**
+   * Approve or decline a recruiter application. recruiter_profiles
+   * .verification_status defaults to 'Pending', and both sign-in paths refuse
+   * anything that is not 'Verified', so this is what actually lets a new
+   * recruiter in. The "Super admins update recruiter_profiles" RLS policy
+   * permits writing to another recruiter's row.
+   */
+  const setVerification = async (row: RecruiterRow, approve: boolean) => {
+    let reason: string | null = null;
+    if (!approve) {
+      const entered = window.prompt(
+        `Decline ${row.recruiter_name || row.email}?
+
+This reason is shown to them when they try to sign in:`,
+        "",
+      );
+      if (entered === null) return; // cancelled
+      reason = entered.trim() || null;
+    }
+
+    const {
+      data: { user },
+    } = await supabase.auth.getUser();
+    const now = new Date().toISOString();
+
+    const patch = approve
+      ? {
+          verification_status: "Verified",
+          verified_at: now,
+          verified_by: user?.id ?? null,
+          rejection_reason: null,
+          rejected_at: null,
+          rejected_by: null,
+        }
+      : {
+          verification_status: "Rejected",
+          rejection_reason: reason,
+          rejected_at: now,
+          rejected_by: user?.id ?? null,
+        };
+
+    const { error } = await supabase.from("recruiter_profiles").update(patch).eq("id", row.id);
+    if (error) {
+      toast.error(`Failed to update approval: ${error.message}`);
+      return;
+    }
+
+    logAdminAction({
+      action: approve ? "recruiter.approve" : "recruiter.reject",
+      entityType: "recruiter_profiles",
+      entityId: row.id,
+      beforeValue: { verification_status: row.verification_status },
+      afterValue: { verification_status: approve ? "Verified" : "Rejected", rejection_reason: reason },
+    });
+
+    // Best-effort in-app notification; never block the approval on it.
+    supabase
+      .from("notifications")
+      .insert({
+        user_id: row.id,
+        user_type: "recruiter",
+        title: approve ? "Account approved" : "Account application declined",
+        message: approve
+          ? "Your recruiter account has been approved. You can now sign in."
+          : reason
+            ? `Your account application was declined: ${reason}`
+            : "Your account application was declined. Please contact support.",
+        type: "status_change",
+        is_read: false,
+      })
+      .then(({ error: notifyErr }) => {
+        if (notifyErr) console.warn("Approval notification failed:", notifyErr.message);
+      });
+
+    toast.success(approve ? "Recruiter approved" : "Recruiter declined");
+    fetchRows();
+  };
+
   const columns: DataTableColumn<RecruiterRow>[] = [
     {
       key: "recruiter_name",
@@ -122,6 +205,24 @@ export default function SuperAdminRecruiters() {
       render: (row) => {
         const active = row.recruiter_subscriptions?.find((s) => s.status === "active");
         return active ? <Badge variant="secondary">{active.plan_id}</Badge> : <span className="text-muted-foreground">Free</span>;
+      },
+    },
+    {
+      key: "verification_status",
+      header: "Approval",
+      sortable: true,
+      render: (row) => {
+        if (row.verification_status === "Verified") {
+          return <Badge className="bg-emerald-600 hover:bg-emerald-600/90">Approved</Badge>;
+        }
+        if (row.verification_status === "Rejected") {
+          return (
+            <Badge variant="destructive" title={row.rejection_reason || undefined}>
+              Declined
+            </Badge>
+          );
+        }
+        return <Badge className="bg-amber-500 hover:bg-amber-500/90">Awaiting approval</Badge>;
       },
     },
     {
@@ -171,6 +272,9 @@ export default function SuperAdminRecruiters() {
             onChange: setStatusFilter,
             options: [
               { label: "All statuses", value: "all" },
+              { label: "Awaiting approval", value: "pending" },
+              { label: "Approved", value: "verified" },
+              { label: "Declined", value: "rejected" },
               { label: "Active", value: "active" },
               { label: "Disabled", value: "disabled" },
             ],
@@ -183,6 +287,7 @@ export default function SuperAdminRecruiters() {
               { key: "email", header: "Email" },
               { key: "recruiter_name", header: "Name" },
               { key: "company_name", header: "Company" },
+              { key: "verification_status", header: "Approval" },
               { key: "is_disabled", header: "Disabled" },
               { key: "created_at", header: "Joined" },
             ],
@@ -198,6 +303,16 @@ export default function SuperAdminRecruiters() {
             </DropdownMenuTrigger>
             <DropdownMenuContent align="end">
               <DropdownMenuItem onClick={() => setSelected(row)}>View details</DropdownMenuItem>
+              {row.verification_status !== "Verified" && (
+                <DropdownMenuItem onClick={() => setVerification(row, true)}>
+                  <ShieldCheck /> Approve account
+                </DropdownMenuItem>
+              )}
+              {row.verification_status !== "Rejected" && (
+                <DropdownMenuItem onClick={() => setVerification(row, false)}>
+                  <ShieldX /> Decline account
+                </DropdownMenuItem>
+              )}
               <DropdownMenuItem onClick={() => toggleDisabled(row)}>
                 {row.is_disabled ? (
                   <>
