@@ -5,6 +5,7 @@ import { formatJobSalary, isJobVisibleToSeekers } from "../../lib/jobs";
 import { recordJobInteraction, recordJobSearch } from "../../lib/jobRecommendations";
 import { SKILL_OPTIONS, skillsMatch, fuzzyMatch, SEARCH_SUGGESTION_DATASET } from "../../lib/skillKeywords";
 import { useAuth } from "../../lib/auth-context";
+import { decryptPhone, encryptPhone } from "../../lib/phoneProtection";
 import { INDIA_CITY_OPTIONS } from "../../lib/locationData";
 import AppliedJobsSection from "../components/AppliedJobsSection";
 import ResumePreviewDialog, { getStorageObjectFromUrl, buildPreviewUrl } from "../components/ResumePreviewDialog";
@@ -3001,7 +3002,9 @@ function ProfilePage({ onPendingPrefsChange }: { onPendingPrefsChange?: (pending
     const info = {
       name: `${firstName} ${lastName}`.trim(),
       headline: profile?.headline || "",
-      phone: profile?.phone || meta.phone || "",
+      // Encrypted at signup into both profiles.phone and user_metadata.phone;
+      // decode for display. Plain legacy values pass through unchanged.
+      phone: decryptPhone(profile?.phone || meta.phone) || "",
       email: profile?.email || user?.email || "",
       location: profile?.location || "",
       dob: profile?.dob || "",
@@ -3835,7 +3838,7 @@ function ProfilePage({ onPendingPrefsChange }: { onPendingPrefsChange?: (pending
                     const first = nameParts[0];
                     const last = nameParts.slice(1).join(" ");
                     await supabase.from("profiles").update({
-                      first_name: first, last_name: last, phone: basicForm.phone,
+                      first_name: first, last_name: last, phone: encryptPhone(basicForm.phone),
                       headline: basicForm.headline, location: basicForm.location,
                       linkedin_url: basicForm.linkedin, portfolio_url: basicForm.portfolio,
                       dob: basicForm.dob || null, gender: basicForm.gender || null,
@@ -6893,7 +6896,7 @@ function ResumePreviewPage() {
     return {
       name: fullName || "Your Name",
       headline: profile?.headline || "",
-      phone: profile?.phone || "",
+      phone: decryptPhone(profile?.phone) || "",
       email: profile?.email || "",
       location: profile?.location || "",
       linkedin: profile?.linkedin_url || "",

@@ -62,6 +62,7 @@ import { Input } from "../components/ui/input";
 import { Textarea } from "../components/ui/textarea";
 import { RichTextEditor } from "../components/ui/rich-text-editor";
 import { UnifiedJobDetailsEditor } from "../components/ui/unified-job-details-editor";
+import { decryptPhone, encryptPhone } from "../../lib/phoneProtection";
 import { SafeHtml } from "../components/ui/safe-html";
 import { Select, SelectContent, SelectItem, SelectTrigger, SelectValue } from "../components/ui/select";
 import { Badge } from "../components/ui/badge";
@@ -10856,7 +10857,9 @@ function CompanyProfilePage() {
         linkedin: recruiterProfile.linkedin_url || "",
         cin: recruiterProfile.cin || "",
         tagline: recruiterProfile.tagline || "",
-        phone: recruiterProfile.phone || "",
+        // See phoneProtection: values are stored as "enc:..." and must be decoded
+        // for display. Plain legacy values pass through unchanged.
+        phone: decryptPhone(recruiterProfile.phone) || "",
         recruiterName: recruiterProfile.recruiter_name || "",
         logoUrl: recruiterProfile.logo_url || "",
         coverImageUrl: recruiterProfile.cover_image_url || "",
@@ -10970,7 +10973,7 @@ function CompanyProfilePage() {
         linkedin_url: profile.linkedin,
         cin: profile.cin,
         tagline: profile.tagline,
-        phone: profile.phone,
+        phone: encryptPhone(profile.phone),
         recruiter_name: profile.recruiterName,
         founded: profile.founded,
       }).eq("id", recruiterProfile.id);
