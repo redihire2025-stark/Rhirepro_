@@ -14,6 +14,7 @@ import { Sheet, SheetContent, SheetTrigger, SheetTitle, SheetDescription } from 
 import { useNavigate, Link } from "react-router";
 import logoImage from "../../logo/logo.png";
 import { supabase, type Job as DBJob } from "../../lib/supabase";
+import { getSearchApiUrl } from "../../lib/searchApi";
 import { formatJobSalary, isJobVisibleToSeekers } from "../../lib/jobs";
 import { useAuth } from "../../lib/auth-context";
 import { getRecommendedJobs, recordJobInteraction, recordJobSearch } from "../../lib/jobRecommendations";
@@ -267,7 +268,10 @@ export default function JobListingsPage() {
     
     setIsSearching(true);
     try {
-      const apiUrl = import.meta.env.VITE_API_URL || "http://localhost:8000";
+      const apiUrl = getSearchApiUrl();
+      // No reachable search service — go straight to the Supabase fallback
+      // rather than making a request the browser will block.
+      if (!apiUrl) throw new Error("search service not configured");
       const response = await fetch(`${apiUrl}/jobs/search?q=${encodeURIComponent(searchTerm)}`);
       if (response.ok) {
         const data = await response.json();

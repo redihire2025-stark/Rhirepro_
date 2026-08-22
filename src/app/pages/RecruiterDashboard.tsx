@@ -1,6 +1,7 @@
 import { useState, useEffect, useCallback, useRef, useMemo, type ChangeEvent } from "react";
 import { useNavigate, Routes, Route, Link, useLocation, useParams } from "react-router";
 import { supabase, Job, Application, Notification, Profile, WorkExperience, Education as EduType, RecruiterSubscription, RecruiterArticle, PREFERRED_JOINING_TIME_OPTIONS } from "../../lib/supabase";
+import { getSearchApiUrl } from "../../lib/searchApi";
 import {
   SALARY_AMOUNT_OPTIONS,
   JOB_EXPIRY_DAYS,
@@ -5796,7 +5797,10 @@ function SearchCandidatesPage() {
       let esSuccess = false;
 
       try {
-        const apiUrl = import.meta.env.VITE_API_URL || "http://localhost:8000";
+        const apiUrl = getSearchApiUrl();
+        // No reachable search service — go straight to the Supabase fallback
+        // rather than making a request the browser will block.
+        if (!apiUrl) throw new Error("search service not configured");
         const esUrl = `${apiUrl}/candidates/search?q=${encodeURIComponent(activeKeywords)}` +
           `&boolean_mode=${booleanSearchEnabled}` +
           `&fuzzy=true` +
@@ -7661,7 +7665,10 @@ Best regards,
       let esSuccess = false;
 
       try {
-        const apiUrl = import.meta.env.VITE_API_URL || "http://localhost:8000";
+        const apiUrl = getSearchApiUrl();
+        // No reachable search service — go straight to the Supabase fallback
+        // rather than making a request the browser will block.
+        if (!apiUrl) throw new Error("search service not configured");
         const esUrl = `${apiUrl}/candidates/search?q=${encodeURIComponent(activeKeywords)}` +
           `&boolean_mode=${booleanSearchEnabled}` +
           `&location=${encodeURIComponent(location)}` +

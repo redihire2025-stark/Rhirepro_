@@ -66,6 +66,13 @@
     # Netlify-CDN-Cache-Control targets the edge specifically and takes
     # precedence there, forcing it to revalidate on every request.
     Netlify-CDN-Cache-Control = "public, max-age=0, must-revalidate"
+    # Razorpay's checkout runs in a cross-origin iframe and reads motion sensors
+    # for its fraud fingerprinting. The browser default for these features is
+    # "self", so the iframe was denied and the checkout console filled with
+    # "accelerometer is not allowed in this document" on every payment. Naming
+    # only these three leaves every other feature on its default — a
+    # Permissions-Policy header constrains just the features it lists.
+    Permissions-Policy = "accelerometer=(self \"https://api.razorpay.com\" \"https://checkout.razorpay.com\"), gyroscope=(self \"https://api.razorpay.com\" \"https://checkout.razorpay.com\"), payment=(self \"https://api.razorpay.com\" \"https://checkout.razorpay.com\")"
 
 # Declared after /* so it wins for asset paths. Hashed assets are immutable by
 # construction: any content change produces a new filename, so these can be

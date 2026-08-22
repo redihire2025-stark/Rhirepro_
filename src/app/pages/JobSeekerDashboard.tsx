@@ -1,6 +1,7 @@
 import { useState, useMemo, useEffect, useCallback, useRef, type MouseEvent as ReactMouseEvent } from "react";
 import { useNavigate, Routes, Route, Link, useLocation } from "react-router";
 import { supabase, Job as DBJob, Notification } from "../../lib/supabase";
+import { getSearchApiUrl } from "../../lib/searchApi";
 import {
   DropdownMenu,
   DropdownMenuContent,
@@ -1845,7 +1846,10 @@ function FindJobPage() {
 
       if (trimmedSearch || hasAnyFilter) {
         try {
-          const apiUrl = import.meta.env.VITE_API_URL || "http://localhost:8000";
+          const apiUrl = getSearchApiUrl();
+          // No reachable search service — go straight to the Supabase fallback
+          // rather than making a request the browser will block.
+          if (!apiUrl) throw new Error("search service not configured");
           const esUrl = `${apiUrl}/jobs/search?q=${encodeURIComponent(trimmedSearch)}` +
             `&work_mode=${remoteFilter === "yes" || selectedChip === "Remote" || locationFilter === "remote" ? "Work from Home" : ""}` +
             `&employment_type=${selectedChip === "Full-time" ? "Full-time" : selectedChip === "Part-time" ? "Part-time" : selectedChip === "Contract" ? "Contract" : jobTypeFilter === "fulltime" ? "Full-time" : jobTypeFilter === "parttime" ? "Part-time" : jobTypeFilter === "contract" ? "Contract" : ""}` +
