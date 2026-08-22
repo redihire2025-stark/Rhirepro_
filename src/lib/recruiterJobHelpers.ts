@@ -141,3 +141,57 @@ export function validateJobTextField(label: string, value: string): string | nul
   }
   return null;
 }
+
+/**
+ * Validates a candidate-search query for the current Boolean mode.
+ *
+ * Candidate Search and Email Broadcast each had their own copy of this and they
+ * disagreed: the main search rejected commas in Boolean mode and rejected
+ * AND/OR/NOT in standard mode, while Broadcast checked only bracket balance and
+ * operator placement and validated nothing at all in standard mode. So the same
+ * query behaved differently in the two places, and in Broadcast "React AND Node"
+ * with the toggle off was quietly searched as literal text.
+ *
+ * This is the union of both: the mode rules from Candidate Search plus the
+ * syntax checks Broadcast had, which the main search was missing.
+ *
+ * Returns an error message, or null when the query is usable.
+ */
+export function validateBooleanSearch(keywords: string, booleanEnabled: boolean): string | null {
+  const trimmed = (keywords || "").trim();
+  if (!trimmed) return null;
+
+  if (!booleanEnabled) {
+    if (/\b(?:and|or|not)\b/i.test(trimmed)) {
+      return "Boolean operators (AND, OR, NOT) are not allowed in Standard mode. Please turn ON Boolean Search to use boolean operators.";
+    }
+    return null;
+  }
+
+  if (trimmed.includes(",")) {
+    return "In Boolean Search mode, commas are not allowed. Please use AND, OR, or NOT operators between skills (e.g., Python AND React).";
+  }
+
+  const openParen = (trimmed.match(/\(/g) || []).length;
+  const closeParen = (trimmed.match(/\)/g) || []).length;
+  if (openParen !== closeParen) {
+    return `Unbalanced parentheses: ${openParen} opening vs ${closeParen} closing bracket.`;
+  }
+
+  if (/\b(AND|OR|NOT)\s+(AND|OR|NOT)\b/i.test(trimmed)) {
+    return "Consecutive boolean operators found (e.g. 'AND OR'). Please check operator syntax.";
+  }
+
+  if (/\b(AND|OR|NOT)\s*$/i.test(trimmed)) {
+    return "Query ends with an incomplete boolean operator (e.g. 'AND'). Add a search term after it.";
+  }
+
+  // Ignore brackets when deciding whether an operator is present, so
+  // "(React OR Node)" is not mistaken for two bare words.
+  const words = trimmed.replace(/[()]/g, " ").split(/\s+/).filter(Boolean);
+  if (words.length > 1 && !words.some((w) => /^(and|or|not)$/i.test(w))) {
+    return "In Boolean Search mode, please use AND, OR, or NOT operators between skills (e.g., Python AND React).";
+  }
+
+  return null;
+}

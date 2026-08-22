@@ -24,7 +24,7 @@ import {
   matchesMultiLevelLocation,
 } from "../../lib/locationData";
 import { SEARCH_SUGGESTION_DATASET, SKILL_OPTIONS, getSkillSearchTerms, skillsMatch, fuzzyMatch } from "../../lib/skillKeywords";
-import { inferSkillSuggestions, extractTextFromHtml, getRelevantSkillsForJobContext, validateJobTextField } from "../../lib/recruiterJobHelpers";
+import { inferSkillSuggestions, extractTextFromHtml, getRelevantSkillsForJobContext, validateJobTextField, validateBooleanSearch } from "../../lib/recruiterJobHelpers";
 import { useAuth } from "../../lib/auth-context";
 import { sendRecruiterCandidateEmail } from "../../lib/email";
 import { formatActiveTime, parseActiveDate } from "../../lib/activeTime";
@@ -5630,28 +5630,11 @@ function SearchCandidatesPage() {
     return () => document.removeEventListener("mousedown", handleClickOutside);
   }, [skillSuggestionsOpen]);
 
-  const booleanSearchError = useMemo(() => {
-    const trimmed = keywords.trim();
-    if (!trimmed) return null;
-
-    if (booleanSearchEnabled) {
-      if (trimmed.includes(",")) {
-        return "In Boolean Search mode, commas are not allowed. Please use AND, OR, or NOT operators between skills (e.g., Python AND React).";
-      }
-      const words = trimmed.split(/\s+/).filter(Boolean);
-      if (words.length > 1) {
-        const hasBooleanOperator = words.some(w => /^(and|or|not)$/i.test(w));
-        if (!hasBooleanOperator) {
-          return "In Boolean Search mode, please use AND, OR, or NOT operators between skills (e.g., Python AND React).";
-        }
-      }
-    } else {
-      if (/\b(?:and|or|not)\b/i.test(trimmed)) {
-        return "Boolean operators (AND, OR, NOT) are not allowed in Standard mode. Please turn ON Boolean Search to use boolean operators.";
-      }
-    }
-    return null;
-  }, [keywords, booleanSearchEnabled]);
+  // Shared with Email Broadcast so the same query is judged the same way in both.
+  const booleanSearchError = useMemo(
+    () => validateBooleanSearch(keywords, booleanSearchEnabled),
+    [keywords, booleanSearchEnabled],
+  );
 
   // BM25-inspired candidate relevance scoring for Elasticsearch and fallback search
   const computeCandidateRelevanceScore = (candidate: DBCandidate, queryStr: string): number => {
@@ -7139,27 +7122,14 @@ function EmailingPage() {
     return () => document.removeEventListener("mousedown", handleClickOutside);
   }, [skillSuggestionsOpen]);
 
-  const booleanSearchError = useMemo(() => {
-    const trimmed = keywords.trim();
-    if (!trimmed) return null;
-
-    if (booleanSearchEnabled) {
-      const openParen = (trimmed.match(/\(/g) || []).length;
-      const closeParen = (trimmed.match(/\)/g) || []).length;
-      if (openParen !== closeParen) {
-        return `Unbalanced parentheses: ${openParen} opening vs ${closeParen} closing bracket.`;
-      }
-      const doubleOps = /\b(AND|OR|NOT)\s+(AND|OR|NOT)\b/i;
-      if (doubleOps.test(trimmed)) {
-        return "Consecutive boolean operators found (e.g. 'AND OR'). Please check operator syntax.";
-      }
-      const trailingOp = /\b(AND|OR|NOT)\s*$/i;
-      if (trailingOp.test(trimmed)) {
-        return "Query ends with an incomplete boolean operator (e.g. 'AND'). Add a search term after it.";
-      }
-    }
-    return null;
-  }, [keywords, booleanSearchEnabled]);
+  // Same validator as Candidate Search. These two used to disagree: Broadcast
+  // checked only bracket balance and operator placement, and validated nothing
+  // at all in standard mode, so "React AND Node" with the toggle off was
+  // searched as literal text rather than rejected.
+  const booleanSearchError = useMemo(
+    () => validateBooleanSearch(keywords, booleanSearchEnabled),
+    [keywords, booleanSearchEnabled],
+  );
 
   const activeFilterCount = useMemo(() => {
     let count = 0;
