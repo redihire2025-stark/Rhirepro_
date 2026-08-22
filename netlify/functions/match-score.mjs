@@ -42,9 +42,18 @@ const MODELS = [
 const endpointFor = (model) =>
   `https://generativelanguage.googleapis.com/v1beta/models/${model}:generateContent`;
 
-// Netlify kills synchronous functions at 10s; stop starting new attempts well
-// before that so a failure still returns JSON rather than a bodiless timeout.
-const DEADLINE_MS = 7000;
+/*
+ * Netlify kills a synchronous function at 10s and returns a bodiless 502 the
+ * client cannot explain. A live end-to-end call measured 8.3s (≈2s of Supabase
+ * round trips plus a Gemini call that varies from 1.4s to ~6s), so the headroom
+ * was one slow response wide.
+ *
+ * Two budgets rather than one: BUDGET_MS is when we stop starting new attempts,
+ * and ATTEMPT_MS aborts an individual call that is running long, so a stalled
+ * model response cannot drag the whole function past the platform limit.
+ */
+const BUDGET_MS = 7000;
+const ATTEMPT_MS = 5500;
 // Re-score if the cached answer predates a profile or job edit, but never more
 // often than this — the inputs rarely change and the call is not free.
 const CACHE_TTL_MS = 7 * 24 * 60 * 60 * 1000;
@@ -66,17 +75,20 @@ const clean = (value, max = 400) =>
     .trim()
     .slice(0, max);
 
-async function callGemini(apiKey, requestBody) {
-  const started = Date.now();
+async function callGemini(apiKey, requestBody, startedAt = Date.now()) {
   let last = { status: 0, message: "No attempt made" };
 
   for (const model of MODELS) {
-    if (Date.now() - started > DEADLINE_MS) break;
+    const remaining = BUDGET_MS - (Date.now() - startedAt);
+    if (remaining <= 500) break;
 
     const body = {
       ...requestBody,
       generationConfig: { ...requestBody.generationConfig, ...model.generationConfig },
     };
+
+    const controller = new AbortController();
+    const timer = setTimeout(() => controller.abort(), Math.min(ATTEMPT_MS, remaining));
 
     let res;
     try {
@@ -84,10 +96,15 @@ async function callGemini(apiKey, requestBody) {
         method: "POST",
         headers: { "Content-Type": "application/json" },
         body: JSON.stringify(body),
+        signal: controller.signal,
       });
     } catch (networkErr) {
-      last = { status: 0, message: `Could not reach the AI service: ${networkErr.message}` };
+      last = networkErr.name === "AbortError"
+        ? { status: 504, message: `${model.name}: timed out` }
+        : { status: 0, message: `Could not reach the AI service: ${networkErr.message}` };
       continue;
+    } finally {
+      clearTimeout(timer);
     }
 
     if (res.ok) {
@@ -185,6 +202,7 @@ Return ONLY valid JSON, no text outside the object:
 }
 
 export default async (request) => {
+  const requestStart = Date.now();
   if (request.method !== "POST") return new Response("Method Not Allowed", { status: 405 });
 
   const body = await request.json().catch(() => null);
@@ -211,12 +229,31 @@ export default async (request) => {
   const caller = await userRes.json().catch(() => null);
   if (!caller?.id) return json({ error: "Authentication required." }, 401);
 
-  // ── Load the job, and use its owner to authorise ────────────────────────────
-  const jobRes = await fetch(
-    `${SUPABASE_URL()}/rest/v1/jobs?id=eq.${encodeURIComponent(jobId)}` +
-      `&select=id,title,department,location,work_mode,employment_type,experience_min,experience_max,skills,description,recruiter_id`,
-    { headers: svcHeaders() },
-  );
+  /*
+   * Job, cached score and profile are independent reads, and running them in
+   * sequence cost about a second of the function's budget for no reason. The
+   * profile is fetched up front even though a cache hit will not need it —
+   * one extra concurrent read is cheaper than a serial round trip on the miss
+   * path, which is the slow one that matters.
+   */
+  const [jobRes, cacheRes, profRes] = await Promise.all([
+    fetch(
+      `${SUPABASE_URL()}/rest/v1/jobs?id=eq.${encodeURIComponent(jobId)}` +
+        `&select=id,title,department,location,work_mode,employment_type,experience_min,experience_max,skills,description,recruiter_id`,
+      { headers: svcHeaders() },
+    ),
+    fetch(
+      `${SUPABASE_URL()}/rest/v1/ai_match_scores?profile_id=eq.${encodeURIComponent(profileId)}` +
+        `&job_id=eq.${encodeURIComponent(jobId)}&select=score,summary,strengths,gaps,computed_at`,
+      { headers: svcHeaders() },
+    ),
+    fetch(
+      `${SUPABASE_URL()}/rest/v1/profiles?id=eq.${encodeURIComponent(profileId)}` +
+        `&select=id,headline,current_title,current_company,experience_type,total_experience,location,skills,about`,
+      { headers: svcHeaders() },
+    ),
+  ]);
+
   const jobs = jobRes.ok ? await jobRes.json().catch(() => []) : [];
   const job = Array.isArray(jobs) ? jobs[0] : null;
   if (!job) return json({ error: "Job not found." }, 404);
@@ -235,11 +272,6 @@ export default async (request) => {
   if (!authorised) return json({ error: "Not allowed to score this pairing." }, 403);
 
   // ── Serve from cache unless it is stale or a refresh was asked for ─────────
-  const cacheRes = await fetch(
-    `${SUPABASE_URL()}/rest/v1/ai_match_scores?profile_id=eq.${encodeURIComponent(profileId)}` +
-      `&job_id=eq.${encodeURIComponent(jobId)}&select=score,summary,strengths,gaps,computed_at`,
-    { headers: svcHeaders() },
-  );
   const cached = cacheRes.ok ? await cacheRes.json().catch(() => []) : [];
   const hit = Array.isArray(cached) ? cached[0] : null;
   if (hit && !refresh) {
@@ -249,11 +281,6 @@ export default async (request) => {
     }
   }
 
-  const profRes = await fetch(
-    `${SUPABASE_URL()}/rest/v1/profiles?id=eq.${encodeURIComponent(profileId)}` +
-      `&select=id,headline,current_title,current_company,experience_type,total_experience,location,skills,about`,
-    { headers: svcHeaders() },
-  );
   const profiles = profRes.ok ? await profRes.json().catch(() => []) : [];
   const profile = Array.isArray(profiles) ? profiles[0] : null;
   if (!profile) return json({ error: "Profile not found." }, 404);
@@ -267,15 +294,19 @@ export default async (request) => {
   const { systemMessage, userMessage } = buildPrompt(profile, job);
 
   try {
-    const result = await callGemini(apiKey, {
-      systemInstruction: { parts: [{ text: systemMessage }] },
-      contents: [{ role: "user", parts: [{ text: userMessage }] }],
-      generationConfig: {
-        temperature: 0.1,
-        maxOutputTokens: 1024,
-        responseMimeType: "application/json",
+    const result = await callGemini(
+      apiKey,
+      {
+        systemInstruction: { parts: [{ text: systemMessage }] },
+        contents: [{ role: "user", parts: [{ text: userMessage }] }],
+        generationConfig: {
+          temperature: 0.1,
+          maxOutputTokens: 1024,
+          responseMimeType: "application/json",
+        },
       },
-    });
+      requestStart,
+    );
 
     if (!result.ok) {
       console.error(`[match-score] Gemini ${result.status}:`, result.message);
