@@ -10528,7 +10528,29 @@ function ArticleEditorPage() {
     event.currentTarget.value = "";
   };
 
+  const articleDraftHasContent =
+    articleDraft.title.trim() !== "" ||
+    articleDraft.content.trim() !== "" ||
+    articleDraft.summary.trim() !== "" ||
+    articleDraft.keyTakeaway.trim() !== "" ||
+    articleImagePreview !== "";
+
+  /**
+   * When editing, this restores the saved article; when writing a new one it
+   * empties the editor. The button used to say "Clear" in both cases, so an
+   * editing recruiter pressed Clear and watched their text reappear — which is
+   * what was reported as the button not working. It is labelled to match what it
+   * actually does, and confirms first because it discards work irreversibly.
+   */
   const resetArticleDraft = () => {
+    if (articleDraftHasContent) {
+      const confirmed = window.confirm(
+        existingArticle
+          ? "Discard your changes and restore the saved article?"
+          : "Clear the editor? Everything you have written will be lost.",
+      );
+      if (!confirmed) return;
+    }
     setArticleDraft(existingArticle ? {
       title: existingArticle.title,
       category: existingArticle.category,
@@ -10538,6 +10560,12 @@ function ArticleEditorPage() {
       imageName: existingArticle.cover_image_name || "",
     } : createEmptyArticleDraft());
     setArticleImagePreview(existingArticle?.cover_image_url || "");
+  };
+
+  /** Drop the cover image only, leaving the rest of the draft alone. */
+  const removeArticleCoverImage = () => {
+    setArticleDraft((draft) => ({ ...draft, imageName: "" }));
+    setArticleImagePreview("");
   };
 
   const publishArticleDraft = async () => {
@@ -10613,7 +10641,9 @@ function ArticleEditorPage() {
           </div>
 
           <div className="flex items-center gap-2">
-            <Button variant="outline" className="rounded-full" onClick={resetArticleDraft}>Clear</Button>
+            <Button variant="outline" className="rounded-full" onClick={resetArticleDraft} disabled={!articleDraftHasContent}>
+              {existingArticle ? "Revert changes" : "Clear"}
+            </Button>
             <Button className="bg-[#FF2B2B] hover:bg-[#e02525] text-white rounded-full" onClick={publishArticleDraft} disabled={!canPublishArticle}>
               <FileText className="h-4 w-4 mr-1.5" /> {isEditing ? "Update Article" : "Publish Article"}
             </Button>
@@ -10684,7 +10714,24 @@ function ArticleEditorPage() {
                     )}
                     <input type="file" accept="image/*" className="hidden" onChange={handleArticleImageUpload} />
                   </label>
-                  {articleDraft.imageName && <p className="text-xs text-[#8A8A8A] mt-2 truncate">{articleDraft.imageName}</p>}
+                  {/*
+                    Once an image was chosen there was no way to get rid of it:
+                    the whole tile is a file-picker label, so clicking it only
+                    ever opens the picker again. Clicking the tile still replaces
+                    the image; this removes it outright.
+                  */}
+                  {(articleImagePreview || articleDraft.imageName) && (
+                    <div className="flex items-center justify-between gap-2 mt-2">
+                      <p className="text-xs text-[#8A8A8A] truncate">{articleDraft.imageName || "Cover image"}</p>
+                      <button
+                        type="button"
+                        onClick={removeArticleCoverImage}
+                        className="text-xs font-medium text-[#FF2B2B] hover:underline flex-shrink-0"
+                      >
+                        Remove
+                      </button>
+                    </div>
+                  )}
                 </div>
 
                 <div>
