@@ -40,6 +40,34 @@ async function logApiRequest(supabaseUrl, serviceKey, { function_name, status_co
   }
 }
 
+/**
+ * Remove a declined recruiter so the email address is free to sign up again.
+ * Deleting the auth user cascades the recruiter_profiles row, so that is the
+ * only call needed. Returns false on failure so the caller can refuse the
+ * signup rather than leaving the applicant stuck at "already exists".
+ */
+async function purgeRecruiter(supabaseUrl, serviceKey, recruiterId) {
+  try {
+    const res = await fetch(`${supabaseUrl}/auth/v1/admin/users/${recruiterId}`, {
+      method: "DELETE",
+      headers: { apikey: serviceKey, Authorization: `Bearer ${serviceKey}` },
+    });
+    if (!res.ok && res.status !== 404) {
+      console.error(`[send-otp] purge of declined recruiter ${recruiterId} failed: ${res.status}`);
+      return false;
+    }
+    // Belt and braces: if the cascade did not fire, clear the profile directly.
+    await fetch(`${supabaseUrl}/rest/v1/recruiter_profiles?id=eq.${recruiterId}`, {
+      method: "DELETE",
+      headers: { apikey: serviceKey, Authorization: `Bearer ${serviceKey}`, Prefer: "return=minimal" },
+    });
+    return true;
+  } catch (err) {
+    console.error("[send-otp] purge threw:", err.message);
+    return false;
+  }
+}
+
 const json = (payload, status) =>
   new Response(JSON.stringify(payload), {
     status,
@@ -162,17 +190,47 @@ export default async (request) => {
           fetch(`${supabaseUrl}/rest/v1/profiles?email=ilike.${encodeURIComponent(cleanEmail)}&select=id`, {
             headers: { apikey: serviceKey, Authorization: `Bearer ${serviceKey}` },
           }),
-          fetch(`${supabaseUrl}/rest/v1/recruiter_profiles?email=ilike.${encodeURIComponent(cleanEmail)}&select=id`, {
+          fetch(`${supabaseUrl}/rest/v1/recruiter_profiles?email=ilike.${encodeURIComponent(cleanEmail)}&select=id,verification_status,is_disabled`, {
             headers: { apikey: serviceKey, Authorization: `Bearer ${serviceKey}` },
           }),
         ]);
         const pData = pRes.ok ? await pRes.json() : [];
         const rData = rRes.ok ? await rRes.json() : [];
-        if ((pData && pData.length > 0) || (rData && rData.length > 0)) {
+
+        // A declined recruiter is allowed to apply again. Their old record is
+        // unusable — sign-in refuses anything that is not 'Verified' — but it
+        // still occupies the email address, so without this they hit "an
+        // account already exists" and can never reapply. The decline itself
+        // stays on record in admin_audit_log.
+        //
+        // Disabled accounts are deliberately NOT purged: an administrator
+        // switched that off, and letting the person re-register with the same
+        // address would make disabling meaningless.
+        const declined = Array.isArray(rData)
+          ? rData.find((r) => r.verification_status === "Rejected" && r.is_disabled !== true)
+          : null;
+
+        if (declined && (!pData || pData.length === 0)) {
+          const purged = await purgeRecruiter(supabaseUrl, serviceKey, declined.id);
+          if (!purged) {
+            return finish(
+              { error: "We couldn't reopen your application. Please contact support@rhirepro.com." },
+              500,
+              "Declined recruiter purge failed",
+            );
+          }
+          // Fall through: the address is free, so signup continues normally and
+          // the new account starts at 'Pending' for approval like any other.
+        } else if ((pData && pData.length > 0) || (rData && rData.length > 0)) {
+          const disabled = Array.isArray(rData) ? rData.some((r) => r.is_disabled === true) : false;
           return finish(
-            { error: "An account with this email already exists. Please sign in." },
+            {
+              error: disabled
+                ? "This account has been disabled. Please contact support@rhirepro.com."
+                : "An account with this email already exists. Please sign in.",
+            },
             400,
-            "Duplicate signup email",
+            disabled ? "Disabled account signup attempt" : "Duplicate signup email",
           );
         }
       } catch (checkErr) {

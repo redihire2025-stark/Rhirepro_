@@ -48,6 +48,39 @@ export default function SuperAdminRecruiters() {
   const [sortDir, setSortDir] = useState<"asc" | "desc">("desc");
   const [selected, setSelected] = useState<RecruiterRow | null>(null);
 
+  /**
+   * Email the recruiter about an account decision. The endpoint requires the
+   * caller's Supabase access token and verifies it belongs to an active super
+   * admin, and it resolves the recipient from recruiter_profiles by id — the
+   * address is never taken from the browser.
+   *
+   * Returns whether the mail went out. Never throws: the decision itself has
+   * already been written, so a mail failure must be reported, not rolled back.
+   */
+  const sendStatusEmail = async (recruiterId: string, action: string, reason?: string | null) => {
+    try {
+      const {
+        data: { session },
+      } = await supabase.auth.getSession();
+      if (!session?.access_token) return false;
+
+      const res = await fetch("/api/recruiter-status-email", {
+        method: "POST",
+        headers: { "Content-Type": "application/json", Authorization: `Bearer ${session.access_token}` },
+        body: JSON.stringify({ recruiter_id: recruiterId, action, reason: reason ?? null }),
+      });
+      if (!res.ok) {
+        const detail = await res.json().catch(() => ({}));
+        console.warn("Status email failed:", detail);
+        return false;
+      }
+      return true;
+    } catch (err) {
+      console.warn("Status email failed:", err);
+      return false;
+    }
+  };
+
   const fetchRows = useCallback(async () => {
     setLoading(true);
     // Reads through the SECURITY DEFINER function because `authenticated` no
@@ -88,9 +121,22 @@ export default function SuperAdminRecruiters() {
   }, [search, statusFilter]);
 
   const toggleDisabled = async (row: RecruiterRow) => {
+    const disabling = !row.is_disabled;
+    let reason: string | null = null;
+    if (disabling) {
+      const entered = window.prompt(
+        `Disable ${row.recruiter_name || row.email}?
+
+Optionally add a reason — it is included in the email they receive:`,
+        "",
+      );
+      if (entered === null) return; // cancelled
+      reason = entered.trim() || null;
+    }
+
     const { error } = await supabase
       .from("recruiter_profiles")
-      .update({ is_disabled: !row.is_disabled })
+      .update({ is_disabled: disabling })
       .eq("id", row.id);
     if (error) {
       toast.error(`Failed to update recruiter: ${error.message}`);
@@ -103,7 +149,10 @@ export default function SuperAdminRecruiters() {
       beforeValue: { is_disabled: row.is_disabled },
       afterValue: { is_disabled: !row.is_disabled },
     });
-    toast.success(row.is_disabled ? "Recruiter enabled" : "Recruiter disabled");
+    const emailed = await sendStatusEmail(row.id, disabling ? "disabled" : "enabled", reason);
+    toast.success(
+      `${disabling ? "Recruiter disabled" : "Recruiter enabled"}${emailed ? " — email sent" : " (email not sent)"}`,
+    );
     fetchRows();
   };
 
@@ -120,7 +169,7 @@ export default function SuperAdminRecruiters() {
       const entered = window.prompt(
         `Decline ${row.recruiter_name || row.email}?
 
-This reason is shown to them when they try to sign in:`,
+Summarise why. This is emailed to them and shown when they try to sign in:`,
         "",
       );
       if (entered === null) return; // cancelled
@@ -181,7 +230,10 @@ This reason is shown to them when they try to sign in:`,
         if (notifyErr) console.warn("Approval notification failed:", notifyErr.message);
       });
 
-    toast.success(approve ? "Recruiter approved" : "Recruiter declined");
+    const emailed = await sendStatusEmail(row.id, approve ? "approved" : "declined", reason);
+    toast.success(
+      `${approve ? "Recruiter approved" : "Recruiter declined"}${emailed ? " — email sent" : " (email not sent)"}`,
+    );
     fetchRows();
   };
 

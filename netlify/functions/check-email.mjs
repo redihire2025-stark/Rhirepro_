@@ -29,7 +29,7 @@ export default async (request) => {
       fetch(`${supabaseUrl}/rest/v1/profiles?email=ilike.${encodeURIComponent(cleanEmail)}&select=id`, {
         headers: { apikey: serviceKey, Authorization: `Bearer ${serviceKey}` },
       }),
-      fetch(`${supabaseUrl}/rest/v1/recruiter_profiles?email=ilike.${encodeURIComponent(cleanEmail)}&select=id`, {
+      fetch(`${supabaseUrl}/rest/v1/recruiter_profiles?email=ilike.${encodeURIComponent(cleanEmail)}&select=id,verification_status,is_disabled`, {
         headers: { apikey: serviceKey, Authorization: `Bearer ${serviceKey}` },
       }),
     ]);
@@ -37,7 +37,17 @@ export default async (request) => {
     const pData = pRes.ok ? await pRes.json() : [];
     const rData = rRes.ok ? await rRes.json() : [];
 
-    const exists = !!((pData && pData.length > 0) || (rData && rData.length > 0));
+    // A declined recruiter may apply again, so their stale record must not read
+    // as "already exists" — that pre-check runs before send-otp and would block
+    // the signup form outright. send-otp purges the old record and starts them
+    // fresh at 'Pending'. Kept in step with the same rule there: a *disabled*
+    // account still counts as existing, because an administrator turned it off
+    // and re-registering the same address would undo that.
+    const blockingRecruiters = Array.isArray(rData)
+      ? rData.filter((r) => !(r.verification_status === "Rejected" && r.is_disabled !== true))
+      : [];
+
+    const exists = !!((pData && pData.length > 0) || blockingRecruiters.length > 0);
 
     return new Response(JSON.stringify({ exists }), {
       status: 200,
