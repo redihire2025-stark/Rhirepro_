@@ -3590,6 +3590,7 @@ function ManageJobsPage() {
     title: "", location: "", locations: [] as string[], locationInput: "",
     salaryMin: "", salaryMax: "", salaryType: "LPA", employmentType: "", workMode: "",
     preferredJoiningTime: "", openings: "1", skills: "",
+    experienceMin: "", experienceMax: "",
     industry: "", industries: [] as string[], industryInput: "", customIndustry: "", education: "", customEducation: "", specialization: "", customSpecialization: "", interviewMode: "", interviewModes: [] as string[],
     perks: [] as string[], customPerk: "",
   });
@@ -3600,6 +3601,10 @@ function ManageJobsPage() {
   const isEditSalaryRangeInvalid =
     Boolean(editForm.salaryMin && editForm.salaryMax) &&
     Number(editForm.salaryMax) < Number(editForm.salaryMin);
+
+  const isEditExperienceRangeInvalid =
+    Boolean(editForm.experienceMin && editForm.experienceMax) &&
+    Number(editForm.experienceMax) < Number(editForm.experienceMin);
 
   const handleOpeningsKeyDown = (e: React.KeyboardEvent<HTMLInputElement>) => {
     if (["e", "E", ".", ",", "+", "-"].includes(e.key)) {
@@ -3643,6 +3648,8 @@ function ManageJobsPage() {
       preferredJoiningTime: job.preferred_joining_time || "",
       openings: String(job.openings),
       skills: (job.skills || []).join(", "),
+      experienceMin: job.experience_min === null || job.experience_min === undefined ? "" : String(job.experience_min),
+      experienceMax: job.experience_max === null || job.experience_max === undefined ? "" : String(job.experience_max),
       industry: job.industry || "",
       industries: existingIndustries.length > 0 ? existingIndustries : (job.industry ? [job.industry] : []),
       industryInput: "",
@@ -3667,6 +3674,10 @@ function ManageJobsPage() {
     }
     if (isEditSalaryRangeInvalid) {
       setEditError("Maximum salary must be greater than or equal to minimum salary.");
+      return;
+    }
+    if (isEditExperienceRangeInvalid) {
+      setEditError("Maximum experience must be greater than or equal to minimum experience.");
       return;
     }
     if (editForm.industries.length === 0) {
@@ -3699,6 +3710,8 @@ function ManageJobsPage() {
       preferred_joining_time: editForm.preferredJoiningTime || null,
       openings: Number(openingsVal),
       skills: skillsArr,
+      experience_min: editForm.experienceMin === "" ? null : Number(editForm.experienceMin),
+      experience_max: editForm.experienceMax === "" ? null : Number(editForm.experienceMax),
       industry: resolvedIndustry,
       industries: editForm.industries,
       education: resolvedEducation || null,
@@ -4441,6 +4454,39 @@ function ManageJobsPage() {
                 <label className="block text-sm font-medium text-[#3A1F1F] mb-1">Key Skills (comma separated)</label>
                 <Input value={editForm.skills} onChange={e => setEditForm(f => ({ ...f, skills: e.target.value }))} className="bg-[#F6F6F6] border-gray-200 rounded-xl" placeholder="Enter required skills" />
               </div>
+            </div>
+
+            {/*
+              Experience was missing here entirely: the Edit dialog is a
+              hand-written form rather than the UnifiedJobDetailsEditor used when
+              posting, so the field was simply never added. A recruiter could set
+              an experience range at creation and then had no way to see or change
+              it. Mirrors the create form, including the same range validation.
+            */}
+            <div>
+              <label className="block text-sm font-medium text-[#3A1F1F] mb-1">Experience Required</label>
+              <div className="flex gap-2 items-center">
+                <Input
+                  type="number"
+                  min="0"
+                  value={editForm.experienceMin}
+                  onChange={e => setEditForm(f => ({ ...f, experienceMin: e.target.value }))}
+                  className="bg-[#F6F6F6] border-gray-200 rounded-xl"
+                  placeholder="Min yrs"
+                />
+                <span className="text-[#8A8A8A]">–</span>
+                <Input
+                  type="number"
+                  min="0"
+                  value={editForm.experienceMax}
+                  onChange={e => setEditForm(f => ({ ...f, experienceMax: e.target.value }))}
+                  className={`bg-[#F6F6F6] rounded-xl ${isEditExperienceRangeInvalid ? "border-red-500 text-red-900 focus-visible:ring-red-500" : "border-gray-200"}`}
+                  placeholder="Max yrs"
+                />
+              </div>
+              {isEditExperienceRangeInvalid && (
+                <p className="text-xs text-red-500 mt-1.5">Maximum experience must be greater than or equal to minimum experience.</p>
+              )}
             </div>
 
             {editError && (
