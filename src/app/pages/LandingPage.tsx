@@ -103,10 +103,17 @@ function formatType(job: DBJob): string {
   return "Full-time";
 }
 
+// Recruiters write job copy in a rich-text editor, so these columns hold markup.
+// The card renders the summary as plain text, which showed the raw tags and also
+// made the "is this clipped?" length check count markup instead of words.
+function stripHtml(value: string): string {
+  return value.replace(/<[^>]*>/g, " ").replace(/\s+/g, " ").trim();
+}
+
 function formatDescription(job: DBJob): string {
-  if (job.description?.trim()) return job.description;
-  if (job.roles_responsibilities?.trim()) return job.roles_responsibilities;
-  if (job.requirements?.trim()) return job.requirements;
+  if (job.description?.trim()) return stripHtml(job.description);
+  if (job.roles_responsibilities?.trim()) return stripHtml(job.roles_responsibilities);
+  if (job.requirements?.trim()) return stripHtml(job.requirements);
 
   const parts = [
     job.department?.trim(),
@@ -1389,28 +1396,54 @@ export default function LandingPage() {
           </div>
 
           <div className="grid md:grid-cols-3 gap-6">
-            {visibleCategoryJobs.map((job) => (
+            {visibleCategoryJobs.map((job) => {
+              const openJob = () => {
+                if (job.dbJob) {
+                  recordJobInteraction(job.dbJob, role === "jobseeker" ? profile?.id : null);
+                }
+                navigate(`/job/${job.id}`);
+              };
+              // line-clamp hides the overflow but gives no hint there is more to
+              // read. Past roughly two lines of this column width the text is
+              // being cut, so offer the full JD explicitly.
+              const summaryIsClipped = job.description.length > 140;
+              return (
               <div
                 key={job.id}
-                className="bg-white rounded-2xl p-6 shadow-md hover:shadow-lg transition-shadow relative"
+                className="bg-white rounded-2xl p-6 shadow-md hover:shadow-lg transition-shadow flex flex-col"
               >
-                <JobShareButton jobId={job.id} title={job.title} className="absolute right-5 top-5" />
-                <div className="mb-4 flex items-start justify-between">
-                  <div className="pr-12">
-                    <div className="flex items-center gap-2 mb-1">
-                      <span className="text-sm text-[#8A8A8A]">
-                        {job.company}
-                      </span>
-                      <BadgeCheck className="h-4 w-4 text-[#FF2B2B]" />
-                    </div>
-                    <h3 className="text-xl font-bold text-[#3A1F1F]">
-                      {job.title}
-                    </h3>
+                {/*
+                  Share was absolutely positioned in the top-right corner, which
+                  forced pr-12 on the title and left it cramped. A normal flex row
+                  frees the full card width for the job title.
+                */}
+                <div className="flex items-start justify-between gap-2 mb-2.5">
+                  <div className="flex flex-wrap items-center gap-1.5 min-w-0">
+                    <span className="text-sm text-[#8A8A8A]">
+                      {job.company}
+                    </span>
+                    <BadgeCheck className="h-4 w-4 text-[#FF2B2B] shrink-0" />
                   </div>
+                  <JobShareButton jobId={job.id} title={job.title} className="shrink-0 -mr-1 -mt-1" />
                 </div>
-                <p className="text-[#8A8A8A] text-sm mb-4">
-                  {job.description}
-                </p>
+                <h3 className="text-xl font-bold text-[#3A1F1F] mb-2 leading-snug">
+                  {job.title}
+                </h3>
+                <div className="mb-4 flex-1">
+                  <p className="text-[#8A8A8A] text-sm line-clamp-2">{job.description}</p>
+                  {summaryIsClipped && (
+                    <button
+                      type="button"
+                      onClick={(e) => {
+                        e.stopPropagation();
+                        openJob();
+                      }}
+                      className="mt-1 text-xs font-semibold text-[#FF2B2B] hover:underline"
+                    >
+                      More
+                    </button>
+                  )}
+                </div>
                 <div className="space-y-2 mb-6">
                   <div className="flex items-center text-sm text-[#8A8A8A]">
                     <MapPin className="h-4 w-4 mr-2 text-[#FF2B2B]" />
@@ -1426,18 +1459,14 @@ export default function LandingPage() {
                   </div>
                 </div>
                 <Button
-                  onClick={() => {
-                    if (job.dbJob) {
-                      recordJobInteraction(job.dbJob, role === "jobseeker" ? profile?.id : null);
-                    }
-                    navigate(`/job/${job.id}`);
-                  }}
-                  className="w-full bg-white border-2 border-[#FF2B2B] text-[#FF2B2B] hover:bg-[#FF2B2B] hover:text-white rounded-full"
+                  onClick={openJob}
+                  className="w-full bg-white border-2 border-[#FF2B2B] text-[#FF2B2B] hover:bg-[#FF2B2B] hover:text-white rounded-full mt-auto"
                 >
                   Apply Now
                 </Button>
               </div>
-            ))}
+              );
+            })}
           </div>
           {selectedCategory !== "ALL" && categoryJobs.length === 0 && jobs.length > 0 && (
             <div className="text-center py-10">

@@ -554,36 +554,62 @@ export default function JobListingsPage() {
 
           {!loading && !loadError && filteredJobs.length > 0 && (
           <div className="grid md:grid-cols-2 lg:grid-cols-3 gap-6">
-            {paginatedJobs.map((job) => (
+            {paginatedJobs.map((job) => {
+              const openJob = () => {
+                if (job.dbJob) {
+                  recordJobInteraction(job.dbJob, role === "jobseeker" ? profile?.id : null);
+                }
+                navigate(`/job/${job.id}`);
+              };
+              // line-clamp hides the overflow but gave no hint there was more to
+              // read. Past roughly two lines of this column width the text is
+              // being cut, so offer the full JD explicitly.
+              const summaryIsClipped = job.description.length > 140;
+              return (
               <div
                 key={job.id}
-                className="bg-white rounded-2xl p-6 shadow-md hover:shadow-xl transition-all relative cursor-pointer"
-                onClick={() => {
-                  if (job.dbJob) {
-                    recordJobInteraction(job.dbJob, role === "jobseeker" ? profile?.id : null);
-                  }
-                  navigate(`/job/${job.id}`);
-                }}
+                className="bg-white rounded-2xl p-6 shadow-md hover:shadow-xl transition-all cursor-pointer flex flex-col"
+                onClick={openJob}
               >
-                <JobShareButton jobId={job.id} title={job.title} className="absolute right-4 top-4" />
-                <div 
-                  className="absolute top-4 right-16 bg-[#FFF2F2] text-[#FF2B2B] rounded-full px-2.5 py-1 text-xs font-semibold flex items-center gap-1.5 border border-red-100 shadow-sm shrink-0"
-                  title={`${job.applicantCount || 0} candidates applied`}
-                  onClick={(e) => e.stopPropagation()}
-                >
-                  <Users className="h-3.5 w-3.5 shrink-0" />
-                  <span>{job.applicantCount || 0} applied</span>
+                {/*
+                  The applied count, the featured dot and share were three
+                  absolutely positioned chips stacked into the top-right corner,
+                  which forced pr-[150px] on the title and left it cramped. A
+                  normal flex row gives them room and frees the full card width.
+                */}
+                <div className="flex items-start justify-between gap-2 mb-2.5">
+                  <div className="flex flex-wrap items-center gap-1.5 min-w-0">
+                    <span
+                      className="bg-[#FFF2F2] text-[#FF2B2B] rounded-full px-2.5 py-1 text-[11px] font-semibold flex items-center gap-1 border border-red-100 whitespace-nowrap"
+                      title={`${job.applicantCount || 0} candidates applied`}
+                      onClick={(e) => e.stopPropagation()}
+                    >
+                      <Users className="h-3.5 w-3.5 shrink-0" />
+                      {job.applicantCount || 0} applied
+                    </span>
+                    {job.featured && (
+                      <span className="w-3 h-3 bg-[#FF2B2B] rounded-full shrink-0" title="Featured Job"></span>
+                    )}
+                  </div>
+                  <JobShareButton jobId={job.id} title={job.title} className="shrink-0 -mr-1 -mt-1" />
                 </div>
-                {job.featured && (
-                  <div className="absolute top-5 right-[144px] w-3 h-3 bg-[#FF2B2B] rounded-full" title="Featured Job"></div>
-                )}
-                <div className="mb-4 pr-[150px]">
-                  <span className="text-sm text-[#8A8A8A]">{job.company}</span>
-                  <h3 className="text-xl font-bold text-[#3A1F1F] mt-1">{job.title}</h3>
+                <span className="text-sm text-[#8A8A8A]">{job.company}</span>
+                <h3 className="text-xl font-bold text-[#3A1F1F] mt-1 mb-2 leading-snug">{job.title}</h3>
+                <div className="mb-4 flex-1">
+                  <p className="text-[#8A8A8A] text-sm line-clamp-2">{job.description}</p>
+                  {summaryIsClipped && (
+                    <button
+                      type="button"
+                      onClick={(e) => {
+                        e.stopPropagation();
+                        openJob();
+                      }}
+                      className="mt-1 text-xs font-semibold text-[#FF2B2B] hover:underline"
+                    >
+                      More
+                    </button>
+                  )}
                 </div>
-                <p className="text-[#8A8A8A] text-sm mb-4 line-clamp-2">
-                  {job.description}
-                </p>
                 <div className="space-y-2 mb-6">
                   <div className="flex items-center text-sm text-[#8A8A8A]">
                     <MapPin className="h-4 w-4 mr-2 text-[#FF2B2B]" />
@@ -608,11 +634,12 @@ export default function JobListingsPage() {
                     </div>
                   ) : null}
                 </div>
-                <Button className="w-full bg-white border-2 border-[#FF2B2B] text-[#FF2B2B] hover:bg-[#FF2B2B] hover:text-white rounded-full">
+                <Button className="w-full bg-white border-2 border-[#FF2B2B] text-[#FF2B2B] hover:bg-[#FF2B2B] hover:text-white rounded-full mt-auto">
                   Apply Now
                 </Button>
               </div>
-            ))}
+              );
+            })}
           </div>
           )}
 

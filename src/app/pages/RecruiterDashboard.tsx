@@ -1941,7 +1941,10 @@ function DashboardOverview() {
     currentTitle: string;
     status: Application["status"];
     appliedDate: string;
-    matchScore: number;
+    // Ids rather than a score: the badge reads whatever ai_match_scores has
+    // cached for this pair, and shows nothing when it has not been scored.
+    profileId?: string | null;
+    jobId?: string | null;
     avatarUrl?: string | null;
   }>>([]);
   const [pipelineLoading, setPipelineLoading] = useState(true);
@@ -2064,7 +2067,10 @@ function DashboardOverview() {
             currentTitle: app.profile?.current_title?.trim() || "Current title not provided",
             status: app.status,
             appliedDate: app.applied_at ? new Date(app.applied_at).toLocaleDateString("en-IN", { day: "numeric", month: "short", year: "numeric" }) : "N/A",
-            matchScore: Math.floor(70 + (app.id.charCodeAt(0) % 25)),
+            // No placeholder score here: the Overview list has no job context
+            // loaded and inventing one is what this whole change removes.
+            profileId: app.profile_id,
+            jobId: app.job_id,
             avatarUrl: app.profile?.avatar_url || null,
           };
         });
@@ -2455,10 +2461,16 @@ function DashboardOverview() {
                     <Badge className={`text-xs ${statusColor(applicant.status)}`}>{applicant.status}</Badge>
                     <p className="text-xs text-[#8A8A8A] mt-0.5">{applicant.appliedDate}</p>
                   </div>
-                  <div className="flex-shrink-0 bg-green-50 rounded-lg px-2 py-1 text-center">
-                    <div className="text-sm font-bold text-green-600">{applicant.matchScore}%</div>
-                    <div className="text-xs text-[#8A8A8A]">match</div>
-                  </div>
+                  {(() => {
+                    const m = aiMatches[aiMatchKey(applicant.profileId || "", applicant.jobId || "")];
+                    if (!m) return null;
+                    return (
+                      <div className="flex-shrink-0 bg-green-50 rounded-lg px-2 py-1 text-center">
+                        <div className="text-sm font-bold text-green-600">{m.score}%</div>
+                        <div className="text-xs text-[#8A8A8A]">AI match</div>
+                      </div>
+                    );
+                  })()}
                 </div>
               ))
             )}
@@ -8589,6 +8601,95 @@ function ApplicantsPage() {
   };
   const [interviewModalData, setInterviewModalData] = useState<{ applicant: AppWithProfile; initialRound?: "L1" | "L2" | "L3" | "HR Round" } | null>(null);
   const [feedbackModalApplicant, setFeedbackModalApplicant] = useState<AppWithProfile | null>(null);
+  /*
+   * AI match scores.
+   *
+   * The number shown here used to be Math.floor(70 + id.charCodeAt(0) % 25) —
+   * a value derived from the first character of the application's UUID, so it
+   * was stable per row and looked plausible while meaning nothing at all.
+   *
+   * Real scores come from Gemini via /api/match-score. Scoring is per pair and
+   * cached in ai_match_scores, because an applicant list renders many rows and
+   * a model call per row per render would be slow, costly and rate-limited.
+   * The list reads whatever is already cached in one query; anything unscored
+   * is scored only when the recruiter asks for it.
+   */
+  type AiMatch = { score: number; summary: string | null; strengths: string[]; gaps: string[] };
+  const [aiMatches, setAiMatches] = useState<Record<string, AiMatch>>({});
+  const [aiScoring, setAiScoring] = useState<Set<string>>(new Set());
+
+  const aiMatchKey = (profileId: string, jobId: string) => `${profileId}:${jobId}`;
+
+  // One batch read of cached scores for whatever is on screen. No model calls.
+  useEffect(() => {
+    const pairs = applicants
+      .filter(a => a.profile_id && a.job_id)
+      .map(a => ({ profileId: a.profile_id as string, jobId: a.job_id as string }));
+    if (pairs.length === 0) return;
+
+    let cancelled = false;
+    void (async () => {
+      const { data, error } = await supabase
+        .from("ai_match_scores")
+        .select("profile_id, job_id, score, summary, strengths, gaps")
+        .in("profile_id", Array.from(new Set(pairs.map(x => x.profileId))))
+        .in("job_id", Array.from(new Set(pairs.map(x => x.jobId))));
+      if (cancelled || error || !data) return;
+      setAiMatches(prev => {
+        const next = { ...prev };
+        for (const row of data as any[]) {
+          next[aiMatchKey(row.profile_id, row.job_id)] = {
+            score: row.score,
+            summary: row.summary ?? null,
+            strengths: row.strengths ?? [],
+            gaps: row.gaps ?? [],
+          };
+        }
+        return next;
+      });
+    })();
+    return () => { cancelled = true; };
+  }, [applicants]);
+
+  const scoreApplicantWithAi = async (profileId?: string | null, jobId?: string | null) => {
+    if (!profileId || !jobId) return;
+    const key = aiMatchKey(profileId, jobId);
+    if (aiScoring.has(key)) return;
+    setAiScoring(prev => new Set(prev).add(key));
+    try {
+      const { data: sessionData } = await supabase.auth.getSession();
+      const accessToken = sessionData.session?.access_token;
+      if (!accessToken) return;
+      const res = await fetch("/api/match-score", {
+        method: "POST",
+        headers: { "Content-Type": "application/json", Authorization: `Bearer ${accessToken}` },
+        body: JSON.stringify({ profile_id: profileId, job_id: jobId }),
+      });
+      const payload = await res.json().catch(() => null);
+      if (!res.ok || !payload || typeof payload.score !== "number") {
+        console.warn("Match scoring failed:", res.status, payload?.error);
+        return;
+      }
+      setAiMatches(prev => ({
+        ...prev,
+        [key]: {
+          score: payload.score,
+          summary: payload.summary ?? null,
+          strengths: payload.strengths ?? [],
+          gaps: payload.gaps ?? [],
+        },
+      }));
+    } catch (err) {
+      console.warn("Match scoring failed:", err);
+    } finally {
+      setAiScoring(prev => {
+        const next = new Set(prev);
+        next.delete(key);
+        return next;
+      });
+    }
+  };
+
   const [offerModalApplicant, setOfferModalApplicant] = useState<AppWithProfile | null>(null);
   // Declines route through a dialog so the recruiter records why.
   const [declineRequest, setDeclineRequest] = useState<
@@ -8754,13 +8855,20 @@ function ApplicantsPage() {
   const sortedApplicants = useMemo(() => {
     return [...filtered].sort((a, b) => {
       if (sortBy === "match") {
-        const scoreA = Math.floor(70 + (a.id.charCodeAt(0) % 25));
-        const scoreB = Math.floor(70 + (b.id.charCodeAt(0) % 25));
-        return scoreB - scoreA;
+        /*
+         * This sorted on Math.floor(70 + id.charCodeAt(0) % 25) — the same
+         * UUID-derived placeholder the badge used — so "sort by match" was
+         * really sorting by the first character of the application id.
+         * Unscored applicants sort last rather than being given a stand-in
+         * number, so the order never implies a judgement we have not made.
+         */
+        const scoreA = aiMatches[aiMatchKey(a.profile_id || "", a.job_id || "")]?.score ?? -1;
+        const scoreB = aiMatches[aiMatchKey(b.profile_id || "", b.job_id || "")]?.score ?? -1;
+        if (scoreA !== scoreB) return scoreB - scoreA;
       }
       return new Date(b.applied_at).getTime() - new Date(a.applied_at).getTime();
     });
-  }, [filtered, sortBy]);
+  }, [filtered, sortBy, aiMatches]);
 
   const ITEMS_PER_PAGE = 20;
 
@@ -9619,7 +9727,9 @@ function ApplicantsPage() {
                 const skills = p?.skills || [];
                 const workExp = p?.work_experience || [];
                 const edu = p?.education || [];
-                const matchScore = Math.floor(70 + (applicant.id.charCodeAt(0) % 25));
+                const aiKey = aiMatchKey(applicant.profile_id || "", applicant.job_id || "");
+                const aiMatch = aiMatches[aiKey];
+                const isScoring = aiScoring.has(aiKey);
                 return (
                   <div key={applicant.id} className="bg-white rounded-2xl shadow-sm border border-gray-200 overflow-hidden">
                     <div className="p-5">
@@ -9639,10 +9749,37 @@ function ApplicantsPage() {
                               <p className="text-sm text-[#5A5A5A] mt-0.5">{p?.current_title}{p?.current_company ? <span> at <span className="text-[#FF2B2B] font-medium">{p.current_company}</span></span> : ""}</p>
                             </div>
                             <div className="flex items-center gap-2 flex-shrink-0">
-                              <div className="text-center bg-green-50 border border-green-100 rounded-xl px-3 py-1">
-                                <div className="text-base font-bold text-green-600">{matchScore}%</div>
-                                <div className="text-xs text-[#8A8A8A]">Match</div>
-                              </div>
+                              {aiMatch ? (
+                                <div
+                                  className={`text-center rounded-xl px-3 py-1 border ${
+                                    aiMatch.score >= 70
+                                      ? "bg-green-50 border-green-100 text-green-600"
+                                      : aiMatch.score >= 50
+                                        ? "bg-yellow-50 border-yellow-100 text-yellow-700"
+                                        : "bg-red-50 border-red-100 text-red-600"
+                                  }`}
+                                  title={
+                                    [
+                                      aiMatch.summary,
+                                      aiMatch.strengths.length ? `Strengths: ${aiMatch.strengths.join("; ")}` : "",
+                                      aiMatch.gaps.length ? `Gaps: ${aiMatch.gaps.join("; ")}` : "",
+                                    ].filter(Boolean).join("\n") || undefined
+                                  }
+                                >
+                                  <div className="text-base font-bold">{aiMatch.score}%</div>
+                                  <div className="text-xs text-[#8A8A8A]">AI Match</div>
+                                </div>
+                              ) : (
+                                <Button
+                                  size="sm"
+                                  variant="outline"
+                                  disabled={isScoring}
+                                  className="rounded-full text-xs h-7 border-[#FF2B2B] text-[#FF2B2B] hover:bg-[#FFF0F0]"
+                                  onClick={() => void scoreApplicantWithAi(applicant.profile_id, applicant.job_id)}
+                                >
+                                  {isScoring ? "Scoring..." : "AI Match"}
+                                </Button>
+                              )}
                             </div>
                           </div>
 

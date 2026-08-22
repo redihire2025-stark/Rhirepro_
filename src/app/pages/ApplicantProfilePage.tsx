@@ -152,6 +152,70 @@ export default function ApplicantProfilePage() {
   const [loading, setLoading] = useState(!cachedData);
   const [error, setError] = useState<string | null>(null);
   const [application, setApplication] = useState<Application | null>(cachedData?.application || null);
+  /*
+   * AI fit score for this candidate against the job they applied to. Read from
+   * the cache on load; computed on demand, because scoring is a model call and
+   * a recruiter opening a shortlist should not trigger one per candidate.
+   */
+  type AiMatch = { score: number; summary: string | null; strengths: string[]; gaps: string[] };
+  const [aiMatch, setAiMatch] = useState<AiMatch | null>(null);
+  const [aiScoring, setAiScoring] = useState(false);
+
+  useEffect(() => {
+    const profileId = profile?.id;
+    const jobId = application?.job_id;
+    if (!profileId || !jobId) return;
+    let cancelled = false;
+    void supabase
+      .from("ai_match_scores")
+      .select("score, summary, strengths, gaps")
+      .eq("profile_id", profileId)
+      .eq("job_id", jobId)
+      .maybeSingle()
+      .then(({ data }) => {
+        if (cancelled || !data) return;
+        setAiMatch({
+          score: data.score,
+          summary: data.summary ?? null,
+          strengths: data.strengths ?? [],
+          gaps: data.gaps ?? [],
+        });
+      });
+    return () => { cancelled = true; };
+  }, [profile?.id, application?.job_id]);
+
+  const runAiMatch = async () => {
+    const profileId = profile?.id;
+    const jobId = application?.job_id;
+    if (!profileId || !jobId || aiScoring) return;
+    setAiScoring(true);
+    try {
+      const { data: sessionData } = await supabase.auth.getSession();
+      const accessToken = sessionData.session?.access_token;
+      if (!accessToken) return;
+      const res = await fetch("/api/match-score", {
+        method: "POST",
+        headers: { "Content-Type": "application/json", Authorization: `Bearer ${accessToken}` },
+        body: JSON.stringify({ profile_id: profileId, job_id: jobId }),
+      });
+      const payload = await res.json().catch(() => null);
+      if (!res.ok || typeof payload?.score !== "number") {
+        console.warn("Match scoring failed:", res.status, payload?.error);
+        return;
+      }
+      setAiMatch({
+        score: payload.score,
+        summary: payload.summary ?? null,
+        strengths: payload.strengths ?? [],
+        gaps: payload.gaps ?? [],
+      });
+    } catch (err) {
+      console.warn("Match scoring failed:", err);
+    } finally {
+      setAiScoring(false);
+    }
+  };
+
   const [profile, setProfile] = useState<ApplicantProfile | null>(cachedData?.profile || null);
 
   const [experiences, setExperiences] = useState<WorkExp[]>(cachedData?.experiences || []);
@@ -700,7 +764,13 @@ export default function ApplicantProfilePage() {
 
   const name = [profile?.first_name, profile?.last_name].filter(Boolean).join(" ") || "Candidate";
   const initials = name.split(" ").map(n => n[0]).join("").toUpperCase();
-  const matchScore = Math.floor(70 + (id?.charCodeAt(0) || 0) % 25);
+  /*
+   * This was Math.floor(70 + (id.charCodeAt(0)) % 25) — a number derived from
+   * the first character of the route id, so it was stable per candidate and
+   * looked like an assessment while measuring nothing. The real score comes
+   * from Gemini via /api/match-score, computed for this one candidate/job pair
+   * and cached in ai_match_scores. Nothing is shown until it exists.
+   */
 
   return (
     <div className="min-h-screen bg-[#F6F6F6] flex flex-col font-sans">
@@ -753,10 +823,31 @@ export default function ApplicantProfilePage() {
                       </div>
                       <p className="text-[#FF2B2B] font-medium">{profile?.headline || "Jobseeker"}</p>
                     </div>
-                    <div className="bg-green-50 border border-green-100 rounded-xl px-3 py-1.5 text-center flex-shrink-0">
-                      <div className="text-lg font-bold text-green-600">{matchScore}%</div>
-                      <div className="text-xs text-green-500 font-medium">Job Match</div>
-                    </div>
+                    {aiMatch ? (
+                      <div
+                        className={`rounded-xl px-3 py-1.5 text-center flex-shrink-0 border ${
+                          aiMatch.score >= 70
+                            ? "bg-green-50 border-green-100 text-green-600"
+                            : aiMatch.score >= 50
+                              ? "bg-yellow-50 border-yellow-100 text-yellow-700"
+                              : "bg-red-50 border-red-100 text-red-600"
+                        }`}
+                        title={aiMatch.summary || undefined}
+                      >
+                        <div className="text-lg font-bold">{aiMatch.score}%</div>
+                        <div className="text-xs font-medium opacity-80">Job Match</div>
+                      </div>
+                    ) : application?.job_id ? (
+                      <Button
+                        size="sm"
+                        variant="outline"
+                        disabled={aiScoring}
+                        className="rounded-full text-xs border-[#FF2B2B] text-[#FF2B2B] hover:bg-[#FFF0F0] flex-shrink-0"
+                        onClick={() => void runAiMatch()}
+                      >
+                        {aiScoring ? "Scoring..." : "AI Match"}
+                      </Button>
+                    ) : null}
                   </div>
                   <div className="flex flex-wrap gap-x-4 gap-y-2 mt-3 text-sm text-[#8A8A8A]">
                     {profile?.location && <span className="flex items-center gap-1"><MapPin className="h-4 w-4 text-[#8A8A8A]" />{profile.location}</span>}
