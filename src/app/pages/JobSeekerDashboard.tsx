@@ -15,6 +15,7 @@ import { SKILL_OPTIONS, skillsMatch, fuzzyMatch, SEARCH_SUGGESTION_DATASET } fro
 import { useAuth } from "../../lib/auth-context";
 import { decryptPhone, encryptPhone } from "../../lib/phoneProtection";
 import { draftKey, useFormDraft } from "../../lib/useFormDraft";
+import { toast } from "sonner";
 import { INDIA_CITY_OPTIONS } from "../../lib/locationData";
 import AppliedJobsSection from "../components/AppliedJobsSection";
 import ResumePreviewDialog, { getStorageObjectFromUrl, buildPreviewUrl } from "../components/ResumePreviewDialog";
@@ -23,7 +24,7 @@ import {
   User, BarChart3, Lightbulb, Upload, Plus, X, Pencil, Trash2,
   GraduationCap, Award, Globe, Phone, Mail, Camera, Clock, CheckCircle,
   TrendingUp, ArrowRight, Loader2, Check, ChevronsUpDown, FileText,
-  Eye, Download, Users, Tag,
+  Eye, Download, Users, Tag, AlertCircle,
 } from "lucide-react";
 import { Button } from "../components/ui/button";
 import { Input } from "../components/ui/input";
@@ -1129,12 +1130,23 @@ export default function JobSeekerDashboard() {
     navigate("/");
   };
 
+  /*
+   * Leaving the profile tab unmounts the form, so anything still open is lost.
+   * This used to be a window.confirm covering only the preferences section;
+   * it now covers every open editor and points the user at the Save button
+   * rather than asking them to make the call in a bare browser dialog.
+   */
   const handleDashboardLinkClick = (event: ReactMouseEvent<HTMLAnchorElement>, to: string) => {
     if (activeTab === "profile" && profilePrefsHasUnsavedChanges && to !== "/jobseeker/dashboard/profile") {
-      const confirmed = window.confirm("You have unsaved preferred job settings. Leave this page without saving?");
-      if (!confirmed) {
-        event.preventDefault();
-      }
+      event.preventDefault();
+      toast.warning("Your profile changes aren't saved", {
+        description: "Scroll to the bottom of the profile page and press Save, or leave without saving.",
+        duration: 8000,
+        action: {
+          label: "Leave anyway",
+          onClick: () => navigate(to),
+        },
+      });
     }
   };
 
@@ -2601,41 +2613,71 @@ function FindJobPage() {
                   const isSelected = selectedJob?.id === job.id;
                   const matchPercentage = job.isDB ? getJdSkillMatchPercentage(job.dbJob, profileSkills) : 0;
                   const matchBadgeClass = getMatchBadgeClass(matchPercentage);
+                  const openJob = () => {
+                    setSelectedJob(isSelected ? null : job);
+                    if (!isSelected && job.isDB && job.dbJob) {
+                      recordJobInteraction(job.dbJob, profile?.id);
+                      // Only the public /job/:id page counted views, so jobs
+                      // opened here — where signed-in seekers actually browse
+                      // — never reached the recruiter's Job Views figure.
+                      countJobView(job.dbJob.id);
+                    }
+                  };
+                  const jobSummary = stripHtml(job.description);
+                  // line-clamp hides the overflow but gave no hint there was
+                  // more to read. Past roughly two lines of this column width
+                  // the text is being cut, so offer the full JD explicitly.
+                  const summaryIsClipped = jobSummary.length > 140;
                   return (
                     <div
                       key={job.id}
-                      onClick={() => {
-                        setSelectedJob(isSelected ? null : job);
-                        if (!isSelected && job.isDB && job.dbJob) {
-                          recordJobInteraction(job.dbJob, profile?.id);
-                          // Only the public /job/:id page counted views, so jobs
-                          // opened here — where signed-in seekers actually browse
-                          // — never reached the recruiter's Job Views figure.
-                          countJobView(job.dbJob.id);
-                        }
-                      }}
-                      className={`bg-white rounded-2xl p-5 shadow-sm hover:shadow-md transition-all cursor-pointer relative flex flex-col ${isSelected ? "ring-2 ring-[#FF2B2B]" : ""}`}
+                      onClick={openJob}
+                      className={`bg-white rounded-2xl p-5 shadow-sm hover:shadow-md transition-all cursor-pointer flex flex-col ${isSelected ? "ring-2 ring-[#FF2B2B]" : ""}`}
                     >
-                      <JobShareButton jobId={String(job.id)} title={job.title} className="absolute right-4 top-4" />
-                      {job.isDB && (
-                        <>
-                          <div
-                            className="absolute top-3.5 right-16 bg-[#FFF2F2] text-[#FF2B2B] rounded-full px-2 py-1 text-[11px] font-semibold flex items-center gap-1 border border-red-100 shadow-sm shrink-0"
-                            title={`${job.applicantCount || 0} candidates applied`}
-                            onClick={(e) => e.stopPropagation()}
+                      {/*
+                        Match, applied count and share used to be three absolutely
+                        positioned chips stacked into the top-right corner, which
+                        forced pr-[200px] on the title and left everything cramped.
+                        A normal flex row gives them room and frees the full card
+                        width for the job title.
+                      */}
+                      <div className="flex items-start justify-between gap-2 mb-2.5">
+                        <div className="flex flex-wrap items-center gap-1.5 min-w-0">
+                          {job.isDB && (
+                            <>
+                              <span className={`rounded-full px-2.5 py-1 text-[11px] font-semibold whitespace-nowrap ${matchBadgeClass}`}>
+                                {matchPercentage}% match
+                              </span>
+                              <span
+                                className="bg-[#FFF2F2] text-[#FF2B2B] rounded-full px-2.5 py-1 text-[11px] font-semibold flex items-center gap-1 border border-red-100 whitespace-nowrap"
+                                title={`${job.applicantCount || 0} candidates applied`}
+                                onClick={(e) => e.stopPropagation()}
+                              >
+                                <Users className="h-3.5 w-3.5 shrink-0" />
+                                {job.applicantCount || 0} applied
+                              </span>
+                            </>
+                          )}
+                        </div>
+                        <JobShareButton jobId={String(job.id)} title={job.title} className="shrink-0 -mr-1 -mt-1" />
+                      </div>
+                      <p className="text-xs text-[#8A8A8A] mb-0.5">{job.company}</p>
+                      <h3 className="font-bold text-[#3A1F1F] text-lg mb-2 leading-snug">{job.title}</h3>
+                      <div className="mb-3 flex-1">
+                        <p className="text-[#8A8A8A] text-sm line-clamp-2">{jobSummary}</p>
+                        {summaryIsClipped && (
+                          <button
+                            type="button"
+                            onClick={(e) => {
+                              e.stopPropagation();
+                              openJob();
+                            }}
+                            className="mt-1 text-xs font-semibold text-[#FF2B2B] hover:underline"
                           >
-                            <Users className="h-3.5 w-3.5 shrink-0" />
-                            <span>{job.applicantCount || 0} applied</span>
-                          </div>
-                          <div className={`absolute top-3 right-[148px] text-center rounded-xl px-2 py-1 min-w-[44px] ${matchBadgeClass}`}>
-                            <div className="text-sm font-bold leading-none">{matchPercentage}%</div>
-                            <div className="text-[10px] font-medium leading-tight mt-0.5 opacity-80">match</div>
-                          </div>
-                        </>
-                      )}
-                      <p className="text-xs text-[#8A8A8A] mb-0.5 pr-[200px]">{job.company}</p>
-                      <h3 className="font-bold text-[#3A1F1F] text-lg mb-2 leading-snug pr-[200px]">{job.title}</h3>
-                      <p className="text-[#8A8A8A] text-sm mb-3 line-clamp-2 flex-1">{stripHtml(job.description)}</p>
+                            More
+                          </button>
+                        )}
+                      </div>
                       <div className="space-y-1 mb-4">
                         <div className="flex items-center text-sm text-[#8A8A8A]">
                           <MapPin className="h-3.5 w-3.5 mr-1.5 text-[#FF2B2B] shrink-0" />{job.location}
@@ -3053,6 +3095,110 @@ function ProfilePage({ onPendingPrefsChange }: { onPendingPrefsChange?: (pending
   };
   const [dobPickerOpen, setDobPickerOpen] = useState(false);
 
+  /*
+   * These three were inline onClick handlers. They are named functions now so
+   * the "Save all" bar at the foot of the page can run the same code — a second
+   * copy of the update payloads would drift out of sync with these the first
+   * time a column changed.
+   */
+  async function saveBasicInfo(): Promise<boolean> {
+    setBasicInfo(basicForm);
+    setEditingBasic(false);
+    discardBasicDraft();
+    setBasicDraftDismissed(true);
+    if (profile?.id) {
+      const nameParts = basicForm.name.trim().split(" ");
+      const first = nameParts[0];
+      const last = nameParts.slice(1).join(" ");
+      const { error } = await supabase.from("profiles").update({
+        first_name: first, last_name: last, phone: encryptPhone(basicForm.phone),
+        headline: basicForm.headline, location: basicForm.location,
+        linkedin_url: basicForm.linkedin, portfolio_url: basicForm.portfolio,
+        dob: basicForm.dob || null, gender: basicForm.gender || null,
+        marital_status: basicForm.maritalStatus || null,
+      }).eq("id", profile.id);
+      if (error) {
+        console.error("Basic info update error:", error.message);
+        return false;
+      }
+      refreshProfile();
+    }
+    return true;
+  }
+
+  async function saveSummary(): Promise<boolean> {
+    setSummary(summaryForm); setEditingSummary(false);
+    if (profile?.id) {
+      const { error } = await supabase.from("profiles").update({ about: summaryForm }).eq("id", profile.id);
+      if (error) {
+        console.error("Summary update error:", error.message);
+        return false;
+      }
+      await refreshProfile();
+    }
+    return true;
+  }
+
+  async function runSectionSave(label: string, fn: () => Promise<boolean>) {
+    const ok = await fn();
+    if (ok) toast.success(`${label} saved`);
+    else toast.error(`Could not save ${label}`, { description: "Please try again." });
+  }
+
+  async function savePreferences(): Promise<boolean> {
+    const normalizedPrefs = {
+      ...prefsForm,
+      desiredJobTitle: joinPreferredJobTitles(splitPreferredJobTitles(prefsForm.desiredJobTitle)),
+      preferredLocation: joinPreferredLocations(splitPreferredLocations(prefsForm.preferredLocation)),
+    };
+    setPreferences(normalizedPrefs);
+    setEditingPrefs(false);
+    if (profile?.id) {
+      const payload: Record<string, any> = {
+        desired_job_title: normalizedPrefs.desiredJobTitle || null,
+        job_type_pref: normalizedPrefs.jobType || null,
+        preferred_location: normalizedPrefs.preferredLocation || null,
+        current_salary: normalizedPrefs.currentSalary || null,
+        expected_salary: normalizedPrefs.expectedSalary || null,
+        notice_period: normalizedPrefs.noticePeriod || null,
+        work_auth: normalizedPrefs.workAuth || null,
+        willing_to_relocate: normalizedPrefs.willingToRelocate || null,
+        preferred_interview_mode: Array.isArray(normalizedPrefs.preferredInterviewMode) && normalizedPrefs.preferredInterviewMode.length > 0 ? normalizedPrefs.preferredInterviewMode : null,
+      };
+
+      let { error } = await supabase.from("profiles").update(payload).eq("id", profile.id);
+      if (error && typeof error.message === "string") {
+        const msg = error.message.toLowerCase();
+        const optionalCols = [
+          "preferred_interview_mode",
+          "preferred_location",
+          "desired_job_title",
+          "job_type_pref",
+          "work_auth",
+          "willing_to_relocate",
+        ];
+        for (const col of optionalCols) {
+          if (msg.includes(col) && payload[col] !== undefined) {
+            console.warn(`Column '${col}' missing in profiles DB schema. Retrying update without it.`);
+            delete payload[col];
+            const retry = await supabase.from("profiles").update(payload).eq("id", profile.id);
+            error = retry.error;
+            if (!error) break;
+          }
+        }
+      }
+      if (error) {
+        console.error("Preferences update error:", error.message);
+        return false;
+      }
+      clearPrefsDraft(profile.id);
+      await refreshProfile();
+    }
+    return true;
+  }
+
+
+
   // Summary
   const [summary, setSummary] = useState("");
   const [editingSummary, setEditingSummary] = useState(false);
@@ -3304,15 +3450,67 @@ function ProfilePage({ onPendingPrefsChange }: { onPendingPrefsChange?: (pending
   const [editingPrefs, setEditingPrefs] = useState(false);
   const [prefsForm, setPrefsForm] = useState({ ...preferences });
 
+  /*
+   * Each section here saves itself, which meant a user filling several of them
+   * and then switching tab lost whatever was still open. Rather than autosaving
+   * silently, the page now tracks which sections have an editor open and offers
+   * one Save at the foot, plus a warning when leaving with work outstanding.
+   */
+  const openSections = [
+    editingBasic && "Basic Info",
+    editingSummary && "Summary",
+    editingPrefs && "Preferences",
+  ].filter(Boolean) as string[];
+  const hasUnsavedSections = openSections.length > 0;
+  const [savingAll, setSavingAll] = useState(false);
+
+  async function saveAllSections() {
+    setSavingAll(true);
+    const failed: string[] = [];
+    try {
+      if (editingBasic && !(await saveBasicInfo())) failed.push("Basic Info");
+      if (editingSummary && !(await saveSummary())) failed.push("Summary");
+      if (editingPrefs && !(await savePreferences())) failed.push("Preferences");
+    } catch (err) {
+      console.error("Save all failed:", err);
+      failed.push("some sections");
+    } finally {
+      setSavingAll(false);
+    }
+    if (failed.length === 0) {
+      toast.success("Profile saved", { description: "All your changes have been saved." });
+    } else {
+      toast.error(`Could not save ${failed.join(", ")}`, {
+        description: "Everything else was saved. Please try again.",
+      });
+    }
+  }
+
+  // Closing the tab or reloading is the browser's to warn about; it will not
+  // show custom text, but it does stop an accidental navigation.
+  useEffect(() => {
+    if (!hasUnsavedSections) return;
+    const warn = (e: BeforeUnloadEvent) => {
+      e.preventDefault();
+      e.returnValue = "";
+    };
+    window.addEventListener("beforeunload", warn);
+    return () => window.removeEventListener("beforeunload", warn);
+  }, [hasUnsavedSections]);
+
+
   const isPrefsDirty = useMemo(
     () => JSON.stringify(prefsForm) !== JSON.stringify(preferences),
     [prefsForm, preferences],
   );
 
+  // Reported to the dashboard shell so it can warn before a tab switch. This
+  // covers every open editor, not just preferences — the other sections were
+  // just as easy to lose.
   useEffect(() => {
     if (!profile?.id) return;
-    onPendingPrefsChange?.(editingPrefs && isPrefsDirty);
-  }, [editingPrefs, isPrefsDirty, onPendingPrefsChange, profile?.id]);
+    onPendingPrefsChange?.((editingPrefs && isPrefsDirty) || editingBasic || editingSummary);
+  }, [editingPrefs, isPrefsDirty, editingBasic, editingSummary, onPendingPrefsChange, profile?.id]);
 
   useEffect(() => {
     if (!profile?.id || !editingPrefs) return;
@@ -3933,25 +4131,7 @@ function ProfilePage({ onPendingPrefsChange }: { onPendingPrefsChange?: (pending
                 </div>
               </div>
               <div className="flex gap-3">
-                <Button className="bg-[#FF2B2B] hover:bg-[#e02525] text-white rounded-full" onClick={async () => {
-                  setBasicInfo(basicForm);
-                  setEditingBasic(false);
-                  discardBasicDraft();
-                  setBasicDraftDismissed(true);
-                  if (profile?.id) {
-                    const nameParts = basicForm.name.trim().split(" ");
-                    const first = nameParts[0];
-                    const last = nameParts.slice(1).join(" ");
-                    await supabase.from("profiles").update({
-                      first_name: first, last_name: last, phone: encryptPhone(basicForm.phone),
-                      headline: basicForm.headline, location: basicForm.location,
-                      linkedin_url: basicForm.linkedin, portfolio_url: basicForm.portfolio,
-                      dob: basicForm.dob || null, gender: basicForm.gender || null,
-                      marital_status: basicForm.maritalStatus || null,
-                    }).eq("id", profile.id);
-                    refreshProfile();
-                  }
-                }}>Save</Button>
+                <Button className="bg-[#FF2B2B] hover:bg-[#e02525] text-white rounded-full" onClick={() => { void runSectionSave("Basic info", saveBasicInfo); }}>Save</Button>
                 <Button variant="outline" className="rounded-full" onClick={() => { setEditingBasic(false); dropBasicDraft(); }}>Cancel</Button>
               </div>
             </div>
@@ -4047,18 +4227,7 @@ function ProfilePage({ onPendingPrefsChange }: { onPendingPrefsChange?: (pending
                 placeholder="Describe your professional background, key skills, and career goals..."
               />
               <div className="flex gap-3">
-                <Button className="bg-[#FF2B2B] hover:bg-[#e02525] text-white rounded-full" onClick={async () => {
-                  setSummary(summaryForm); setEditingSummary(false);
-                  if (profile?.id) {
-                    const { error } = await supabase.from("profiles").update({ about: summaryForm }).eq("id", profile.id);
-                    if (error) {
-                      console.error("Summary update error:", error.message);
-                      alert("Failed to save summary. Please try again.");
-                    } else {
-                      await refreshProfile();
-                    }
-                  }
-                }}>Save</Button>
+                <Button className="bg-[#FF2B2B] hover:bg-[#e02525] text-white rounded-full" onClick={() => { void runSectionSave("Summary", saveSummary); }}>Save</Button>
                 <Button variant="outline" className="rounded-full" onClick={() => setEditingSummary(false)}>Cancel</Button>
               </div>
             </div>
@@ -4845,57 +5014,7 @@ function ProfilePage({ onPendingPrefsChange }: { onPendingPrefsChange?: (pending
                 </div>
               </div>
               <div className="flex gap-3">
-                <Button className="bg-[#FF2B2B] hover:bg-[#e02525] text-white rounded-full" onClick={async () => {
-                  const normalizedPrefs = {
-                    ...prefsForm,
-                    desiredJobTitle: joinPreferredJobTitles(splitPreferredJobTitles(prefsForm.desiredJobTitle)),
-                    preferredLocation: joinPreferredLocations(splitPreferredLocations(prefsForm.preferredLocation)),
-                  };
-                  setPreferences(normalizedPrefs);
-                  setEditingPrefs(false);
-                  if (profile?.id) {
-                    const payload: Record<string, any> = {
-                      desired_job_title: normalizedPrefs.desiredJobTitle || null,
-                      job_type_pref: normalizedPrefs.jobType || null,
-                      preferred_location: normalizedPrefs.preferredLocation || null,
-                      current_salary: normalizedPrefs.currentSalary || null,
-                      expected_salary: normalizedPrefs.expectedSalary || null,
-                      notice_period: normalizedPrefs.noticePeriod || null,
-                      work_auth: normalizedPrefs.workAuth || null,
-                      willing_to_relocate: normalizedPrefs.willingToRelocate || null,
-                      preferred_interview_mode: Array.isArray(normalizedPrefs.preferredInterviewMode) && normalizedPrefs.preferredInterviewMode.length > 0 ? normalizedPrefs.preferredInterviewMode : null,
-                    };
-
-                    let { error } = await supabase.from("profiles").update(payload).eq("id", profile.id);
-                    if (error && typeof error.message === "string") {
-                      const msg = error.message.toLowerCase();
-                      const optionalCols = [
-                        "preferred_interview_mode",
-                        "preferred_location",
-                        "desired_job_title",
-                        "job_type_pref",
-                        "work_auth",
-                        "willing_to_relocate",
-                      ];
-                      for (const col of optionalCols) {
-                        if (msg.includes(col) && payload[col] !== undefined) {
-                          console.warn(`Column '${col}' missing in profiles DB schema. Retrying update without it.`);
-                          delete payload[col];
-                          const retry = await supabase.from("profiles").update(payload).eq("id", profile.id);
-                          error = retry.error;
-                          if (!error) break;
-                        }
-                      }
-                    }
-                    if (error) {
-                      console.error("Preferences update error:", error.message);
-                      alert("Failed to save preferences: " + error.message);
-                    } else {
-                      clearPrefsDraft(profile.id);
-                      await refreshProfile();
-                    }
-                  }
-                }}>Save</Button>
+                <Button className="bg-[#FF2B2B] hover:bg-[#e02525] text-white rounded-full" onClick={() => { void runSectionSave("Preferences", savePreferences); }}>Save</Button>
                 <Button variant="outline" className="rounded-full" onClick={() => {
                   if (profile?.id) clearPrefsDraft(profile.id);
                   setPreferredJobPickerOpen(false);
@@ -4928,6 +5047,41 @@ function ProfilePage({ onPendingPrefsChange }: { onPendingPrefsChange?: (pending
               ))}
             </div>
           )}
+        </div>
+
+        {/*
+          One Save for the whole page. Every section still has its own Save —
+          this is for the common case of filling several at once and expecting
+          a single Save at the end to commit the lot.
+        */}
+        <div className="bg-white rounded-2xl p-5 shadow-sm sticky bottom-4">
+          <div className="flex flex-col sm:flex-row sm:items-center sm:justify-between gap-3">
+            <div className="min-w-0">
+              {hasUnsavedSections ? (
+                <>
+                  <p className="font-semibold text-[#3A1F1F] flex items-center gap-2">
+                    <AlertCircle className="h-4 w-4 text-[#FF2B2B] shrink-0" />
+                    Unsaved changes
+                  </p>
+                  <p className="text-sm text-[#8A8A8A]">
+                    {openSections.join(", ")} {openSections.length === 1 ? "is" : "are"} still open. Save before you leave this page.
+                  </p>
+                </>
+              ) : (
+                <>
+                  <p className="font-semibold text-[#3A1F1F]">All changes saved</p>
+                  <p className="text-sm text-[#8A8A8A]">Open a section above to make changes.</p>
+                </>
+              )}
+            </div>
+            <Button
+              className="bg-[#FF2B2B] hover:bg-[#e02525] text-white rounded-full px-8 shrink-0"
+              disabled={!hasUnsavedSections || savingAll}
+              onClick={() => { void saveAllSections(); }}
+            >
+              {savingAll ? "Saving..." : "Save"}
+            </Button>
+          </div>
         </div>
       </div>
     </div>

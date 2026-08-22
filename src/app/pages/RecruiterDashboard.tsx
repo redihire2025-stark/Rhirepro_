@@ -2615,6 +2615,10 @@ function PostJobPage() {
     return options.filter(skill => fuzzyMatch(query, skill)).slice(0, 120);
   }, [skillSearch]);
 
+  // The "Suggested from Job Description" chips were removed from the form. The
+  // inference itself stays because getRelevantSkillsForJobContext uses it to
+  // decide which selected skills actually match the JD — that is the skill
+  // alignment warning, which is a separate feature and still wanted.
   useEffect(() => {
     const jobText = extractTextFromHtml(formData.jobDescription);
     const nextSuggestions = inferSkillSuggestions(jobText, 8).filter(skill => !selectedSkills.some(existing => existing.toLowerCase() === skill.toLowerCase()));
@@ -3476,28 +3480,6 @@ function PostJobPage() {
             ) : nonRelevantSelectedSkills.length > 0 && (
               <div className="mb-3 rounded-xl border border-[#FFB4B4] bg-[#FFF6F6] px-3 py-2 text-xs text-[#B42318]">
                 <span className="font-semibold">Skill alignment warning:</span> {nonRelevantSelectedSkills.join(", ")} {nonRelevantSelectedSkills.length === 1 ? "does not" : "do not"} match the job title / JD context. Keep at least 3 role-aligned skills from the JD suggestions or close variants before publishing.
-              </div>
-            )}
-            {suggestedSkills.length > 0 && (
-              <div className="mb-3 rounded-xl border border-[#FFE0E0] bg-[#FFF8F8] p-3">
-                <p className="text-[11px] font-semibold uppercase tracking-wide text-[#FF2B2B] mb-2">Suggested from Job Description</p>
-                <div className="flex flex-wrap gap-2">
-                  {suggestedSkills.map((skill) => {
-                    const alreadySelected = selectedSkills.some(existing => existing.toLowerCase() === skill.toLowerCase());
-                    return (
-                      <button
-                        key={skill}
-                        type="button"
-                        onClick={() => {
-                          addSkill(skill, true);
-                        }}
-                        className={`rounded-full border px-3 py-1 text-xs font-medium transition-colors ${alreadySelected ? "border-[#FF2B2B] bg-[#FF2B2B] text-white" : "border-[#FF2B2B] text-[#FF2B2B] hover:bg-[#FFF0F0]"}`}
-                      >
-                        {alreadySelected ? skill : `+ ${skill}`}
-                      </button>
-                    );
-                  })}
-                </div>
               </div>
             )}
             {showSkillInput && (

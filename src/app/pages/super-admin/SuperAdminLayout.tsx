@@ -4,7 +4,6 @@ import { SuperAdminAuthProvider, useSuperAdminAuth } from "../../../lib/super-ad
 import { SuperAdminSidebar } from "../../components/super-admin/SuperAdminSidebar";
 import { SuperAdminHeader } from "../../components/super-admin/SuperAdminHeader";
 import { Skeleton } from "../../components/ui/skeleton";
-import { Toaster } from "../../components/ui/sonner";
 
 function SuperAdminLayoutInner() {
   const { session, superAdmin, loading } = useSuperAdminAuth();
@@ -34,7 +33,6 @@ function SuperAdminLayoutInner() {
 
   return (
     <div className="flex min-h-screen bg-background">
-      <Toaster position="top-right" />
       <SuperAdminSidebar />
       <div className="flex flex-1 flex-col min-w-0">
         <SuperAdminHeader />

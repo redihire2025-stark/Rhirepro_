@@ -52,7 +52,7 @@ import JobShareButton from "../components/JobShareButton";
 import PublicFooter from "../components/PublicFooter";
 
 import { PLANS, calculateGst } from "../../lib/plans";
-import { supabase, PREDEFINED_SEED_TITLES, type Job as DBJob, type RecruiterArticle } from "../../lib/supabase";
+import { supabase, PREDEFINED_SEED_TITLES, type Job as DBJob, type RecruiterArticle, type Blog } from "../../lib/supabase";
 import { formatJobSalary, isJobVisibleToSeekers } from "../../lib/jobs";
 import { getRecommendedJobs, recordJobInteraction } from "../../lib/jobRecommendations";
 import { isIndianLocation } from "../../lib/locationData";
@@ -645,6 +645,27 @@ export default function LandingPage() {
     void loadPublishedArticles();
   }, []);
 
+  // Blogs live in their own table and are authored in the Super Admin panel.
+  // The section below used to reuse the article cards, which is why the four
+  // recruiter articles kept surfacing under "Blog".
+  const [publishedBlogs, setPublishedBlogs] = useState<Pick<Blog, "id" | "title" | "summary" | "content" | "category" | "cover_image_url">[]>([]);
+
+  useEffect(() => {
+    async function loadPublishedBlogs() {
+      const { data } = await supabase
+        .from("blogs")
+        .select("id, title, summary, content, category, cover_image_url")
+        .eq("status", "Published")
+        .order("published_at", { ascending: false, nullsFirst: false })
+        .order("created_at", { ascending: false })
+        .limit(MAX_FEATURED_BLOGS);
+
+      if (isMountedRef.current && data) setPublishedBlogs(data as Pick<Blog, "id" | "title" | "summary" | "content" | "category" | "cover_image_url">[]);
+    }
+
+    void loadPublishedBlogs();
+  }, []);
+
   const realPublishedArticles = useMemo(() => {
     if (!Array.isArray(publishedArticles)) return [];
     return publishedArticles.filter((article) => {
@@ -669,6 +690,19 @@ export default function LandingPage() {
       path: `/articles/${pub.id}`,
     }));
   }, [realPublishedArticles]);
+
+  const blogCards = useMemo(
+    () =>
+      publishedBlogs.map((post) => ({
+        id: post.id,
+        title: post.title,
+        description: post.summary ?? (post.content ? post.content.slice(0, 90) + "..." : ""),
+        category: post.category ?? "Blog",
+        image: post.cover_image_url ?? BLOG_FALLBACK_IMAGE,
+        path: `/blog/${post.id}`,
+      })),
+    [publishedBlogs],
+  );
 
   const faqs = [
     {
@@ -1497,9 +1531,9 @@ export default function LandingPage() {
                 Explore <ArrowRight className="ml-2 h-5 w-5" />
               </Button>
             </div>
-            {blogFeaturedCards.length > 0 ? (
+            {blogCards.length > 0 ? (
               <div className="grid grid-cols-1 sm:grid-cols-2 gap-4">
-                {blogFeaturedCards.map((card, idx) => (
+                {blogCards.map((card, idx) => (
                   <div key={card.id} className={`space-y-4 ${idx % 2 === 1 ? "sm:mt-8" : ""}`}>
                     <div
                       onClick={() => navigate(card.path)}
@@ -1533,7 +1567,7 @@ export default function LandingPage() {
               <div className="bg-white rounded-2xl p-8 text-center border border-gray-100">
                 <BookOpen className="h-10 w-10 text-[#FF2B2B] mx-auto mb-3" />
                 <h4 className="font-bold text-[#3A1F1F] mb-1">No Featured Blogs Yet</h4>
-                <p className="text-xs text-[#8A8A8A]">Published articles by organization admins will appear here.</p>
+                <p className="text-xs text-[#8A8A8A]">Blogs published from the Super Admin panel will appear here.</p>
               </div>
             )}
           </div>
