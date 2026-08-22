@@ -11398,7 +11398,13 @@ function PlansPage({ activeSub, loading }: { activeSub: RecruiterSubscription | 
           return (
             <div
               key={plan.id}
-              className={`bg-white rounded-2xl p-6 shadow-md border-2 transition-all duration-300 ${isCurrentPlan
+              /*
+                flex column + h-full so all three cards match the tallest in the
+                row; the feature list below takes flex-1 so the CTA is pinned to
+                the bottom. Without this, Basic has one fewer feature than
+                Standard and Premium and its Purchase button floated higher.
+              */
+              className={`bg-white rounded-2xl p-6 shadow-md border-2 transition-all duration-300 flex flex-col h-full ${isCurrentPlan
                 ? "border-[#FF2B2B]"
                 : `hover:border-[#FF2B2B] hover:shadow-xl hover:-translate-y-1 ${plan.popular ? "border-[#FF2B2B]/40" : "border-gray-100"
                 }`
@@ -11438,7 +11444,7 @@ function PlansPage({ activeSub, loading }: { activeSub: RecruiterSubscription | 
               </p>
 
               {/* Features */}
-              <ul className="space-y-2 mb-6">
+              <ul className="space-y-2 mb-6 flex-1">
                 {plan.features.map((f, i) => (
                   <li key={i} className="flex items-center gap-2 text-sm">
                     <CheckCircle className="h-4 w-4 text-[#FF2B2B] flex-shrink-0" />

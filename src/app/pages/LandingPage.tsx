@@ -1150,7 +1150,8 @@ export default function LandingPage() {
                 <div
                   key={index}
                   onClick={() => setSelectedPlan(plan.name)}
-                  className={`bg-white rounded-2xl p-8 shadow-md hover:shadow-2xl transition-all duration-300 cursor-pointer border-2 ${isSelected
+                  // Same equal-height treatment as the dashboard cards.
+                  className={`bg-white rounded-2xl p-8 shadow-md hover:shadow-2xl transition-all duration-300 cursor-pointer border-2 flex flex-col h-full ${isSelected
                     ? "border-[#FF2B2B] scale-105"
                     : "border-gray-200 hover:border-[#FF2B2B]/60 hover:-translate-y-1"
                     }`}
@@ -1186,7 +1187,7 @@ export default function LandingPage() {
                   >
                     Purchase Plan <ArrowRight className="ml-2 h-5 w-5" />
                   </Button>
-                  <ul className="space-y-3">
+                  <ul className="space-y-3 flex-1">
                     {plan.features.map((feature, idx) => (
                       <li
                         key={idx}
