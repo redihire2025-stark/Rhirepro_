@@ -14,6 +14,7 @@ import { recordJobInteraction, recordJobSearch } from "../../lib/jobRecommendati
 import { SKILL_OPTIONS, skillsMatch, fuzzyMatch, SEARCH_SUGGESTION_DATASET } from "../../lib/skillKeywords";
 import { useAuth } from "../../lib/auth-context";
 import { decryptPhone, encryptPhone } from "../../lib/phoneProtection";
+import { draftKey, useFormDraft } from "../../lib/useFormDraft";
 import { INDIA_CITY_OPTIONS } from "../../lib/locationData";
 import AppliedJobsSection from "../components/AppliedJobsSection";
 import ResumePreviewDialog, { getStorageObjectFromUrl, buildPreviewUrl } from "../components/ResumePreviewDialog";
@@ -3006,6 +3007,31 @@ function ProfilePage({ onPendingPrefsChange }: { onPendingPrefsChange?: (pending
   const [profilePic, setProfilePic] = useState<string | null>(null);
   const [editingBasic, setEditingBasic] = useState(false);
   const [basicForm, setBasicForm] = useState({ ...basicInfo });
+
+  /*
+   * Switching dashboard tabs unmounts this form, so anything typed but not yet
+   * saved used to vanish. Park it while editing and offer it back on return
+   * rather than restoring silently — quietly overwriting a freshly loaded
+   * profile with an old draft would be worse than losing it.
+   */
+  const basicDraftKey = draftKey("jobseeker_basic", profile?.id);
+  const { restorable: basicDraft, discard: discardBasicDraft } = useFormDraft(
+    basicDraftKey,
+    basicForm,
+    editingBasic,
+  );
+  const [basicDraftDismissed, setBasicDraftDismissed] = useState(false);
+  const basicDraftAvailable = Boolean(basicDraft) && !editingBasic && !basicDraftDismissed;
+
+  const resumeBasicDraft = () => {
+    if (basicDraft) setBasicForm(basicDraft as typeof basicForm);
+    setEditingBasic(true);
+  };
+
+  const dropBasicDraft = () => {
+    discardBasicDraft();
+    setBasicDraftDismissed(true);
+  };
   const [dobPickerOpen, setDobPickerOpen] = useState(false);
 
   // Summary
@@ -3786,6 +3812,24 @@ function ProfilePage({ onPendingPrefsChange }: { onPendingPrefsChange?: (pending
         <ResumePreviewDialog resume={resumePreview} onClose={() => setResumePreview(null)} />
 
         <div className="bg-white rounded-2xl p-6 shadow-md">
+          {/* Offered rather than applied automatically: the user may well have
+              moved on, and silently replacing their saved profile with an old
+              draft is worse than losing the draft. */}
+          {basicDraftAvailable && (
+            <div className="mb-4 flex flex-wrap items-center justify-between gap-3 rounded-xl border border-[#FFD9A8] bg-[#FFFBF3] px-4 py-3">
+              <p className="text-sm text-[#8A5A00]">
+                You have unsaved changes to your basic information from earlier.
+              </p>
+              <div className="flex gap-2">
+                <Button size="sm" className="bg-[#FF2B2B] hover:bg-[#e02525] text-white rounded-full" onClick={resumeBasicDraft}>
+                  Restore
+                </Button>
+                <Button size="sm" variant="ghost" className="rounded-full" onClick={dropBasicDraft}>
+                  Discard
+                </Button>
+              </div>
+            </div>
+          )}
           <div className="flex justify-between items-center mb-4">
             <h3 className="text-xl font-semibold text-[#3A1F1F] flex items-center gap-2"><User className="h-5 w-5 text-[#FF2B2B]" /> Basic Information</h3>
             {!editingBasic && (
@@ -3873,6 +3917,8 @@ function ProfilePage({ onPendingPrefsChange }: { onPendingPrefsChange?: (pending
                 <Button className="bg-[#FF2B2B] hover:bg-[#e02525] text-white rounded-full" onClick={async () => {
                   setBasicInfo(basicForm);
                   setEditingBasic(false);
+                  discardBasicDraft();
+                  setBasicDraftDismissed(true);
                   if (profile?.id) {
                     const nameParts = basicForm.name.trim().split(" ");
                     const first = nameParts[0];
@@ -3887,7 +3933,7 @@ function ProfilePage({ onPendingPrefsChange }: { onPendingPrefsChange?: (pending
                     refreshProfile();
                   }
                 }}>Save</Button>
-                <Button variant="outline" className="rounded-full" onClick={() => setEditingBasic(false)}>Cancel</Button>
+                <Button variant="outline" className="rounded-full" onClick={() => { setEditingBasic(false); dropBasicDraft(); }}>Cancel</Button>
               </div>
             </div>
           ) : (

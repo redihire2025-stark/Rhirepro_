@@ -63,6 +63,7 @@ import { Textarea } from "../components/ui/textarea";
 import { RichTextEditor } from "../components/ui/rich-text-editor";
 import { UnifiedJobDetailsEditor } from "../components/ui/unified-job-details-editor";
 import { decryptPhone, encryptPhone } from "../../lib/phoneProtection";
+import { draftKey, useFormDraft } from "../../lib/useFormDraft";
 import { SafeHtml } from "../components/ui/safe-html";
 import { Select, SelectContent, SelectItem, SelectTrigger, SelectValue } from "../components/ui/select";
 import { Badge } from "../components/ui/badge";
@@ -2515,6 +2516,25 @@ function PostJobPage() {
     interviewMode: "", interviewModes: [] as string[], preferredJoiningTime: "",
   });
 
+  /*
+   * Posting a job is a long form, and switching tab unmounts it — everything
+   * typed was lost. Park it and offer it back, rather than restoring silently:
+   * a recruiter who abandoned a draft last week should not find it reappearing
+   * under them.
+   */
+  const postDraftKey = draftKey("recruiter_post_job", recruiterProfile?.id);
+  const postFormTouched =
+    formData.jobTitle.trim() !== "" ||
+    formData.jobDescription.trim() !== "" ||
+    formData.skills.trim() !== "";
+  const { restorable: postDraft, discard: discardPostDraft } = useFormDraft(
+    postDraftKey,
+    formData,
+    postFormTouched,
+  );
+  const [postDraftDismissed, setPostDraftDismissed] = useState(false);
+  const postDraftAvailable = Boolean(postDraft) && !postFormTouched && !postDraftDismissed;
+
   // Fetch active subscription and today's post count
   useEffect(() => {
     if (!recruiterProfile?.id) return;
@@ -2902,6 +2922,8 @@ function PostJobPage() {
       setPostSuccess(true);
       setShowPreview(false);
       setTimeout(() => { setPostSuccess(false); navigate("/recruiter/dashboard/manage-jobs"); }, 2000);
+      discardPostDraft();
+      setPostDraftDismissed(true);
       setFormData({ jobTitle: "", jobDescription: "", rolesResponsibilities: "", requirements: "", location: "", locations: [], locationInput: "", workMode: "", salaryMin: "", salaryMax: "", experienceMin: "", experienceMax: "", skills: "", employmentType: "", industry: "", industries: [], industryInput: "", customIndustry: "", openings: "1", education: "", customEducation: "", specialization: "", customSpecialization: "", perks: [], customPerk: "", department: "", interviewMode: "", interviewModes: [], preferredJoiningTime: "" });
       setShowSkillInput(false);
       setSkillPickerOpen(false);
@@ -3082,6 +3104,33 @@ function PostJobPage() {
       )}
 
       <div className="bg-white rounded-2xl p-8 shadow-md">
+        {/* Offered, not auto-applied — see the draft wiring above. */}
+        {postDraftAvailable && (
+          <div className="mb-4 flex flex-wrap items-center justify-between gap-3 rounded-xl border border-[#FFD9A8] bg-[#FFFBF3] px-4 py-3">
+            <p className="text-sm text-[#8A5A00]">
+              You have an unfinished job post{(postDraft as typeof formData)?.jobTitle ? ` — “${(postDraft as typeof formData).jobTitle}”` : ""}.
+            </p>
+            <div className="flex gap-2">
+              <Button
+                type="button"
+                size="sm"
+                className="bg-[#FF2B2B] hover:bg-[#e02525] text-white rounded-full"
+                onClick={() => { if (postDraft) setFormData(postDraft as typeof formData); }}
+              >
+                Restore draft
+              </Button>
+              <Button
+                type="button"
+                size="sm"
+                variant="ghost"
+                className="rounded-full"
+                onClick={() => { discardPostDraft(); setPostDraftDismissed(true); }}
+              >
+                Discard
+              </Button>
+            </div>
+          </div>
+        )}
         {postSuccess && <div className="bg-green-50 border border-green-200 text-green-700 rounded-xl p-4 mb-4 text-sm font-medium">✓ Job posted successfully! Redirecting to Manage Jobs...</div>}
         {postError && <div className="bg-red-50 border border-red-200 text-red-700 rounded-xl p-4 mb-4 text-sm">{postError}</div>}
         <form onSubmit={e => {
