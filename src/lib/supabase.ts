@@ -246,6 +246,12 @@ export interface Application {
   cover_letter: string | null;
   resume_url: string | null;
   applied_at: string;
+  /**
+   * Which surface the candidate applied from — "Job Search", "Saved Jobs", etc.
+   * NULL on rows created before the column existed; recruiter Analytics reports
+   * those as "Unknown" rather than guessing a channel.
+   */
+  source?: string | null;
   job?: Job;
   profile?: Profile;
   interview_details?: InterviewDetails | null;

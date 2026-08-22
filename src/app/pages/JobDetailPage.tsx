@@ -1,4 +1,4 @@
-import { useEffect, useMemo, useState } from "react";
+import { useEffect, useMemo, useRef, useState } from "react";
 import { Menu, MapPin, DollarSign, Clock, ChevronRight, Facebook, Instagram, Twitter, Bell, Star, ArrowRight, Globe, Calendar } from "lucide-react";
 import { Button } from "../components/ui/button";
 import { Input } from "../components/ui/input";
@@ -74,6 +74,9 @@ export default function JobDetailPage() {
   const [relatedJobs, setRelatedJobs] = useState<DBJob[]>([]);
   const [loading, setLoading] = useState(true);
   const [loadError, setLoadError] = useState("");
+  // Which job id has already had its view counted on this mount, so React
+  // StrictMode's double-invoke in development does not count twice.
+  const countedViewRef = useRef<string | null>(null);
   const navigate = useNavigate();
   const { id } = useParams();
   const { role, profile, signOut } = useAuth();
@@ -104,6 +107,15 @@ export default function JobDetailPage() {
         .maybeSingle();
 
       if (!mounted) return;
+
+      // Count the view. jobs.views was never incremented anywhere, which is why
+      // the recruiter Analytics Job Views tile and the CTR column sat at 0 across
+      // all 1016 jobs. Fire-and-forget — a failed counter must not stop the page
+      // rendering.
+      if (currentJob && !jobError && countedViewRef.current !== currentJob.id) {
+        countedViewRef.current = currentJob.id;
+        void supabase.rpc("increment_job_views", { p_job_id: currentJob.id });
+      }
 
       if (jobError || !currentJob || !isJobVisibleToSeekers(currentJob) || !isIndianLocation(currentJob.location)) {
         setJob(null);

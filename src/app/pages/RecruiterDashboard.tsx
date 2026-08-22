@@ -9916,7 +9916,7 @@ function AnalyticsPage() {
             .eq("recruiter_id", recruiterProfile.id),
           supabase
             .from("applications")
-            .select("id, job_id, applied_at, status, profile_id")
+            .select("id, job_id, applied_at, status, profile_id, source")
             .eq("recruiter_id", recruiterProfile.id),
         ]);
 
@@ -10098,30 +10098,29 @@ function AnalyticsPage() {
         setJobPerformanceData(performanceRows);
 
         // ── 7. Calculate Real Application Sources Data ──
-        const DEFAULT_SOURCES = ["Direct Search", "Recommended Jobs", "Job Alert Email", "Similar Jobs", "Social Share"];
-        const sourceCounts: Record<string, number> = {
-          "Direct Search": 0,
-          "Recommended Jobs": 0,
-          "Job Alert Email": 0,
-          "Similar Jobs": 0,
-          "Social Share": 0,
-        };
-
-        filteredApplications.forEach((app, idx) => {
-          if (app.source && sourceCounts[app.source] !== undefined) {
-            sourceCounts[app.source] += 1;
-          } else {
-            const fallbackChannel = DEFAULT_SOURCES[idx % DEFAULT_SOURCES.length];
-            sourceCounts[fallbackChannel] += 1;
-          }
+        // This used to spread applications across five fixed labels with
+        // DEFAULT_SOURCES[idx % 5] whenever app.source was missing — which was
+        // always, because applications had no source column. That round robin is
+        // what produced the suspiciously even 23/23/23/15/15 split.
+        //
+        // applications.source now exists and is written at each apply surface.
+        // Only report what is actually recorded; rows created before the column
+        // existed are grouped as Unknown rather than being attributed to a
+        // channel we cannot know.
+        const sourceCounts = new Map<string, number>();
+        filteredApplications.forEach((app) => {
+          const label = (app.source || "").trim() || "Unknown";
+          sourceCounts.set(label, (sourceCounts.get(label) || 0) + 1);
         });
 
         const totalAppsCount = filteredApplications.length;
-        const computedSources = DEFAULT_SOURCES.map((source) => {
-          const count = sourceCounts[source] || 0;
-          const pct = totalAppsCount > 0 ? Math.round((count / totalAppsCount) * 100) : 0;
-          return { source, count, pct };
-        }).sort((a, b) => b.count - a.count);
+        const computedSources = Array.from(sourceCounts.entries())
+          .map(([source, count]) => ({
+            source,
+            count,
+            pct: totalAppsCount > 0 ? Math.round((count / totalAppsCount) * 100) : 0,
+          }))
+          .sort((a, b) => b.count - a.count);
 
         setSourceData(computedSources);
 

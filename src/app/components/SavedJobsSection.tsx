@@ -93,6 +93,7 @@ export default function SavedJobsSection({
         recruiter_id: job.recruiter_id,
         status: "New",
         resume_url: profile?.resume_url || null,
+        source: "Saved Jobs",
       });
       if (!applyErr) {
         setFetchedAppliedJobIds((prev) => [...prev, jobIdStr]);

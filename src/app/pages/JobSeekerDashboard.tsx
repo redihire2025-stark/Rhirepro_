@@ -2205,6 +2205,9 @@ function FindJobPage() {
         recruiter_id: job.recruiter_id,
         status: "New",
         resume_url: profile.resume_url,
+        // Recruiter Analytics previously invented this with a round robin over
+        // five labels, because the column did not exist. Record the real surface.
+        source: "Job Search",
       });
       recordJobInteraction(job, userId);
       setAppliedJobIds(prev => [...prev, job.id]);
@@ -5172,6 +5175,7 @@ function AnalyticsPage() {
         recruiter_id: job.recruiter_id,
         status: "New",
         resume_url: profile.resume_url || null,
+        source: "Saved Jobs",
       });
       if (!applyErr) {
         const freshApplied = await getAppliedJobs(profile.id).catch(() => []);
