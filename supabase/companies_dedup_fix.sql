@@ -17,6 +17,12 @@
 
 BEGIN;
 
+-- CREATE OR REPLACE can't change a function's return-column list even when
+-- the new list matches what's in the source file — the live version in this
+-- database apparently doesn't match super_admin_phase2_migration.sql
+-- verbatim. Drop first so this always succeeds regardless of that drift.
+DROP FUNCTION IF EXISTS public.get_super_admin_companies();
+
 CREATE OR REPLACE FUNCTION public.get_super_admin_companies()
 RETURNS TABLE (
   company_name        text,
