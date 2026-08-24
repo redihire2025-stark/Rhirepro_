@@ -1,5 +1,5 @@
 import { useEffect, useRef, useState } from "react";
-import html2canvas from "html2canvas";
+import html2canvas from "html2canvas-pro";
 import { jsPDF } from "jspdf";
 import { Download, Printer, FileText } from "lucide-react";
 import { Card, CardHeader, CardTitle, CardContent } from "../../components/ui/card";
@@ -51,8 +51,17 @@ export default function SuperAdminReports() {
       const imgData = canvas.toDataURL("image/png");
       const pdf = new jsPDF({ orientation: "portrait", unit: "mm", format: "a4" });
       const pageWidth = pdf.internal.pageSize.getWidth();
+      const pageHeight = pdf.internal.pageSize.getHeight();
       const imgHeight = (canvas.height * pageWidth) / canvas.width;
-      pdf.addImage(imgData, "PNG", 0, 0, pageWidth, imgHeight);
+
+      // Funnel rows grow over time, so the captured image can be taller than one
+      // A4 page — slice it across as many pages as needed instead of cutting it off.
+      let renderedHeight = 0;
+      while (renderedHeight < imgHeight) {
+        if (renderedHeight > 0) pdf.addPage();
+        pdf.addImage(imgData, "PNG", 0, -renderedHeight, pageWidth, imgHeight);
+        renderedHeight += pageHeight;
+      }
       pdf.save(`rhirepro-platform-report-${new Date().toISOString().slice(0, 10)}.pdf`);
     } finally {
       setGenerating(false);

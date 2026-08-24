@@ -5,6 +5,7 @@ import { Card, CardHeader, CardTitle, CardContent } from "../../components/ui/ca
 import { ChartContainer, ChartTooltip, ChartTooltipContent, type ChartConfig } from "../../components/ui/chart";
 import { KpiCard } from "../../components/super-admin/KpiCard";
 import { supabase } from "../../../lib/supabase";
+import { getPlanById } from "../../../lib/plans";
 
 interface RevenuePoint {
   day: string;
@@ -14,8 +15,16 @@ interface RevenuePoint {
 
 interface PlanRevenue {
   plan_id: string;
+  plan_name: string;
   revenue: number;
   transaction_count: number;
+}
+
+// payment_transactions.plan_id stores the raw slug ("basic", "standard",
+// "premium") — resolve it to the plan's display name so the chart's axis
+// shows a readable label instead of the DB slug.
+function planDisplayName(planId: string): string {
+  return getPlanById(planId)?.name ?? planId;
 }
 
 const revenueChartConfig: ChartConfig = {
@@ -45,7 +54,14 @@ export default function SuperAdminRevenue() {
       supabase.rpc("get_super_admin_revenue_by_plan"),
     ]).then(([tsRes, planRes]) => {
       if (tsRes.data) setTimeseries(tsRes.data as RevenuePoint[]);
-      if (planRes.data) setByPlan(planRes.data as PlanRevenue[]);
+      if (planRes.data) {
+        setByPlan(
+          (planRes.data as Omit<PlanRevenue, "plan_name">[]).map((p) => ({
+            ...p,
+            plan_name: planDisplayName(p.plan_id),
+          }))
+        );
+      }
       setLoading(false);
     });
   }, []);
@@ -88,7 +104,7 @@ export default function SuperAdminRevenue() {
             <BarChart data={byPlan} layout="vertical" margin={{ left: 24 }}>
               <CartesianGrid horizontal={false} />
               <XAxis type="number" tickLine={false} axisLine={false} tickFormatter={(v) => `₹${v}`} />
-              <YAxis dataKey="plan_id" type="category" tickLine={false} axisLine={false} width={110} />
+              <YAxis dataKey="plan_name" type="category" tickLine={false} axisLine={false} width={110} />
               <ChartTooltip content={<ChartTooltipContent />} />
               <Bar dataKey="revenue" fill="var(--color-revenue)" radius={4} isAnimationActive />
             </BarChart>

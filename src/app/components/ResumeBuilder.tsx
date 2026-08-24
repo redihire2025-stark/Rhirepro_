@@ -1,7 +1,7 @@
 import { useState, useRef, useCallback, useMemo, useEffect } from "react";
 import { FileText, Loader2, AlertCircle, CheckCircle, Download, Eye, Layout, Check } from "lucide-react";
 import { Button } from "./ui/button";
-import html2canvas from "html2canvas";
+import html2canvas from "html2canvas-pro";
 import { jsPDF } from "jspdf";
 
 // ── Types ────────────────────────────────────────────────────────────────────────
