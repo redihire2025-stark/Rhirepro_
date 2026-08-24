@@ -1960,7 +1960,7 @@ export default function RecruiterDashboard() {
         onOpenChange={setSupportTicketOpen}
         email={recruiterProfile?.email || user?.email || ""}
         userId={user?.id}
-        userType="recruiter"
+        userType={isOrgAdmin ? "admin" : "recruiter"}
       />
     </div>
   );

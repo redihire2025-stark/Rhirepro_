@@ -53,7 +53,7 @@ export default async (request) => {
   const email = (body.email || "").trim().toLowerCase();
   const category = CATEGORIES.includes(body.category) ? body.category : "other";
   const description = (body.description || "").trim();
-  const userType = ["jobseeker", "recruiter", "guest"].includes(body.user_type) ? body.user_type : "guest";
+  const userType = ["jobseeker", "recruiter", "admin", "guest"].includes(body.user_type) ? body.user_type : "guest";
   const userId = typeof body.user_id === "string" && body.user_id ? body.user_id : null;
   const screenshotBase64 = typeof body.screenshot_base64 === "string" ? body.screenshot_base64 : null;
   const screenshotFilename = (body.screenshot_filename || "screenshot.png").toString();

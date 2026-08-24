@@ -31,6 +31,7 @@ type OrgMember = {
   recruiter_name: string | null;
   org_role: string;
   is_active: boolean;
+  verification_status: string | null;
   jobs_count: number;
   applications_count: number;
   hires_count: number;
@@ -94,6 +95,22 @@ const STATUS_COLOR: Record<string, string> = {
   Closed: "bg-gray-100 text-gray-500",
   Expired: "bg-red-100 text-red-600",
 };
+
+// A member can be `is_active` and still be unable to sign in at all — sign-in
+// is gated separately by verification_status, which super admin approves.
+// Showing "Active" for a Pending/Rejected member is misleading, so that
+// approval state takes priority over is_active whenever it isn't Verified.
+function memberStatusBadge(member: OrgMember) {
+  if (member.verification_status === "Rejected") {
+    return { label: "Rejected", className: "bg-red-100 text-red-700" };
+  }
+  if (member.verification_status && member.verification_status !== "Verified") {
+    return { label: "Pending Approval", className: "bg-yellow-100 text-yellow-700" };
+  }
+  return member.is_active
+    ? { label: "Active", className: "bg-green-100 text-green-700" }
+    : { label: "Inactive", className: "bg-gray-100 text-gray-500" };
+}
 
 const APP_STATUS_COLOR: Record<string, string> = {
   Applied: "bg-blue-100 text-blue-700",
@@ -245,7 +262,7 @@ export default function OrgAdminPanel() {
     csvContent += `"Recruiter Name:","${member.recruiter_name || "(No name)"}"\n`;
     csvContent += `"Email Address:","${member.email}"\n`;
     csvContent += `"Role in Org:","${member.org_role}"\n`;
-    csvContent += `"Status:","${member.is_active ? "Active" : "Inactive"}"\n`;
+    csvContent += `"Status:","${memberStatusBadge(member).label}"\n`;
     csvContent += `"Joined Date:","${new Date(member.created_at).toLocaleDateString("en-IN")}"\n`;
     csvContent += `\n`;
     
@@ -954,8 +971,8 @@ export default function OrgAdminPanel() {
               </div>
               <div>
                 <span className="text-xs text-[#8A8A8A] block font-medium">Status</span>
-                <span className={`text-xs font-semibold px-2 py-0.5 rounded-full inline-block mt-0.5 ${member.is_active ? "bg-green-100 text-green-700" : "bg-red-100 text-red-700"}`}>
-                  {member.is_active ? "Active" : "Inactive"}
+                <span className={`text-xs font-semibold px-2 py-0.5 rounded-full inline-block mt-0.5 ${memberStatusBadge(member).className}`}>
+                  {memberStatusBadge(member).label}
                 </span>
               </div>
               <div>
@@ -1197,10 +1214,10 @@ export default function OrgAdminPanel() {
                           </td>
                           <td className="px-6 py-4">
                             <Badge
-                              className={`text-xs ${member.is_active ? "bg-green-100 text-green-700" : "bg-gray-100 text-gray-500"}`}
+                              className={`text-xs ${memberStatusBadge(member).className}`}
                               variant="secondary"
                             >
-                              {member.is_active ? "Active" : "Inactive"}
+                              {memberStatusBadge(member).label}
                             </Badge>
                           </td>
                           <td className="px-6 py-4 text-sm text-[#3A1F1F] font-medium">{member.jobs_count}</td>

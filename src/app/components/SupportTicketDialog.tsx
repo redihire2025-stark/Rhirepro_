@@ -25,7 +25,7 @@ export interface SupportTicketDialogProps {
   /** Pre-filled and locked when the user is signed in; editable for a guest/pre-signin submission. */
   email?: string;
   userId?: string | null;
-  userType: "jobseeker" | "recruiter" | "guest";
+  userType: "jobseeker" | "recruiter" | "admin" | "guest";
 }
 
 export function SupportTicketDialog({ open, onOpenChange, email: defaultEmail, userId, userType }: SupportTicketDialogProps) {

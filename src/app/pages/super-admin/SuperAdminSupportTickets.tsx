@@ -32,7 +32,7 @@ interface TicketRow {
   subject: string;
   description: string | null;
   requester_email: string | null;
-  requester_type: "recruiter" | "jobseeker" | "guest" | "other" | null;
+  requester_type: "recruiter" | "admin" | "jobseeker" | "guest" | "other" | null;
   category: string | null;
   screenshot_path: string | null;
   resolution_summary: string | null;
@@ -50,6 +50,14 @@ const CATEGORY_LABELS: Record<string, string> = {
   application: "Applications",
   technical: "Technical Issue",
   other: "Something else",
+};
+
+const REQUESTER_TYPE_LABELS: Record<string, string> = {
+  recruiter: "Recruiter",
+  admin: "Org Admin",
+  jobseeker: "Job Seeker",
+  guest: "Guest",
+  other: "Other",
 };
 
 export default function SuperAdminSupportTickets() {
@@ -202,6 +210,16 @@ export default function SuperAdminSupportTickets() {
     { key: "subject", header: "Subject" },
     { key: "requester_email", header: "Requester", render: (row) => row.requester_email || "—" },
     {
+      key: "requester_type",
+      header: "Account Type",
+      render: (row) =>
+        row.requester_type ? (
+          <Badge variant="outline">{REQUESTER_TYPE_LABELS[row.requester_type] || row.requester_type}</Badge>
+        ) : (
+          "—"
+        ),
+    },
+    {
       key: "category",
       header: "Category",
       render: (row) => (row.category ? <Badge variant="outline">{CATEGORY_LABELS[row.category] || row.category}</Badge> : "—"),
@@ -292,6 +310,7 @@ export default function SuperAdminSupportTickets() {
                       </SelectTrigger>
                       <SelectContent>
                         <SelectItem value="recruiter">Recruiter</SelectItem>
+                        <SelectItem value="admin">Org Admin</SelectItem>
                         <SelectItem value="jobseeker">Job seeker</SelectItem>
                         <SelectItem value="guest">Guest (pre-signin)</SelectItem>
                         <SelectItem value="other">Other</SelectItem>
