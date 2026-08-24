@@ -1405,6 +1405,11 @@ export default function RecruiterDashboard() {
     load();
   }, [recruiterProfile?.id]);
 
+  // A recruiter invited onto someone else's team rides on the org admin's
+  // plan/seats — they never buy or pick a plan of their own, so the Plans
+  // page/nav and the "buy a plan" redirect below don't apply to them.
+  const isOrgMember = Boolean(recruiterProfile?.org_admin_id) && !isOrgAdmin;
+
   // Subscription guard — redirect to plans if expired
   useEffect(() => {
     if (authLoading || loadingSub || !user || !recruiterProfile) return;
@@ -1417,6 +1422,7 @@ export default function RecruiterDashboard() {
     const hasPaidAccess = Boolean(
       activeSub ||
       isOrgAdmin ||
+      isOrgMember ||
       recruiterProfile.org_role === "admin" ||
       recruiterProfile.is_org_admin
     );
@@ -1424,7 +1430,7 @@ export default function RecruiterDashboard() {
     if (!hasPaidAccess) {
       navigate("/recruiter/dashboard/plans", { replace: true });
     }
-  }, [authLoading, loadingSub, user, recruiterProfile, activeSub, isOrgAdmin, location.pathname, navigate]);
+  }, [authLoading, loadingSub, user, recruiterProfile, activeSub, isOrgAdmin, isOrgMember, location.pathname, navigate]);
 
   const [notificationsOpen, setNotificationsOpen] = useState(false);
   const [mobileNavOpen, setMobileNavOpen] = useState(false);
@@ -1633,7 +1639,7 @@ export default function RecruiterDashboard() {
     { id: "applicants", label: "Applicants", path: "/recruiter/dashboard/applicants" },
     { id: "analytics", label: "Analytics", path: "/recruiter/dashboard/analytics" },
     { id: "company-profile", label: "Company Profile", path: "/recruiter/dashboard/company-profile" },
-    { id: "plans", label: "Plans", path: "/recruiter/dashboard/plans" },
+    ...(isOrgMember ? [] : [{ id: "plans", label: "Plans", path: "/recruiter/dashboard/plans" }]),
     ...(isOrgAdmin ? [{ id: "admin", label: "Team Admin", path: "/recruiter/admin" }] : []),
   ];
 

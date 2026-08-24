@@ -15,12 +15,14 @@ export default function SuperAdminNotifications() {
   const [page, setPage] = useState(1);
   const [typeFilter, setTypeFilter] = useState("all");
   const [userTypeFilter, setUserTypeFilter] = useState("all");
+  const [readFilter, setReadFilter] = useState("all");
 
   const fetchRows = useCallback(async () => {
     setLoading(true);
     let query = supabase.from("notifications").select("*", { count: "exact" });
     if (typeFilter !== "all") query = query.eq("type", typeFilter);
     if (userTypeFilter !== "all") query = query.eq("user_type", userTypeFilter);
+    if (readFilter !== "all") query = query.eq("is_read", readFilter === "read");
 
     const from = (page - 1) * PAGE_SIZE;
     const to = from + PAGE_SIZE - 1;
@@ -33,20 +35,29 @@ export default function SuperAdminNotifications() {
     const { count: unread } = await supabase.from("notifications").select("id", { count: "exact", head: true }).eq("is_read", false);
     setUnreadCount(unread ?? 0);
     setLoading(false);
-  }, [page, typeFilter, userTypeFilter]);
+  }, [page, typeFilter, userTypeFilter, readFilter]);
 
   useEffect(() => {
     fetchRows();
   }, [fetchRows]);
 
-  useEffect(() => setPage(1), [typeFilter, userTypeFilter]);
+  useEffect(() => setPage(1), [typeFilter, userTypeFilter, readFilter]);
 
   const columns: DataTableColumn<Notification>[] = [
     { key: "title", header: "Title" },
     { key: "message", header: "Message", render: (row) => <span className="line-clamp-1 max-w-xs">{row.message}</span> },
     { key: "type", header: "Type", render: (row) => <Badge variant="outline">{row.type}</Badge> },
     { key: "user_type", header: "Audience", render: (row) => <Badge variant="secondary">{row.user_type}</Badge> },
-    { key: "is_read", header: "Read", render: (row) => (row.is_read ? "Yes" : "No") },
+    {
+      key: "is_read",
+      header: "Read",
+      render: (row) =>
+        row.is_read ? (
+          <Badge variant="secondary">Read</Badge>
+        ) : (
+          <Badge className="bg-amber-500 hover:bg-amber-500/90">Unread</Badge>
+        ),
+    },
     { key: "created_at", header: "Sent", render: (row) => new Date(row.created_at).toLocaleString() },
   ];
 
@@ -91,6 +102,17 @@ export default function SuperAdminNotifications() {
               { label: "All", value: "all" },
               { label: "Recruiters", value: "recruiter" },
               { label: "Job seekers", value: "jobseeker" },
+            ],
+          },
+          {
+            key: "is_read",
+            label: "Read status",
+            value: readFilter,
+            onChange: setReadFilter,
+            options: [
+              { label: "All", value: "all" },
+              { label: "Unread", value: "unread" },
+              { label: "Read", value: "read" },
             ],
           },
         ]}

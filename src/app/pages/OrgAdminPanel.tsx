@@ -748,8 +748,15 @@ export default function OrgAdminPanel() {
   // blank tiles.
   const todayStr = new Date().toDateString();
   const overviewKpis = useMemo(() => serverKpis ? {
-    totalRecruiters: serverKpis.total_recruiters,
-    activeRecruiters: serverKpis.active_recruiters,
+    // Recruiter headcount always comes from `members`/`activeCount`, the same
+    // client-side source the "Team Members" summary card at the top of the
+    // page uses. The RPC counts recruiters differently (it excludes the
+    // admin's own row and additionally checks is_disabled, a field the
+    // client never fetches), so mixing the two sources made this tile
+    // disagree with the summary card above it even though both were labeled
+    // "active".
+    totalRecruiters: members.length,
+    activeRecruiters: activeCount,
     totalJobs: serverKpis.total_jobs,
     activeJobs: serverKpis.active_jobs,
     closedJobs: serverKpis.closed_jobs,
@@ -1072,7 +1079,7 @@ export default function OrgAdminPanel() {
                   <AnalyticsCard label="Total Jobs" value={overviewKpis.totalJobs} color="text-[#3A1F1F]" onClick={() => setActiveTab("jobs")} />
                   <AnalyticsCard label="Active Jobs" value={overviewKpis.activeJobs} color="text-green-600" onClick={() => setActiveTab("jobs")} />
                   <AnalyticsCard label="Closed Jobs" value={overviewKpis.closedJobs} color="text-gray-500" onClick={() => setActiveTab("jobs")} />
-                  <AnalyticsCard label="Total Candidates" value={overviewKpis.totalCandidates} color="text-[#3A1F1F]" onClick={() => setActiveTab("team")} />
+                  <AnalyticsCard label="Total Candidates" value={overviewKpis.totalCandidates} color="text-[#3A1F1F]" onClick={() => setActiveTab("applications")} />
                   <AnalyticsCard label="Applications Today" value={overviewKpis.applicationsToday} color="text-blue-600" onClick={() => setActiveTab("applications")} />
                   <AnalyticsCard label="Interviews Scheduled" value={overviewKpis.interviewsScheduled} color="text-yellow-600" onClick={() => setActiveTab("applications")} />
                   <AnalyticsCard label="Offers Released" value={overviewKpis.offersReleased} color="text-orange-600" onClick={() => setActiveTab("applications")} />
