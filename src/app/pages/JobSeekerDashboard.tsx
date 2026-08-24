@@ -11,6 +11,7 @@ import {
   DropdownMenuTrigger,
 } from "../components/ui/dropdown-menu";
 import { formatJobSalary, isJobVisibleToSeekers } from "../../lib/jobs";
+import { sanitizeFieldInput } from "../../lib/inputSanitizers";
 import { recordJobInteraction, recordJobSearch } from "../../lib/jobRecommendations";
 import { SKILL_OPTIONS, skillsMatch, fuzzyMatch, SEARCH_SUGGESTION_DATASET } from "../../lib/skillKeywords";
 import { useAuth } from "../../lib/auth-context";
@@ -4160,8 +4161,11 @@ function ProfilePage({ onPendingPrefsChange }: { onPendingPrefsChange?: (pending
                   <div key={key}>
                     <label className="block text-sm text-[#3A1F1F] mb-1">{label}</label>
                     <Input
+                      type={key === "email" ? "email" : key === "phone" ? "tel" : "text"}
+                      inputMode={key === "phone" ? "numeric" : undefined}
+                      maxLength={key === "phone" ? 10 : undefined}
                       value={basicForm[key as keyof typeof basicForm]}
-                      onChange={(e) => setBasicForm(f => ({ ...f, [key]: e.target.value }))}
+                      onChange={(e) => setBasicForm(f => ({ ...f, [key]: sanitizeFieldInput(key, e.target.value) }))}
                       className="bg-[#F6F6F6] border-gray-200 rounded-xl"
                     />
                   </div>

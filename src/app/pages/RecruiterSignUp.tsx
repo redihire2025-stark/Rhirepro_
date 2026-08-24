@@ -9,6 +9,7 @@ import { Select, SelectContent, SelectItem, SelectTrigger, SelectValue } from ".
 import { supabase } from "../../lib/supabase";
 import { requestOTP, verifyOTP, checkIfEmailExists, secureHashPassword } from "../../lib/email";
 import { encryptPhone } from "../../lib/phoneProtection";
+import { sanitizePhoneInput, sanitizeEmailInput } from "../../lib/inputSanitizers";
 import { INDUSTRY_OPTIONS } from "../../lib/jobMasterData";
 
 export default function RecruiterSignUp() {
@@ -314,11 +315,11 @@ export default function RecruiterSignUp() {
             </div>
             <div>
               <label className="block mb-1.5 text-sm font-medium text-[#3A1F1F]">Work Email *</label>
-              <Input type="email" value={formData.email} onChange={e => setFormData({ ...formData, email: e.target.value })} className="bg-[#F6F6F6] border-gray-200 rounded-xl" placeholder="Enter work email" required autoComplete="email" />
+              <Input type="email" value={formData.email} onChange={e => setFormData({ ...formData, email: sanitizeEmailInput(e.target.value) })} className="bg-[#F6F6F6] border-gray-200 rounded-xl" placeholder="Enter work email" required autoComplete="email" />
             </div>
             <div>
               <label className="block mb-1.5 text-sm font-medium text-[#3A1F1F]">Phone</label>
-              <Input type="tel" value={formData.phone} onChange={e => setFormData({ ...formData, phone: e.target.value })} className="bg-[#F6F6F6] border-gray-200 rounded-xl" placeholder="Enter phone number" />
+              <Input type="tel" inputMode="numeric" maxLength={10} value={formData.phone} onChange={e => setFormData({ ...formData, phone: sanitizePhoneInput(e.target.value) })} className="bg-[#F6F6F6] border-gray-200 rounded-xl" placeholder="Enter phone number" />
             </div>
             <div>
               <label className="block mb-1.5 text-sm font-medium text-[#3A1F1F]">Password *</label>

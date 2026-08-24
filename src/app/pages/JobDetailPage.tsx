@@ -11,6 +11,7 @@ import { formatJobSalary, isJobVisibleToSeekers } from "../../lib/jobs";
 import { isIndianLocation } from "../../lib/locationData";
 import { useAuth } from "../../lib/auth-context";
 import { SafeHtml } from "../components/ui/safe-html";
+import { extractTextFromHtml } from "../../lib/recruiterJobHelpers";
 import { ImageWithFallback } from "../components/figma/ImageWithFallback";
 import PublicFooter from "../components/PublicFooter";
 
@@ -357,8 +358,10 @@ export default function JobDetailPage() {
       <section className="bg-[#ECECF4] py-16">
         <div className="container mx-auto px-4">
           <div className="grid lg:grid-cols-3 gap-8">
-            {/* Sidebar - Related Jobs */}
-            <div className="lg:col-span-1 space-y-6">
+            {/* Sidebar - Related Jobs. Comes first in the DOM for desktop's
+                left column, but that put Featured Jobs above the actual job
+                someone opened a shared link for on mobile — order-last there. */}
+            <div className="order-2 lg:order-1 lg:col-span-1 space-y-6">
               <div className="bg-white rounded-2xl p-6 shadow-md">
                 <h3 className="text-xl font-bold text-[#3A1F1F] mb-4">Featured Jobs</h3>
                 <div className="space-y-4">
@@ -371,7 +374,7 @@ export default function JobDetailPage() {
                       <div className="flex items-start justify-between mb-2">
                         <div>
                           <h4 className="font-bold text-[#3A1F1F] mb-1">{job.title}</h4>
-                          <p className="text-sm text-[#8A8A8A] mb-2">{(job.description || "Explore this opportunity.").substring(0, 60)}...</p>
+                          <p className="text-sm text-[#8A8A8A] mb-2">{extractTextFromHtml(job.description || "Explore this opportunity.").substring(0, 60)}...</p>
                         </div>
                         <div className="w-3 h-3 bg-[#FF2B2B] rounded-full flex-shrink-0"></div>
                       </div>
@@ -397,7 +400,7 @@ export default function JobDetailPage() {
                 <h3 className="text-xl font-bold text-[#3A1F1F] mb-4">{currentJob.company}</h3>
                 <h4 className="font-bold text-[#3A1F1F] mb-2">{currentJob.title}</h4>
                 <p className="text-sm text-[#8A8A8A] mb-4">
-                  {currentJob.description.substring(0, 140)}...
+                  {extractTextFromHtml(currentJob.description).substring(0, 140)}...
                 </p>
                 <div className="space-y-2 text-sm text-[#8A8A8A] mb-4">
                   <div className="flex items-center gap-2">
@@ -420,7 +423,7 @@ export default function JobDetailPage() {
             </div>
 
             {/* Main Content */}
-            <div className="lg:col-span-2 space-y-6">
+            <div className="order-1 lg:order-2 lg:col-span-2 space-y-6">
               {/* Job Header Card */}
               <div className="bg-white rounded-2xl p-8 shadow-md">
                 <div className="flex items-center gap-4 mb-6">

@@ -1,5 +1,5 @@
 import { useState } from "react";
-import { MapPin, Bell, Star, Facebook, Instagram, Twitter, ArrowRight, CheckCircle2 } from "lucide-react";
+import { Facebook, Instagram, Twitter, ArrowRight, CheckCircle2 } from "lucide-react";
 import { Button } from "./ui/button";
 import { Input } from "./ui/input";
 import { Link } from "react-router";
@@ -36,20 +36,6 @@ export default function PublicFooter() {
             <h2 className="text-4xl md:text-5xl font-bold mb-6">
               Work With Purpose.<br />Grow With Us.
             </h2>
-            <div className="space-y-3 text-white/90">
-              <p className="flex items-center gap-2">
-                <MapPin className="h-5 w-5" />
-                ID 123/201
-              </p>
-              <p className="flex items-center gap-2">
-                <Bell className="h-5 w-5" />
-                www.RhirePro.com
-              </p>
-              <p className="flex items-center gap-2">
-                <Star className="h-5 w-5" />
-                0120 - 3532 - 510
-              </p>
-            </div>
             <div className="flex gap-4 mt-6">
               <div className="w-10 h-10 bg-white rounded-full flex items-center justify-center">
                 <Facebook className="h-5 w-5 text-[#FF2B2B]" />

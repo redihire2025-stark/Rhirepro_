@@ -40,6 +40,7 @@ import SuperAdminJobSeekers from "./pages/super-admin/SuperAdminJobSeekers";
 import SuperAdminJobs from "./pages/super-admin/SuperAdminJobs";
 import SuperAdminApplications from "./pages/super-admin/SuperAdminApplications";
 import SuperAdminCompanies from "./pages/super-admin/SuperAdminCompanies";
+import SuperAdminOrgAdmins from "./pages/super-admin/SuperAdminOrgAdmins";
 import SuperAdminSubscriptions from "./pages/super-admin/SuperAdminSubscriptions";
 import SuperAdminRevenue from "./pages/super-admin/SuperAdminRevenue";
 import SuperAdminTransactions from "./pages/super-admin/SuperAdminTransactions";
@@ -275,6 +276,7 @@ export const router = createBrowserRouter([
       { path: "/super-admin/jobs", Component: SuperAdminJobs },
       { path: "/super-admin/applications", Component: SuperAdminApplications },
       { path: "/super-admin/companies", Component: SuperAdminCompanies },
+      { path: "/super-admin/org-admins", Component: SuperAdminOrgAdmins },
       { path: "/super-admin/subscriptions", Component: SuperAdminSubscriptions },
       { path: "/super-admin/revenue", Component: SuperAdminRevenue },
       { path: "/super-admin/transactions", Component: SuperAdminTransactions },

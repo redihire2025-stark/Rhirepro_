@@ -11,6 +11,7 @@ import { supabase } from "../../lib/supabase";
 import { setPendingRole } from "../../lib/auth-context";
 import { requestOTP, verifyOTP, checkIfEmailExists, secureHashPassword } from "../../lib/email";
 import { encryptPhone } from "../../lib/phoneProtection";
+import { sanitizeEmailInput } from "../../lib/inputSanitizers";
 
 function generateOTP() {
   return Math.floor(100000 + Math.random() * 900000).toString();
@@ -371,7 +372,7 @@ export default function JobSeekerSignUp() {
               <Input
                 type="email"
                 value={formData.email}
-                onChange={e => setFormData({ ...formData, email: e.target.value })}
+                onChange={e => setFormData({ ...formData, email: sanitizeEmailInput(e.target.value) })}
                 className="bg-[#F6F6F6] border-gray-200 rounded-xl"
                 placeholder="Enter email"
                 required

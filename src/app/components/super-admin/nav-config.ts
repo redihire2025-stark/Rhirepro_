@@ -60,6 +60,13 @@ export const superAdminNavGroups: SuperAdminNavGroup[] = [
         status: "active",
         description: "A dedicated company directory, distinct from individual recruiter accounts, with verification and branding controls.",
       },
+      {
+        label: "Organisation Admins",
+        path: "/super-admin/org-admins",
+        icon: UserCog,
+        status: "active",
+        description: "Every recruiter who manages a team, with team size — jump straight to emailing them from here.",
+      },
     ],
   },
   {

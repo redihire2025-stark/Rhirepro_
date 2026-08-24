@@ -16,6 +16,7 @@ import {
   isJobExpired,
 } from "../../lib/jobs";
 import { PLANS, FREE_DAILY_POST_LIMIT, getPlanById, validatePromo, getPlanPriceBreakdown } from "../../lib/plans";
+import { sanitizePhoneInput } from "../../lib/inputSanitizers";
 import {
   INDIA_CITY_OPTIONS,
   getAllCountriesList,
@@ -11613,7 +11614,7 @@ function CompanyProfilePage() {
             </div>
             <div>
               <label className="block mb-1.5 text-sm font-medium text-[#3A1F1F]">Phone</label>
-              <Input value={profile.phone} onChange={e => setProfile({ ...profile, phone: e.target.value })} className="bg-[#F6F6F6] border-gray-200 rounded-xl" placeholder="Enter phone number" />
+              <Input type="tel" inputMode="numeric" maxLength={10} value={profile.phone} onChange={e => setProfile({ ...profile, phone: sanitizePhoneInput(e.target.value) })} className="bg-[#F6F6F6] border-gray-200 rounded-xl" placeholder="Enter phone number" />
             </div>
           </div>
         </div>
