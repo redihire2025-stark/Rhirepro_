@@ -2,7 +2,8 @@ import { useState, useEffect, useRef } from "react";
 import { useNavigate, Link } from "react-router";
 
 const logoImage = new URL("../../logo/logo.png", import.meta.url).href;
-import { Eye, EyeOff, Loader2, ShieldCheck, RefreshCw, Building2, Mail } from "lucide-react";
+import { Eye, EyeOff, Loader2, ShieldCheck, RefreshCw, Building2, Mail, LifeBuoy } from "lucide-react";
+import { SupportTicketDialog } from "../components/SupportTicketDialog";
 import { Button } from "../components/ui/button";
 import { Input } from "../components/ui/input";
 import { supabase } from "../../lib/supabase";
@@ -11,6 +12,7 @@ import { requestOTP, verifyOTP, sendPasswordResetOTP, resetPasswordWithOTP, secu
 
 export default function RecruiterSignIn() {
   const [step, setStep] = useState<"credentials" | "otp" | "forgot" | "forgot-otp">("credentials");
+  const [supportTicketOpen, setSupportTicketOpen] = useState(false);
   const [email, setEmail] = useState("");
   const [password, setPassword] = useState("");
   const [showPassword, setShowPassword] = useState(false);
@@ -364,6 +366,14 @@ export default function RecruiterSignIn() {
                   Sign Up
                 </Link>
               </p>
+
+              <button
+                type="button"
+                onClick={() => setSupportTicketOpen(true)}
+                className="mt-3 flex items-center gap-1.5 text-xs text-[#8A8A8A] hover:text-[#FF2B2B] mx-auto"
+              >
+                <LifeBuoy className="h-3.5 w-3.5" /> Trouble signing in? Raise a ticket
+              </button>
             </>
           ) : (
             <>
@@ -431,6 +441,12 @@ export default function RecruiterSignIn() {
           )}
         </div>
       </div>
+
+      <SupportTicketDialog
+        open={supportTicketOpen}
+        onOpenChange={setSupportTicketOpen}
+        userType="guest"
+      />
     </div>
   );
 }

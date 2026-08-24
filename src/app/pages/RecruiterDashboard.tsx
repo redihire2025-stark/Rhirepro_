@@ -47,8 +47,10 @@ import {
   MessageSquare, Video, Award, BookOpen, Globe, Linkedin, Share2,
   ArrowRight, Target, Zap, RefreshCw, MoreVertical, ThumbsUp, ThumbsDown, ExternalLink, Loader2,
   CreditCard, Tag, ShieldCheck, Crown, Check, Minimize2, ShieldAlert,
-  Menu, X, Send,
+  Menu, X, Send, LifeBuoy,
 } from "lucide-react";
+import { DeleteAccountCard } from "../components/DeleteAccountCard";
+import { SupportTicketDialog } from "../components/SupportTicketDialog";
 import { Button } from "../components/ui/button";
 import {
   Pagination,
@@ -1439,6 +1441,7 @@ export default function RecruiterDashboard() {
   const [mobileNavOpen, setMobileNavOpen] = useState(false);
   const [notifications, setNotifications] = useState<Notification[]>([]);
   const [unreadCount, setUnreadCount] = useState(0);
+  const [supportTicketOpen, setSupportTicketOpen] = useState(false);
 
   const fetchNotifications = useCallback(async () => {
     if (!recruiterProfile?.id) return;
@@ -1754,6 +1757,14 @@ export default function RecruiterDashboard() {
             </button>
 
             <div className="flex items-center gap-2">
+              <Button
+                variant="ghost"
+                size="icon"
+                title="Raise a support ticket"
+                onClick={() => setSupportTicketOpen(true)}
+              >
+                <LifeBuoy className="h-5 w-5" />
+              </Button>
               <div className="relative" ref={notifRef}>
                 <Button variant="ghost" size="icon" className="relative" onClick={() => {
                   const opening = !notificationsOpen;
@@ -1929,6 +1940,14 @@ export default function RecruiterDashboard() {
         <Route path="company-profile" element={<CompanyProfilePage />} />
         <Route path="plans" element={<PlansPage activeSub={activeSub} loading={loadingSub} />} />
       </Routes>
+
+      <SupportTicketDialog
+        open={supportTicketOpen}
+        onOpenChange={setSupportTicketOpen}
+        email={recruiterProfile?.email || user?.email || ""}
+        userId={user?.id}
+        userType="recruiter"
+      />
     </div>
   );
 }
@@ -11585,6 +11604,8 @@ function CompanyProfilePage() {
         <Button onClick={handleSave} disabled={saving} className={`w-full rounded-full py-6 text-white transition-colors ${saved ? "bg-green-500 hover:bg-green-600" : "bg-[#FF2B2B] hover:bg-[#e02525]"}`}>
           {saved ? <><CheckCircle className="mr-2 h-4 w-4" /> Saved Successfully!</> : saving ? "Saving..." : "Save Changes"}
         </Button>
+
+        <DeleteAccountCard />
       </div>
     </div>
   );

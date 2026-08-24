@@ -3,10 +3,11 @@ import { useNavigate, useSearchParams } from "react-router";
 import { useAuth, setPendingRole } from "../../lib/auth-context";
 import { Button } from "../components/ui/button";
 import { Input } from "../components/ui/input";
-import { User, Briefcase, Mail, Lock, Eye, EyeOff, Loader2, ShieldCheck, RefreshCw } from "lucide-react";
+import { User, Briefcase, Mail, Lock, Eye, EyeOff, Loader2, ShieldCheck, RefreshCw, LifeBuoy } from "lucide-react";
 const logoImage = new URL("../../logo/logo.png", import.meta.url).href;
 import { supabase } from "../../lib/supabase";
 import { requestOTP, verifyOTP, sendPasswordResetOTP, resetPasswordWithOTP, secureSignIn } from "../../lib/email";
+import { SupportTicketDialog } from "../components/SupportTicketDialog";
 
 // ── Google icon ──────────────────────────────────────────────────────────────
 
@@ -29,6 +30,7 @@ export default function SignInPage() {
 
   const [userType, setUserType] = useState<"jobseeker" | "recruiter">(initialUserType);
   const [step, setStep] = useState<"credentials" | "otp" | "forgot" | "forgot-otp">("credentials");
+  const [supportTicketOpen, setSupportTicketOpen] = useState(false);
   const [email, setEmail] = useState("");
   const [password, setPassword] = useState("");
   const [showPassword, setShowPassword] = useState(false);
@@ -402,6 +404,14 @@ export default function SignInPage() {
                       </Button>
                     </>
                   )}
+
+                  <button
+                    type="button"
+                    onClick={() => setSupportTicketOpen(true)}
+                    className="mt-5 flex items-center gap-1.5 text-xs text-[#8A8A8A] hover:text-[#FF2B2B] mx-auto"
+                  >
+                    <LifeBuoy className="h-3.5 w-3.5" /> Trouble signing in? Raise a ticket
+                  </button>
                 </>
               ) : step === "forgot" ? (
                 <>
@@ -549,6 +559,12 @@ export default function SignInPage() {
           </div>
         </div>
       </div>
+
+      <SupportTicketDialog
+        open={supportTicketOpen}
+        onOpenChange={setSupportTicketOpen}
+        userType="guest"
+      />
     </div>
   );
 }

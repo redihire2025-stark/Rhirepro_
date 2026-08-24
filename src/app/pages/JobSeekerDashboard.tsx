@@ -19,13 +19,15 @@ import { draftKey, useFormDraft } from "../../lib/useFormDraft";
 import { toast } from "sonner";
 import { INDIA_CITY_OPTIONS } from "../../lib/locationData";
 import AppliedJobsSection from "../components/AppliedJobsSection";
+import { DeleteAccountCard } from "../components/DeleteAccountCard";
+import { SupportTicketDialog } from "../components/SupportTicketDialog";
 import ResumePreviewDialog, { getStorageObjectFromUrl, buildPreviewUrl } from "../components/ResumePreviewDialog";
 import {
   Bell, LogOut, Search, MapPin, DollarSign, Briefcase, Filter, Bookmark,
   User, BarChart3, Lightbulb, Upload, Plus, X, Pencil, Trash2,
   GraduationCap, Award, Globe, Phone, Mail, Camera, Clock, CheckCircle,
   TrendingUp, ArrowRight, Loader2, Check, ChevronsUpDown, FileText,
-  Eye, Download, Users, Tag, AlertCircle,
+  Eye, Download, Users, Tag, AlertCircle, LifeBuoy,
 } from "lucide-react";
 import { Button } from "../components/ui/button";
 import { Input } from "../components/ui/input";
@@ -1014,6 +1016,7 @@ export default function JobSeekerDashboard() {
   const [notifications, setNotifications] = useState<Notification[]>([]);
   const [unreadCount, setUnreadCount] = useState(0);
   const [profilePrefsHasUnsavedChanges, setProfilePrefsHasUnsavedChanges] = useState(false);
+  const [supportTicketOpen, setSupportTicketOpen] = useState(false);
 
   const fetchNotifications = useCallback(async () => {
     if (!profile?.id) return;
@@ -1235,6 +1238,14 @@ export default function JobSeekerDashboard() {
             </nav>
 
             <div className="flex-1 flex items-center justify-end gap-2">
+              <Button
+                variant="ghost"
+                size="icon"
+                title="Raise a support ticket"
+                onClick={() => setSupportTicketOpen(true)}
+              >
+                <LifeBuoy className="h-5 w-5" />
+              </Button>
               <div className="relative" ref={notifRef}>
                 <Button variant="ghost" size="icon" className="relative" onClick={async () => {
                   const opening = !notificationsOpen;
@@ -1357,6 +1368,14 @@ export default function JobSeekerDashboard() {
         <Route path="analytics" element={<AnalyticsPage />} />
         <Route path="insights" element={<InsightsPage />} />
       </Routes>
+
+      <SupportTicketDialog
+        open={supportTicketOpen}
+        onOpenChange={setSupportTicketOpen}
+        email={profile?.email || user?.email || ""}
+        userId={user?.id}
+        userType="jobseeker"
+      />
     </div>
   );
 }
@@ -5155,6 +5174,8 @@ function ProfilePage({ onPendingPrefsChange }: { onPendingPrefsChange?: (pending
             </div>
           )}
         </div>
+
+        <DeleteAccountCard />
 
         {/*
           One Save for the whole page. Every section still has its own Save —

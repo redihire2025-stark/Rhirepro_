@@ -183,6 +183,8 @@ export default function OrgAdminPanel() {
   const [memberSearchQuery, setMemberSearchQuery] = useState("");
   const [blogStatusFilter, setBlogStatusFilter] = useState<"all" | "Published" | "Draft">("all");
   const [deleteBlogId, setDeleteBlogId] = useState<string | null>(null);
+  const [removeMemberId, setRemoveMemberId] = useState<string | null>(null);
+  const [removeMemberError, setRemoveMemberError] = useState("");
 
   // Recruiter Details & Keywords dialog
   const [selectedMember, setSelectedMember] = useState<OrgMember | null>(null);
@@ -651,21 +653,48 @@ export default function OrgAdminPanel() {
 
   const handleMemberAction = async (
     memberId: string,
-    action: "deactivate" | "activate" | "remove"
+    action: "deactivate" | "activate"
   ) => {
     setActionLoading(memberId);
     try {
       if (action === "deactivate") {
         await supabase.from("recruiter_profiles").update({ is_active: false }).eq("id", memberId);
-      } else if (action === "activate") {
+      } else {
         await supabase.from("recruiter_profiles").update({ is_active: true }).eq("id", memberId);
-      } else if (action === "remove") {
-        await supabase
-          .from("recruiter_profiles")
-          .update({ org_admin_id: null, org_role: "admin" })
-          .eq("id", memberId);
       }
       await loadData();
+    } finally {
+      setActionLoading(null);
+    }
+  };
+
+  // Removing a member deletes their account entirely (not just an org
+  // unlink) — they never signed up as an independent user, so leaving the
+  // account behind would let them keep using the platform for free under
+  // data that belonged to this org. This is irreversible, hence the
+  // confirmation dialog before it's ever called.
+  const handleRemoveMember = async (memberIdToRemove: string) => {
+    setActionLoading(memberIdToRemove);
+    setRemoveMemberError("");
+    try {
+      const { data: sessionData } = await supabase.auth.getSession();
+      const token = sessionData.session?.access_token;
+      const res = await fetch("/api/org-remove-member", {
+        method: "POST",
+        headers: {
+          "Content-Type": "application/json",
+          ...(token ? { Authorization: `Bearer ${token}` } : {}),
+        },
+        body: JSON.stringify({ member_id: memberIdToRemove }),
+      });
+      if (!res.ok) {
+        const err = await res.json().catch(() => ({ error: "Failed to remove member" }));
+        throw new Error(err.error || "Failed to remove member");
+      }
+      setRemoveMemberId(null);
+      await loadData();
+    } catch (err: unknown) {
+      setRemoveMemberError(err instanceof Error ? err.message : "Failed to remove member");
     } finally {
       setActionLoading(null);
     }
@@ -1229,7 +1258,7 @@ export default function OrgAdminPanel() {
                                   )}
                                   <DropdownMenuSeparator />
                                   <DropdownMenuItem
-                                    onClick={() => handleMemberAction(member.id, "remove")}
+                                    onClick={() => { setRemoveMemberError(""); setRemoveMemberId(member.id); }}
                                     className="text-red-600"
                                   >
                                     <X className="h-4 w-4 mr-2" /> Remove from Org
@@ -2023,7 +2052,49 @@ export default function OrgAdminPanel() {
         </DialogContent>
       </Dialog>
 
-
+      {/* Remove Member Confirmation Dialog */}
+      <Dialog open={!!removeMemberId} onOpenChange={() => { setRemoveMemberId(null); setRemoveMemberError(""); }}>
+        <DialogContent className="max-w-md">
+          <DialogHeader>
+            <DialogTitle className="text-[#3A1F1F] flex items-center gap-2">
+              <Trash2 className="h-5 w-5 text-red-500" /> Remove Team Member
+            </DialogTitle>
+          </DialogHeader>
+          <div className="py-3 space-y-2">
+            <p className="text-sm text-[#8A8A8A]">
+              This permanently deletes{" "}
+              <strong className="text-[#3A1F1F]">
+                {members.find(m => m.id === removeMemberId)?.recruiter_name || "this member"}
+              </strong>
+              's account — not just their access to your team. They will be signed out
+              everywhere and cannot sign back in. This cannot be undone.
+            </p>
+            {removeMemberError && (
+              <p className="text-sm text-red-600 bg-red-50 border border-red-100 rounded-lg px-3 py-2">
+                {removeMemberError}
+              </p>
+            )}
+          </div>
+          <div className="flex gap-3 pt-2">
+            <Button
+              variant="outline"
+              className="flex-1 rounded-full"
+              onClick={() => { setRemoveMemberId(null); setRemoveMemberError(""); }}
+              disabled={actionLoading === removeMemberId}
+            >
+              Cancel
+            </Button>
+            <Button
+              className="flex-1 bg-red-600 hover:bg-red-700 text-white rounded-full"
+              onClick={() => removeMemberId && handleRemoveMember(removeMemberId)}
+              disabled={actionLoading === removeMemberId}
+            >
+              {actionLoading === removeMemberId ? <Loader2 className="h-4 w-4 mr-2 animate-spin" /> : null}
+              Delete Account
+            </Button>
+          </div>
+        </DialogContent>
+      </Dialog>
 
       {/* Invite Dialog */}
       <Dialog open={inviteOpen} onOpenChange={setInviteOpen}>

@@ -2,7 +2,8 @@ import { useState, useEffect, useRef } from "react";
 import { useNavigate, Link, useLocation } from "react-router";
 
 const logoImage = new URL("../../logo/logo.png", import.meta.url).href;
-import { Eye, EyeOff, Loader2, ShieldCheck, RefreshCw, Mail } from "lucide-react";
+import { Eye, EyeOff, Loader2, ShieldCheck, RefreshCw, Mail, LifeBuoy } from "lucide-react";
+import { SupportTicketDialog } from "../components/SupportTicketDialog";
 import { Button } from "../components/ui/button";
 import { Input } from "../components/ui/input";
 import { supabase } from "../../lib/supabase";
@@ -49,6 +50,7 @@ const GoogleIcon = () => (
 
 export default function JobSeekerSignIn() {
   const [step, setStep] = useState<"credentials" | "otp" | "forgot" | "forgot-otp">("credentials");
+  const [supportTicketOpen, setSupportTicketOpen] = useState(false);
   const [email, setEmail] = useState("");
   const [password, setPassword] = useState("");
   const [showPassword, setShowPassword] = useState(false);
@@ -429,6 +431,14 @@ export default function JobSeekerSignIn() {
                   Sign Up Free
                 </Link>
               </p>
+
+              <button
+                type="button"
+                onClick={() => setSupportTicketOpen(true)}
+                className="mt-3 flex items-center gap-1.5 text-xs text-[#8A8A8A] hover:text-[#FF2B2B] mx-auto"
+              >
+                <LifeBuoy className="h-3.5 w-3.5" /> Trouble signing in? Raise a ticket
+              </button>
             </>
           ) : (
             <>
@@ -497,6 +507,12 @@ export default function JobSeekerSignIn() {
           )}
         </div>
       </div>
+
+      <SupportTicketDialog
+        open={supportTicketOpen}
+        onOpenChange={setSupportTicketOpen}
+        userType="guest"
+      />
     </div>
   );
 }
