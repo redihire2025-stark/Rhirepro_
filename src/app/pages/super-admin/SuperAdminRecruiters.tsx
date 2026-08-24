@@ -1,13 +1,15 @@
 import { useEffect, useState, useCallback } from "react";
 import { toast } from "sonner";
-import { Ban, CheckCircle2, MoreHorizontal, ShieldCheck, ShieldX } from "lucide-react";
+import { Ban, CheckCircle2, MoreHorizontal, ShieldCheck, ShieldX, Trash2, Loader2 } from "lucide-react";
 import { DataTable, DataTableColumn, exportRowsAsCsv } from "../../components/ui/data-table";
 import { Badge } from "../../components/ui/badge";
 import { Button } from "../../components/ui/button";
+import { Input } from "../../components/ui/input";
 import {
   DropdownMenu,
   DropdownMenuContent,
   DropdownMenuItem,
+  DropdownMenuSeparator,
   DropdownMenuTrigger,
 } from "../../components/ui/dropdown-menu";
 import {
@@ -17,6 +19,7 @@ import {
   SheetTitle,
   SheetDescription,
 } from "../../components/ui/sheet";
+import { Dialog, DialogContent, DialogHeader, DialogTitle } from "../../components/ui/dialog";
 import { supabase } from "../../../lib/supabase";
 import { logAdminAction } from "../../../lib/admin-audit";
 
@@ -47,6 +50,9 @@ export default function SuperAdminRecruiters() {
   const [sortKey, setSortKey] = useState("created_at");
   const [sortDir, setSortDir] = useState<"asc" | "desc">("desc");
   const [selected, setSelected] = useState<RecruiterRow | null>(null);
+  const [deleteTarget, setDeleteTarget] = useState<RecruiterRow | null>(null);
+  const [deleteConfirmText, setDeleteConfirmText] = useState("");
+  const [deleting, setDeleting] = useState(false);
 
   /**
    * Email the recruiter about an account decision. The endpoint requires the
@@ -237,6 +243,49 @@ Summarise why. This is emailed to them and shown when they try to sign in:`,
     fetchRows();
   };
 
+  /**
+   * Permanently deletes the account (auth user + cascaded recruiter_profiles
+   * row) — not a status toggle, no way back. Requires typing the exact email
+   * to confirm, on top of the confirmation dialog itself, since this is a
+   * live person's account and there's no undo.
+   */
+  const handleDeleteAccount = async () => {
+    if (!deleteTarget) return;
+    setDeleting(true);
+    try {
+      const {
+        data: { session },
+      } = await supabase.auth.getSession();
+      const res = await fetch("/api/admin-delete-user", {
+        method: "POST",
+        headers: {
+          "Content-Type": "application/json",
+          ...(session?.access_token ? { Authorization: `Bearer ${session.access_token}` } : {}),
+        },
+        body: JSON.stringify({ user_id: deleteTarget.id }),
+      });
+      if (!res.ok) {
+        const err = await res.json().catch(() => ({ error: "Failed to delete account" }));
+        throw new Error(err.error || "Failed to delete account");
+      }
+      logAdminAction({
+        action: "recruiter.delete",
+        entityType: "recruiter_profiles",
+        entityId: deleteTarget.id,
+        beforeValue: { email: deleteTarget.email, company_name: deleteTarget.company_name },
+        afterValue: null,
+      });
+      toast.success(`${deleteTarget.email} has been permanently deleted.`);
+      setDeleteTarget(null);
+      setDeleteConfirmText("");
+      fetchRows();
+    } catch (err: unknown) {
+      toast.error(err instanceof Error ? err.message : "Failed to delete account");
+    } finally {
+      setDeleting(false);
+    }
+  };
+
   const columns: DataTableColumn<RecruiterRow>[] = [
     {
       key: "recruiter_name",
@@ -376,6 +425,13 @@ Summarise why. This is emailed to them and shown when they try to sign in:`,
                   </>
                 )}
               </DropdownMenuItem>
+              <DropdownMenuSeparator />
+              <DropdownMenuItem
+                onClick={() => { setDeleteConfirmText(""); setDeleteTarget(row); }}
+                className="text-red-600 focus:text-red-600"
+              >
+                <Trash2 /> Delete account
+              </DropdownMenuItem>
             </DropdownMenuContent>
           </DropdownMenu>
         )}
@@ -419,6 +475,55 @@ Summarise why. This is emailed to them and shown when they try to sign in:`,
           )}
         </SheetContent>
       </Sheet>
+
+      <Dialog open={!!deleteTarget} onOpenChange={(open) => { if (!open) { setDeleteTarget(null); setDeleteConfirmText(""); } }}>
+        <DialogContent className="max-w-md">
+          <DialogHeader>
+            <DialogTitle className="flex items-center gap-2 text-red-600">
+              <Trash2 className="size-5" /> Delete Recruiter Account
+            </DialogTitle>
+          </DialogHeader>
+          <div className="space-y-3 py-2 text-sm">
+            <p className="text-muted-foreground">
+              This permanently deletes{" "}
+              <strong className="text-foreground">
+                {deleteTarget?.recruiter_name || deleteTarget?.email}
+              </strong>
+              's account — profile, jobs, applications, everything. This cannot be undone.
+            </p>
+            <div>
+              <label className="block text-sm font-medium mb-1.5">
+                Type <strong>{deleteTarget?.email}</strong> to confirm
+              </label>
+              <Input
+                value={deleteConfirmText}
+                onChange={(e) => setDeleteConfirmText(e.target.value)}
+                placeholder={deleteTarget?.email || ""}
+                autoComplete="off"
+              />
+            </div>
+          </div>
+          <div className="flex gap-3 pt-2">
+            <Button
+              variant="outline"
+              className="flex-1"
+              onClick={() => { setDeleteTarget(null); setDeleteConfirmText(""); }}
+              disabled={deleting}
+            >
+              Cancel
+            </Button>
+            <Button
+              variant="destructive"
+              className="flex-1"
+              onClick={handleDeleteAccount}
+              disabled={deleting || deleteConfirmText !== deleteTarget?.email}
+            >
+              {deleting ? <Loader2 className="size-4 mr-1.5 animate-spin" /> : null}
+              Delete Account
+            </Button>
+          </div>
+        </DialogContent>
+      </Dialog>
     </div>
   );
 }
