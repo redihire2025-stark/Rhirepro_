@@ -28,6 +28,14 @@ interface SavedJobsSectionProps {
   onJobsLoaded?: (jobs: SavedJobWithJob[]) => void;
   onJobSelect?: (job: SavedJobWithJob) => void;
   selectedJobId?: string | null;
+  /**
+   * Fires right after a successful apply (from either the row's quick-apply
+   * button or the JD panel's Apply button) so a parent tracking its own
+   * "applied" state — e.g. a detail panel it renders outside this
+   * component — can update in lockstep instead of relying on some other
+   * fetch to eventually catch up.
+   */
+  onApplied?: (jobId: string) => void;
   showComparisonControls?: boolean;
   /**
    * Drops saved jobs that are no longer live. The dashboard lists those under
@@ -72,6 +80,7 @@ export default function SavedJobsSection({
   onJobsLoaded,
   onJobSelect,
   selectedJobId,
+  onApplied,
   showComparisonControls = true,
   hideExpired = false,
   onCompareRequested,
@@ -104,6 +113,7 @@ export default function SavedJobsSection({
       });
       if (!applyErr) {
         setFetchedAppliedJobIds((prev) => [...prev, jobIdStr]);
+        onApplied?.(jobIdStr);
       }
     } catch (e) {
       console.error("Apply error:", e);

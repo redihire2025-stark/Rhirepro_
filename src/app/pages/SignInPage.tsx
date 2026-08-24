@@ -198,6 +198,13 @@ export default function SignInPage() {
           throw new Error("This account has been disabled. Please contact your organization admin.");
         }
 
+        // See RecruiterSignIn for why this check exists — is_active was
+        // fetched and shown but never enforced.
+        if (rp.is_active === false) {
+          await supabase.auth.signOut();
+          throw new Error("Your account has been deactivated. Please contact your organization admin.");
+        }
+
         // Super Admin approval gate — see RecruiterSignIn for the same check.
         if (rp.verification_status === "Rejected") {
           await supabase.auth.signOut();

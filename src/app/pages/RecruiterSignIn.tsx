@@ -119,6 +119,18 @@ export default function RecruiterSignIn() {
         throw new Error("This account has been disabled. Please contact your organization admin.");
       }
 
+      // is_active is the org-admin-facing "Deactivate member" toggle (and
+      // what the plan-cancellation unwind sets when a team is dissolved) —
+      // it was being fetched and shown in the Team tab but never actually
+      // checked anywhere, so deactivating someone never stopped them
+      // signing in or using the platform. NULL/undefined still means
+      // active (matches the COALESCE(is_active, true) used elsewhere) —
+      // only an explicit false blocks.
+      if (rp.is_active === false) {
+        await supabase.auth.signOut();
+        throw new Error("Your account has been deactivated. Please contact your organization admin.");
+      }
+
       // 3b. Super Admin approval gate. recruiter_profiles.verification_status
       // defaults to 'Pending', so a brand-new account cannot get in until an
       // admin approves it.

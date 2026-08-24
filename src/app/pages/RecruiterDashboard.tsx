@@ -1416,9 +1416,22 @@ export default function RecruiterDashboard() {
   // page/nav and the "buy a plan" redirect below don't apply to them.
   const isOrgMember = Boolean(recruiterProfile?.org_admin_id) && !isOrgAdmin;
 
+  // is_active was fetched and shown in the Team tab but never enforced —
+  // the sign-in gate now blocks a fresh login, but this covers a session
+  // that was already open when they got deactivated (or force-signed-out
+  // server-side but the local token hasn't noticed yet).
+  useEffect(() => {
+    if (authLoading || !recruiterProfile) return;
+    if (recruiterProfile.is_active === false) {
+      signOut();
+      navigate("/recruiter/signin", { replace: true });
+    }
+  }, [authLoading, recruiterProfile, signOut, navigate]);
+
   // Subscription guard — redirect to plans if expired
   useEffect(() => {
     if (authLoading || loadingSub || !user || !recruiterProfile) return;
+    if (recruiterProfile.is_active === false) return; // handled above
 
     // Allow users to access the Plans page regardless of subscription status
     if (location.pathname === "/recruiter/dashboard/plans" || location.pathname === "/recruiter/dashboard/plans/") {

@@ -631,7 +631,10 @@ function buildDashboardJob(job: DBJobWithApplications): DashboardDisplayJob {
   };
 }
 
-const PREFERRED_INTERVIEW_MODE_OPTIONS = ["Remote", "In-Person", "Hybrid", "Video Call", "Telephonic", "Walk-in"];
+// Matches the Find a Job interview-mode filter exactly — was 6 options
+// (Remote/In-Person/Hybrid/Video Call/Telephonic/Walk-in), half of which
+// overlapped with Work Mode and didn't correspond to anything filterable.
+const PREFERRED_INTERVIEW_MODE_OPTIONS = ["In-Person", "Walk-in", "Telephonic", "Virtual"];
 
 const POPULAR_LOCATION_SUGGESTIONS = [
   "Remote",
@@ -5253,11 +5256,11 @@ function ExpForm({ form, setForm, onSave, onCancel }: {
         </div>
         <div>
           <label className="block text-sm text-[#3A1F1F] mb-1">Location</label>
-          <Input
+          <SearchableComboboxInput
             value={form.location}
-            onChange={(e) => setForm({ ...form, location: e.target.value.replace(/[^a-zA-Z0-9\s,]/g, "") })}
-            className="bg-white border-gray-200 rounded-xl"
+            onChange={(v) => setForm({ ...form, location: v.replace(/[^a-zA-Z0-9\s,]/g, "") })}
             placeholder="City, State"
+            options={PREFERRED_LOCATION_ALL_OPTIONS}
           />
         </div>
         <div className="flex items-end gap-2">
@@ -6188,6 +6191,7 @@ function AnalyticsPage() {
               onJobsLoaded={setSavedJobs}
               onJobSelect={setSelectedSavedJob}
               selectedJobId={selectedSavedJob ? String(selectedSavedJob.job_id || selectedSavedJob.job?.id) : null}
+              onApplied={(jobId) => setJustAppliedJobIds(prev => new Set(prev).add(jobId))}
               showComparisonControls={false}
               hideExpired
             />
@@ -6201,6 +6205,7 @@ function AnalyticsPage() {
                 onJobsLoaded={setSavedJobs}
                 onJobSelect={setSelectedSavedJob}
                 selectedJobId={selectedSavedJob ? String(selectedSavedJob.job_id || selectedSavedJob.job?.id) : null}
+                onApplied={(jobId) => setJustAppliedJobIds(prev => new Set(prev).add(jobId))}
                 showComparisonControls
                 hideExpired
                 onCompareRequested={setCompareState}
