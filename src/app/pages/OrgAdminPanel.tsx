@@ -656,14 +656,27 @@ export default function OrgAdminPanel() {
 
   const handleMemberAction = async (
     memberId: string,
-    action: "deactivate" | "activate"
+    action: "deactivate" | "activate" | "approve"
   ) => {
     setActionLoading(memberId);
     try {
       if (action === "deactivate") {
         await supabase.from("recruiter_profiles").update({ is_active: false }).eq("id", memberId);
-      } else {
+      } else if (action === "activate") {
         await supabase.from("recruiter_profiles").update({ is_active: true }).eq("id", memberId);
+      } else {
+        // A member you invited yourself shouldn't need a separate Super Admin
+        // approval — this clears a Pending/Rejected verification_status the
+        // same way Super Admin's own Approve action does. The "Org admins
+        // update member profiles" RLS policy (org_admin_id = auth.uid())
+        // already permits this write on your own team's rows.
+        await supabase.from("recruiter_profiles").update({
+          verification_status: "Verified",
+          verified_at: new Date().toISOString(),
+          rejection_reason: null,
+          rejected_at: null,
+          rejected_by: null,
+        }).eq("id", memberId);
       }
       await loadData();
     } finally {
@@ -1244,6 +1257,17 @@ export default function OrgAdminPanel() {
                                   </Button>
                                 </DropdownMenuTrigger>
                                 <DropdownMenuContent align="end">
+                                  {member.verification_status && member.verification_status !== "Verified" && (
+                                    <>
+                                      <DropdownMenuItem
+                                        onClick={() => handleMemberAction(member.id, "approve")}
+                                        className="text-green-600"
+                                      >
+                                        <CheckCircle className="h-4 w-4 mr-2" /> Approve
+                                      </DropdownMenuItem>
+                                      <DropdownMenuSeparator />
+                                    </>
+                                  )}
                                   {member.is_active ? (
                                     <DropdownMenuItem
                                       onClick={() => handleMemberAction(member.id, "deactivate")}
