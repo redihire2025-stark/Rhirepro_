@@ -1,5 +1,5 @@
 import { useState, useEffect, useCallback, useRef, useMemo, type ChangeEvent } from "react";
-import { useNavigate, Routes, Route, Link, useLocation, useParams } from "react-router";
+import { useNavigate, Routes, Route, Link, useLocation, useParams, useBlocker } from "react-router";
 import { supabase, Job, Application, Notification, Profile, WorkExperience, Education as EduType, RecruiterSubscription, RecruiterArticle, PREFERRED_JOINING_TIME_OPTIONS } from "../../lib/supabase";
 import { getSearchApiUrl } from "../../lib/searchApi";
 import {
@@ -5798,28 +5798,18 @@ function SearchCandidatesPage() {
     setSearched(true);
     setSkillSuggestionsOpen(false);
 
-    // Track and store keywords used
+    // Track and store keywords used. This used to fall back to writing into
+    // localStorage on failure, but nothing ever read that back except the
+    // same browser/device — an org admin reviewing this from their own
+    // session could never see it, so it just masked real failures (a
+    // missing GRANT on recruiter_search_keywords, since fixed) as silent
+    // per-device data loss instead of a visible one.
     if (activeKeywords.trim() && recruiterProfile?.id) {
       const tokens = activeKeywords.trim().toLowerCase().split(/\s+/).filter(Boolean);
       if (tokens.length > 0) {
         void supabase.rpc("log_recruiter_keywords", { p_recruiter_id: recruiterProfile.id, p_keywords: tokens })
           .then(({ error: kErr }) => {
-            if (kErr) {
-              console.warn("Failed to log search keywords to DB:", kErr.message);
-              try {
-                const localKey = `search_keywords_${recruiterProfile.id}`;
-                const existing = JSON.parse(localStorage.getItem(localKey) || "[]");
-                tokens.forEach(token => {
-                  existing.unshift({
-                    keyword: token,
-                    created_at: new Date().toISOString()
-                  });
-                });
-                localStorage.setItem(localKey, JSON.stringify(existing.slice(0, 200)));
-              } catch (e) {
-                console.error("Failed to save keywords to localStorage:", e);
-              }
-            }
+            if (kErr) console.warn("Failed to log search keywords to DB:", kErr.message);
           });
       }
     }
@@ -11113,6 +11103,11 @@ function CompanyProfilePage() {
     tagline: "", phone: "", recruiterName: "", logoUrl: "", coverImageUrl: "", coverImageName: "",
   });
   const [orgCompanyProfile, setOrgCompanyProfile] = useState<Record<string, unknown> | null>(null);
+  // Snapshot of `profile` as last loaded/saved — compared against the live
+  // form to warn before switching tabs or closing the page loses unsaved
+  // edits, which happened silently before.
+  const [initialProfile, setInitialProfile] = useState<typeof profile | null>(null);
+  const isDirty = initialProfile !== null && JSON.stringify(profile) !== JSON.stringify(initialProfile);
   const [saved, setSaved] = useState(false);
   const [saving, setSaving] = useState(false);
   const [uploadingAsset, setUploadingAsset] = useState<"logo" | "cover" | null>(null);
@@ -11150,7 +11145,12 @@ function CompanyProfilePage() {
     let cancelled = false;
     supabase
       .from("recruiter_profiles")
-      .select("company_name, industry, company_size, company_type, founded, company_description, website, location, linkedin_url, cin, tagline, logo_url, cover_image_url, cover_image_name")
+      // cover_image_name deliberately excluded: rls_recruiter_email_fix.sql's
+      // column-level grant for `authenticated` doesn't include it, and Postgres
+      // 42501s the ENTIRE select if even one requested column lacks a grant —
+      // which was silently emptying every field below, not just this one. Team
+      // members never see the upload UI that needs the filename anyway.
+      .select("company_name, industry, company_size, company_type, founded, company_description, website, location, linkedin_url, cin, tagline, logo_url, cover_image_url")
       .eq("id", recruiterProfile.org_admin_id)
       .maybeSingle()
       .then(({ data }) => {
@@ -11164,7 +11164,7 @@ function CompanyProfilePage() {
     if (isTeamMember && !orgCompanyProfile) return; // wait for the admin's data before rendering it
 
     const company = isTeamMember && orgCompanyProfile ? orgCompanyProfile : recruiterProfile;
-    setProfile({
+    const next = {
       companyName: (company.company_name as string) || "",
       industry: (company.industry as string) || "",
       companySize: (company.company_size as string) || "",
@@ -11184,7 +11184,9 @@ function CompanyProfilePage() {
       logoUrl: (company.logo_url as string) || "",
       coverImageUrl: (company.cover_image_url as string) || "",
       coverImageName: (company.cover_image_name as string) || "",
-    });
+    };
+    setProfile(next);
+    setInitialProfile(next);
   }, [recruiterProfile, isTeamMember, orgCompanyProfile]);
 
   const handleBrandingUpload = async (asset: "logo" | "cover", event: ChangeEvent<HTMLInputElement>) => {
@@ -11274,6 +11276,21 @@ function CompanyProfilePage() {
     }
   }, [recruiterProfile, isTeamMember, setUploadingAsset, setBrandingError, setProfile, refreshProfile]);
 
+  // Edits here were silently discarded on tab switch or navigation — nothing
+  // told the recruiter they had unsaved changes until it was too late. Block
+  // in-app navigation with a confirmation, and warn on tab close/reload too.
+  const navBlocker = useBlocker(({ currentLocation, nextLocation }) => isDirty && currentLocation.pathname !== nextLocation.pathname);
+
+  useEffect(() => {
+    const handleBeforeUnload = (e: BeforeUnloadEvent) => {
+      if (!isDirty) return;
+      e.preventDefault();
+      e.returnValue = "";
+    };
+    window.addEventListener("beforeunload", handleBeforeUnload);
+    return () => window.removeEventListener("beforeunload", handleBeforeUnload);
+  }, [isDirty]);
+
   const handleSave = async () => {
     if (!recruiterProfile?.id) return;
     setSaving(true);
@@ -11308,10 +11325,11 @@ function CompanyProfilePage() {
       const { error } = await supabase.from("recruiter_profiles").update(updatePayload).eq("id", recruiterProfile.id);
       if (error) throw error;
 
-      setProfile(current => ({
-        ...current,
-        description: formatHtmlForEditor(finalDescription),
-      }));
+      setProfile(current => {
+        const next = { ...current, description: formatHtmlForEditor(finalDescription) };
+        setInitialProfile(next);
+        return next;
+      });
       await refreshProfile();
       setSaved(true);
       setTimeout(() => setSaved(false), 3000);
@@ -11607,6 +11625,28 @@ function CompanyProfilePage() {
 
         <DeleteAccountCard />
       </div>
+
+      <Dialog open={navBlocker.state === "blocked"} onOpenChange={(open) => { if (!open) navBlocker.reset?.(); }}>
+        <DialogContent className="max-w-sm">
+          <DialogHeader>
+            <DialogTitle className="text-[#3A1F1F]">Unsaved changes</DialogTitle>
+          </DialogHeader>
+          <p className="text-sm text-[#8A8A8A]">
+            You've made changes to your company profile that haven't been saved. Leave without saving?
+          </p>
+          <div className="flex gap-3 pt-2">
+            <Button variant="outline" className="flex-1 rounded-full" onClick={() => navBlocker.reset?.()}>
+              Stay on this page
+            </Button>
+            <Button
+              className="flex-1 rounded-full bg-red-600 hover:bg-red-700 text-white"
+              onClick={() => navBlocker.proceed?.()}
+            >
+              Leave without saving
+            </Button>
+          </div>
+        </DialogContent>
+      </Dialog>
     </div>
   );
 }

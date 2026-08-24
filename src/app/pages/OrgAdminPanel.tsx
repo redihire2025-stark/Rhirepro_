@@ -191,7 +191,13 @@ export default function OrgAdminPanel() {
   const [memberKeywords, setMemberKeywords] = useState<{ keyword: string; created_at: string }[]>([]);
   const [keywordsLoading, setKeywordsLoading] = useState(false);
 
-  // Fetch search keywords for a recruiter
+  // Fetch search keywords for a recruiter. This used to merge in
+  // localStorage under `search_keywords_${memberId}` as a "fallback" — but
+  // that key only ever exists in the searching recruiter's own browser, so
+  // an admin viewing a team member's history from a different device could
+  // never see it anyway. It was masking a real 403 (missing GRANT on this
+  // table, fixed in recruiter_search_keywords_grants_fix.sql) behind what
+  // looked like just-empty-for-this-member data.
   const fetchMemberKeywords = async (memberId: string) => {
     setKeywordsLoading(true);
     try {
@@ -200,44 +206,16 @@ export default function OrgAdminPanel() {
         .select("keyword, created_at")
         .eq("recruiter_id", memberId)
         .order("created_at", { ascending: false });
-      
-      const localKey = `search_keywords_${memberId}`;
-      let localKeywords = JSON.parse(localStorage.getItem(localKey) || "[]");
-      
-      // Seed initial sample keywords for Aishwarya Shenoy if empty for immediate demonstration
-      if (memberId === "7a559415-d8a3-4416-9dc2-cc1053465c4c" && localKeywords.length === 0 && (!data || data.length === 0)) {
-        const dummyKeywords = [
-          { keyword: "react", created_at: new Date(Date.now() - 3600000 * 2).toISOString() },
-          { keyword: "typescript", created_at: new Date(Date.now() - 3600000 * 5).toISOString() },
-          { keyword: "nodejs", created_at: new Date(Date.now() - 3600000 * 24).toISOString() },
-          { keyword: "frontend developer", created_at: new Date(Date.now() - 3600000 * 48).toISOString() },
-          { keyword: "postgres", created_at: new Date(Date.now() - 3600000 * 72).toISOString() },
-          { keyword: "nextjs", created_at: new Date(Date.now() - 3600000 * 96).toISOString() }
-        ];
-        localStorage.setItem(localKey, JSON.stringify(dummyKeywords));
-        localKeywords = dummyKeywords;
-      }
 
       if (error) {
         console.error("Error fetching keywords from DB:", error);
-        setMemberKeywords(localKeywords);
+        setMemberKeywords([]);
       } else {
-        // Merge DB keywords and local keywords
-        const combined = [...(data || [])];
-        localKeywords.forEach((lk: any) => {
-          if (!combined.some(ck => ck.keyword.toLowerCase() === lk.keyword.toLowerCase() && ck.created_at === lk.created_at)) {
-            combined.push(lk);
-          }
-        });
-        // Sort by date desc
-        combined.sort((a, b) => new Date(b.created_at).getTime() - new Date(a.created_at).getTime());
-        setMemberKeywords(combined);
+        setMemberKeywords(data || []);
       }
     } catch (err) {
       console.error("Error in fetchMemberKeywords:", err);
-      const localKey = `search_keywords_${memberId}`;
-      const localKeywords = JSON.parse(localStorage.getItem(localKey) || "[]");
-      setMemberKeywords(localKeywords);
+      setMemberKeywords([]);
     } finally {
       setKeywordsLoading(false);
     }
@@ -599,15 +577,23 @@ export default function OrgAdminPanel() {
     try {
       const activeCount = members.filter(m => m.is_active).length;
       const maxSeats = recruiterProfile.max_seats || 5;
-      if (activeCount >= maxSeats) {
-        setInviteError(`Seat limit reached (${maxSeats} seats). Upgrade your plan to add more.`);
-        return;
-      }
       const pending = invitations.find(
         i => i.invited_email === inviteEmail.trim().toLowerCase() && i.status === "pending"
       );
       if (pending) {
         setInviteError("A pending invitation already exists for this email.");
+        return;
+      }
+      // Pending invites reserve a seat too — if this weren't counted, an
+      // admin could send more invites than they have seats for, and end up
+      // over the limit the moment more than maxSeats of them get accepted.
+      const pendingCount = invitations.filter(i => i.status === "pending").length;
+      if (activeCount + pendingCount >= maxSeats) {
+        setInviteError(
+          pendingCount > 0
+            ? `Seat limit reached (${maxSeats} seats — ${activeCount} active, ${pendingCount} pending). Wait for a pending invite to be used or revoke one before sending another.`
+            : `Seat limit reached (${maxSeats} seats). Upgrade your plan to add more.`
+        );
         return;
       }
 

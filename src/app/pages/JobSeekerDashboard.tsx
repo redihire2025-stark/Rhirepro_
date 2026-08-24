@@ -2019,11 +2019,13 @@ function FindJobPage() {
         }
 
         if (interviewModeFilter === "in_person") {
-          query = query.or("interview_mode.ilike.%In-Person%,interview_mode.ilike.%Walk-in%,interview_mode.ilike.%In Person%");
-        } else if (interviewModeFilter === "remote") {
-          query = query.or("interview_mode.ilike.%Remote%,interview_mode.ilike.%Video Call%,interview_mode.ilike.%Telephonic%,interview_mode.ilike.%Online%");
-        } else if (interviewModeFilter === "hybrid") {
-          query = query.or("interview_mode.ilike.%Hybrid%,interview_mode.ilike.%Both%");
+          query = query.or("interview_mode.ilike.%In-Person%,interview_mode.ilike.%In Person%");
+        } else if (interviewModeFilter === "walk_in") {
+          query = query.ilike("interview_mode", "%Walk-in%");
+        } else if (interviewModeFilter === "telephonic") {
+          query = query.ilike("interview_mode", "%Telephonic%");
+        } else if (interviewModeFilter === "virtual") {
+          query = query.or("interview_mode.ilike.%Video Call%,interview_mode.ilike.%Virtual%,interview_mode.ilike.%Remote%,interview_mode.ilike.%Online%");
         }
 
         if (locationFilter === "bengaluru") query = query.or("location.ilike.%Bengaluru%,location.ilike.%Bangalore%");
@@ -2153,9 +2155,10 @@ function FindJobPage() {
         // Preferred Interview Mode
         if (interviewModeFilter) {
           const mode = (job.interview_mode || "").toLowerCase();
-          if (interviewModeFilter === "in_person" && !mode.includes("in-person") && !mode.includes("walk-in") && !mode.includes("in person")) return false;
-          if (interviewModeFilter === "remote" && !mode.includes("remote") && !mode.includes("video") && !mode.includes("telephonic") && !mode.includes("online")) return false;
-          if (interviewModeFilter === "hybrid" && !mode.includes("hybrid") && !mode.includes("both")) return false;
+          if (interviewModeFilter === "in_person" && !mode.includes("in-person") && !mode.includes("in person")) return false;
+          if (interviewModeFilter === "walk_in" && !mode.includes("walk-in") && !mode.includes("walk in")) return false;
+          if (interviewModeFilter === "telephonic" && !mode.includes("telephonic")) return false;
+          if (interviewModeFilter === "virtual" && !mode.includes("video") && !mode.includes("virtual") && !mode.includes("remote") && !mode.includes("online")) return false;
         }
 
         // Search Query
@@ -2609,7 +2612,7 @@ function FindJobPage() {
               },
               {
                 label: "Interview Mode", value: interviewModeFilter, onChange: setInterviewModeFilter,
-                options: [["in_person", "In-Person"], ["remote", "Remote"], ["hybrid", "Hybrid"]]
+                options: [["in_person", "In-Person"], ["walk_in", "Walk-in"], ["telephonic", "Telephonic"], ["virtual", "Virtual"]]
               },
             ].map(({ label, value, onChange, options }) => (
               <div key={label}>
@@ -5553,6 +5556,15 @@ function AnalyticsPage() {
   const [selectedOfferDetails, setSelectedOfferDetails] = useState<OfferPanelDetails | null>(null);
   const [analyticsLoading, setAnalyticsLoading] = useState(true);
   const [appliedJobsFilter, setAppliedJobsFilter] = useState<string | undefined>(undefined);
+  // The compare table can render well below the fold (this page's charts push
+  // the tab picker down), so switching to it left the new content off-screen
+  // with no visual cue it had appeared at all.
+  const tabContentRef = useRef<HTMLDivElement>(null);
+  useEffect(() => {
+    if (activeTab === "compare") {
+      tabContentRef.current?.scrollIntoView({ behavior: "smooth", block: "start" });
+    }
+  }, [activeTab]);
 
   useEffect(() => {
     const searchParams = new URLSearchParams(location.search);
@@ -6082,7 +6094,7 @@ function AnalyticsPage() {
       <div className={`grid gap-6 ${activeTab === "compare" ? "grid-cols-1" : "lg:grid-cols-3"}`}>
 
         {/* Left — Tabs */}
-        <div className={activeTab === "compare" ? "w-full" : "lg:col-span-2"}>
+        <div ref={tabContentRef} className={activeTab === "compare" ? "w-full" : "lg:col-span-2"}>
           {/* View filter — one dropdown instead of a row of pills, so a fourth
               option (Expired) fits without pushing the list further down. */}
           <div className="flex items-center gap-2 mb-4">

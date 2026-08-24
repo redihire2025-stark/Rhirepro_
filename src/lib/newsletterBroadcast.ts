@@ -666,8 +666,12 @@ export async function sendNewsletterBroadcast(params: {
   subject: string;
   contentHtml: string;
   templateId?: string;
+  /** Explicit recipient list — e.g. organisation admins. When omitted, falls
+   * back to every newsletter_subscribers row (the original broadcast audience). */
+  recipients?: string[];
+  audienceLabel?: string;
 }): Promise<{ success: boolean; count: number; message: string }> {
-  const { subject, contentHtml, templateId } = params;
+  const { subject, contentHtml, templateId, recipients, audienceLabel = "subscriber" } = params;
 
   if (!subject.trim()) {
     return { success: false, count: 0, message: "Please enter a subject line for the newsletter." };
@@ -680,20 +684,28 @@ export async function sendNewsletterBroadcast(params: {
   const formattedHtml = wrapNewsletterHtml(subject.trim(), contentHtml.trim(), templateId);
 
   try {
-    // 1. Fetch all subscribers from Supabase newsletter_subscribers table
-    const { data: subscribers, error: fetchError } = await supabase
-      .from("newsletter_subscribers")
-      .select("email");
+    let emailList: string[];
+    if (recipients) {
+      emailList = Array.from(new Set(recipients.map((e) => e.trim().toLowerCase()).filter((e) => e.includes("@"))));
+      if (emailList.length === 0) {
+        return { success: false, count: 0, message: `No ${audienceLabel}s to email.` };
+      }
+    } else {
+      // Fetch all subscribers from Supabase newsletter_subscribers table
+      const { data: subscribers, error: fetchError } = await supabase
+        .from("newsletter_subscribers")
+        .select("email");
 
-    if (fetchError) {
-      return { success: false, count: 0, message: `Failed to fetch subscribers: ${fetchError.message}` };
-    }
+      if (fetchError) {
+        return { success: false, count: 0, message: `Failed to fetch subscribers: ${fetchError.message}` };
+      }
 
-    const rawList = (subscribers ?? []).map((s) => s.email?.trim()).filter((e): e is string => Boolean(e) && e.includes("@"));
-    const emailList = Array.from(new Set(rawList));
+      const rawList = (subscribers ?? []).map((s) => s.email?.trim()).filter((e): e is string => Boolean(e) && e.includes("@"));
+      emailList = Array.from(new Set(rawList));
 
-    if (emailList.length === 0) {
-      return { success: false, count: 0, message: "No subscribers found in database to receive newsletter." };
+      if (emailList.length === 0) {
+        return { success: false, count: 0, message: "No subscribers found in database to receive newsletter." };
+      }
     }
 
     // 2. First attempt: server-side delivery via Netlify Function / API endpoint
@@ -714,7 +726,7 @@ export async function sendNewsletterBroadcast(params: {
           return {
             success: true,
             count: serverData.sent_count,
-            message: `Newsletter successfully sent to ${serverData.sent_count} subscriber${serverData.sent_count === 1 ? "" : "s"}!`,
+            message: `Newsletter successfully sent to ${serverData.sent_count} ${audienceLabel}${serverData.sent_count === 1 ? "" : "s"}!`,
           };
         }
       }
@@ -803,14 +815,14 @@ export async function sendNewsletterBroadcast(params: {
       return {
         success: true,
         count: sentCount,
-        message: `Newsletter successfully sent to ${sentCount} subscriber${sentCount === 1 ? "" : "s"}!`,
+        message: `Newsletter successfully sent to ${sentCount} ${audienceLabel}${sentCount === 1 ? "" : "s"}!`,
       };
     }
 
     return {
       success: false,
       count: 0,
-      message: `Failed to deliver newsletter to subscribers. Please verify network and API configuration.`,
+      message: `Failed to deliver newsletter to ${audienceLabel}s. Please verify network and API configuration.`,
     };
   } catch (err) {
     console.error("Newsletter broadcast exception:", err);

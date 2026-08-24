@@ -79,7 +79,7 @@ export default async (request) => {
 
   // Fetch org admin profile to verify email domains match
   const adminRes = await fetch(
-    `${supabaseUrl}/rest/v1/recruiter_profiles?id=eq.${org_admin_id}&select=email`,
+    `${supabaseUrl}/rest/v1/recruiter_profiles?id=eq.${org_admin_id}&select=email,max_seats`,
     {
       method: "GET",
       headers: {
@@ -113,6 +113,32 @@ export default async (request) => {
     return new Response(
       JSON.stringify({ error: `You can only invite users with a matching email domain (@${adminDomain || ""})` }),
       { status: 400, headers: { "Content-Type": "application/json" } }
+    );
+  }
+
+  /*
+   * Server-side seat check — the client already blocks this, but that's
+   * only a UX nicety; a direct API call could skip it. A pending invite
+   * reserves a seat the same as an active member does, since accepting it
+   * doesn't ask permission again.
+   */
+  const maxSeats = adminProfiles[0].max_seats || 5;
+  const [activeRes, pendingRes] = await Promise.all([
+    fetch(
+      `${supabaseUrl}/rest/v1/recruiter_profiles?org_admin_id=eq.${org_admin_id}&is_active=eq.true&select=id`,
+      { headers: { apikey: serviceKey, Authorization: `Bearer ${serviceKey}`, Prefer: "count=exact" } },
+    ),
+    fetch(
+      `${supabaseUrl}/rest/v1/recruiter_invitations?org_admin_id=eq.${org_admin_id}&status=eq.pending&select=id`,
+      { headers: { apikey: serviceKey, Authorization: `Bearer ${serviceKey}`, Prefer: "count=exact" } },
+    ),
+  ]);
+  const activeCount = Number(activeRes.headers.get("content-range")?.split("/")[1] ?? 0);
+  const pendingCount = Number(pendingRes.headers.get("content-range")?.split("/")[1] ?? 0);
+  if (activeCount + pendingCount >= maxSeats) {
+    return new Response(
+      JSON.stringify({ error: `Seat limit reached (${maxSeats} seats — ${activeCount} active, ${pendingCount} pending).` }),
+      { status: 409, headers: { "Content-Type": "application/json" } }
     );
   }
 
