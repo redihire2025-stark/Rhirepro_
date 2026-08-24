@@ -12,7 +12,6 @@ import {
   AlertCircle,
   Loader2,
   LayoutList,
-  Building2,
 } from "lucide-react";
 import { DataTable, DataTableColumn, exportRowsAsCsv } from "../../components/ui/data-table";
 import { Badge } from "../../components/ui/badge";
@@ -28,14 +27,6 @@ import {
   wrapNewsletterHtml,
 } from "../../../lib/newsletterBroadcast";
 
-interface OrgAdminRow {
-  id: string;
-  email: string;
-  recruiter_name: string | null;
-  company_name: string | null;
-  member_count: number;
-}
-
 const PAGE_SIZE = 20;
 
 export default function SuperAdminNewsletter() {
@@ -45,21 +36,6 @@ export default function SuperAdminNewsletter() {
   const [loading, setLoading] = useState(true);
   const [page, setPage] = useState(1);
   const [search, setSearch] = useState("");
-
-  // Org admins are a separate, targeted audience — a way to reach only the
-  // people who manage a team, without broadcasting to every recruiter and
-  // job seeker on the platform.
-  const [audience, setAudience] = useState<"subscribers" | "org_admins">("subscribers");
-  const [orgAdmins, setOrgAdmins] = useState<OrgAdminRow[]>([]);
-  const [orgAdminsLoading, setOrgAdminsLoading] = useState(true);
-
-  useEffect(() => {
-    supabase.rpc("get_super_admin_org_admins").then(({ data, error }) => {
-      if (error) console.warn("get_super_admin_org_admins:", error.message);
-      setOrgAdmins((data as OrgAdminRow[]) ?? []);
-      setOrgAdminsLoading(false);
-    });
-  }, []);
 
   // Campaign Composer State
   const [selectedTemplateId, setSelectedTemplateId] = useState<string>("strategy-email-marketing");
@@ -121,19 +97,11 @@ export default function SuperAdminNewsletter() {
       return;
     }
 
-    if (audience === "org_admins" && orgAdmins.length === 0) {
-      setFeedback({ type: "error", message: "No organisation admins found to send to." });
-      return;
-    }
-
     setIsSending(true);
     const result = await sendNewsletterBroadcast({
       subject,
       contentHtml: content,
       templateId: selectedTemplateId,
-      ...(audience === "org_admins"
-        ? { recipients: orgAdmins.map((a) => a.email), audienceLabel: "org admin" }
-        : {}),
     });
     setIsSending(false);
 
@@ -247,37 +215,6 @@ export default function SuperAdminNewsletter() {
               </Button>
             </div>
 
-            {/* Audience */}
-            <div className="space-y-1.5">
-              <label className="text-xs font-semibold text-muted-foreground uppercase tracking-wider">
-                Send To
-              </label>
-              <div className="flex gap-2">
-                <button
-                  type="button"
-                  onClick={() => setAudience("subscribers")}
-                  className={`flex-1 flex items-center gap-2 rounded-lg border px-3 py-2 text-sm transition-colors ${
-                    audience === "subscribers"
-                      ? "border-primary bg-primary/5 text-foreground font-semibold"
-                      : "border-border text-muted-foreground hover:border-primary/50"
-                  }`}
-                >
-                  <Users className="size-4" /> Newsletter Subscribers ({totalCount})
-                </button>
-                <button
-                  type="button"
-                  onClick={() => setAudience("org_admins")}
-                  className={`flex-1 flex items-center gap-2 rounded-lg border px-3 py-2 text-sm transition-colors ${
-                    audience === "org_admins"
-                      ? "border-primary bg-primary/5 text-foreground font-semibold"
-                      : "border-border text-muted-foreground hover:border-primary/50"
-                  }`}
-                >
-                  <Building2 className="size-4" /> Organisation Admins ({orgAdminsLoading ? "…" : orgAdmins.length})
-                </button>
-              </div>
-            </div>
-
             {/* Template Quick Dropdown */}
             <div className="space-y-1.5">
               <label className="text-xs font-semibold text-muted-foreground uppercase tracking-wider">
@@ -359,15 +296,13 @@ export default function SuperAdminNewsletter() {
               <div className="flex items-center gap-2 text-xs text-muted-foreground">
                 <Users className="size-4 text-emerald-600" />
                 <span>
-                  Targeting <strong>{audience === "org_admins" ? orgAdmins.length : totalCount}</strong>{" "}
-                  {audience === "org_admins" ? "organisation admin" : "active subscriber"}
-                  {(audience === "org_admins" ? orgAdmins.length : totalCount) === 1 ? "" : "s"}
+                  Targeting <strong>{totalCount}</strong> active subscriber{totalCount === 1 ? "" : "s"}
                 </span>
               </div>
 
               <Button
                 onClick={handleSendBroadcast}
-                disabled={isSending || (audience === "org_admins" ? orgAdmins.length === 0 : totalCount === 0)}
+                disabled={isSending || totalCount === 0}
                 className="bg-[#FF2B2B] hover:bg-[#e02525] text-white px-6 gap-2"
               >
                 {isSending ? (
@@ -394,9 +329,7 @@ export default function SuperAdminNewsletter() {
               <div className="space-y-2 text-xs text-muted-foreground">
                 <div className="flex justify-between py-1 border-b border-border">
                   <span>Target Recipients:</span>
-                  <span className="font-semibold text-foreground">
-                    {audience === "org_admins" ? `${orgAdmins.length} org admins` : `${totalCount} subscribers`}
-                  </span>
+                  <span className="font-semibold text-foreground">{totalCount} subscribers</span>
                 </div>
                 <div className="flex justify-between py-1 border-b border-border">
                   <span>Broadcast Status:</span>

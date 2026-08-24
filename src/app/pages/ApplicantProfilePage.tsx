@@ -600,15 +600,19 @@ export default function ApplicantProfilePage() {
     return () => document.removeEventListener("fullscreenchange", handleFullscreenChange);
   }, []);
 
-  const triggerResumeView = useCallback(() => {
+  // Was firing on fullscreen view too, under "resumes_used" — which the org
+  // admin panel then labeled "Resumes Watched" while actually wanting a
+  // download count. Now only the download action counts, so the number and
+  // its label agree.
+  const trackResumeDownload = useCallback(() => {
     if (!recruiterProfile?.id || !id) return;
-    const resumeViewKey = `viewed_resume_${recruiterProfile.id}_${id}`;
-    if (!localStorage.getItem(resumeViewKey)) {
-      localStorage.setItem(resumeViewKey, "true");
+    const resumeDownloadKey = `downloaded_resume_${recruiterProfile.id}_${id}`;
+    if (!localStorage.getItem(resumeDownloadKey)) {
+      localStorage.setItem(resumeDownloadKey, "true");
       void supabase.rpc("increment_recruiter_resumes", { p_recruiter_id: recruiterProfile.id }).then(({ error: rErr }) => {
         if (rErr) {
-          console.warn("Failed to increment resumes used count:", rErr.message);
-          localStorage.removeItem(resumeViewKey);
+          console.warn("Failed to increment resumes downloaded count:", rErr.message);
+          localStorage.removeItem(resumeDownloadKey);
         }
       });
     }
@@ -616,7 +620,6 @@ export default function ApplicantProfilePage() {
 
   const toggleResumeFullscreen = async () => {
     if (!fullscreenResumeRef.current) return;
-    triggerResumeView();
     try {
       if (document.fullscreenElement) {
         await document.exitFullscreen();
@@ -630,7 +633,7 @@ export default function ApplicantProfilePage() {
 
   const handleDownloadResume = useCallback(async () => {
     if (!resumeUrl) return;
-    triggerResumeView();
+    trackResumeDownload();
 
     const storageObject = getStorageObjectFromUrl(resumeUrl);
     if (!storageObject) {
@@ -648,7 +651,7 @@ export default function ApplicantProfilePage() {
     }
 
     window.open(data.signedUrl, "_blank", "noopener,noreferrer");
-  }, [resumeUrl, triggerResumeView]);
+  }, [resumeUrl, trackResumeDownload]);
 
   // Auth gate checks
   if (authLoading || (loading && !error)) {

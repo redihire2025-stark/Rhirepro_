@@ -5614,6 +5614,16 @@ function AnalyticsPage() {
     selectedJobs: SavedJobWithJob[];
     returnPath: string;
   } | null>(null);
+  // Clicking "Compare Jobs" inside the already-open Compare tab doesn't
+  // navigate anywhere — it renders the comparison table inline, below the
+  // job-picker list it was clicked from. That table could still be off
+  // -screen with no cue it had appeared, same problem as the tab switch above.
+  const compareResultRef = useRef<HTMLDivElement>(null);
+  useEffect(() => {
+    if (compareState) {
+      compareResultRef.current?.scrollIntoView({ behavior: "smooth", block: "start" });
+    }
+  }, [compareState]);
   const [refreshTick, setRefreshTick] = useState(0);
   const [resolvingOfferFile, setResolvingOfferFile] = useState(false);
   const [isOfferPreviewOpen, setIsOfferPreviewOpen] = useState(false);
@@ -6167,7 +6177,11 @@ function AnalyticsPage() {
                 hideExpired
                 onCompareRequested={setCompareState}
               />
-              {compareState && <SavedJobsComparePage forcedState={compareState} embedded />}
+              {compareState && (
+                <div ref={compareResultRef}>
+                  <SavedJobsComparePage forcedState={compareState} embedded />
+                </div>
+              )}
             </div>
           )}
           {/* Expired Jobs — saved + applied postings that are no longer live */}

@@ -254,7 +254,7 @@ export default function OrgAdminPanel() {
     csvContent += `"Metric","Value"\n`;
     csvContent += `"Jobs Posted","${member.jobs_count}"\n`;
     csvContent += `"Profiles Viewed","${member.profiles_viewed || 0}"\n`;
-    csvContent += `"Resumes Watched","${member.resumes_used || 0}"\n`;
+    csvContent += `"Resumes Downloaded","${member.resumes_used || 0}"\n`;
     csvContent += `"Total Keywords Searched","${member.keywords_used || 0}"\n`;
     csvContent += `\n`;
     
@@ -977,7 +977,7 @@ export default function OrgAdminPanel() {
                   <span className="text-xl font-bold text-[#3A1F1F]">{member.profiles_viewed || 0}</span>
                 </div>
                 <div className="bg-white border border-gray-150 p-3.5 rounded-xl text-center shadow-xs">
-                  <span className="text-xs text-[#8A8A8A] block mb-1 font-medium">Resumes Watched</span>
+                  <span className="text-xs text-[#8A8A8A] block mb-1 font-medium">Resumes Downloaded</span>
                   <span className="text-xl font-bold text-[#3A1F1F]">{member.resumes_used || 0}</span>
                 </div>
                 <div className="bg-white border border-gray-150 p-3.5 rounded-xl text-center shadow-xs">
@@ -1574,7 +1574,7 @@ export default function OrgAdminPanel() {
                     </p>
                   </div>
                   <div className="bg-white rounded-2xl p-5 shadow-sm border border-gray-100 text-center">
-                    <p className="text-sm text-[#8A8A8A] font-bold mb-2">Total Resumes Watched</p>
+                    <p className="text-sm text-[#8A8A8A] font-bold mb-2">Total Resumes Downloaded</p>
                     <p className="text-2xl font-bold text-[#3A1F1F]">
                       {members.reduce((acc, m) => acc + (m.resumes_used || 0), 0)}
                     </p>
@@ -1608,7 +1608,7 @@ export default function OrgAdminPanel() {
                           <th className="text-left px-6 py-3">Recruiter Name</th>
                           <th className="text-left px-6 py-3">Jobs Posted</th>
                           <th className="text-left px-6 py-3">Profiles Viewed</th>
-                          <th className="text-left px-6 py-3">Resumes Watched</th>
+                          <th className="text-left px-6 py-3">Resumes Downloaded</th>
                           <th className="text-left px-6 py-3">Search Keywords Used</th>
                         </tr>
                       </thead>
