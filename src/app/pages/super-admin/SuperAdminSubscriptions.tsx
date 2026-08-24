@@ -1,6 +1,6 @@
 import { useEffect, useState, useCallback } from "react";
 import { toast } from "sonner";
-import { MoreHorizontal, XCircle, RefreshCcw } from "lucide-react";
+import { MoreHorizontal, XCircle, RefreshCcw, Loader2 } from "lucide-react";
 import { DataTable, DataTableColumn, exportRowsAsCsv } from "../../components/ui/data-table";
 import { Badge } from "../../components/ui/badge";
 import { Button } from "../../components/ui/button";
@@ -10,6 +10,7 @@ import {
   DropdownMenuItem,
   DropdownMenuTrigger,
 } from "../../components/ui/dropdown-menu";
+import { Dialog, DialogContent, DialogHeader, DialogTitle } from "../../components/ui/dialog";
 import { supabase } from "../../../lib/supabase";
 import { logAdminAction } from "../../../lib/admin-audit";
 
@@ -21,7 +22,7 @@ interface SubscriptionRow {
   started_at: string;
   expires_at: string;
   daily_job_posts: number | null;
-  recruiter_profiles: { recruiter_name: string | null; company_name: string | null } | null;
+  recruiter_profiles: { recruiter_name: string | null; company_name: string | null; is_org_admin: boolean | null } | null;
 }
 
 const PAGE_SIZE = 15;
@@ -45,7 +46,7 @@ export default function SuperAdminSubscriptions() {
     setLoading(true);
     let query = supabase
       .from("recruiter_subscriptions")
-      .select("id,recruiter_id,plan_id,status,started_at,expires_at,daily_job_posts,recruiter_profiles(recruiter_name,company_name)", {
+      .select("id,recruiter_id,plan_id,status,started_at,expires_at,daily_job_posts,recruiter_profiles(recruiter_name,company_name,is_org_admin)", {
         count: "exact",
       });
 
@@ -71,21 +72,60 @@ export default function SuperAdminSubscriptions() {
 
   useEffect(() => setPage(1), [search, statusFilter]);
 
+  const [cancelTarget, setCancelTarget] = useState<SubscriptionRow | null>(null);
+  const [cancelling, setCancelling] = useState(false);
+
   const cancelSubscription = async (row: SubscriptionRow) => {
-    const { error } = await supabase.from("recruiter_subscriptions").update({ status: "cancelled" }).eq("id", row.id);
-    if (error) {
-      toast.error(`Failed to cancel: ${error.message}`);
-      return;
+    setCancelling(true);
+    try {
+      const { error } = await supabase.from("recruiter_subscriptions").update({ status: "cancelled" }).eq("id", row.id);
+      if (error) {
+        toast.error(`Failed to cancel: ${error.message}`);
+        return;
+      }
+      logAdminAction({
+        action: "subscription.cancel",
+        entityType: "recruiter_subscriptions",
+        entityId: row.id,
+        beforeValue: { status: row.status },
+        afterValue: { status: "cancelled" },
+      });
+
+      // Cancelling an org admin's plan also unwinds their team: jobs move
+      // to the admin's own account, members are deactivated, and the
+      // admin is demoted to a normal recruiter. See
+      // org_plan_cancellation_migration.sql / org-plan-cancelled.mjs.
+      if (row.recruiter_profiles?.is_org_admin) {
+        const { data: sessionData } = await supabase.auth.getSession();
+        const token = sessionData.session?.access_token;
+        const res = await fetch("/api/org-plan-cancelled", {
+          method: "POST",
+          headers: {
+            "Content-Type": "application/json",
+            ...(token ? { Authorization: `Bearer ${token}` } : {}),
+          },
+          body: JSON.stringify({ recruiter_id: row.recruiter_id }),
+        });
+        if (!res.ok) {
+          const err = await res.json().catch(() => ({ error: "Unknown error" }));
+          toast.error(`Subscription cancelled, but the team could not be unwound: ${err.error || "unknown error"}`);
+          fetchRows();
+          return;
+        }
+        const result = await res.json().catch(() => ({ affected_members: 0 }));
+        toast.success(
+          result.affected_members > 0
+            ? `Subscription cancelled — team unwound, ${result.affected_members} member${result.affected_members === 1 ? "" : "s"} deactivated and notified.`
+            : "Subscription cancelled — organization unwound.",
+        );
+      } else {
+        toast.success("Subscription cancelled");
+      }
+      fetchRows();
+    } finally {
+      setCancelling(false);
+      setCancelTarget(null);
     }
-    logAdminAction({
-      action: "subscription.cancel",
-      entityType: "recruiter_subscriptions",
-      entityId: row.id,
-      beforeValue: { status: row.status },
-      afterValue: { status: "cancelled" },
-    });
-    toast.success("Subscription cancelled");
-    fetchRows();
   };
 
   const reactivateSubscription = async (row: SubscriptionRow) => {
@@ -123,6 +163,7 @@ export default function SuperAdminSubscriptions() {
   ];
 
   return (
+    <>
     <DataTable
       columns={columns}
       rows={rows}
@@ -181,7 +222,7 @@ export default function SuperAdminSubscriptions() {
               </DropdownMenuItem>
             )}
             {row.status === "active" && (
-              <DropdownMenuItem variant="destructive" onClick={() => cancelSubscription(row)}>
+              <DropdownMenuItem variant="destructive" onClick={() => setCancelTarget(row)}>
                 <XCircle /> Cancel
               </DropdownMenuItem>
             )}
@@ -189,5 +230,50 @@ export default function SuperAdminSubscriptions() {
         </DropdownMenu>
       )}
     />
+
+    <Dialog open={!!cancelTarget} onOpenChange={(open) => !open && setCancelTarget(null)}>
+      <DialogContent className="max-w-md">
+        <DialogHeader>
+          <DialogTitle className="flex items-center gap-2 text-destructive">
+            <XCircle className="size-5" /> Cancel Subscription
+          </DialogTitle>
+        </DialogHeader>
+        <div className="text-sm text-muted-foreground space-y-2">
+          {cancelTarget?.recruiter_profiles?.is_org_admin ? (
+            <>
+              <p>
+                <strong className="text-foreground">
+                  {cancelTarget?.recruiter_profiles?.recruiter_name || cancelTarget?.recruiter_profiles?.company_name}
+                </strong>{" "}
+                manages a team. Cancelling this plan will also:
+              </p>
+              <ul className="list-disc pl-5 space-y-1">
+                <li>Reassign the team's jobs to this account</li>
+                <li>Deactivate every team member and email them that the org has ended</li>
+                <li>Demote this account to a normal recruiter (no job posting until they get a plan)</li>
+              </ul>
+              <p>This is reversible for the members (deactivated, not deleted) but cannot be undone automatically.</p>
+            </>
+          ) : (
+            <p>This marks the subscription cancelled. This cannot be undone automatically.</p>
+          )}
+        </div>
+        <div className="flex gap-3 pt-2">
+          <Button variant="outline" className="flex-1" onClick={() => setCancelTarget(null)} disabled={cancelling}>
+            Keep Active
+          </Button>
+          <Button
+            variant="destructive"
+            className="flex-1"
+            onClick={() => cancelTarget && cancelSubscription(cancelTarget)}
+            disabled={cancelling}
+          >
+            {cancelling ? <Loader2 className="size-4 mr-1.5 animate-spin" /> : null}
+            Cancel Subscription
+          </Button>
+        </div>
+      </DialogContent>
+    </Dialog>
+    </>
   );
 }
