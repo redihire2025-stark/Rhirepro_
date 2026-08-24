@@ -1,13 +1,15 @@
 import { useEffect, useState, useCallback } from "react";
 import { toast } from "sonner";
-import { Ban, CheckCircle2, MoreHorizontal } from "lucide-react";
+import { Ban, CheckCircle2, MoreHorizontal, Trash2, Loader2 } from "lucide-react";
 import { DataTable, DataTableColumn, exportRowsAsCsv } from "../../components/ui/data-table";
 import { Badge } from "../../components/ui/badge";
 import { Button } from "../../components/ui/button";
+import { Input } from "../../components/ui/input";
 import {
   DropdownMenu,
   DropdownMenuContent,
   DropdownMenuItem,
+  DropdownMenuSeparator,
   DropdownMenuTrigger,
 } from "../../components/ui/dropdown-menu";
 import {
@@ -17,6 +19,7 @@ import {
   SheetTitle,
   SheetDescription,
 } from "../../components/ui/sheet";
+import { Dialog, DialogContent, DialogHeader, DialogTitle } from "../../components/ui/dialog";
 import { supabase } from "../../../lib/supabase";
 import { logAdminAction } from "../../../lib/admin-audit";
 
@@ -44,6 +47,9 @@ export default function SuperAdminJobSeekers() {
   const [sortKey, setSortKey] = useState("created_at");
   const [sortDir, setSortDir] = useState<"asc" | "desc">("desc");
   const [selected, setSelected] = useState<JobSeekerRow | null>(null);
+  const [deleteTarget, setDeleteTarget] = useState<JobSeekerRow | null>(null);
+  const [deleteConfirmText, setDeleteConfirmText] = useState("");
+  const [deleting, setDeleting] = useState(false);
 
   const fetchRows = useCallback(async () => {
     setLoading(true);
@@ -97,6 +103,49 @@ export default function SuperAdminJobSeekers() {
     });
     toast.success(row.is_disabled ? "Job seeker enabled" : "Job seeker disabled");
     fetchRows();
+  };
+
+  /**
+   * Permanently deletes the account (auth user + cascaded profiles row) —
+   * not a status toggle, no way back. Same admin-delete-user function used
+   * for recruiters; it works for any account type and refuses to touch a
+   * super admin regardless. Requires typing the exact email to confirm.
+   */
+  const handleDeleteAccount = async () => {
+    if (!deleteTarget) return;
+    setDeleting(true);
+    try {
+      const {
+        data: { session },
+      } = await supabase.auth.getSession();
+      const res = await fetch("/api/admin-delete-user", {
+        method: "POST",
+        headers: {
+          "Content-Type": "application/json",
+          ...(session?.access_token ? { Authorization: `Bearer ${session.access_token}` } : {}),
+        },
+        body: JSON.stringify({ user_id: deleteTarget.id }),
+      });
+      if (!res.ok) {
+        const err = await res.json().catch(() => ({ error: "Failed to delete account" }));
+        throw new Error(err.error || "Failed to delete account");
+      }
+      logAdminAction({
+        action: "jobseeker.delete",
+        entityType: "profiles",
+        entityId: deleteTarget.id,
+        beforeValue: { email: deleteTarget.email },
+        afterValue: null,
+      });
+      toast.success(`${deleteTarget.email} has been permanently deleted.`);
+      setDeleteTarget(null);
+      setDeleteConfirmText("");
+      fetchRows();
+    } catch (err: unknown) {
+      toast.error(err instanceof Error ? err.message : "Failed to delete account");
+    } finally {
+      setDeleting(false);
+    }
   };
 
   const columns: DataTableColumn<JobSeekerRow>[] = [
@@ -210,6 +259,13 @@ export default function SuperAdminJobSeekers() {
                   </>
                 )}
               </DropdownMenuItem>
+              <DropdownMenuSeparator />
+              <DropdownMenuItem
+                onClick={() => { setDeleteConfirmText(""); setDeleteTarget(row); }}
+                className="text-red-600 focus:text-red-600"
+              >
+                <Trash2 /> Delete account
+              </DropdownMenuItem>
             </DropdownMenuContent>
           </DropdownMenu>
         )}
@@ -251,6 +307,55 @@ export default function SuperAdminJobSeekers() {
           )}
         </SheetContent>
       </Sheet>
+
+      <Dialog open={!!deleteTarget} onOpenChange={(open) => { if (!open) { setDeleteTarget(null); setDeleteConfirmText(""); } }}>
+        <DialogContent className="max-w-md">
+          <DialogHeader>
+            <DialogTitle className="flex items-center gap-2 text-red-600">
+              <Trash2 className="size-5" /> Delete Job Seeker Account
+            </DialogTitle>
+          </DialogHeader>
+          <div className="space-y-3 py-2 text-sm">
+            <p className="text-muted-foreground">
+              This permanently deletes{" "}
+              <strong className="text-foreground">
+                {[deleteTarget?.first_name, deleteTarget?.last_name].filter(Boolean).join(" ") || deleteTarget?.email}
+              </strong>
+              's account — profile, applications, everything. This cannot be undone.
+            </p>
+            <div>
+              <label className="block text-sm font-medium mb-1.5">
+                Type <strong>{deleteTarget?.email}</strong> to confirm
+              </label>
+              <Input
+                value={deleteConfirmText}
+                onChange={(e) => setDeleteConfirmText(e.target.value)}
+                placeholder={deleteTarget?.email || ""}
+                autoComplete="off"
+              />
+            </div>
+          </div>
+          <div className="flex gap-3 pt-2">
+            <Button
+              variant="outline"
+              className="flex-1"
+              onClick={() => { setDeleteTarget(null); setDeleteConfirmText(""); }}
+              disabled={deleting}
+            >
+              Cancel
+            </Button>
+            <Button
+              variant="destructive"
+              className="flex-1"
+              onClick={handleDeleteAccount}
+              disabled={deleting || deleteConfirmText !== deleteTarget?.email}
+            >
+              {deleting ? <Loader2 className="size-4 mr-1.5 animate-spin" /> : null}
+              Delete Account
+            </Button>
+          </div>
+        </DialogContent>
+      </Dialog>
     </div>
   );
 }

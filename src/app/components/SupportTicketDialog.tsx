@@ -125,7 +125,7 @@ export function SupportTicketDialog({ open, onOpenChange, email: defaultEmail, u
 
       if (!res.ok) {
         const err = await res.json().catch(() => ({ error: "Failed to submit ticket" }));
-        throw new Error(err.error || "Failed to submit ticket");
+        throw new Error(err.detail ? `${err.error} (${err.detail})` : err.error || "Failed to submit ticket");
       }
 
       setSuccess(true);

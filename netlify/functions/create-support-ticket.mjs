@@ -108,7 +108,17 @@ export default async (request) => {
     .single();
 
   if (insertErr || !ticket) {
-    return json({ error: "Could not submit your ticket. Please try again." }, 500);
+    // Surfaced generically before, which made two rounds of "still failing"
+    // reports impossible to diagnose without server log access. The real
+    // Postgres error (e.g. a missing column from a migration that hasn't
+    // been run) is safe to return here — this is an admin-support path, not
+    // a place attackers would be probing, and the message never contains
+    // user data beyond what was just submitted.
+    console.error("[create-support-ticket] insert failed:", insertErr);
+    return json(
+      { error: "Could not submit your ticket. Please try again.", detail: insertErr?.message || "no ticket returned" },
+      500,
+    );
   }
 
   if (resendKey) {

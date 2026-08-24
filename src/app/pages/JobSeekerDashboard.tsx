@@ -1871,7 +1871,7 @@ function FindJobPage() {
           // rather than making a request the browser will block.
           if (!apiUrl) throw new Error("search service not configured");
           const esUrl = `${apiUrl}/jobs/search?q=${encodeURIComponent(trimmedSearch)}` +
-            `&work_mode=${remoteFilter === "yes" || selectedChip === "Remote" || locationFilter === "remote" ? "Work from Home" : ""}` +
+            `&work_mode=${remoteFilter === "remote" || selectedChip === "Remote" || locationFilter === "remote" ? "Work from Home" : remoteFilter === "hybrid" ? "Hybrid" : remoteFilter === "onsite" ? "Work from Office" : ""}` +
             `&employment_type=${selectedChip === "Full-time" ? "Full-time" : selectedChip === "Part-time" ? "Part-time" : selectedChip === "Contract" ? "Contract" : jobTypeFilter === "fulltime" ? "Full-time" : jobTypeFilter === "parttime" ? "Part-time" : jobTypeFilter === "contract" ? "Contract" : ""}` +
             `&location=${locationFilter && locationFilter !== "remote" ? locationFilter.charAt(0).toUpperCase() + locationFilter.slice(1) : ""}` +
             `&salary_min=${salaryFilter === "10-25" ? "10" : salaryFilter === "25+" ? "25" : ""}` +
@@ -2013,10 +2013,12 @@ function FindJobPage() {
           query = query.eq("employment_type", "Contract");
         }
 
-        if (selectedChip === "Remote" || locationFilter === "remote" || remoteFilter === "yes") {
+        if (selectedChip === "Remote" || locationFilter === "remote" || remoteFilter === "remote") {
           query = query.in("work_mode", ["Work from Home", "Remote"]);
-        } else if (remoteFilter === "no") {
-          query = query.neq("work_mode", "Work from Home").neq("work_mode", "Remote");
+        } else if (remoteFilter === "hybrid") {
+          query = query.eq("work_mode", "Hybrid");
+        } else if (remoteFilter === "onsite") {
+          query = query.in("work_mode", ["Work from Office", "On-site", "Office"]);
         }
 
         if (interviewModeFilter === "in_person") {
@@ -2090,13 +2092,15 @@ function FindJobPage() {
         if (jobTypeFilter === "parttime" && !(job.employment_type || "").toLowerCase().includes("part")) return false;
         if (jobTypeFilter === "contract" && !(job.employment_type || "").toLowerCase().includes("contract")) return false;
 
-        // Remote
-        if (remoteFilter === "yes") {
+        // Work Mode
+        if (remoteFilter === "remote") {
           const isRem = job.work_mode === "Work from Home" || job.work_mode === "Remote" || (job.location || "").toLowerCase().includes("remote");
           if (!isRem) return false;
-        } else if (remoteFilter === "no") {
-          const isRem = job.work_mode === "Work from Home" || job.work_mode === "Remote" || (job.location || "").toLowerCase().includes("remote");
-          if (isRem) return false;
+        } else if (remoteFilter === "hybrid") {
+          if (job.work_mode !== "Hybrid") return false;
+        } else if (remoteFilter === "onsite") {
+          const isOnsite = job.work_mode === "Work from Office" || job.work_mode === "On-site" || job.work_mode === "Office";
+          if (!isOnsite) return false;
         }
 
         // Location
@@ -2428,12 +2432,12 @@ function FindJobPage() {
     if (val === "fulltime") setSelectedChip("Full-time");
     else if (val === "parttime") setSelectedChip("Part-time");
     else if (val === "contract") setSelectedChip("Contract");
-    else setSelectedChip(remoteFilter === "yes" ? "Remote" : null);
+    else setSelectedChip(remoteFilter === "remote" ? "Remote" : null);
   }
 
   function onChangeRemoteFilter(val: string) {
     setRemoteFilter(val);
-    if (val === "yes") {
+    if (val === "remote") {
       if (!jobTypeFilter) setSelectedChip("Remote");
     } else {
       if (selectedChip === "Remote") {
@@ -2456,7 +2460,7 @@ function FindJobPage() {
       return;
     }
     if (chip === "Remote") {
-      const nextVal = remoteFilter === "yes" ? "" : "yes";
+      const nextVal = remoteFilter === "remote" ? "" : "remote";
       setRemoteFilter(nextVal);
       setSelectedChip(nextVal === "yes" ? "Remote" : null);
     } else if (chip === "Full-time") {
@@ -2476,7 +2480,7 @@ function FindJobPage() {
 
   function isChipActive(chip: string): boolean {
     if (chip === "Saved Jobs") return false;
-    if (chip === "Remote") return remoteFilter === "yes" || selectedChip === "Remote";
+    if (chip === "Remote") return remoteFilter === "remote" || selectedChip === "Remote";
     if (chip === "Full-time") return jobTypeFilter === "fulltime" || selectedChip === "Full-time";
     if (chip === "Part-time") return jobTypeFilter === "parttime" || selectedChip === "Part-time";
     if (chip === "Contract") return jobTypeFilter === "contract" || selectedChip === "Contract";
@@ -2608,8 +2612,8 @@ function FindJobPage() {
                 options: [["fulltime", "Full-time"], ["parttime", "Part-time"], ["contract", "Contract"]]
               },
               {
-                label: "Remote", value: remoteFilter, onChange: onChangeRemoteFilter,
-                options: [["yes", "Remote Only"], ["no", "On-site Only"]]
+                label: "Work Mode", value: remoteFilter, onChange: onChangeRemoteFilter,
+                options: [["remote", "Remote"], ["hybrid", "Hybrid"], ["onsite", "On-Site"]]
               },
               {
                 label: "Interview Mode", value: interviewModeFilter, onChange: setInterviewModeFilter,
@@ -3157,6 +3161,12 @@ function ProfilePage({ onPendingPrefsChange }: { onPendingPrefsChange?: (pending
    * time a column changed.
    */
   async function saveBasicInfo(): Promise<boolean> {
+    // Input already strips non-digits and caps at 10 as you type, but that
+    // only stops *too many* — this catches too few before it's saved.
+    if (basicForm.phone && basicForm.phone.length !== 10) {
+      toast.error("Phone number must be exactly 10 digits.");
+      return false;
+    }
     setBasicInfo(basicForm);
     setEditingBasic(false);
     discardBasicDraft();
@@ -5243,7 +5253,12 @@ function ExpForm({ form, setForm, onSave, onCancel }: {
         </div>
         <div>
           <label className="block text-sm text-[#3A1F1F] mb-1">Location</label>
-          <Input value={form.location} onChange={(e) => setForm({ ...form, location: e.target.value })} className="bg-white border-gray-200 rounded-xl" />
+          <Input
+            value={form.location}
+            onChange={(e) => setForm({ ...form, location: e.target.value.replace(/[^a-zA-Z0-9\s,]/g, "") })}
+            className="bg-white border-gray-200 rounded-xl"
+            placeholder="City, State"
+          />
         </div>
         <div className="flex items-end gap-2">
           <div className="flex-1">
@@ -5546,6 +5561,14 @@ function AnalyticsPage() {
 
   const [activeTab, setActiveTab] = useState<AnalyticsTab>(initialTab);
   const [appliedJobs, setAppliedJobs] = useState<AppliedJobWithJob[]>([]);
+  // AppliedJobsSection refetches appliedJobs independently whenever it's
+  // mounted (activeTab === "applied") and overwrites this state wholesale —
+  // if that fetch resolves after a fresh apply-from-saved but doesn't (yet)
+  // include it, the JD panel's "isApplied" check goes back to false until a
+  // full reload. This set is only ever added to, never replaced, so a job
+  // applied to this session stays showing Applied regardless of what any
+  // other fetch does to `appliedJobs`.
+  const [justAppliedJobIds, setJustAppliedJobIds] = useState<Set<string>>(new Set());
   const [savedJobs, setSavedJobs] = useState<SavedJobWithJob[]>([]);
   const [selectedInterviewJob, setSelectedInterviewJob] = useState<AppliedJobWithJob | null>(null);
   const [selectedOfferJob, setSelectedOfferJob] = useState<AppliedJobWithJob | null>(null);
@@ -5599,6 +5622,7 @@ function AnalyticsPage() {
         source: "Saved Jobs",
       });
       if (!applyErr) {
+        setJustAppliedJobIds(prev => new Set(prev).add(jobIdStr));
         const freshApplied = await getAppliedJobs(profile.id).catch(() => []);
         setAppliedJobs(freshApplied);
       }
@@ -5861,10 +5885,12 @@ function AnalyticsPage() {
     ).length;
   }, [appliedJobs]);
 
-  const stats = [
+  const stats: { label: string; value: number; Icon: typeof Briefcase; action?: () => void }[] = [
     { label: "Applied Jobs", value: appliedJobs.length, Icon: Briefcase, action: () => { setAppliedJobsFilter(undefined); setActiveTab("applied"); } },
-    { label: "Profile Views", value: profileViews, Icon: User, action: () => navigate("/jobseeker/dashboard/profile") },
-    { label: "Recruiter Searches", value: recruiterSearches, Icon: Search, action: () => navigate("/jobseeker/dashboard/profile") },
+    // Non-interactive — these didn't link anywhere meaningful (both landed
+    // on the profile edit page regardless of which stat was clicked).
+    { label: "Profile Views", value: profileViews, Icon: User },
+    { label: "Recruiter Searches", value: recruiterSearches, Icon: Search },
     { label: "Interviews", value: interviewsCount, Icon: Bell, action: () => { setAppliedJobsFilter("interview"); setActiveTab("applied"); } },
   ];
 
@@ -6091,7 +6117,9 @@ function AnalyticsPage() {
           <div
             key={label}
             onClick={action}
-            className="bg-white rounded-2xl border border-gray-100 p-4 shadow-[0_2px_8px_rgba(16,24,40,0.08)] flex items-center gap-3 cursor-pointer hover:shadow-md transition-all duration-200"
+            className={`bg-white rounded-2xl border border-gray-100 p-4 shadow-[0_2px_8px_rgba(16,24,40,0.08)] flex items-center gap-3 transition-all duration-200 ${
+              action ? "cursor-pointer hover:shadow-md" : ""
+            }`}
           >
             <div className="w-10 h-10 bg-red-50 rounded-full flex items-center justify-center shrink-0">
               <Icon className="h-[18px] w-[18px] text-[#FF2B2B]" />
@@ -6296,7 +6324,7 @@ function AnalyticsPage() {
                 <div className="flex items-center gap-2 pt-1">
                   {(() => {
                     const targetId = String(selectedSavedJob.job_id || selectedSavedJob.job.id);
-                    const isApplied = appliedJobs.some(a => String(a.job_id) === targetId || String(a.job?.id) === targetId);
+                    const isApplied = justAppliedJobIds.has(targetId) || appliedJobs.some(a => String(a.job_id) === targetId || String(a.job?.id) === targetId);
                     // The Expired filter can open this panel, and applying to a
                     // closed posting would silently fail on the recruiter side.
                     if (!isApplied && !isJobVisibleToSeekers(selectedSavedJob.job)) {
@@ -6909,14 +6937,22 @@ function getRelevanceScore(options: {
 }
 
 async function fetchRemotiveJobs(searchTerm: string): Promise<RemotiveJob[]> {
+  // Both Recommended Jobs and Trending Skills wait on this via Promise.all in
+  // InsightsPage — an unreachable or slow third-party API with no timeout
+  // here meant the whole section could sit in "loading" indefinitely with
+  // nothing ever rendering, not just this one falling back to empty.
+  const controller = new AbortController();
+  const timeout = setTimeout(() => controller.abort(), 8000);
   try {
     const params = new URLSearchParams({ search: searchTerm, limit: "50" });
-    const response = await fetch(`${REMOTIVE_JOBS_API_URL}?${params.toString()}`);
+    const response = await fetch(`${REMOTIVE_JOBS_API_URL}?${params.toString()}`, { signal: controller.signal });
     if (!response.ok) return [];
     const payload = await response.json();
     return Array.isArray(payload?.jobs) ? payload.jobs : [];
   } catch {
     return [];
+  } finally {
+    clearTimeout(timeout);
   }
 }
 

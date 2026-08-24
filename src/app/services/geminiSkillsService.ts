@@ -129,11 +129,18 @@ export async function fetchGeminiInsights(
   const skillList = skills.slice(0, 20).join(", ");
   console.log("[AI Insights] Requesting Gemini insights for skills:", skillList);
 
+  // InsightsPage awaits this alongside the Remotive fetch via Promise.all —
+  // no timeout meant a slow/hanging Gemini call could leave the whole
+  // Career Insights section stuck loading, not just certifications falling
+  // back to the static domain data.
+  const controller = new AbortController();
+  const timeout = setTimeout(() => controller.abort(), 10000);
   try {
     const res = await fetch(AI_INSIGHTS_ENDPOINT, {
       method: "POST",
       headers: { "Content-Type": "application/json" },
       body: JSON.stringify({ skills: skills.slice(0, 20) }),
+      signal: controller.signal,
     });
 
     if (!res.ok) {
@@ -159,5 +166,7 @@ export async function fetchGeminiInsights(
   } catch (e) {
     console.error("[AI Insights] Fetch error:", e);
     return null;
+  } finally {
+    clearTimeout(timeout);
   }
 }
