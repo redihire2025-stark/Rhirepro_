@@ -47,11 +47,11 @@ export default function SuperAdminDatabase() {
           <CardTitle className="text-base">Largest Tables</CardTitle>
         </CardHeader>
         <CardContent>
-          <ChartContainer config={chartConfig} className="h-[300px] w-full">
+          <ChartContainer config={chartConfig} className="w-full" style={{ height: Math.max(300, top10.length * 34) }}>
             <BarChart data={top10} layout="vertical" margin={{ left: 24 }}>
               <CartesianGrid horizontal={false} />
               <XAxis type="number" tickLine={false} axisLine={false} allowDecimals={false} />
-              <YAxis dataKey="table_name" type="category" tickLine={false} axisLine={false} width={140} />
+              <YAxis dataKey="table_name" type="category" tickLine={false} axisLine={false} width={140} interval={0} />
               <ChartTooltip content={<ChartTooltipContent />} />
               <Bar dataKey="row_estimate" fill="var(--color-row_estimate)" radius={4} isAnimationActive />
             </BarChart>

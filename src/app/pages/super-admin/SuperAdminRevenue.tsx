@@ -100,11 +100,11 @@ export default function SuperAdminRevenue() {
           <CardTitle className="text-base">Revenue by Plan</CardTitle>
         </CardHeader>
         <CardContent>
-          <ChartContainer config={planChartConfig} className="h-[280px] w-full">
+          <ChartContainer config={planChartConfig} className="w-full" style={{ height: Math.max(280, byPlan.length * 34) }}>
             <BarChart data={byPlan} layout="vertical" margin={{ left: 24 }}>
               <CartesianGrid horizontal={false} />
               <XAxis type="number" tickLine={false} axisLine={false} tickFormatter={(v) => `₹${v}`} />
-              <YAxis dataKey="plan_name" type="category" tickLine={false} axisLine={false} width={110} />
+              <YAxis dataKey="plan_name" type="category" tickLine={false} axisLine={false} width={110} interval={0} />
               <ChartTooltip content={<ChartTooltipContent />} />
               <Bar dataKey="revenue" fill="var(--color-revenue)" radius={4} isAnimationActive />
             </BarChart>

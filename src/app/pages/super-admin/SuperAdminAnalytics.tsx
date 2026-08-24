@@ -57,11 +57,11 @@ export default function SuperAdminAnalytics() {
             <CardTitle className="text-base">Top Cities</CardTitle>
           </CardHeader>
           <CardContent>
-            <ChartContainer config={locationsConfig} className="h-[260px] w-full">
+            <ChartContainer config={locationsConfig} className="w-full" style={{ height: Math.max(260, locations.length * 34) }}>
               <BarChart data={locations} layout="vertical" margin={{ left: 16 }}>
                 <CartesianGrid horizontal={false} />
                 <XAxis type="number" tickLine={false} axisLine={false} allowDecimals={false} />
-                <YAxis dataKey="location" type="category" tickLine={false} axisLine={false} width={100} />
+                <YAxis dataKey="location" type="category" tickLine={false} axisLine={false} width={100} interval={0} />
                 <ChartTooltip content={<ChartTooltipContent />} />
                 <Bar dataKey="jobs_count" fill="var(--color-jobs_count)" radius={4} isAnimationActive />
               </BarChart>
@@ -74,11 +74,11 @@ export default function SuperAdminAnalytics() {
             <CardTitle className="text-base">Top Skills in Demand</CardTitle>
           </CardHeader>
           <CardContent>
-            <ChartContainer config={skillsConfig} className="h-[260px] w-full">
+            <ChartContainer config={skillsConfig} className="w-full" style={{ height: Math.max(260, skills.length * 34) }}>
               <BarChart data={skills} layout="vertical" margin={{ left: 16 }}>
                 <CartesianGrid horizontal={false} />
                 <XAxis type="number" tickLine={false} axisLine={false} allowDecimals={false} />
-                <YAxis dataKey="skill" type="category" tickLine={false} axisLine={false} width={100} />
+                <YAxis dataKey="skill" type="category" tickLine={false} axisLine={false} width={100} interval={0} />
                 <ChartTooltip content={<ChartTooltipContent />} />
                 <Bar dataKey="jobs_count" fill="var(--color-jobs_count)" radius={4} isAnimationActive />
               </BarChart>

@@ -363,11 +363,16 @@ export default function SuperAdminDashboard() {
                 <LiveDot />
               </CardHeader>
               <CardContent>
-                <ChartContainer config={funnelChartConfig} className="h-[280px] w-full">
+                {/* Recharts silently drops category ticks it can't fit — with a
+                    fixed 280px height, the funnel's ~11 statuses left no room for
+                    every label (the top bar's was the one getting cut). Size the
+                    chart to the actual number of rows instead, and force every
+                    tick to render regardless of the height Recharts thinks it needs. */}
+                <ChartContainer config={funnelChartConfig} className="w-full" style={{ height: Math.max(280, funnel.length * 34) }}>
                   <BarChart data={funnel} layout="vertical" margin={{ left: 24 }}>
                     <CartesianGrid horizontal={false} strokeDasharray="3 3" />
                     <XAxis type="number" tickLine={false} axisLine={false} allowDecimals={false} />
-                    <YAxis dataKey="status" type="category" tickLine={false} axisLine={false} width={130} />
+                    <YAxis dataKey="status" type="category" tickLine={false} axisLine={false} width={130} interval={0} />
                     <ChartTooltip cursor={{ fill: "var(--muted)", opacity: 0.4 }} content={<ChartTooltipContent />} />
                     <Bar dataKey="count" radius={[0, 4, 4, 0]} isAnimationActive animationDuration={1000}>
                       {funnel.map((_, i) => (

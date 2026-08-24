@@ -1390,10 +1390,13 @@ export default function RecruiterDashboard() {
     }
     const load = async () => {
       const now = new Date().toISOString();
+      // A team member has no subscription of their own — they ride on the org
+      // admin's plan, so that's whose row to check for "is this account paid".
+      const subOwnerId = recruiterProfile.org_admin_id || recruiterProfile.id;
       const { data } = await supabase
         .from("recruiter_subscriptions")
         .select("*")
-        .eq("recruiter_id", recruiterProfile.id)
+        .eq("recruiter_id", subOwnerId)
         .eq("status", "active")
         .gte("expires_at", now)
         .order("created_at", { ascending: false })
@@ -1403,7 +1406,7 @@ export default function RecruiterDashboard() {
       setLoadingSub(false);
     };
     load();
-  }, [recruiterProfile?.id]);
+  }, [recruiterProfile?.id, recruiterProfile?.org_admin_id]);
 
   // A recruiter invited onto someone else's team rides on the org admin's
   // plan/seats — they never buy or pick a plan of their own, so the Plans
@@ -2569,12 +2572,16 @@ function PostJobPage() {
     const load = async () => {
       const now = new Date().toISOString();
       const todayStart = new Date(); todayStart.setHours(0, 0, 0, 0);
+      // A team member has no subscription of their own — check the org
+      // admin's, same as the main dashboard guard does, so the plan/quota
+      // shown here matches what the admin actually bought.
+      const subOwnerId = recruiterProfile.org_admin_id || recruiterProfile.id;
 
       const [{ data: sub }, { count }] = await Promise.all([
         supabase
           .from("recruiter_subscriptions")
           .select("*")
-          .eq("recruiter_id", recruiterProfile.id)
+          .eq("recruiter_id", subOwnerId)
           .eq("status", "active")
           .gte("expires_at", now)
           .order("created_at", { ascending: false })
@@ -2591,7 +2598,7 @@ function PostJobPage() {
       setSubLoading(false);
     };
     load();
-  }, [recruiterProfile?.id]);
+  }, [recruiterProfile?.id, recruiterProfile?.org_admin_id]);
 
   const dailyLimit = activeSub
     ? (activeSub.daily_job_posts ?? Infinity)
@@ -3437,7 +3444,6 @@ function PostJobPage() {
                   <span
                     key={skill}
                     className="flex items-center gap-1 px-3 py-1.5 rounded-full text-sm font-medium border border-transparent bg-[#ECECF4] text-[#3A1F1F]"
-                    title={isOffRole ? "This skill is not aligned with the job title/JD." : "Role-aligned skill"}
                   >
                     <button type="button" onClick={() => toggleMandatorySkill(skill)} className={`mr-1 ${isMandatory ? "text-[#FF2B2B]" : "text-[#8A8A8A]"}`} title={isMandatory ? "Mandatory skill" : "Mark as mandatory"}>
                       {isMandatory ? "★" : "☆"}
@@ -11077,12 +11083,17 @@ function cleanHtmlForDb(html: string | null | undefined): string {
 }
 
 function CompanyProfilePage() {
-  const { recruiterProfile, refreshProfile } = useAuth();
+  const { recruiterProfile, refreshProfile, isOrgAdmin } = useAuth();
+  // A team member's company details are the admin's, not their own — they never
+  // filled any of this in themselves, and editing it here would fork it away
+  // from what the admin (and the rest of the team) sees.
+  const isTeamMember = Boolean(recruiterProfile?.org_admin_id) && !isOrgAdmin;
   const [profile, setProfile] = useState({
     companyName: "", industry: "", companySize: "", type: "", founded: "",
     description: "", website: "", location: "", linkedin: "", cin: "",
     tagline: "", phone: "", recruiterName: "", logoUrl: "", coverImageUrl: "", coverImageName: "",
   });
+  const [orgCompanyProfile, setOrgCompanyProfile] = useState<Record<string, unknown> | null>(null);
   const [saved, setSaved] = useState(false);
   const [saving, setSaving] = useState(false);
   const [uploadingAsset, setUploadingAsset] = useState<"logo" | "cover" | null>(null);
@@ -11109,35 +11120,58 @@ function CompanyProfilePage() {
     return Math.min(100, score);
   }, [profile]);
 
+  // Team members read company fields off the admin's own row instead of their
+  // own — their row never had this data (signup only copies name/industry/size),
+  // and it's the admin's to maintain, not each member's own drifting copy.
   useEffect(() => {
-    if (recruiterProfile) {
-      setProfile({
-        companyName: recruiterProfile.company_name || "",
-        industry: recruiterProfile.industry || "",
-        companySize: recruiterProfile.company_size || "",
-        type: recruiterProfile.company_type || "",
-        founded: recruiterProfile.founded || "",
-        description: formatHtmlForEditor(recruiterProfile.company_description),
-        website: recruiterProfile.website || "",
-        location: recruiterProfile.location || "",
-        linkedin: recruiterProfile.linkedin_url || "",
-        cin: recruiterProfile.cin || "",
-        tagline: recruiterProfile.tagline || "",
-        // See phoneProtection: values are stored as "enc:..." and must be decoded
-        // for display. Plain legacy values pass through unchanged.
-        phone: decryptPhone(recruiterProfile.phone) || "",
-        recruiterName: recruiterProfile.recruiter_name || "",
-        logoUrl: recruiterProfile.logo_url || "",
-        coverImageUrl: recruiterProfile.cover_image_url || "",
-        coverImageName: recruiterProfile.cover_image_name || "",
-      });
+    if (!isTeamMember || !recruiterProfile?.org_admin_id) {
+      setOrgCompanyProfile(null);
+      return;
     }
-  }, [recruiterProfile]);
+    let cancelled = false;
+    supabase
+      .from("recruiter_profiles")
+      .select("company_name, industry, company_size, company_type, founded, company_description, website, location, linkedin_url, cin, tagline, logo_url, cover_image_url, cover_image_name")
+      .eq("id", recruiterProfile.org_admin_id)
+      .maybeSingle()
+      .then(({ data }) => {
+        if (!cancelled) setOrgCompanyProfile(data);
+      });
+    return () => { cancelled = true; };
+  }, [isTeamMember, recruiterProfile?.org_admin_id]);
+
+  useEffect(() => {
+    if (!recruiterProfile) return;
+    if (isTeamMember && !orgCompanyProfile) return; // wait for the admin's data before rendering it
+
+    const company = isTeamMember && orgCompanyProfile ? orgCompanyProfile : recruiterProfile;
+    setProfile({
+      companyName: (company.company_name as string) || "",
+      industry: (company.industry as string) || "",
+      companySize: (company.company_size as string) || "",
+      type: (company.company_type as string) || "",
+      founded: (company.founded as string) || "",
+      description: formatHtmlForEditor(company.company_description as string | null),
+      website: (company.website as string) || "",
+      location: (company.location as string) || "",
+      linkedin: (company.linkedin_url as string) || "",
+      cin: (company.cin as string) || "",
+      tagline: (company.tagline as string) || "",
+      // See phoneProtection: values are stored as "enc:..." and must be decoded
+      // for display. Plain legacy values pass through unchanged. Phone stays
+      // personal to each member regardless of who the company fields came from.
+      phone: decryptPhone(recruiterProfile.phone) || "",
+      recruiterName: recruiterProfile.recruiter_name || "",
+      logoUrl: (company.logo_url as string) || "",
+      coverImageUrl: (company.cover_image_url as string) || "",
+      coverImageName: (company.cover_image_name as string) || "",
+    });
+  }, [recruiterProfile, isTeamMember, orgCompanyProfile]);
 
   const handleBrandingUpload = async (asset: "logo" | "cover", event: ChangeEvent<HTMLInputElement>) => {
     const file = event.target.files?.[0];
     event.currentTarget.value = "";
-    if (!file || !recruiterProfile?.id) return;
+    if (!file || !recruiterProfile?.id || isTeamMember) return;
 
     if (!file.type.startsWith("image/")) {
       setBrandingError("Please choose an image file.");
@@ -11195,7 +11229,7 @@ function CompanyProfilePage() {
   };
 
   const handleBrandingDelete = useCallback(async (asset: "logo" | "cover") => {
-    if (!recruiterProfile?.id) return;
+    if (!recruiterProfile?.id || isTeamMember) return;
     setUploadingAsset(asset);
     setBrandingError("");
     try {
@@ -11219,7 +11253,7 @@ function CompanyProfilePage() {
     } finally {
       setUploadingAsset(null);
     }
-  }, [recruiterProfile, setUploadingAsset, setBrandingError, setProfile, refreshProfile]);
+  }, [recruiterProfile, isTeamMember, setUploadingAsset, setBrandingError, setProfile, refreshProfile]);
 
   const handleSave = async () => {
     if (!recruiterProfile?.id) return;
@@ -11228,21 +11262,31 @@ function CompanyProfilePage() {
     try {
       const finalDescription = cleanHtmlForDb(profile.description);
 
-      const { error } = await supabase.from("recruiter_profiles").update({
-        company_name: profile.companyName,
-        industry: profile.industry,
-        company_size: profile.companySize,
-        company_type: profile.type,
-        company_description: finalDescription,
-        website: profile.website,
-        location: profile.location,
-        linkedin_url: profile.linkedin,
-        cin: profile.cin,
-        tagline: profile.tagline,
-        phone: encryptPhone(profile.phone),
-        recruiter_name: profile.recruiterName,
-        founded: profile.founded,
-      }).eq("id", recruiterProfile.id);
+      // Team members only ever edit their own name/phone here — the company
+      // fields are read-only (they're the admin's), so there's nothing of
+      // theirs to write back for those.
+      const updatePayload = isTeamMember
+        ? {
+          phone: encryptPhone(profile.phone),
+          recruiter_name: profile.recruiterName,
+        }
+        : {
+          company_name: profile.companyName,
+          industry: profile.industry,
+          company_size: profile.companySize,
+          company_type: profile.type,
+          company_description: finalDescription,
+          website: profile.website,
+          location: profile.location,
+          linkedin_url: profile.linkedin,
+          cin: profile.cin,
+          tagline: profile.tagline,
+          phone: encryptPhone(profile.phone),
+          recruiter_name: profile.recruiterName,
+          founded: profile.founded,
+        };
+
+      const { error } = await supabase.from("recruiter_profiles").update(updatePayload).eq("id", recruiterProfile.id);
       if (error) throw error;
 
       setProfile(current => ({
@@ -11263,8 +11307,21 @@ function CompanyProfilePage() {
     <div className="container mx-auto px-4 py-8 max-w-4xl">
       <h1 className="text-3xl font-bold text-[#3A1F1F] mb-6">Company Profile</h1>
 
-      {/* Completion Banner — hidden when profile is 100% complete */}
-      {companyCompletion < 100 && (
+      {isTeamMember && (
+        <div className="flex items-start gap-2 bg-blue-50 border border-blue-100 rounded-xl px-4 py-3 mb-6 text-sm text-blue-900">
+          <Building2 className="h-4 w-4 flex-shrink-0 mt-0.5" />
+          <span>
+            These company details are managed by your team admin and shown here
+            for reference — ask them to make changes. Your own name and phone
+            number below are still yours to edit.
+          </span>
+        </div>
+      )}
+
+      {/* Completion Banner — hidden when profile is 100% complete, and not
+          shown to team members since it nudges them to fill in fields they
+          can't edit. */}
+      {!isTeamMember && companyCompletion < 100 && (
         <div className="bg-white rounded-2xl p-6 shadow-sm mb-6">
           <div className="flex items-center justify-between mb-3">
             <div>
@@ -11323,30 +11380,32 @@ function CompanyProfilePage() {
               className="hidden"
               onChange={(event) => handleBrandingUpload("cover", event)}
             />
-            <div className="absolute right-4 top-2.5 flex items-center gap-2">
-              {profile.coverImageUrl && (
+            {!isTeamMember && (
+              <div className="absolute right-4 top-2.5 flex items-center gap-2">
+                {profile.coverImageUrl && (
+                  <Button
+                    size="icon"
+                    variant="outline"
+                    className="bg-white/90 hover:bg-[#FF2B2B] text-[#FF2B2B] hover:text-white border-0 rounded-full h-8 w-8 flex items-center justify-center transition-colors"
+                    disabled={uploadingAsset === "cover"}
+                    onClick={() => handleBrandingDelete("cover")}
+                    title="Delete Cover Photo"
+                  >
+                    <Trash2 className="h-4 w-4" />
+                  </Button>
+                )}
                 <Button
-                  size="icon"
+                  size="sm"
                   variant="outline"
-                  className="bg-white/90 hover:bg-[#FF2B2B] text-[#FF2B2B] hover:text-white border-0 rounded-full h-8 w-8 flex items-center justify-center transition-colors"
+                  className="bg-white/90 hover:bg-[#FF2B2B] text-[#3A1F1F] hover:text-white border-0 rounded-full text-xs transition-colors"
                   disabled={uploadingAsset === "cover"}
-                  onClick={() => handleBrandingDelete("cover")}
-                  title="Delete Cover Photo"
+                  onClick={() => coverInputRef.current?.click()}
                 >
-                  <Trash2 className="h-4 w-4" />
+                  {uploadingAsset === "cover" ? <Loader2 className="h-3.5 w-3.5 mr-1 animate-spin" /> : <Upload className="h-3.5 w-3.5 mr-1" />}
+                  Cover Photo
                 </Button>
-              )}
-              <Button
-                size="sm"
-                variant="outline"
-                className="bg-white/90 hover:bg-[#FF2B2B] text-[#3A1F1F] hover:text-white border-0 rounded-full text-xs transition-colors"
-                disabled={uploadingAsset === "cover"}
-                onClick={() => coverInputRef.current?.click()}
-              >
-                {uploadingAsset === "cover" ? <Loader2 className="h-3.5 w-3.5 mr-1 animate-spin" /> : <Upload className="h-3.5 w-3.5 mr-1" />}
-                Cover Photo
-              </Button>
-            </div>
+              </div>
+            )}
           </div>
           <div className="pl-5 pr-4 sm:pl-6 sm:pr-4 pb-6 min-h-[128px]">
             <div className="flex flex-col sm:flex-row sm:items-start gap-4 -mt-12 relative z-10">
@@ -11361,37 +11420,39 @@ function CompanyProfilePage() {
                 <h2 className="text-xl font-bold text-[#3A1F1F] truncate">{profile.companyName || "Company Name"}</h2>
                 <p className="text-sm text-[#8A8A8A] truncate">{profile.tagline || "Add a tagline to introduce your company"}</p>
               </div>
-              <div className="pt-1 sm:pt-14 sm:flex-shrink-0 flex items-center gap-2">
-                {profile.logoUrl && (
+              {!isTeamMember && (
+                <div className="pt-1 sm:pt-14 sm:flex-shrink-0 flex items-center gap-2">
+                  {profile.logoUrl && (
+                    <Button
+                      size="icon"
+                      variant="outline"
+                      className="border-red-200 text-[#FF2B2B] hover:bg-[#FF2B2B] hover:text-white rounded-full h-8 w-8 flex items-center justify-center transition-colors"
+                      disabled={uploadingAsset === "logo"}
+                      onClick={() => handleBrandingDelete("logo")}
+                      title="Delete Logo"
+                    >
+                      <Trash2 className="h-4 w-4" />
+                    </Button>
+                  )}
+                  <input
+                    ref={logoInputRef}
+                    type="file"
+                    accept="image/*"
+                    className="hidden"
+                    onChange={(event) => handleBrandingUpload("logo", event)}
+                  />
                   <Button
-                    size="icon"
+                    size="sm"
                     variant="outline"
-                    className="border-red-200 text-[#FF2B2B] hover:bg-[#FF2B2B] hover:text-white rounded-full h-8 w-8 flex items-center justify-center transition-colors"
+                    className="bg-white border border-gray-200 hover:border-[#FF2B2B] text-[#3A1F1F] hover:bg-[#FF2B2B] hover:text-white rounded-full text-xs transition-colors shadow-sm"
                     disabled={uploadingAsset === "logo"}
-                    onClick={() => handleBrandingDelete("logo")}
-                    title="Delete Logo"
+                    onClick={() => logoInputRef.current?.click()}
                   >
-                    <Trash2 className="h-4 w-4" />
+                    {uploadingAsset === "logo" ? <Loader2 className="h-3.5 w-3.5 mr-1 animate-spin" /> : <Upload className="h-3.5 w-3.5 mr-1" />}
+                    Upload Logo
                   </Button>
-                )}
-                <input
-                  ref={logoInputRef}
-                  type="file"
-                  accept="image/*"
-                  className="hidden"
-                  onChange={(event) => handleBrandingUpload("logo", event)}
-                />
-                <Button
-                  size="sm"
-                  variant="outline"
-                  className="bg-white border border-gray-200 hover:border-[#FF2B2B] text-[#3A1F1F] hover:bg-[#FF2B2B] hover:text-white rounded-full text-xs transition-colors shadow-sm"
-                  disabled={uploadingAsset === "logo"}
-                  onClick={() => logoInputRef.current?.click()}
-                >
-                  {uploadingAsset === "logo" ? <Loader2 className="h-3.5 w-3.5 mr-1 animate-spin" /> : <Upload className="h-3.5 w-3.5 mr-1" />}
-                  Upload Logo
-                </Button>
-              </div>
+                </div>
+              )}
             </div>
             {brandingError && (
               <div className="mt-4 rounded-xl border border-red-200 bg-red-50 px-4 py-3 text-sm text-red-700">
@@ -11407,16 +11468,16 @@ function CompanyProfilePage() {
           <div className="grid md:grid-cols-2 gap-4">
             <div>
               <label className="block mb-1.5 text-sm font-medium text-[#3A1F1F]">Company Name *</label>
-              <Input value={profile.companyName} onChange={e => setProfile({ ...profile, companyName: e.target.value })} className="bg-[#F6F6F6] border-gray-200 rounded-xl" placeholder="Enter company name" />
+              <Input value={profile.companyName} onChange={e => setProfile({ ...profile, companyName: e.target.value })} disabled={isTeamMember} className="bg-[#F6F6F6] border-gray-200 rounded-xl disabled:opacity-100 disabled:cursor-not-allowed" placeholder="Enter company name" />
             </div>
             <div>
               <label className="block mb-1.5 text-sm font-medium text-[#3A1F1F]">Tagline</label>
-              <Input value={profile.tagline} onChange={e => setProfile({ ...profile, tagline: e.target.value })} className="bg-[#F6F6F6] border-gray-200 rounded-xl" placeholder="Enter company tagline" />
+              <Input value={profile.tagline} onChange={e => setProfile({ ...profile, tagline: e.target.value })} disabled={isTeamMember} className="bg-[#F6F6F6] border-gray-200 rounded-xl disabled:opacity-100 disabled:cursor-not-allowed" placeholder="Enter company tagline" />
             </div>
             <div>
               <label className="block mb-1.5 text-sm font-medium text-[#3A1F1F]">Industry *</label>
-              <Select value={profile.industry} onValueChange={v => setProfile({ ...profile, industry: v })}>
-                <SelectTrigger className="bg-[#F6F6F6] border-gray-200 rounded-xl"><SelectValue placeholder="Select industry" /></SelectTrigger>
+              <Select value={profile.industry} onValueChange={v => setProfile({ ...profile, industry: v })} disabled={isTeamMember}>
+                <SelectTrigger className="bg-[#F6F6F6] border-gray-200 rounded-xl disabled:opacity-100 disabled:cursor-not-allowed"><SelectValue placeholder="Select industry" /></SelectTrigger>
                 <SelectContent>
                   {["IT / Software", "BFSI", "Manufacturing", "Healthcare", "Education", "E-commerce", "Consulting"].map(i => <SelectItem key={i} value={i}>{i}</SelectItem>)}
                 </SelectContent>
@@ -11424,8 +11485,8 @@ function CompanyProfilePage() {
             </div>
             <div>
               <label className="block mb-1.5 text-sm font-medium text-[#3A1F1F]">Company Type</label>
-              <Select value={profile.type} onValueChange={v => setProfile({ ...profile, type: v })}>
-                <SelectTrigger className="bg-[#F6F6F6] border-gray-200 rounded-xl"><SelectValue /></SelectTrigger>
+              <Select value={profile.type} onValueChange={v => setProfile({ ...profile, type: v })} disabled={isTeamMember}>
+                <SelectTrigger className="bg-[#F6F6F6] border-gray-200 rounded-xl disabled:opacity-100 disabled:cursor-not-allowed"><SelectValue /></SelectTrigger>
                 <SelectContent>
                   {["Startup", "SME", "MNC", "Indian MNC", "Fortune 500", "Public Sector"].map(t => <SelectItem key={t} value={t}>{t}</SelectItem>)}
                 </SelectContent>
@@ -11433,8 +11494,8 @@ function CompanyProfilePage() {
             </div>
             <div>
               <label className="block mb-1.5 text-sm font-medium text-[#3A1F1F]">Company Size</label>
-              <Select value={profile.companySize} onValueChange={v => setProfile({ ...profile, companySize: v })}>
-                <SelectTrigger className="bg-[#F6F6F6] border-gray-200 rounded-xl"><SelectValue /></SelectTrigger>
+              <Select value={profile.companySize} onValueChange={v => setProfile({ ...profile, companySize: v })} disabled={isTeamMember}>
+                <SelectTrigger className="bg-[#F6F6F6] border-gray-200 rounded-xl disabled:opacity-100 disabled:cursor-not-allowed"><SelectValue /></SelectTrigger>
                 <SelectContent>
                   {["1-10", "11-50", "51-200", "201-500", "501-1000", "1001-5000", "5001+"].map(s => <SelectItem key={s} value={s}>{s} employees</SelectItem>)}
                 </SelectContent>
@@ -11442,7 +11503,7 @@ function CompanyProfilePage() {
             </div>
             <div>
               <label className="block mb-1.5 text-sm font-medium text-[#3A1F1F]">Founded Year</label>
-              <Input value={profile.founded} onChange={e => setProfile({ ...profile, founded: e.target.value })} className="bg-[#F6F6F6] border-gray-200 rounded-xl" placeholder="Enter founded year" />
+              <Input value={profile.founded} onChange={e => setProfile({ ...profile, founded: e.target.value })} disabled={isTeamMember} className="bg-[#F6F6F6] border-gray-200 rounded-xl disabled:opacity-100 disabled:cursor-not-allowed" placeholder="Enter founded year" />
             </div>
             <div>
               <label className="block mb-1.5 text-sm font-medium text-[#3A1F1F]">Your Name (HR Contact)</label>
@@ -11454,21 +11515,34 @@ function CompanyProfilePage() {
         {/* Company Bio */}
         <div className="bg-white rounded-2xl p-6 shadow-sm">
           <h3 className="text-lg font-semibold text-[#3A1F1F] mb-4">Company Bio</h3>
-          <RichTextEditor
-            value={profile.description}
-            onChange={val => setProfile({ ...profile, description: val })}
-            placeholder="Describe your company culture, products, and mission..."
-            lockHeadings={true}
-          />
-          <p className="text-xs text-[#8A8A8A] mt-1">
-            {(profile.description
-              ? profile.description
-                .replace(/<h2[^>]*>.*?<\/h2>/gi, "")
-                .replace(/<[^>]*>/g, "")
-                .trim()
-                .length
-              : 0)}/2000 characters
-          </p>
+          {isTeamMember ? (
+            profile.description ? (
+              <div
+                className="prose prose-sm max-w-none text-[#3A1F1F] bg-[#F6F6F6] rounded-xl p-4"
+                dangerouslySetInnerHTML={{ __html: profile.description }}
+              />
+            ) : (
+              <p className="text-sm text-[#8A8A8A] bg-[#F6F6F6] rounded-xl p-4">No company bio added yet.</p>
+            )
+          ) : (
+            <>
+              <RichTextEditor
+                value={profile.description}
+                onChange={val => setProfile({ ...profile, description: val })}
+                placeholder="Describe your company culture, products, and mission..."
+                lockHeadings={true}
+              />
+              <p className="text-xs text-[#8A8A8A] mt-1">
+                {(profile.description
+                  ? profile.description
+                    .replace(/<h2[^>]*>.*?<\/h2>/gi, "")
+                    .replace(/<[^>]*>/g, "")
+                    .trim()
+                    .length
+                  : 0)}/2000 characters
+              </p>
+            </>
+          )}
         </div>
 
         {/* Contact & Social */}
@@ -11479,26 +11553,26 @@ function CompanyProfilePage() {
               <label className="block mb-1.5 text-sm font-medium text-[#3A1F1F]">Headquarters</label>
               <div className="relative">
                 <MapPin className="absolute left-3 top-1/2 -translate-y-1/2 h-4 w-4 text-[#8A8A8A]" />
-                <Input value={profile.location} onChange={e => setProfile({ ...profile, location: e.target.value })} className="pl-9 bg-[#F6F6F6] border-gray-200 rounded-xl" placeholder="City, State" />
+                <Input value={profile.location} onChange={e => setProfile({ ...profile, location: e.target.value })} disabled={isTeamMember} className="pl-9 bg-[#F6F6F6] border-gray-200 rounded-xl disabled:opacity-100 disabled:cursor-not-allowed" placeholder="City, State" />
               </div>
             </div>
             <div>
               <label className="block mb-1.5 text-sm font-medium text-[#3A1F1F]">Website</label>
               <div className="relative">
                 <Globe className="absolute left-3 top-1/2 -translate-y-1/2 h-4 w-4 text-[#8A8A8A]" />
-                <Input value={profile.website} onChange={e => setProfile({ ...profile, website: e.target.value })} className="pl-9 bg-[#F6F6F6] border-gray-200 rounded-xl" placeholder="https://..." />
+                <Input value={profile.website} onChange={e => setProfile({ ...profile, website: e.target.value })} disabled={isTeamMember} className="pl-9 bg-[#F6F6F6] border-gray-200 rounded-xl disabled:opacity-100 disabled:cursor-not-allowed" placeholder="https://..." />
               </div>
             </div>
             <div>
               <label className="block mb-1.5 text-sm font-medium text-[#3A1F1F]">LinkedIn</label>
               <div className="relative">
                 <Linkedin className="absolute left-3 top-1/2 -translate-y-1/2 h-4 w-4 text-[#8A8A8A]" />
-                <Input value={profile.linkedin} onChange={e => setProfile({ ...profile, linkedin: e.target.value })} className="pl-9 bg-[#F6F6F6] border-gray-200 rounded-xl" placeholder="LinkedIn company URL" />
+                <Input value={profile.linkedin} onChange={e => setProfile({ ...profile, linkedin: e.target.value })} disabled={isTeamMember} className="pl-9 bg-[#F6F6F6] border-gray-200 rounded-xl disabled:opacity-100 disabled:cursor-not-allowed" placeholder="LinkedIn company URL" />
               </div>
             </div>
             <div>
               <label className="block mb-1.5 text-sm font-medium text-[#3A1F1F]">CIN Number</label>
-              <Input value={profile.cin} onChange={e => setProfile({ ...profile, cin: e.target.value })} className="bg-[#F6F6F6] border-gray-200 rounded-xl" placeholder="Corporate Identity Number" />
+              <Input value={profile.cin} onChange={e => setProfile({ ...profile, cin: e.target.value })} disabled={isTeamMember} className="bg-[#F6F6F6] border-gray-200 rounded-xl disabled:opacity-100 disabled:cursor-not-allowed" placeholder="Corporate Identity Number" />
             </div>
             <div>
               <label className="block mb-1.5 text-sm font-medium text-[#3A1F1F]">Phone</label>
