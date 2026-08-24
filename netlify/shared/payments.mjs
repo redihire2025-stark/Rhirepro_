@@ -14,9 +14,9 @@
  */
 
 export const PLANS = {
-  basic: { id: "basic", name: "Basic Plan", price: 350, dailyJobPosts: 10 },
-  standard: { id: "standard", name: "Standard Plan", price: 1000, dailyJobPosts: 50 },
-  premium: { id: "premium", name: "Premium Plan", price: 3000, dailyJobPosts: null },
+  basic: { id: "basic", name: "Basic Plan", price: 1000, dailyJobPosts: 10, maxSeats: 1 },
+  standard: { id: "standard", name: "Standard Plan", price: 1000, dailyJobPosts: 50, maxSeats: 5 },
+  premium: { id: "premium", name: "Premium Plan", price: 3000, dailyJobPosts: null, maxSeats: 10 },
 };
 
 export const PROMO_CODES = {
@@ -176,7 +176,7 @@ export async function activateRecruiterPlan({ recruiterId, planId, orderId, paym
 
   await sbPatch("recruiter_profiles", `id=eq.${recruiterId}`, {
     org_role: "admin",
-    max_seats: 10,
+    max_seats: plan ? plan.maxSeats : 1,
     is_org_admin: true,
   });
 

@@ -6,6 +6,7 @@ export interface Plan {
   price: number;           // base price in rupees, before GST
   period: string;
   dailyJobPosts: number | null; // null = unlimited
+  maxSeats: number;         // total org headcount allowed, admin included
   features: string[];
   popular: boolean;
 }
@@ -14,9 +15,10 @@ export const PLANS: Plan[] = [
   {
     id: "basic",
     name: "Basic Plan",
-    price: 350,
+    price: 1000,
     period: "month",
     dailyJobPosts: 10,
+    maxSeats: 1,
     features: [
       "10 daily job posts",
       "Basic Analytics",
@@ -31,6 +33,7 @@ export const PLANS: Plan[] = [
     price: 1000,
     period: "month",
     dailyJobPosts: 50,
+    maxSeats: 5,
     features: [
       "50 daily job posts",
       "100+ job templates",
@@ -46,12 +49,13 @@ export const PLANS: Plan[] = [
     price: 3000,
     period: "month",
     dailyJobPosts: null,
+    maxSeats: 10,
     features: [
       "Unlimited job posts",
       "Advanced hiring tools",
       "Dedicated Account Manager",
       "24/7 Premium Support",
-      "Unlimited Team Members",
+      "10 Team Members",
     ],
     popular: false,
   },

@@ -4,30 +4,29 @@ import crypto from "crypto";
 import { calculatePlanPrice, PLANS, PROMO_CODES } from "../../netlify/shared/payments.mjs";
 
 /**
- * These lock the pricing ported from backend/notifications_api.py. The figures
- * are not arbitrary: the three no-promo totals are what the live plan cards
- * charge today (₹413 / ₹1180 / ₹3540). If someone "simplifies" the GST or
- * discount arithmetic, customers get billed the wrong amount, so pin it.
+ * These lock the pricing the plan cards charge today (₹1180 / ₹1180 / ₹3540).
+ * If someone "simplifies" the GST or discount arithmetic, customers get billed
+ * the wrong amount, so pin it.
  */
 describe("calculatePlanPrice — ported from the Python service", () => {
   it("charges base + 18% GST when no promo is applied", () => {
-    expect(calculatePlanPrice("basic")).toMatchObject({ base_price: 350, gst_amount: 63, total_amount: 413 });
+    expect(calculatePlanPrice("basic")).toMatchObject({ base_price: 1000, gst_amount: 180, total_amount: 1180 });
     expect(calculatePlanPrice("standard")).toMatchObject({ base_price: 1000, gst_amount: 180, total_amount: 1180 });
     expect(calculatePlanPrice("premium")).toMatchObject({ base_price: 3000, gst_amount: 540, total_amount: 3540 });
   });
 
   it("applies percentage discounts to the base only", () => {
-    expect(calculatePlanPrice("basic", "RHIRE10")).toMatchObject({ discount_amount: 35, total_amount: 378 });
+    expect(calculatePlanPrice("basic", "RHIRE10")).toMatchObject({ discount_amount: 100, total_amount: 1080 });
     expect(calculatePlanPrice("standard", "HIRE50")).toMatchObject({ discount_amount: 500, total_amount: 680 });
   });
 
   it("applies fixed discounts", () => {
-    expect(calculatePlanPrice("basic", "NEWJOIN")).toMatchObject({ discount_amount: 100, total_amount: 313 });
+    expect(calculatePlanPrice("basic", "NEWJOIN")).toMatchObject({ discount_amount: 100, total_amount: 1080 });
   });
 
   it("charges GST on the ORIGINAL base price, not the discounted price", () => {
-    // 10% off ₹350 is ₹315, but GST stays ₹63 (18% of 350), not ₹57.
-    expect(calculatePlanPrice("basic", "RHIRE10").gst_amount).toBe(63);
+    // 10% off ₹1000 is ₹900, but GST stays ₹180 (18% of 1000), not ₹162.
+    expect(calculatePlanPrice("basic", "RHIRE10").gst_amount).toBe(180);
   });
 
   it("skips GST entirely for set_price promos", () => {
@@ -36,11 +35,11 @@ describe("calculatePlanPrice — ported from the Python service", () => {
   });
 
   it("ignores an unrecognised promo instead of failing the purchase", () => {
-    expect(calculatePlanPrice("basic", "NOT_A_CODE").total_amount).toBe(413);
+    expect(calculatePlanPrice("basic", "NOT_A_CODE").total_amount).toBe(1180);
   });
 
   it("is case-insensitive for plan id and promo code", () => {
-    expect(calculatePlanPrice("BASIC", "rhire10").total_amount).toBe(378);
+    expect(calculatePlanPrice("BASIC", "rhire10").total_amount).toBe(1080);
   });
 
   it("rejects an unknown plan", () => {

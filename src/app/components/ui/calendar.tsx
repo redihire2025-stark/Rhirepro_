@@ -20,8 +20,18 @@ function Calendar({
       classNames={{
         months: "flex flex-col sm:flex-row gap-2",
         month: "flex flex-col gap-4",
-        caption: "flex justify-center pt-1 relative items-center w-full",
-        caption_label: "text-sm font-medium",
+        caption: "flex justify-center pt-1 relative items-center w-full gap-1",
+        caption_label:
+          props.captionLayout && props.captionLayout !== "buttons"
+            ? "hidden"
+            : "text-sm font-medium",
+        caption_dropdowns: "flex items-center gap-1.5",
+        dropdown:
+          "appearance-none bg-background border border-input rounded-md text-sm font-medium px-2 py-1 cursor-pointer focus:outline-none focus:ring-1 focus:ring-ring hover:bg-accent",
+        dropdown_month: "relative",
+        dropdown_year: "relative",
+        dropdown_icon: "hidden",
+        vhidden: "sr-only",
         nav: "flex items-center gap-1",
         nav_button: cn(
           buttonVariants({ variant: "outline" }),

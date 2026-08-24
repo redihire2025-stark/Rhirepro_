@@ -4198,6 +4198,13 @@ function ProfilePage({ onPendingPrefsChange }: { onPendingPrefsChange?: (pending
                     <PopoverContent align="start" side="bottom" className="p-0 mt-2 w-auto">
                       <Calendar
                         mode="single"
+                        captionLayout="dropdown-buttons"
+                        fromYear={earliestAllowedDob.getFullYear()}
+                        toYear={today.getFullYear()}
+                        defaultMonth={
+                          parseLocalDate(basicForm.dob) ||
+                          new Date(today.getFullYear() - 25, today.getMonth(), 1)
+                        }
                         selected={parseLocalDate(basicForm.dob) || undefined}
                         onSelect={(date) => {
                           setBasicForm((form) => ({

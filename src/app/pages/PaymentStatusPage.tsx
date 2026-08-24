@@ -79,7 +79,7 @@ export default function PaymentStatusPage() {
           .from("recruiter_profiles")
           .update({
             org_role: "admin",
-            max_seats: 10,
+            max_seats: getPlanById(ctx.plan_id)?.maxSeats ?? 1,
             is_org_admin: true,
           })
           .eq("id", ctx.recruiter_id);
