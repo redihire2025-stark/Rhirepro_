@@ -85,9 +85,41 @@ export default function FeedbackPopup({
   };
 
   useEffect(() => {
-    schedulePopup(getNextDelay());
-    return clearReopenTimer;
-  }, [submittedStorageKey, dismissedCountStorageKey]);
+    let isMounted = true;
+
+    if (hasSubmittedFeedback()) {
+      clearReopenTimer();
+      return clearReopenTimer;
+    }
+
+    if (userId && isSignedIn) {
+      // Check database to see if this user has already submitted feedback
+      supabase
+        .from("feedback")
+        .select("id")
+        .eq("user_id", userId)
+        .maybeSingle()
+        .then(({ data, error }) => {
+          if (!isMounted) return;
+          if (data && !error) {
+            localStorage.setItem(submittedStorageKey, "true");
+            clearReopenTimer();
+          } else {
+            schedulePopup(getNextDelay());
+          }
+        })
+        .catch(() => {
+          if (isMounted) schedulePopup(getNextDelay());
+        });
+    } else {
+      schedulePopup(getNextDelay());
+    }
+
+    return () => {
+      isMounted = false;
+      clearReopenTimer();
+    };
+  }, [submittedStorageKey, dismissedCountStorageKey, userId, isSignedIn]);
 
   const resetForm = () => {
     setRating(0);
@@ -114,7 +146,7 @@ export default function FeedbackPopup({
   };
 
   const handleSubmit = async () => {
-    if (!isSignedIn) {
+    if (!isSignedIn || !userId) {
       navigate("/signin?redirect=feedback");
       return;
     }
@@ -140,9 +172,11 @@ export default function FeedbackPopup({
           created_at: new Date().toISOString(),
         },
         { onConflict: "user_id" }
-      );
+      )
+      .select("id");
 
     if (error) {
+      console.error("Feedback submit error:", error);
       setStatus("error");
       setMessage("We could not send your feedback right now. Please try again.");
       return;
