@@ -13,6 +13,8 @@ import RecruiterDashboard from "./pages/RecruiterDashboard";
 import PlanDetailsPage from "./pages/PlanDetailsPage";
 import PaymentGatewayPage from "./pages/PaymentGatewayPage";
 import PaymentStatusPage from "./pages/PaymentStatusPage";
+import JobSeekerPlansPage from "./pages/JobSeekerPlansPage";
+import JobSeekerPaymentGatewayPage from "./pages/JobSeekerPaymentGatewayPage";
 import JobListingsPage from "./pages/JobListingsPage";
 import JobDetailPage from "./pages/JobDetailPage";
 import ServicesPage from "./pages/ServicesPage";
@@ -176,6 +178,16 @@ export const router = createBrowserRouter([
   {
     path: "/recruiter/plan-details",
     Component: PlanDetailsPage,
+    errorElement: <ErrorPage />,
+  },
+  {
+    path: "/jobseeker/plans",
+    Component: JobSeekerPlansPage,
+    errorElement: <ErrorPage />,
+  },
+  {
+    path: "/jobseeker/payment",
+    Component: JobSeekerPaymentGatewayPage,
     errorElement: <ErrorPage />,
   },
   {

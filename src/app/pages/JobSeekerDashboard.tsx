@@ -58,7 +58,9 @@ import { fetchGeminiInsights, type GeminiInsightsResult } from "../services/gemi
 import { AppliedJobWithJob, SavedJobWithJob, getAppliedJobs, getSavedJobs } from "../services/jobService";
 import SavedJobsComparePage from "./SavedJobsComparePage";
 import JobShareButton from "../components/JobShareButton";
-import ResumeBuilder, { buildResumeHTML } from "../components/ResumeBuilder";
+import ResumeBuilder, { buildResumeHTML, slugToTemplateId, FREE_TEMPLATE_IDS } from "../components/ResumeBuilder";
+import { useJobseekerPlan } from "../../lib/jobseekerPlan";
+import PremiumGate from "../components/PremiumGate";
 import logoImage from "../../logo/logo.png";
 
 // ── Types ──────────────────────────────────────────────────────────────────────
@@ -3427,6 +3429,7 @@ function ProfilePage({ onPendingPrefsChange }: { onPendingPrefsChange?: (pending
   const [experienceType, setExperienceType] = useState<"fresher" | "experienced">("experienced");
   const [savingExperienceType, setSavingExperienceType] = useState(false);
   const isFresher = experienceType === "fresher";
+  const { isPremium: hasPremiumPlan } = useJobseekerPlan();
 
   // Education
   const emptyEdu: EducationForm = { degree: "", field: "", college: "", startMonth: "Jan", startYear: "2016", endMonth: "Jan", endYear: "2020", score: "", customField: "" };
@@ -4987,6 +4990,7 @@ function ProfilePage({ onPendingPrefsChange }: { onPendingPrefsChange?: (pending
             languages={languages}
             profilePic={profilePic}
             isFresher={isFresher}
+            isPremium={hasPremiumPlan}
           />
         </div>
 
@@ -5761,6 +5765,7 @@ type ExpiredJobEntry = {
 
 function AnalyticsPage() {
   const { profile } = useAuth();
+  const { isPremium: hasPremiumPlan } = useJobseekerPlan();
   const navigate = useNavigate();
   const location = useLocation();
 
@@ -6411,24 +6416,30 @@ function AnalyticsPage() {
           )}
           {/* Job Comparison */}
           {activeTab === "compare" && (
-            <div className="space-y-6">
-              <SavedJobsSection
-                userId={profile?.id}
-                appliedJobIds={appliedJobs.flatMap(a => [String(a.job_id), a.job?.id ? String(a.job.id) : null]).filter(Boolean) as string[]}
-                onJobsLoaded={setSavedJobs}
-                onJobSelect={setSelectedSavedJob}
-                selectedJobId={selectedSavedJob ? String(selectedSavedJob.job_id || selectedSavedJob.job?.id) : null}
-                onApplied={(jobId) => setJustAppliedJobIds(prev => new Set(prev).add(jobId))}
-                showComparisonControls
-                hideExpired
-                onCompareRequested={setCompareState}
-              />
-              {compareState && (
-                <div ref={compareResultRef}>
-                  <SavedJobsComparePage forcedState={compareState} embedded />
-                </div>
-              )}
-            </div>
+            <PremiumGate
+              locked={!hasPremiumPlan}
+              title="Compare Jobs is a Premium feature"
+              description="Get better visibility into which opportunities are the strongest fit."
+            >
+              <div className="space-y-6">
+                <SavedJobsSection
+                  userId={profile?.id}
+                  appliedJobIds={appliedJobs.flatMap(a => [String(a.job_id), a.job?.id ? String(a.job.id) : null]).filter(Boolean) as string[]}
+                  onJobsLoaded={setSavedJobs}
+                  onJobSelect={setSelectedSavedJob}
+                  selectedJobId={selectedSavedJob ? String(selectedSavedJob.job_id || selectedSavedJob.job?.id) : null}
+                  onApplied={(jobId) => setJustAppliedJobIds(prev => new Set(prev).add(jobId))}
+                  showComparisonControls
+                  hideExpired
+                  onCompareRequested={setCompareState}
+                />
+                {compareState && (
+                  <div ref={compareResultRef}>
+                    <SavedJobsComparePage forcedState={compareState} embedded />
+                  </div>
+                )}
+              </div>
+            </PremiumGate>
           )}
           {/* Expired Jobs — saved + applied postings that are no longer live */}
           {activeTab === "expired" && (
@@ -7177,6 +7188,7 @@ async function fetchRemotiveJobs(searchTerm: string): Promise<RemotiveJob[]> {
 // ── Career Insights Page ───────────────────────────────────────────────────────
 function InsightsPage() {
   const { profile } = useAuth();
+  const { isPremium: hasPremiumPlan } = useJobseekerPlan();
   const [recommendedJobs, setRecommendedJobs] = useState<Array<{
     id: string; title: string; company: string; location: string; salary: string; match: number;
   }>>([]);
@@ -7352,7 +7364,10 @@ function InsightsPage() {
           };
         });
 
-        // Trending skills come exclusively from Gemini — no hardcoded fallback
+        // Trending skills prefer Gemini, but Gemini is a third-party call that
+        // can fail or be unreachable — every job seeker still needs something
+        // in this panel, so fall back to the domain- and job-market-derived
+        // suggestions already computed above instead of leaving it empty.
         if (geminiResult?.trendingSkills?.length) {
           const aiSuggestions: TrendingSkillSuggestion[] = geminiResult.trendingSkills
             .filter((ai) => !seekerHasSkill(skills, ai.skill))
@@ -7366,7 +7381,17 @@ function InsightsPage() {
             .slice(0, TRENDING_SKILL_LIMIT);
           setTrendingSkillSuggestions(aiSuggestions);
         } else {
-          setTrendingSkillSuggestions([]);
+          const fallback = new Map<string, TrendingSkillSuggestion>();
+          countedSkills.forEach((item) => fallback.set(normalizeSkillKey(item.skill), item));
+          domainSuggestions.forEach((item) => {
+            const key = normalizeSkillKey(item.skill);
+            if (!fallback.has(key)) fallback.set(key, item);
+          });
+          setTrendingSkillSuggestions(
+            Array.from(fallback.values())
+              .sort((a, b) => b.relevanceScore - a.relevanceScore)
+              .slice(0, TRENDING_SKILL_LIMIT)
+          );
         }
       } else {
         if (geminiResult?.trendingSkills?.length) {
@@ -7382,7 +7407,14 @@ function InsightsPage() {
             .slice(0, TRENDING_SKILL_LIMIT);
           setTrendingSkillSuggestions(aiSuggestions);
         } else {
-          setTrendingSkillSuggestions([]);
+          const staticFallback: TrendingSkillSuggestion[] = domainData.trendingSkills.map((item) => ({
+            skill: item.skill,
+            demand: item.demand,
+            matchingJobs: 0,
+            relevanceScore: getRelevanceScore({ skill: item.skill, domainData, demand: item.demand, matchingJobs: 0, totalSignalJobs: 1 }),
+            suggestion: `${item.skill} is relevant for ${trendingContextLabel === "profile" ? "your profile" : `${trendingContextLabel} roles`}.`,
+          }));
+          setTrendingSkillSuggestions(staticFallback);
         }
       }
       setLoadingJobs(false);
@@ -7460,42 +7492,48 @@ function InsightsPage() {
         </div>
 
         {/* Trending Skills */}
-        <div className="bg-white rounded-2xl p-6 shadow-sm border border-gray-100">
-          <h3 className="text-lg font-semibold text-[#3A1F1F] mb-1 flex items-center gap-2">
-            <Lightbulb className="h-5 w-5 text-[#FF2B2B]" /> Trending Skills
-          </h3>
-          <p className="text-xs text-[#8A8A8A] mb-4">
-            Based on your {skills.length > 0 ? `${skills.length} skills` : "profile"}
-            {aiInsights ? " · Gemini AI" : " · Remotive market API"}
-          </p>
-          {loadingJobs ? (
-            <div className="flex items-center justify-center py-10 text-[#8A8A8A]">
-              <Loader2 className="h-5 w-5 animate-spin mr-2" /> Finding skill gaps...
-            </div>
-          ) : trendingSkillSuggestions.length > 0 ? (
-            <div className="space-y-2.5">
-              {trendingSkillSuggestions.map((item) => (
-                <div key={item.skill} className="flex items-center justify-between gap-3 p-3 bg-[#F6F6F6] rounded-xl">
-                  <div className="min-w-0">
-                    <span className="block text-sm text-[#3A1F1F] truncate">{item.skill}</span>
+        <PremiumGate
+          locked={!hasPremiumPlan}
+          title="Trending Skills is a Premium feature"
+          description="Identify the most valuable skills to become more job-ready and competitive."
+        >
+          <div className="bg-white rounded-2xl p-6 shadow-sm border border-gray-100">
+            <h3 className="text-lg font-semibold text-[#3A1F1F] mb-1 flex items-center gap-2">
+              <Lightbulb className="h-5 w-5 text-[#FF2B2B]" /> Trending Skills
+            </h3>
+            <p className="text-xs text-[#8A8A8A] mb-4">
+              Based on your {skills.length > 0 ? `${skills.length} skills` : "profile"}
+              {aiInsights ? " · Gemini AI" : " · Remotive market API"}
+            </p>
+            {loadingJobs ? (
+              <div className="flex items-center justify-center py-10 text-[#8A8A8A]">
+                <Loader2 className="h-5 w-5 animate-spin mr-2" /> Finding skill gaps...
+              </div>
+            ) : trendingSkillSuggestions.length > 0 ? (
+              <div className="space-y-2.5">
+                {trendingSkillSuggestions.map((item) => (
+                  <div key={item.skill} className="flex items-center justify-between gap-3 p-3 bg-[#F6F6F6] rounded-xl">
+                    <div className="min-w-0">
+                      <span className="block text-sm text-[#3A1F1F] truncate">{item.skill}</span>
+                    </div>
+                    <div className="flex items-center gap-2 flex-shrink-0">
+                      <Badge className={`text-xs ${demandBadge(item.demand)}`}>{item.demand}</Badge>
+                    </div>
                   </div>
-                  <div className="flex items-center gap-2 flex-shrink-0">
-                    <Badge className={`text-xs ${demandBadge(item.demand)}`}>{item.demand}</Badge>
-                  </div>
-                </div>
-              ))}
-            </div>
-          ) : (
-            <div className="text-center py-8 text-[#8A8A8A]">
-              <Lightbulb className="h-10 w-10 mx-auto mb-2 text-gray-200" />
-              <p className="text-sm">
-                {skills.length === 0
-                  ? "Add your skills to get AI-powered trending skill suggestions."
-                  : "AI analysis unavailable — restart the dev server and reload to retry."}
-              </p>
-            </div>
-          )}
-        </div>
+                ))}
+              </div>
+            ) : (
+              <div className="text-center py-8 text-[#8A8A8A]">
+                <Lightbulb className="h-10 w-10 mx-auto mb-2 text-gray-200" />
+                <p className="text-sm">
+                  {skills.length === 0
+                    ? "Add your skills to get personalized trending skill suggestions."
+                    : "Trending skills are temporarily unavailable. Please check back soon."}
+                </p>
+              </div>
+            )}
+          </div>
+        </PremiumGate>
 
         {/* Salary Insights */}
         <div className="bg-white rounded-2xl p-6 shadow-sm border border-gray-100">
@@ -7536,40 +7574,46 @@ function InsightsPage() {
         </div>
 
         {/* Suggested Certifications */}
-        <div className="bg-white rounded-2xl p-6 shadow-sm border border-gray-100">
-          <h3 className="text-lg font-semibold text-[#3A1F1F] mb-1 flex items-center gap-2">
-            <Award className="h-5 w-5 text-[#FF2B2B]" /> Suggested Certifications
-          </h3>
-          <p className="text-xs text-[#8A8A8A] mb-4">
-            {aiInsights ? "AI-curated for your skills · Gemini AI" : "Tailored for your domain and experience level"}
-          </p>
-          {loadingAI ? (
-            <div className="flex items-center justify-center py-10 text-[#8A8A8A]">
-              <Loader2 className="h-5 w-5 animate-spin mr-2" /> Analysing market certifications...
-            </div>
-          ) : (
-            <div className="space-y-3">
-              {(aiInsights?.certifications ?? domainData.certifications).map((cert: { name: string; provider?: string; reason?: string; value: string }, i: number) => {
-                const reason = "reason" in cert && typeof cert.reason === "string" ? cert.reason : "";
+        <PremiumGate
+          locked={!hasPremiumPlan}
+          title="Suggested Certifications is a Premium feature"
+          description="Discover certifications that match your career goals and target job roles."
+        >
+          <div className="bg-white rounded-2xl p-6 shadow-sm border border-gray-100">
+            <h3 className="text-lg font-semibold text-[#3A1F1F] mb-1 flex items-center gap-2">
+              <Award className="h-5 w-5 text-[#FF2B2B]" /> Suggested Certifications
+            </h3>
+            <p className="text-xs text-[#8A8A8A] mb-4">
+              {aiInsights ? "AI-curated for your skills · Gemini AI" : "Tailored for your domain and experience level"}
+            </p>
+            {loadingAI ? (
+              <div className="flex items-center justify-center py-10 text-[#8A8A8A]">
+                <Loader2 className="h-5 w-5 animate-spin mr-2" /> Analysing market certifications...
+              </div>
+            ) : (
+              <div className="space-y-3">
+                {(aiInsights?.certifications ?? domainData.certifications).map((cert: { name: string; provider?: string; reason?: string; value: string }, i: number) => {
+                  const reason = "reason" in cert && typeof cert.reason === "string" ? cert.reason : "";
 
-                return (
-                  <div key={i} className="p-4 bg-[#F6F6F6] rounded-xl">
-                    <div className="flex items-start justify-between gap-2">
-                      <div className="min-w-0">
-                        <h4 className="font-semibold text-[#3A1F1F] text-sm leading-snug">{cert.name}</h4>
-                        <p className="text-xs text-[#8A8A8A] mt-0.5">{cert.provider}</p>
-                        {reason && (
-                          <p className="text-xs text-blue-600 mt-1 leading-snug">{reason}</p>
-                        )}
+                  return (
+                    <div key={i} className="p-4 bg-[#F6F6F6] rounded-xl">
+                      <div className="flex items-start justify-between gap-2">
+                        <div className="min-w-0">
+                          <h4 className="font-semibold text-[#3A1F1F] text-sm leading-snug">{cert.name}</h4>
+                          <p className="text-xs text-[#8A8A8A] mt-0.5">{cert.provider}</p>
+                          {reason && (
+                            <p className="text-xs text-blue-600 mt-1 leading-snug">{reason}</p>
+                          )}
+                        </div>
+                        <Badge className={`text-xs flex-shrink-0 ${certBadge(cert.value)}`}>{cert.value}</Badge>
                       </div>
-                      <Badge className={`text-xs flex-shrink-0 ${certBadge(cert.value)}`}>{cert.value}</Badge>
                     </div>
-                  </div>
-                );
-              })}
-            </div>
-          )}
-        </div>
+                  );
+                })}
+              </div>
+            )}
+          </div>
+        </PremiumGate>
       </div>
     </div>
   );
@@ -7578,9 +7622,13 @@ function InsightsPage() {
 // ── Resume Preview Page ──────────────────────────────────────────────────────────
 function ResumePreviewPage() {
   const { profile } = useAuth();
+  const { isPremium } = useJobseekerPlan();
   const location = useLocation();
   const queryParams = new URLSearchParams(location.search);
-  const selectedTemplate = queryParams.get("template") || "template-3";
+  const requestedTemplate = slugToTemplateId(queryParams.get("template") || "modern-blue");
+  // A direct/bookmarked URL for a premium template must not bypass the gate
+  // just because the picker itself isn't rendered on this page.
+  const selectedTemplate = isPremium || FREE_TEMPLATE_IDS.has(requestedTemplate) ? requestedTemplate : "template-3";
 
   const [loading, setLoading] = useState(true);
   const [experiences, setExperiences] = useState<WorkExp[]>([]);
@@ -7775,7 +7823,10 @@ function ResumePreviewPage() {
     isFresher: profile?.experience_type === "fresher",
   };
 
-  const htmlContent = buildResumeHTML(resumeProps, resolvedPic, selectedTemplate);
+  // Single flowing page here too — matches the Edit Resume panel and only
+  // ever grows to a second page via the browser's own print pagination if
+  // the content genuinely doesn't fit, rather than an estimate-based split.
+  const htmlContent = buildResumeHTML(resumeProps, resolvedPic, selectedTemplate, "single");
 
   return (
     <div className="min-h-screen bg-[#F6F6F6] py-10 px-4 flex flex-col items-center gap-6">
@@ -7801,6 +7852,8 @@ function ResumePreviewPage() {
             box-shadow: none;
             border: none;
             margin-bottom: 0 !important;
+          }
+          .resume-page:not(:last-child) {
             page-break-after: always;
           }
           .no-print {

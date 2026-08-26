@@ -1,9 +1,52 @@
 import { useState, useRef, useCallback, useMemo, useEffect } from "react";
-import { FileText, Loader2, AlertCircle, CheckCircle, Download, Eye, Layout, Check } from "lucide-react";
+import { useNavigate } from "react-router";
+import { FileText, Loader2, AlertCircle, CheckCircle, Download, Eye, Layout, Check, Pencil, Lock } from "lucide-react";
 import { Button } from "./ui/button";
 import html2canvas from "html2canvas-pro";
 import { jsPDF } from "jspdf";
 import { formatMonthYear, formatYearMonthString } from "../../lib/monthYear";
+
+// The 5 original templates stay free for everyone. Every template added
+// since is Premium-only — see ResumeBuilderProps.isPremium.
+export const FREE_TEMPLATE_IDS = new Set(["template-1", "template-2", "template-3", "template-4", "template-5"]);
+
+// Public-facing slug for each template id, used only at the URL boundary —
+// keeps the raw "template-N" numbering (and how many templates exist) out of
+// the address bar. Every internal render branch still keys off the numeric
+// id; only handlePreviewClick and ResumePreviewPage translate at the edge.
+const TEMPLATE_SLUGS: Record<string, string> = {
+  "template-1": "charcoal-classic",
+  "template-2": "timeline-navy",
+  "template-3": "modern-blue",
+  "template-4": "elegant-crimson",
+  "template-5": "rounded-pastel",
+  "template-7": "executive-hexagon",
+  "template-8": "black-gold-minimalist",
+  "template-10": "emerald-botanical",
+  "template-11": "corporate-cyan",
+  "template-12": "minimalist-arch",
+  "template-13": "editorial-signature",
+  "template-14": "geometric-emerald",
+  "template-15": "teal-innovator",
+  "template-16": "monochrome-executive",
+  "template-17": "warm-clinical",
+  "template-18": "slate-professional",
+  "template-20": "studio-contrast",
+  "template-21": "charcoal-split",
+  "template-22": "ats-clarity",
+};
+
+const SLUG_TO_TEMPLATE_ID: Record<string, string> = Object.fromEntries(
+  Object.entries(TEMPLATE_SLUGS).map(([id, slug]) => [slug, id])
+);
+
+export function templateIdToSlug(id: string): string {
+  return TEMPLATE_SLUGS[id] || id;
+}
+
+export function slugToTemplateId(slug: string): string {
+  return SLUG_TO_TEMPLATE_ID[slug] || slug;
+}
 
 // ── Types ────────────────────────────────────────────────────────────────────────
 export interface BasicInfo {
@@ -84,6 +127,14 @@ export interface ResumeBuilderProps {
    * printing an empty heading, and the completeness check must not demand one.
    */
   isFresher?: boolean;
+  /**
+   * Whether this job seeker currently has an active Premium plan. Free users
+   * can only select templates in FREE_TEMPLATE_IDS; everything else shows
+   * locked and routes to the plans page instead of selecting it. Defaults to
+   * false (locked) so a caller that forgets to pass this never accidentally
+   * grants premium templates for free.
+   */
+  isPremium?: boolean;
 }
 
 // ── Image to Data URL converter (bypasses CORS) ─────────────────────────────
@@ -146,10 +197,11 @@ function validateProfile(props: ResumeBuilderProps): ValidationResult {
 }
 
 // ── Resume HTML Template ────────────────────────────────────────────────────────
-export function buildResumeHTML(
+function buildResumeHTMLCore(
   props: ResumeBuilderProps,
   resolvedProfilePic: string | null,
-  templateId: string = "template-3"
+  templateId: string = "template-3",
+  mode?: "single"
 ): string {
   const { basicInfo, summary: rawSummary, skills: rawSkills, education, projects, certifications, languages } = props;
 
@@ -193,22 +245,32 @@ export function buildResumeHTML(
   const page2Experiences: WorkExp[] = [];
 
   let currentHeight = 0;
-  const page1Limit = 1020; // safe budget for content height in page 1 (excluding margins/paddings/header)
+  // In "single" mode every item must land on page 1 — combined with the
+  // height:auto CSS override the exported wrapper injects below, this forces
+  // one continuous flowing page instead of an artificial split, for Preview,
+  // the Edit Resume panel, and the first "does this actually need a second
+  // page?" measurement pass before building the PDF.
+  const page1Limit = mode === "single" ? Number.MAX_SAFE_INTEGER : 1020; // safe budget for content height in page 1 (excluding margins/paddings/header)
 
   // Header Estimate
   const headerEstimate = (
     templateId === "template-2" ||
     templateId === "template-4" ||
     templateId === "template-5" ||
-    templateId === "template-6" ||
     templateId === "template-7" ||
     templateId === "template-8" ||
-    templateId === "template-9" ||
     templateId === "template-10" ||
     templateId === "template-11" ||
     templateId === "template-12" ||
     templateId === "template-13" ||
-    templateId === "template-14"
+    templateId === "template-14" ||
+    templateId === "template-15" ||
+    templateId === "template-16" ||
+    templateId === "template-17" ||
+    templateId === "template-18" ||
+    templateId === "template-20" ||
+    templateId === "template-21" ||
+    templateId === "template-22"
   ) ? 180 : 160;
   currentHeight += headerEstimate;
 
@@ -223,18 +285,23 @@ export function buildResumeHTML(
     templateId === "template-2" ||
     templateId === "template-4" ||
     templateId === "template-10" ||
-    templateId === "template-12"
+    templateId === "template-12" ||
+    templateId === "template-15" ||
+    templateId === "template-16" ||
+    templateId === "template-17" ||
+    templateId === "template-18" ||
+    templateId === "template-20" ||
+    templateId === "template-21"
   ) {
     eduSkillsHeight = 0; // rendered in sidebar, not counting to main content height
   } else if (
     templateId === "template-5" ||
-    templateId === "template-6" ||
     templateId === "template-7" ||
     templateId === "template-8" ||
-    templateId === "template-9" ||
     templateId === "template-11" ||
     templateId === "template-13" ||
-    templateId === "template-14"
+    templateId === "template-14" ||
+    templateId === "template-22"
   ) {
     eduSkillsHeight = education.length * 60 + 40;
   } else {
@@ -267,7 +334,13 @@ export function buildResumeHTML(
       templateId === "template-4" ||
       templateId === "template-5" ||
       templateId === "template-10" ||
-      templateId === "template-12"
+      templateId === "template-12" ||
+      templateId === "template-15" ||
+      templateId === "template-16" ||
+      templateId === "template-17" ||
+      templateId === "template-18" ||
+      templateId === "template-20" ||
+      templateId === "template-21"
     ) {
       // In sidebar, not counting to main height
     } else {
@@ -1095,191 +1168,6 @@ export function buildResumeHTML(
   }
 
   // ───────────────────────────────────────────────────────────────────────────
-  // Template 6: Maroon Creative (Francisco Andrade style)
-  // ───────────────────────────────────────────────────────────────────────────
-  if (templateId === "template-6") {
-    const profileImgHTML = safeProfilePic
-      ? `<img src="${safeProfilePic}" alt="Profile" style="width:124px;height:124px;border-radius:50%;object-fit:cover;display:block;" />`
-      : `<div style="width:124px;height:124px;border-radius:50%;background:#381216;display:flex;align-items:center;justify-content:center;font-size:42px;font-weight:800;color:#fff;text-transform:uppercase;">${(basicInfo.name || "U")[0]}</div>`;
-
-    const nameParts = (basicInfo.name || "Candidate Name").trim().split(" ");
-    const firstName = nameParts[0] || "";
-    const lastName = nameParts.slice(1).join(" ") || "";
-
-    const renderExperiencesHTML = (exps: WorkExp[]) => exps.map(exp => {
-      const dateRange = `${exp.startYear ? `${exp.startYear}` : exp.startMonth} - ${exp.current ? "Present" : (exp.endYear ? `${exp.endYear}` : exp.endMonth)}`;
-      const desc = exp.description
-        ? `<p style="margin:4px 0 0;font-style:italic;font-size:10px;color:#555;line-height:1.4;">${cleanLineText(exp.description)}</p>`
-        : "";
-      return `
-        <div style="margin-bottom:12px;box-sizing:border-box;">
-          <div style="font-size:11px;font-weight:700;color:#222;letter-spacing:0.5px;">${dateRange}</div>
-          <div style="font-size:11px;font-weight:800;color:#111;text-transform:uppercase;margin-top:2px;letter-spacing:0.5px;">${exp.title} – ${exp.company}</div>
-          ${desc}
-        </div>
-      `;
-    }).join("");
-
-    const educationHTML = education.map(edu => {
-      const yearRange = `${edu.startYear || "2020"} - ${edu.endYear || "2024"}`;
-      return `
-        <div style="margin-bottom:8px;box-sizing:border-box;">
-          <div style="font-size:11px;font-weight:700;color:#222;">${yearRange}</div>
-          <div style="font-size:11px;font-weight:800;color:#111;">${edu.college}</div>
-          <div style="font-size:10px;color:#555;">(${edu.degree}${edu.field ? ` in ${edu.field}` : ""}${edu.score ? ` · Score: ${edu.score}` : ""})</div>
-        </div>
-      `;
-    }).join("");
-
-    const skillsHTML = skills.map((s, idx) => {
-      const percentages = [75, 88, 65, 80, 70];
-      const pct = percentages[idx % percentages.length];
-      return `
-        <div style="margin-bottom:10px;box-sizing:border-box;">
-          <div style="font-size:11px;font-weight:700;color:#222;margin-bottom:3px;">${cleanLineText(s)}</div>
-          <div style="position:relative;width:100%;height:2px;background:#c4b5b0;margin:6px 0;">
-            <div style="position:absolute;left:${pct}%;top:50%;transform:translate(-50%, -50%);width:11px;height:11px;border-radius:50%;background:#554340;"></div>
-          </div>
-        </div>
-      `;
-    }).join("");
-
-    const renderAwardsHTML = (certs: Certification[], projs: Project[]) => {
-      const items = [
-        ...certs.map(c => ({ year: c.issueDate ? c.issueDate.split("-")[0] || "Award" : "Certified", title: c.name, sub: c.issuer || "Certification" })),
-        ...projs.map(p => ({ year: p.startYear || "Project", title: p.name, sub: p.description ? cleanLineText(p.description) : "" })),
-      ];
-      if (items.length === 0) return "";
-      return `
-        <div style="margin-top:14px;box-sizing:border-box;">
-          <h2 style="margin:0 0 8px;font-size:13px;font-weight:800;color:#111;text-transform:uppercase;letter-spacing:0.8px;border-bottom:1.5px solid #222;padding-bottom:3px;">Awards & Projects</h2>
-          ${items.map(item => `
-            <div style="margin-bottom:8px;">
-              <div style="font-size:11px;font-weight:800;color:#111;">${item.year} (${item.title})</div>
-              ${item.sub ? `<div style="font-size:10px;color:#555;">${item.sub}</div>` : ""}
-            </div>
-          `).join("")}
-        </div>
-      `;
-    };
-
-    const renderLanguagesHTML = (langs: Language[]) => langs.length > 0
-      ? `<div style="margin-top:12px;box-sizing:border-box;">
-          <h2 style="margin:0 0 6px;font-size:12px;font-weight:800;color:#111;text-transform:uppercase;letter-spacing:0.8px;border-bottom:1.5px solid #222;padding-bottom:3px;">Languages</h2>
-          <div style="font-size:10.5px;color:#444;">${langs.map(l => `${l.language}${l.proficiency ? ` (${l.proficiency})` : ""}`).join(", ")}</div>
-        </div>`
-      : "";
-
-    const page1HTML = `
-      <div class="resume-page" style="width:794px;height:1122px;font-family:'Segoe UI',Arial,Helvetica,sans-serif;background:#FAF2F0;color:#222;box-sizing:border-box;overflow:hidden;display:flex;flex-direction:column;justify-content:space-between;margin:0;padding:0;flex-shrink:0;">
-        <div style="box-sizing:border-box;">
-          <!-- Top Header Maroon -->
-          <div style="background:#381216;padding:32px 36px 26px;display:flex;align-items:center;gap:28px;box-sizing:border-box;">
-            <div style="position:relative;width:138px;height:138px;border-radius:50%;background:#E62020;padding:7px;display:flex;align-items:center;justify-content:center;flex-shrink:0;box-sizing:border-box;">
-              ${profileImgHTML}
-            </div>
-            <div style="flex:1;box-sizing:border-box;">
-              <h1 style="margin:0;font-size:32px;font-weight:800;color:#fff;line-height:1.05;letter-spacing:0.5px;">${firstName}</h1>
-              ${lastName ? `<h1 style="margin:2px 0 0;font-size:28px;font-weight:300;color:#fff;line-height:1.05;letter-spacing:0.5px;">${lastName}</h1>` : ""}
-              <p style="margin:8px 0 10px;font-size:13px;color:rgba(255,255,255,0.9);font-weight:400;letter-spacing:0.5px;">${headline}</p>
-              <div style="border-bottom:1px solid rgba(255,255,255,0.4);margin-bottom:10px;"></div>
-              <p style="margin:0;font-size:10.5px;color:rgba(255,255,255,0.85);line-height:1.5;text-align:justify;">${summary}</p>
-            </div>
-          </div>
-
-          <!-- Main Center with Vertical Rails -->
-          <div style="display:flex;box-sizing:border-box;padding:24px 10px 10px;">
-            <!-- Left Rail Contact -->
-            <div style="width:34px;flex-shrink:0;display:flex;flex-direction:column;justify-content:center;align-items:center;box-sizing:border-box;">
-              <div style="writing-mode:vertical-rl;transform:rotate(180deg);font-size:9.5px;font-weight:700;color:#555;letter-spacing:1px;white-space:nowrap;display:flex;gap:16px;">
-                <span>${basicInfo.phone}</span>
-                <span>${basicInfo.location}</span>
-              </div>
-            </div>
-
-            <!-- 2-Column Content Grid -->
-            <div style="flex:1;display:flex;gap:28px;padding:0 12px;box-sizing:border-box;">
-              <!-- Left Column: Experience & Academic -->
-              <div style="flex:1.2;box-sizing:border-box;">
-                ${page1Experiences.length > 0 ? `
-                <div style="margin-bottom:16px;">
-                  <h2 style="margin:0 0 10px;font-size:14px;font-weight:800;color:#111;text-transform:uppercase;letter-spacing:0.8px;border-bottom:1.5px solid #222;padding-bottom:3px;">Experience</h2>
-                  ${renderExperiencesHTML(page1Experiences)}
-                </div>
-                ` : ""}
-
-                <div>
-                  <h2 style="margin:0 0 10px;font-size:14px;font-weight:800;color:#111;text-transform:uppercase;letter-spacing:0.8px;border-bottom:1.5px solid #222;padding-bottom:3px;">Academic History</h2>
-                  ${educationHTML}
-                </div>
-              </div>
-
-              <!-- Right Column: Skills & Awards -->
-              <div style="flex:0.9;box-sizing:border-box;">
-                <div style="margin-bottom:16px;">
-                  <h2 style="margin:0 0 10px;font-size:14px;font-weight:800;color:#111;text-transform:uppercase;letter-spacing:0.8px;border-bottom:1.5px solid #222;padding-bottom:3px;">Soft Skills</h2>
-                  ${skillsHTML}
-                </div>
-
-                ${renderAwardsHTML(page1Certifications, page1Projects)}
-                ${page1Languages.length > 0 ? renderLanguagesHTML(page1Languages) : ""}
-              </div>
-            </div>
-
-            <!-- Right Rail Contact -->
-            <div style="width:34px;flex-shrink:0;display:flex;flex-direction:column;justify-content:center;align-items:center;box-sizing:border-box;">
-              <div style="writing-mode:vertical-rl;font-size:9.5px;font-weight:700;color:#555;letter-spacing:1px;white-space:nowrap;display:flex;gap:16px;">
-                ${websiteDisplay ? `<span>${websiteDisplay}</span>` : ""}
-                <span>${basicInfo.email}</span>
-              </div>
-            </div>
-          </div>
-        </div>
-
-        <div style="padding:8px 36px;border-top:1px solid rgba(0,0,0,0.06);display:flex;justify-content:space-between;align-items:center;font-size:9.5px;color:#777;box-sizing:border-box;">
-          <span>${basicInfo.name} - Resume</span>
-          <span>Page 1 ${hasPage2 ? 'of 2' : ''}</span>
-        </div>
-      </div>
-    `;
-
-    const page2HTML = hasPage2 ? `
-      <div class="resume-page" style="width:794px;height:1122px;font-family:'Segoe UI',Arial,Helvetica,sans-serif;background:#FAF2F0;color:#222;box-sizing:border-box;overflow:hidden;display:flex;flex-direction:column;justify-content:space-between;margin:0;padding:0;flex-shrink:0;">
-        <div style="box-sizing:border-box;">
-          <div style="background:#381216;padding:18px 36px;display:flex;align-items:center;justify-content:space-between;box-sizing:border-box;">
-            <span style="font-size:16px;font-weight:800;color:#fff;text-transform:uppercase;letter-spacing:0.5px;">${basicInfo.name}</span>
-            <span style="font-size:11px;color:rgba(255,255,255,0.8);font-weight:600;">Resume</span>
-          </div>
-
-          <div style="padding:24px 36px;box-sizing:border-box;">
-            ${page2Experiences.length > 0 ? `
-            <div style="margin-bottom:16px;">
-              <h2 style="margin:0 0 10px;font-size:14px;font-weight:800;color:#111;text-transform:uppercase;letter-spacing:0.8px;border-bottom:1.5px solid #222;padding-bottom:3px;">Experience</h2>
-              ${renderExperiencesHTML(page2Experiences)}
-            </div>
-            ` : ""}
-
-            ${renderAwardsHTML(page2Certifications, page2Projects)}
-            ${page2Languages.length > 0 ? renderLanguagesHTML(page2Languages) : ""}
-          </div>
-        </div>
-
-        <div style="padding:8px 36px;border-top:1px solid rgba(0,0,0,0.06);display:flex;justify-content:space-between;align-items:center;font-size:9.5px;color:#777;box-sizing:border-box;">
-          <span>${basicInfo.name} - Resume</span>
-          <span>Page 2 of 2</span>
-        </div>
-      </div>
-    ` : "";
-
-    return `
-      <div id="resume-render-target" style="width:794px;background:#fff;display:flex;flex-direction:column;gap:0px;margin:0;padding:0;box-sizing:border-box;">
-        ${page1HTML}
-        ${page2HTML}
-      </div>
-    `;
-  }
-
-  // ───────────────────────────────────────────────────────────────────────────
   // Template 7: Executive Hexagon (Phyllis Schwaiger style)
   // ───────────────────────────────────────────────────────────────────────────
   if (templateId === "template-7") {
@@ -1661,170 +1549,6 @@ export function buildResumeHTML(
         </div>
 
         <div style="padding:8px 36px;border-top:1px solid #eee;display:flex;justify-content:space-between;align-items:center;font-size:9.5px;color:#888;box-sizing:border-box;">
-          <span>${basicInfo.name} - Resume</span>
-          <span>Page 2 of 2</span>
-        </div>
-      </div>
-    ` : "";
-
-    return `
-      <div id="resume-render-target" style="width:794px;background:#fff;display:flex;flex-direction:column;gap:0px;margin:0;padding:0;box-sizing:border-box;">
-        ${page1HTML}
-        ${page2HTML}
-      </div>
-    `;
-  }
-
-  // ───────────────────────────────────────────────────────────────────────────
-  // Template 9: Creative Pastel Bento (Olivia Wilson style)
-  // ───────────────────────────────────────────────────────────────────────────
-  if (templateId === "template-9") {
-    const profileImgHTML = safeProfilePic
-      ? `<img src="${safeProfilePic}" alt="Profile" style="width:90px;height:90px;border-radius:50%;object-fit:cover;border:2px solid #2D242B;display:block;" />`
-      : `<div style="width:90px;height:90px;border-radius:50%;background:#2D242B;display:flex;align-items:center;justify-content:center;color:#fff;font-size:36px;font-weight:800;">${(basicInfo.name || "U")[0]}</div>`;
-
-    const renderExperiencesHTML = (exps: WorkExp[]) => exps.map(exp => {
-      const dateRange = `${exp.startYear || exp.startMonth} - ${exp.current ? "Present" : (exp.endYear || exp.endMonth)}`;
-      const descLines = exp.description
-        ? exp.description.split(/\n/).map(l => l.trim()).filter(l => l.length > 0)
-            .map(l => `<li style="margin-bottom:2px;font-size:10px;color:#333;line-height:1.35;">${cleanLineText(l)}</li>`).join("")
-        : "";
-      return `
-        <div style="margin-bottom:10px;box-sizing:border-box;">
-          <div style="font-size:11.5px;font-weight:800;color:#111;">${exp.title} (${dateRange})</div>
-          <div style="font-size:10.5px;font-style:italic;color:#555;margin-bottom:3px;">${exp.company}</div>
-          ${descLines ? `<ul style="margin:0 0 0 14px;padding:0;list-style-type:disc;">${descLines}</ul>` : ""}
-        </div>
-      `;
-    }).join("");
-
-    const skillsListHTML = skills.map(s => `<li style="margin-bottom:3px;font-size:10.5px;color:#333;line-height:1.3;">${cleanLineText(s)}</li>`).join("");
-
-    const renderAchievementsHTML = (certs: Certification[], projs: Project[]) => {
-      const items = [
-        ...certs.map(c => ({ title: c.name, sub: c.issuer || "Certification" })),
-        ...projs.map(p => ({ title: p.name, sub: p.description ? cleanLineText(p.description) : "" })),
-      ];
-      if (items.length === 0) return "";
-      return items.slice(0, 2).map(item => `
-        <div style="margin-bottom:8px;">
-          <div style="font-size:11px;font-weight:800;color:#111;">• ${item.title}</div>
-          ${item.sub ? `<p style="margin:2px 0 0 10px;font-size:10px;color:#555;line-height:1.35;">${item.sub}</p>` : ""}
-        </div>
-      `).join("");
-    };
-
-    const languagesPillsHTML = languages.length > 0
-      ? languages.map(l => `<span style="background:#fff;border:1.5px solid #2D242B;border-radius:9999px;padding:2px 10px;font-size:10px;font-weight:700;color:#2D242B;">${l.language}</span>`).join("")
-      : `<span style="background:#fff;border:1.5px solid #2D242B;border-radius:9999px;padding:2px 10px;font-size:10px;font-weight:700;color:#2D242B;">Networking</span>
-         <span style="background:#fff;border:1.5px solid #2D242B;border-radius:9999px;padding:2px 10px;font-size:10px;font-weight:700;color:#2D242B;">Reading</span>`;
-
-    const page1HTML = `
-      <div class="resume-page" style="width:794px;height:1122px;font-family:'Segoe UI',Arial,Helvetica,sans-serif;background:#D884D2;color:#2D242B;box-sizing:border-box;overflow:hidden;display:flex;flex-direction:column;justify-content:space-between;margin:0;padding:20px;flex-shrink:0;">
-        <div style="box-sizing:border-box;">
-          <!-- Top Rounded Header Card with Sparkles -->
-          <div style="background:#fff;border:2px solid #2D242B;border-radius:18px;padding:18px 22px;display:flex;align-items:center;gap:20px;position:relative;margin-bottom:14px;box-sizing:border-box;">
-            <span style="position:absolute;top:8px;left:10px;font-size:12px;color:#2D242B;">✦</span>
-            <span style="position:absolute;top:8px;right:10px;font-size:12px;color:#2D242B;">✦</span>
-            <span style="position:absolute;bottom:8px;left:10px;font-size:12px;color:#2D242B;">✦</span>
-            <span style="position:absolute;bottom:8px;right:10px;font-size:12px;color:#2D242B;">✦</span>
-
-            <div style="flex-shrink:0;">
-              ${profileImgHTML}
-            </div>
-
-            <div style="flex:1;box-sizing:border-box;">
-              <span style="background:#2D242B;color:#fff;border-radius:9999px;padding:3px 12px;font-size:11px;font-weight:700;display:inline-block;margin-bottom:6px;">
-                ${headline}
-              </span>
-              <h1 style="margin:0;font-size:30px;font-weight:900;color:#2D242B;line-height:1.1;">${basicInfo.name}</h1>
-              <p style="margin:6px 0 0;font-size:10.5px;color:#444;line-height:1.45;text-align:justify;">${summary}</p>
-            </div>
-          </div>
-
-          <!-- Bento Grid Layout -->
-          <div style="display:grid;grid-template-columns:1fr 1fr;gap:14px;box-sizing:border-box;">
-            <!-- Card 1: Experiences (Mint) -->
-            <div style="background:#D4F3F7;border:2px solid #2D242B;border-radius:16px;padding:16px;box-sizing:border-box;">
-              <h2 style="margin:0 0 10px;font-size:15px;font-weight:900;color:#2D242B;">Experiences</h2>
-              ${page1Experiences.length > 0 ? renderExperiencesHTML(page1Experiences) : `<p style="font-size:10.5px;color:#555;">Fresher / Exploring opportunities</p>`}
-            </div>
-
-            <!-- Card 2: Skills & Expertise (Mint) -->
-            <div style="background:#D4F3F7;border:2px solid #2D242B;border-radius:16px;padding:16px;box-sizing:border-box;">
-              <h2 style="margin:0 0 10px;font-size:15px;font-weight:900;color:#2D242B;">Skills & Expertise</h2>
-              <ul style="margin:0;padding:0 0 0 14px;list-style-type:disc;">
-                ${skillsListHTML}
-              </ul>
-            </div>
-
-            <!-- Card 3: Education & Achievements (White) -->
-            <div style="background:#fff;border:2px solid #2D242B;border-radius:16px;padding:16px;box-sizing:border-box;">
-              <h2 style="margin:0 0 8px;font-size:15px;font-weight:900;color:#2D242B;">Education & Achievements</h2>
-              ${education.slice(0, 2).map(edu => `
-                <div style="margin-bottom:6px;">
-                  <div style="font-size:11px;font-weight:800;color:#111;">${edu.college}</div>
-                  <div style="font-size:10px;color:#555;">${edu.degree}${edu.field ? ` · ${edu.field}` : ""}</div>
-                </div>
-              `).join("")}
-              ${renderAchievementsHTML(page1Certifications, page1Projects)}
-            </div>
-
-            <!-- Card 4 & 5 Column -->
-            <div style="display:flex;flex-direction:column;gap:14px;box-sizing:border-box;">
-              <!-- Hobbies / Languages -->
-              <div style="background:#FFF0F5;border:2px solid #2D242B;border-radius:16px;padding:14px;box-sizing:border-box;">
-                <h2 style="margin:0 0 8px;font-size:14px;font-weight:900;color:#2D242B;">Languages & Interests</h2>
-                <div style="display:flex;flex-wrap:wrap;gap:6px;">
-                  ${languagesPillsHTML}
-                </div>
-              </div>
-
-              <!-- Contacts Card -->
-              <div style="background:#FFF0F5;border:2px solid #2D242B;border-radius:16px;padding:14px;box-sizing:border-box;">
-                <h2 style="margin:0 0 8px;font-size:14px;font-weight:900;color:#2D242B;">Contacts</h2>
-                <div style="font-size:10.5px;color:#2D242B;line-height:1.5;">
-                  <div>• ${basicInfo.phone}</div>
-                  <div>• ${basicInfo.email}</div>
-                  <div>• ${basicInfo.location}</div>
-                  ${websiteDisplay ? `<div>• ${websiteDisplay}</div>` : ""}
-                </div>
-              </div>
-            </div>
-          </div>
-        </div>
-
-        <div style="padding:6px 16px;display:flex;justify-content:space-between;align-items:center;font-size:9.5px;color:#fff;font-weight:700;box-sizing:border-box;">
-          <span>${basicInfo.name} - Resume</span>
-          <span>Page 1 ${hasPage2 ? 'of 2' : ''}</span>
-        </div>
-      </div>
-    `;
-
-    const page2HTML = hasPage2 ? `
-      <div class="resume-page" style="width:794px;height:1122px;font-family:'Segoe UI',Arial,Helvetica,sans-serif;background:#D884D2;color:#2D242B;box-sizing:border-box;overflow:hidden;display:flex;flex-direction:column;justify-content:space-between;margin:0;padding:20px;flex-shrink:0;">
-        <div style="box-sizing:border-box;">
-          <div style="background:#fff;border:2px solid #2D242B;border-radius:16px;padding:14px 20px;display:flex;align-items:center;justify-content:space-between;margin-bottom:14px;box-sizing:border-box;">
-            <span style="font-size:16px;font-weight:900;color:#2D242B;">${basicInfo.name}</span>
-            <span style="font-size:11px;font-weight:700;color:#2D242B;">Resume Page 2</span>
-          </div>
-
-          <div style="display:grid;grid-template-columns:1fr;gap:14px;box-sizing:border-box;">
-            ${page2Experiences.length > 0 ? `
-            <div style="background:#D4F3F7;border:2px solid #2D242B;border-radius:16px;padding:16px;box-sizing:border-box;">
-              <h2 style="margin:0 0 10px;font-size:15px;font-weight:900;color:#2D242B;">Experiences (Continued)</h2>
-              ${renderExperiencesHTML(page2Experiences)}
-            </div>
-            ` : ""}
-
-            <div style="background:#fff;border:2px solid #2D242B;border-radius:16px;padding:16px;box-sizing:border-box;">
-              <h2 style="margin:0 0 10px;font-size:15px;font-weight:900;color:#2D242B;">Projects & Certifications</h2>
-              ${renderAchievementsHTML(page2Certifications, page2Projects)}
-            </div>
-          </div>
-        </div>
-
-        <div style="padding:6px 16px;display:flex;justify-content:space-between;align-items:center;font-size:9.5px;color:#fff;font-weight:700;box-sizing:border-box;">
           <span>${basicInfo.name} - Resume</span>
           <span>Page 2 of 2</span>
         </div>
@@ -2727,6 +2451,772 @@ export function buildResumeHTML(
   }
 
   // ───────────────────────────────────────────────────────────────────────────
+  // Template 15: Gray Teal AI Engineer (dark teal sidebar)
+  // ───────────────────────────────────────────────────────────────────────────
+  if (templateId === "template-15") {
+    const profileImgHTML = safeProfilePic
+      ? `<img src="${safeProfilePic}" alt="Profile" style="width:100px;height:100px;border-radius:50%;object-fit:cover;border:3px solid rgba(255,255,255,0.6);margin:0 auto 14px;display:block;" />`
+      : "";
+
+    const renderExperiencesHTML = (exps: WorkExp[]) => exps.map(exp => {
+      const dateRange = `${exp.startMonth} ${exp.startYear} – ${exp.current ? "Present" : `${exp.endMonth} ${exp.endYear}`}`;
+      const descLines = exp.description
+        ? exp.description.split(/\n/).map(l => l.trim()).filter(l => l.length > 0)
+            .map(l => `<li style="margin-bottom:3px;color:#444;font-size:10.5px;line-height:1.4;">${cleanLineText(l)}</li>`).join("")
+        : "";
+      return `
+        <div style="margin-bottom:14px;box-sizing:border-box;">
+          <p style="margin:0 0 2px;font-weight:700;color:#111;font-size:12px;">${exp.title}</p>
+          <p style="margin:0 0 4px;display:flex;justify-content:space-between;color:#1E4B47;font-size:10.5px;font-weight:600;">
+            <span>${exp.company}</span><span style="color:#777;font-weight:500;">${dateRange}</span>
+          </p>
+          ${descLines ? `<ul style="margin:0 0 0 14px;padding:0;list-style-type:disc;">${descLines}</ul>` : ""}
+        </div>`;
+    }).join("");
+
+    const skillsHTML = skills.map(s => `<li style="margin-bottom:6px;color:rgba(255,255,255,0.92);font-size:10.5px;">${cleanLineText(s)}</li>`).join("");
+
+    const educationHTML = education.map(edu => `
+      <div style="margin-bottom:12px;box-sizing:border-box;">
+        <p style="margin:0;font-weight:700;color:#fff;font-size:10.5px;">${edu.degree}${edu.field ? ` in ${edu.field}` : ""}</p>
+        <p style="margin:2px 0 0;color:rgba(255,255,255,0.8);font-size:10px;">${edu.college}</p>
+        <p style="margin:1px 0 0;color:rgba(255,255,255,0.65);font-size:9.5px;">${formatMonthYear(edu.startMonth, edu.startYear)} – ${formatMonthYear(edu.endMonth, edu.endYear)}${edu.score ? ` · ${edu.score}` : ""}</p>
+      </div>`).join("");
+
+    const renderCertificationsHTML = (certs: Certification[]) => certs.length > 0
+      ? `<div style="margin-bottom:14px;box-sizing:border-box;">
+          <h2 style="margin:0 0 10px;color:#1E4B47;font-size:13px;font-weight:800;text-transform:uppercase;letter-spacing:0.6px;">Certifications</h2>
+          <ul style="margin:0;padding:0 0 0 16px;list-style-type:disc;">
+            ${certs.map(c => `<li style="margin-bottom:4px;color:#444;font-size:10.5px;">${c.name}${c.issuer ? ` – ${c.issuer}` : ""}</li>`).join("")}
+          </ul>
+        </div>` : "";
+
+    const renderProjectsHTML = (projs: Project[]) => projs.length > 0
+      ? `<div style="margin-bottom:14px;box-sizing:border-box;">
+          <h2 style="margin:0 0 10px;color:#1E4B47;font-size:13px;font-weight:800;text-transform:uppercase;letter-spacing:0.6px;">Projects</h2>
+          ${projs.map(p => `
+            <div style="margin-bottom:8px;">
+              <p style="margin:0;font-weight:700;color:#111;font-size:11px;">${p.name}</p>
+              ${p.description ? `<p style="margin:2px 0 0;color:#555;font-size:10px;line-height:1.4;">${p.description}</p>` : ""}
+            </div>`).join("")}
+        </div>` : "";
+
+    const sidebar = (langs: Language[]) => `
+      <div style="width:250px;background:#1E4B47;color:#fff;padding:36px 24px;box-sizing:border-box;flex-shrink:0;display:flex;flex-direction:column;">
+        ${profileImgHTML}
+        <h3 style="margin:0 0 10px;color:#fff;font-size:11.5px;font-weight:800;text-transform:uppercase;letter-spacing:1px;border-bottom:1px solid rgba(255,255,255,0.3);padding-bottom:6px;">Contact</h3>
+        <div style="display:flex;flex-direction:column;gap:8px;font-size:9.5px;color:rgba(255,255,255,0.9);margin-bottom:22px;">
+          <span style="display:inline-flex;align-items:center;gap:6px;">${getPhoneIcon("rgba(255,255,255,0.85)")} ${basicInfo.phone}</span>
+          <span style="display:inline-flex;align-items:center;gap:6px;">${getEmailIcon("rgba(255,255,255,0.85)")} ${basicInfo.email}</span>
+          <span style="display:inline-flex;align-items:center;gap:6px;">${getLocationIcon("rgba(255,255,255,0.85)")} ${basicInfo.location}</span>
+          ${websiteDisplay ? `<span style="display:inline-flex;align-items:center;gap:6px;">${getGlobeIcon("rgba(255,255,255,0.85)")} ${websiteDisplay}</span>` : ""}
+        </div>
+
+        <h3 style="margin:0 0 10px;color:#fff;font-size:11.5px;font-weight:800;text-transform:uppercase;letter-spacing:1px;border-bottom:1px solid rgba(255,255,255,0.3);padding-bottom:6px;">Core Skills</h3>
+        <ul style="margin:0 0 22px;padding:0 0 0 14px;list-style-type:disc;">${skillsHTML}</ul>
+
+        ${education.length > 0 ? `
+        <h3 style="margin:0 0 10px;color:#fff;font-size:11.5px;font-weight:800;text-transform:uppercase;letter-spacing:1px;border-bottom:1px solid rgba(255,255,255,0.3);padding-bottom:6px;">Education</h3>
+        <div style="margin-bottom:22px;">${educationHTML}</div>` : ""}
+
+        ${langs.length > 0 ? `
+        <h3 style="margin:0 0 10px;color:#fff;font-size:11.5px;font-weight:800;text-transform:uppercase;letter-spacing:1px;border-bottom:1px solid rgba(255,255,255,0.3);padding-bottom:6px;">Languages</h3>
+        <ul style="margin:0;padding:0 0 0 14px;list-style-type:disc;">
+          ${langs.map(l => `<li style="margin-bottom:5px;color:rgba(255,255,255,0.92);font-size:10px;">${l.language}${l.proficiency ? ` (${l.proficiency})` : ""}</li>`).join("")}
+        </ul>` : ""}
+      </div>`;
+
+    const page1HTML = `
+      <div class="resume-page" style="width:794px;height:1122px;font-family:'Segoe UI',Arial,Helvetica,sans-serif;background:#fff;color:#333;box-sizing:border-box;overflow:hidden;display:flex;margin:0;padding:0;flex-shrink:0;">
+        ${sidebar(page1Languages)}
+        <div style="flex:1;box-sizing:border-box;display:flex;flex-direction:column;justify-content:space-between;overflow:hidden;">
+          <div style="padding:36px 34px;box-sizing:border-box;">
+            <h1 style="margin:0;font-size:30px;font-weight:800;color:#1a1a1a;letter-spacing:0.5px;">${basicInfo.name}</h1>
+            <p style="margin:4px 0 22px;font-size:13px;color:#666;font-weight:600;text-transform:uppercase;letter-spacing:2px;">${headline}</p>
+
+            <h2 style="margin:0 0 8px;color:#1E4B47;font-size:13px;font-weight:800;text-transform:uppercase;letter-spacing:0.6px;">Professional Summary</h2>
+            <p style="margin:0 0 20px;color:#444;font-size:11px;line-height:1.6;text-align:justify;">${summary}</p>
+
+            ${page1Experiences.length > 0 ? `
+            <h2 style="margin:0 0 10px;color:#1E4B47;font-size:13px;font-weight:800;text-transform:uppercase;letter-spacing:0.6px;">Professional Experience</h2>
+            <div style="margin-bottom:20px;">${renderExperiencesHTML(page1Experiences)}</div>` : ""}
+
+            ${renderCertificationsHTML(page1Certifications)}
+            ${renderProjectsHTML(page1Projects)}
+          </div>
+          <div style="padding:10px 34px;border-top:1px solid #eee;display:flex;justify-content:space-between;font-size:10px;color:#888;box-sizing:border-box;">
+            <span>${basicInfo.name}</span>
+            <span>Page 1 ${hasPage2 ? 'of 2' : ''}</span>
+          </div>
+        </div>
+      </div>`;
+
+    const page2HTML = hasPage2 ? `
+      <div class="resume-page" style="width:794px;height:1122px;font-family:'Segoe UI',Arial,Helvetica,sans-serif;background:#fff;color:#333;box-sizing:border-box;overflow:hidden;display:flex;margin:0;padding:0;flex-shrink:0;">
+        ${sidebar([])}
+        <div style="flex:1;box-sizing:border-box;display:flex;flex-direction:column;justify-content:space-between;overflow:hidden;">
+          <div style="padding:36px 34px;box-sizing:border-box;">
+            ${page2Experiences.length > 0 ? `
+            <h2 style="margin:0 0 10px;color:#1E4B47;font-size:13px;font-weight:800;text-transform:uppercase;letter-spacing:0.6px;">Professional Experience</h2>
+            <div style="margin-bottom:20px;">${renderExperiencesHTML(page2Experiences)}</div>` : ""}
+            ${renderCertificationsHTML(page2Certifications)}
+            ${renderProjectsHTML(page2Projects)}
+          </div>
+          <div style="padding:10px 34px;border-top:1px solid #eee;display:flex;justify-content:space-between;font-size:10px;color:#888;box-sizing:border-box;">
+            <span>${basicInfo.name}</span>
+            <span>Page 2 of 2</span>
+          </div>
+        </div>
+      </div>` : "";
+
+    return `
+      <div id="resume-render-target" style="width:794px;background:#fff;display:flex;flex-direction:column;gap:0px;margin:0;padding:0;box-sizing:border-box;">
+        ${page1HTML}
+        ${page2HTML}
+      </div>
+    `;
+  }
+
+  // ───────────────────────────────────────────────────────────────────────────
+  // Template 16: Black & White Minimalist Accounting
+  // ───────────────────────────────────────────────────────────────────────────
+  if (templateId === "template-16") {
+    const renderExperiencesHTML = (exps: WorkExp[]) => exps.map(exp => {
+      const dateRange = `${exp.startMonth} ${exp.startYear} – ${exp.current ? "Present" : `${exp.endMonth} ${exp.endYear}`}`;
+      const descLines = exp.description
+        ? exp.description.split(/\n/).map(l => l.trim()).filter(l => l.length > 0)
+            .map(l => `<li style="margin-bottom:3px;color:#444;font-size:10.5px;line-height:1.4;">${cleanLineText(l)}</li>`).join("")
+        : "";
+      return `
+        <div style="margin-bottom:16px;box-sizing:border-box;">
+          <div style="display:flex;justify-content:space-between;align-items:baseline;">
+            <span style="font-weight:700;color:#1a1a1a;font-size:12.5px;">${exp.title}</span>
+            <span style="color:#888;font-size:10.5px;font-weight:600;">${dateRange}</span>
+          </div>
+          <p style="margin:2px 0 4px;color:#555;font-size:11px;font-style:italic;">${exp.company}${exp.location ? ` | ${exp.location}` : ""}</p>
+          ${descLines ? `<ul style="margin:0 0 0 14px;padding:0;list-style-type:disc;">${descLines}</ul>` : ""}
+        </div>`;
+    }).join("");
+
+    const educationHTML = education.map(edu => `
+      <div style="margin-bottom:12px;">
+        <p style="margin:0;font-weight:700;color:#1a1a1a;font-size:11px;">${edu.degree}${edu.field ? ` in ${edu.field}` : ""}</p>
+        <p style="margin:2px 0 0;color:#555;font-size:10px;">${edu.college}</p>
+        <p style="margin:1px 0 0;color:#999;font-size:9.5px;">${formatMonthYear(edu.startMonth, edu.startYear)} - ${formatMonthYear(edu.endMonth, edu.endYear)}</p>
+      </div>`).join("");
+
+    const skillsHTML = skills.map(s => `<li style="margin-bottom:6px;color:#333;font-size:10.5px;">${cleanLineText(s)}</li>`).join("");
+
+    const certsProjectsHTML = (certs: Certification[], projs: Project[]) => {
+      const certsHTML = certs.length > 0 ? `
+        <h3 style="margin:18px 0 10px;color:#1a1a1a;font-size:11.5px;font-weight:800;text-transform:uppercase;letter-spacing:1px;">Certifications</h3>
+        <ul style="margin:0;padding:0 0 0 14px;list-style-type:disc;">
+          ${certs.map(c => `<li style="margin-bottom:6px;color:#333;font-size:10.5px;">${c.name}${c.issuer ? ` – ${c.issuer}` : ""}</li>`).join("")}
+        </ul>` : "";
+      const projsHTML = projs.length > 0 ? `
+        <h3 style="margin:18px 0 10px;color:#1a1a1a;font-size:11.5px;font-weight:800;text-transform:uppercase;letter-spacing:1px;">Projects</h3>
+        ${projs.map(p => `<p style="margin:0 0 8px;font-size:10.5px;color:#333;"><strong>${p.name}</strong>${p.description ? ` — ${p.description}` : ""}</p>`).join("")}` : "";
+      return certsHTML + projsHTML;
+    };
+
+    const rightColumn = (langs: Language[], certs: Certification[], projs: Project[]) => `
+      <div style="width:230px;background:#F5F5F5;padding:34px 22px;box-sizing:border-box;flex-shrink:0;">
+        ${education.length > 0 ? `<h3 style="margin:0 0 12px;color:#1a1a1a;font-size:11.5px;font-weight:800;text-transform:uppercase;letter-spacing:1px;">Education</h3>${educationHTML}` : ""}
+        <h3 style="margin:18px 0 10px;color:#1a1a1a;font-size:11.5px;font-weight:800;text-transform:uppercase;letter-spacing:1px;">Skills</h3>
+        <ul style="margin:0;padding:0 0 0 14px;list-style-type:disc;">${skillsHTML}</ul>
+        ${langs.length > 0 ? `
+        <h3 style="margin:18px 0 10px;color:#1a1a1a;font-size:11.5px;font-weight:800;text-transform:uppercase;letter-spacing:1px;">Language</h3>
+        <ul style="margin:0;padding:0 0 0 14px;list-style-type:disc;">
+          ${langs.map(l => `<li style="margin-bottom:6px;color:#333;font-size:10.5px;">${l.language}${l.proficiency ? ` (${l.proficiency})` : ""}</li>`).join("")}
+        </ul>` : ""}
+        ${certsProjectsHTML(certs, projs)}
+      </div>`;
+
+    const page1HTML = `
+      <div class="resume-page" style="width:794px;height:1122px;font-family:'Segoe UI',Arial,Helvetica,sans-serif;background:#fff;color:#333;box-sizing:border-box;overflow:hidden;display:flex;margin:0;padding:0;flex-shrink:0;">
+        <div style="flex:1;box-sizing:border-box;display:flex;flex-direction:column;justify-content:space-between;overflow:hidden;">
+          <div style="padding:36px 34px 0;box-sizing:border-box;position:relative;">
+            <div style="position:absolute;top:0;right:34px;width:70px;height:130px;background:#E5E5E5;z-index:0;"></div>
+            <div style="position:relative;z-index:1;">
+              <h1 style="margin:0;font-size:30px;font-weight:800;color:#1a1a1a;letter-spacing:0.5px;text-transform:uppercase;">${basicInfo.name}</h1>
+              <p style="margin:4px 0 16px;font-size:13px;color:#666;letter-spacing:1px;">${headline}</p>
+              <div style="display:flex;flex-wrap:wrap;gap:14px;font-size:10.5px;color:#555;margin-bottom:20px;">
+                <span>${basicInfo.phone}</span><span>${basicInfo.email}</span><span>${basicInfo.location}</span>${websiteDisplay ? `<span>${websiteDisplay}</span>` : ""}
+              </div>
+            </div>
+
+            <h2 style="margin:0 0 8px;color:#1a1a1a;font-size:13px;font-weight:800;text-transform:uppercase;letter-spacing:1px;">About Me</h2>
+            <p style="margin:0 0 20px;color:#444;font-size:11px;line-height:1.6;text-align:justify;">${summary}</p>
+
+            ${page1Experiences.length > 0 ? `
+            <h2 style="margin:0 0 12px;color:#1a1a1a;font-size:13px;font-weight:800;text-transform:uppercase;letter-spacing:1px;">Experience</h2>
+            ${renderExperiencesHTML(page1Experiences)}` : ""}
+          </div>
+          <div style="padding:10px 34px;border-top:1px solid #eee;display:flex;justify-content:space-between;font-size:10px;color:#888;box-sizing:border-box;">
+            <span>${basicInfo.name}</span><span>Page 1 ${hasPage2 ? 'of 2' : ''}</span>
+          </div>
+        </div>
+        ${rightColumn(page1Languages, page1Certifications, page1Projects)}
+      </div>`;
+
+    const page2HTML = hasPage2 ? `
+      <div class="resume-page" style="width:794px;height:1122px;font-family:'Segoe UI',Arial,Helvetica,sans-serif;background:#fff;color:#333;box-sizing:border-box;overflow:hidden;display:flex;margin:0;padding:0;flex-shrink:0;">
+        <div style="flex:1;box-sizing:border-box;display:flex;flex-direction:column;justify-content:space-between;overflow:hidden;">
+          <div style="padding:36px 34px;box-sizing:border-box;">
+            ${page2Experiences.length > 0 ? `
+            <h2 style="margin:0 0 12px;color:#1a1a1a;font-size:13px;font-weight:800;text-transform:uppercase;letter-spacing:1px;">Experience</h2>
+            ${renderExperiencesHTML(page2Experiences)}` : ""}
+          </div>
+          <div style="padding:10px 34px;border-top:1px solid #eee;display:flex;justify-content:space-between;font-size:10px;color:#888;box-sizing:border-box;">
+            <span>${basicInfo.name}</span><span>Page 2 of 2</span>
+          </div>
+        </div>
+        ${rightColumn([], page2Certifications, page2Projects)}
+      </div>` : "";
+
+    return `
+      <div id="resume-render-target" style="width:794px;background:#fff;display:flex;flex-direction:column;gap:0px;margin:0;padding:0;box-sizing:border-box;">
+        ${page1HTML}
+        ${page2HTML}
+      </div>
+    `;
+  }
+
+  // ───────────────────────────────────────────────────────────────────────────
+  // Template 17: Beige Minimal Registered Nurse (with photo)
+  // ───────────────────────────────────────────────────────────────────────────
+  if (templateId === "template-17") {
+    const profileImgHTML = safeProfilePic
+      ? `<img src="${safeProfilePic}" alt="Profile" style="width:92px;height:92px;border-radius:50%;object-fit:cover;border:3px solid #fff;box-shadow:0 2px 6px rgba(0,0,0,0.15);" />`
+      : `<div style="width:92px;height:92px;border-radius:50%;background:#D8CBB8;display:flex;align-items:center;justify-content:center;font-size:32px;font-weight:700;color:#3B2E2A;text-transform:uppercase;">${(basicInfo.name || "U")[0]}</div>`;
+
+    const sectionHeading = (label: string) => `
+      <div style="display:flex;align-items:center;gap:8px;margin:0 0 12px;">
+        <span style="width:24px;height:24px;border-radius:50%;background:#7C6A57;display:inline-flex;align-items:center;justify-content:center;flex-shrink:0;">
+          <span style="width:7px;height:7px;background:#fff;border-radius:50%;"></span>
+        </span>
+        <h2 style="margin:0;color:#3B2E2A;font-size:12.5px;font-weight:800;text-transform:uppercase;letter-spacing:1px;">${label}</h2>
+      </div>`;
+
+    const renderExperiencesHTML = (exps: WorkExp[]) => exps.map(exp => {
+      const dateRange = `${exp.startMonth} ${exp.startYear} – ${exp.current ? "Present" : `${exp.endMonth} ${exp.endYear}`}`;
+      const descLines = exp.description
+        ? exp.description.split(/\n/).map(l => l.trim()).filter(l => l.length > 0)
+            .map(l => `<li style="margin-bottom:4px;color:#5A4E42;font-size:10.5px;line-height:1.4;">${cleanLineText(l)}</li>`).join("")
+        : "";
+      return `
+        <div style="margin-bottom:16px;">
+          <div style="display:flex;justify-content:space-between;align-items:baseline;">
+            <span style="font-weight:700;color:#3B2E2A;font-size:12px;">${exp.title}</span>
+            <span style="color:#8A7A68;font-size:10.5px;font-weight:600;">${dateRange}</span>
+          </div>
+          <p style="margin:2px 0 6px;font-style:italic;color:#7C6A57;font-size:11px;">${exp.company}</p>
+          ${descLines ? `<ul style="margin:0 0 0 14px;padding:0;list-style-type:disc;">${descLines}</ul>` : ""}
+        </div>`;
+    }).join("");
+
+    const educationHTML = education.map(edu => `
+      <div style="margin-bottom:10px;">
+        <p style="margin:0;font-weight:700;color:#3B2E2A;font-size:10.5px;">${edu.degree}</p>
+        <p style="margin:2px 0 0;color:#7C6A57;font-size:10px;">${edu.college}</p>
+        <p style="margin:1px 0 0;color:#A69684;font-size:9.5px;">${formatMonthYear(edu.startMonth, edu.startYear)} – ${formatMonthYear(edu.endMonth, edu.endYear)}</p>
+      </div>`).join("");
+
+    const skillsHTML = skills.map(s => `<li style="margin-bottom:6px;color:#5A4E42;font-size:10.5px;">${cleanLineText(s)}</li>`).join("");
+
+    const langsHTML = (langs: Language[]) => langs.length > 0 ? `
+      ${sectionHeading("Languages")}
+      <ul style="margin:0 0 20px;padding:0 0 0 14px;list-style-type:disc;">
+        ${langs.map(l => `<li style="margin-bottom:6px;color:#5A4E42;font-size:10.5px;">${l.language}${l.proficiency ? ` (${l.proficiency})` : ""}</li>`).join("")}
+      </ul>` : "";
+
+    const certsProjectsHTML = (certs: Certification[], projs: Project[]) => {
+      const certsHTML = certs.length > 0 ? `
+        ${sectionHeading("Certifications")}
+        <ul style="margin:0 0 20px;padding:0 0 0 14px;list-style-type:disc;">
+          ${certs.map(c => `<li style="margin-bottom:6px;color:#5A4E42;font-size:10.5px;">${c.name}${c.issuer ? ` – ${c.issuer}` : ""}</li>`).join("")}
+        </ul>` : "";
+      const projsHTML = projs.length > 0 ? `
+        ${sectionHeading("Projects")}
+        ${projs.map(p => `<p style="margin:0 0 8px;color:#5A4E42;font-size:10.5px;"><strong style="color:#3B2E2A;">${p.name}</strong>${p.description ? ` — ${p.description}` : ""}</p>`).join("")}` : "";
+      return certsHTML + projsHTML;
+    };
+
+    const header = `
+      <div style="display:flex;align-items:center;gap:20px;padding:32px 36px 20px;box-sizing:border-box;">
+        ${profileImgHTML}
+        <div style="flex:1;">
+          <h1 style="margin:0;font-size:26px;font-weight:800;color:#3B2E2A;letter-spacing:0.5px;">${basicInfo.name}</h1>
+          <p style="margin:4px 0 0;font-size:12px;color:#7C6A57;font-weight:700;text-transform:uppercase;letter-spacing:2px;">${headline}</p>
+        </div>
+        <div style="display:flex;flex-direction:column;gap:5px;font-size:9.5px;color:#5A4E42;text-align:right;">
+          <span>${basicInfo.phone}</span>
+          <span>${basicInfo.email}</span>
+          <span>${basicInfo.location}</span>
+        </div>
+      </div>
+      <div style="height:2px;background:#D8CBB8;margin:0 36px 22px;"></div>`;
+
+    const leftCol = (langs: Language[]) => `
+      <div style="width:230px;padding:0 22px 30px 36px;box-sizing:border-box;flex-shrink:0;">
+        ${sectionHeading("Core Skill")}
+        <ul style="margin:0 0 20px;padding:0 0 0 14px;list-style-type:disc;">${skillsHTML}</ul>
+        ${education.length > 0 ? `${sectionHeading("Education")}<div style="margin-bottom:20px;">${educationHTML}</div>` : ""}
+        ${langsHTML(langs)}
+      </div>`;
+
+    const page1HTML = `
+      <div class="resume-page" style="width:794px;height:1122px;font-family:'Segoe UI',Arial,Helvetica,sans-serif;background:#F7F3EC;color:#333;box-sizing:border-box;overflow:hidden;display:flex;flex-direction:column;justify-content:space-between;margin:0;flex-shrink:0;">
+        <div>
+          ${header}
+          <div style="display:flex;box-sizing:border-box;">
+            ${leftCol(page1Languages)}
+            <div style="flex:1;padding:0 36px 30px 22px;box-sizing:border-box;border-left:1px solid #E2D6C4;">
+              ${sectionHeading("Professional Summary")}
+              <p style="margin:0 0 22px;color:#5A4E42;font-size:11px;line-height:1.6;text-align:justify;">${summary}</p>
+              ${page1Experiences.length > 0 ? `${sectionHeading("Professional Experience")}${renderExperiencesHTML(page1Experiences)}` : ""}
+              ${certsProjectsHTML(page1Certifications, page1Projects)}
+            </div>
+          </div>
+        </div>
+        <div style="padding:10px 36px;border-top:1px solid #E2D6C4;display:flex;justify-content:space-between;font-size:10px;color:#8A7A68;box-sizing:border-box;">
+          <span>${basicInfo.name}</span><span>Page 1 ${hasPage2 ? 'of 2' : ''}</span>
+        </div>
+      </div>`;
+
+    const page2HTML = hasPage2 ? `
+      <div class="resume-page" style="width:794px;height:1122px;font-family:'Segoe UI',Arial,Helvetica,sans-serif;background:#F7F3EC;color:#333;box-sizing:border-box;overflow:hidden;display:flex;flex-direction:column;justify-content:space-between;margin:0;flex-shrink:0;">
+        <div style="padding:32px 36px;box-sizing:border-box;">
+          ${page2Experiences.length > 0 ? `${sectionHeading("Professional Experience")}${renderExperiencesHTML(page2Experiences)}` : ""}
+          ${certsProjectsHTML(page2Certifications, page2Projects)}
+        </div>
+        <div style="padding:10px 36px;border-top:1px solid #E2D6C4;display:flex;justify-content:space-between;font-size:10px;color:#8A7A68;box-sizing:border-box;">
+          <span>${basicInfo.name}</span><span>Page 2 of 2</span>
+        </div>
+      </div>` : "";
+
+    return `
+      <div id="resume-render-target" style="width:794px;background:#fff;display:flex;flex-direction:column;gap:0px;margin:0;padding:0;box-sizing:border-box;">
+        ${page1HTML}
+        ${page2HTML}
+      </div>
+    `;
+  }
+
+  // ───────────────────────────────────────────────────────────────────────────
+  // Template 18: Gray and White Modern Accounting Executive (with photo)
+  // ───────────────────────────────────────────────────────────────────────────
+  if (templateId === "template-18") {
+    const profileImgHTML = safeProfilePic
+      ? `<img src="${safeProfilePic}" alt="Profile" style="width:88px;height:88px;border-radius:50%;object-fit:cover;border:3px solid #fff;box-shadow:0 2px 8px rgba(0,0,0,0.15);" />`
+      : `<div style="width:88px;height:88px;border-radius:50%;background:#C9D2D8;display:flex;align-items:center;justify-content:center;font-size:30px;font-weight:700;color:#2E3A40;">${(basicInfo.name || "U")[0]}</div>`;
+
+    const renderExperiencesHTML = (exps: WorkExp[]) => exps.map(exp => {
+      const dateRange = `${exp.startMonth} ${exp.startYear} – ${exp.current ? "Present" : `${exp.endMonth} ${exp.endYear}`}`;
+      const descLines = exp.description
+        ? exp.description.split(/\n/).map(l => l.trim()).filter(l => l.length > 0)
+            .map(l => `<li style="margin-bottom:3px;color:#444;font-size:10.5px;line-height:1.4;">${cleanLineText(l)}</li>`).join("")
+        : "";
+      return `
+        <div style="margin-bottom:16px;box-sizing:border-box;">
+          <div style="display:flex;justify-content:space-between;align-items:baseline;">
+            <span style="font-weight:700;color:#1a1a1a;font-size:12.5px;">${exp.title}</span>
+            <span style="color:#888;font-size:10.5px;font-weight:600;">${dateRange}</span>
+          </div>
+          <p style="margin:2px 0 4px;color:#555;font-size:11px;font-style:italic;">${exp.company}</p>
+          ${descLines ? `<ul style="margin:0 0 0 14px;padding:0;list-style-type:disc;">${descLines}</ul>` : ""}
+        </div>`;
+    }).join("");
+
+    const educationHTML = education.map(edu => `
+      <div style="margin-bottom:12px;">
+        <p style="margin:0;font-weight:700;color:#1a1a1a;font-size:11px;">${edu.degree}${edu.field ? ` in ${edu.field}` : ""}</p>
+        <p style="margin:2px 0 0;color:#555;font-size:10px;">${edu.college}</p>
+        <p style="margin:1px 0 0;color:#999;font-size:9.5px;">${formatMonthYear(edu.startMonth, edu.startYear)} - ${formatMonthYear(edu.endMonth, edu.endYear)}</p>
+      </div>`).join("");
+
+    const skillsHTML = skills.map(s => `<li style="margin-bottom:6px;color:#333;font-size:10.5px;">${cleanLineText(s)}</li>`).join("");
+
+    const certsProjectsHTML = (certs: Certification[], projs: Project[]) => {
+      const certsHTML = certs.length > 0 ? `
+        <h3 style="margin:18px 0 10px;color:#1a1a1a;font-size:11.5px;font-weight:800;text-transform:uppercase;letter-spacing:1px;">Certifications</h3>
+        <ul style="margin:0;padding:0 0 0 14px;list-style-type:disc;">${certs.map(c => `<li style="margin-bottom:6px;color:#333;font-size:10.5px;">${c.name}${c.issuer ? ` – ${c.issuer}` : ""}</li>`).join("")}</ul>` : "";
+      const projsHTML = projs.length > 0 ? `
+        <h3 style="margin:18px 0 10px;color:#1a1a1a;font-size:11.5px;font-weight:800;text-transform:uppercase;letter-spacing:1px;">Projects</h3>
+        ${projs.map(p => `<p style="margin:0 0 8px;font-size:10.5px;color:#333;"><strong>${p.name}</strong>${p.description ? ` — ${p.description}` : ""}</p>`).join("")}` : "";
+      return certsHTML + projsHTML;
+    };
+
+    const rightColumn = (langs: Language[], certs: Certification[], projs: Project[]) => `
+      <div style="width:230px;background:#EDF1F3;padding:34px 22px;box-sizing:border-box;flex-shrink:0;">
+        <div style="text-align:center;margin-bottom:20px;">${profileImgHTML}</div>
+        ${education.length > 0 ? `<h3 style="margin:0 0 12px;color:#1a1a1a;font-size:11.5px;font-weight:800;text-transform:uppercase;letter-spacing:1px;">Education</h3>${educationHTML}` : ""}
+        <h3 style="margin:18px 0 10px;color:#1a1a1a;font-size:11.5px;font-weight:800;text-transform:uppercase;letter-spacing:1px;">Skills</h3>
+        <ul style="margin:0;padding:0 0 0 14px;list-style-type:disc;">${skillsHTML}</ul>
+        ${langs.length > 0 ? `
+        <h3 style="margin:18px 0 10px;color:#1a1a1a;font-size:11.5px;font-weight:800;text-transform:uppercase;letter-spacing:1px;">Language</h3>
+        <ul style="margin:0;padding:0 0 0 14px;list-style-type:disc;">${langs.map(l => `<li style="margin-bottom:6px;color:#333;font-size:10.5px;">${l.language}${l.proficiency ? ` (${l.proficiency})` : ""}</li>`).join("")}</ul>` : ""}
+        ${certsProjectsHTML(certs, projs)}
+      </div>`;
+
+    const page1HTML = `
+      <div class="resume-page" style="width:794px;height:1122px;font-family:'Segoe UI',Arial,Helvetica,sans-serif;background:#fff;color:#333;box-sizing:border-box;overflow:hidden;display:flex;margin:0;padding:0;flex-shrink:0;">
+        <div style="flex:1;box-sizing:border-box;display:flex;flex-direction:column;justify-content:space-between;overflow:hidden;">
+          <div style="padding:36px 34px 0;box-sizing:border-box;position:relative;">
+            <div style="position:absolute;top:0;left:34px;width:60px;height:120px;background:#DDE4E8;z-index:0;"></div>
+            <div style="position:relative;z-index:1;">
+              <h1 style="margin:0;font-size:30px;font-weight:800;color:#1a1a1a;letter-spacing:0.5px;">${basicInfo.name}</h1>
+              <p style="margin:4px 0 20px;font-size:13px;color:#666;letter-spacing:1px;">${headline}</p>
+              <div style="display:flex;flex-wrap:wrap;gap:14px;font-size:10.5px;color:#555;margin-bottom:20px;">
+                <span>${basicInfo.phone}</span><span>${basicInfo.email}</span><span>${basicInfo.location}</span>${websiteDisplay ? `<span>${websiteDisplay}</span>` : ""}
+              </div>
+            </div>
+
+            <h2 style="margin:0 0 8px;color:#1a1a1a;font-size:13px;font-weight:800;text-transform:uppercase;letter-spacing:1px;">About Me</h2>
+            <p style="margin:0 0 20px;color:#444;font-size:11px;line-height:1.6;text-align:justify;">${summary}</p>
+
+            ${page1Experiences.length > 0 ? `
+            <h2 style="margin:0 0 12px;color:#1a1a1a;font-size:13px;font-weight:800;text-transform:uppercase;letter-spacing:1px;">Experience</h2>
+            ${renderExperiencesHTML(page1Experiences)}` : ""}
+          </div>
+          <div style="padding:10px 34px;border-top:1px solid #eee;display:flex;justify-content:space-between;font-size:10px;color:#888;box-sizing:border-box;">
+            <span>${basicInfo.name}</span><span>Page 1 ${hasPage2 ? 'of 2' : ''}</span>
+          </div>
+        </div>
+        ${rightColumn(page1Languages, page1Certifications, page1Projects)}
+      </div>`;
+
+    const page2HTML = hasPage2 ? `
+      <div class="resume-page" style="width:794px;height:1122px;font-family:'Segoe UI',Arial,Helvetica,sans-serif;background:#fff;color:#333;box-sizing:border-box;overflow:hidden;display:flex;margin:0;padding:0;flex-shrink:0;">
+        <div style="flex:1;box-sizing:border-box;display:flex;flex-direction:column;justify-content:space-between;overflow:hidden;">
+          <div style="padding:36px 34px;box-sizing:border-box;">
+            ${page2Experiences.length > 0 ? `
+            <h2 style="margin:0 0 12px;color:#1a1a1a;font-size:13px;font-weight:800;text-transform:uppercase;letter-spacing:1px;">Experience</h2>
+            ${renderExperiencesHTML(page2Experiences)}` : ""}
+          </div>
+          <div style="padding:10px 34px;border-top:1px solid #eee;display:flex;justify-content:space-between;font-size:10px;color:#888;box-sizing:border-box;">
+            <span>${basicInfo.name}</span><span>Page 2 of 2</span>
+          </div>
+        </div>
+        ${rightColumn([], page2Certifications, page2Projects)}
+      </div>` : "";
+
+    return `
+      <div id="resume-render-target" style="width:794px;background:#fff;display:flex;flex-direction:column;gap:0px;margin:0;padding:0;box-sizing:border-box;">
+        ${page1HTML}
+        ${page2HTML}
+      </div>
+    `;
+  }
+
+  // ───────────────────────────────────────────────────────────────────────────
+  // Template 20: White Clean Professional (progress bars, photo)
+  // ───────────────────────────────────────────────────────────────────────────
+  if (templateId === "template-20") {
+    const profileImgHTML = safeProfilePic
+      ? `<img src="${safeProfilePic}" alt="Profile" style="width:96px;height:96px;object-fit:cover;border-radius:4px;" />`
+      : `<div style="width:96px;height:96px;border-radius:4px;background:#222;display:flex;align-items:center;justify-content:center;font-size:32px;font-weight:700;color:#fff;">${(basicInfo.name || "U")[0]}</div>`;
+
+    const renderExperiencesHTML = (exps: WorkExp[]) => exps.map(exp => {
+      const descLines = exp.description
+        ? exp.description.split(/\n/).map(l => l.trim()).filter(l => l.length > 0)
+            .map(l => `<li style="margin-bottom:3px;color:#555;font-size:10.5px;line-height:1.4;">${cleanLineText(l)}</li>`).join("")
+        : "";
+      return `
+        <div style="margin-bottom:14px;">
+          <p style="margin:0;font-weight:700;color:#1a1a1a;font-size:11.5px;">${exp.title}</p>
+          <p style="margin:2px 0 4px;color:#777;font-size:10px;">${exp.company} | ${exp.startMonth} ${exp.startYear} - ${exp.current ? "Present" : `${exp.endMonth} ${exp.endYear}`}</p>
+          ${descLines ? `<ul style="margin:0 0 0 14px;padding:0;list-style-type:disc;">${descLines}</ul>` : ""}
+        </div>`;
+    }).join("");
+
+    const educationHTML = education.map(edu => `
+      <div style="margin-bottom:10px;">
+        <p style="margin:0;font-weight:700;color:#1a1a1a;font-size:10.5px;">${edu.degree}</p>
+        <p style="margin:2px 0 0;color:#777;font-size:9.5px;">${edu.college} | ${formatMonthYear(edu.startMonth, edu.startYear)} - ${formatMonthYear(edu.endMonth, edu.endYear)}</p>
+      </div>`).join("");
+
+    const barHTML = (label: string, pct: number) => `
+      <div style="margin-bottom:9px;">
+        <p style="margin:0 0 3px;font-size:10px;color:#333;">${label}</p>
+        <div style="height:5px;background:#eee;border-radius:3px;overflow:hidden;">
+          <div style="height:100%;width:${pct}%;background:#1a1a1a;"></div>
+        </div>
+      </div>`;
+    const skillsBarsHTML = skills.map((s, i) => barHTML(cleanLineText(s), Math.max(55, 90 - i * 6))).join("");
+    const langBarsHTML = (langs: Language[]) => langs.map((l, i) => barHTML(`${l.language}${l.proficiency ? ` (${l.proficiency})` : ""}`, Math.max(50, 88 - i * 10))).join("");
+
+    const certsProjectsHTML = (certs: Certification[], projs: Project[]) => {
+      const certsHTML = certs.length > 0 ? `
+        <h3 style="margin:16px 0 8px;color:#1a1a1a;font-size:11px;font-weight:800;text-transform:uppercase;letter-spacing:1px;">Certifications</h3>
+        ${certs.map(c => `<p style="margin:0 0 6px;font-size:10px;color:#555;">${c.name}${c.issuer ? ` – ${c.issuer}` : ""}</p>`).join("")}` : "";
+      const projsHTML = projs.length > 0 ? `
+        <h3 style="margin:16px 0 8px;color:#1a1a1a;font-size:11px;font-weight:800;text-transform:uppercase;letter-spacing:1px;">Projects</h3>
+        ${projs.map(p => `<p style="margin:0 0 6px;font-size:10px;color:#555;"><strong style="color:#1a1a1a;">${p.name}</strong>${p.description ? ` — ${p.description}` : ""}</p>`).join("")}` : "";
+      return certsHTML + projsHTML;
+    };
+
+    const rightCol = (langs: Language[], certs: Certification[], projs: Project[]) => `
+      <div style="width:220px;padding:0 36px 30px 20px;box-sizing:border-box;flex-shrink:0;border-left:1px solid #eee;">
+        ${education.length > 0 ? `<h3 style="margin:0 0 10px;color:#1a1a1a;font-size:11px;font-weight:800;text-transform:uppercase;letter-spacing:1px;">Education</h3>${educationHTML}` : ""}
+        <h3 style="margin:16px 0 10px;color:#1a1a1a;font-size:11px;font-weight:800;text-transform:uppercase;letter-spacing:1px;">Skills</h3>
+        ${skillsBarsHTML}
+        ${langs.length > 0 ? `<h3 style="margin:16px 0 10px;color:#1a1a1a;font-size:11px;font-weight:800;text-transform:uppercase;letter-spacing:1px;">Language</h3>${langBarsHTML(langs)}` : ""}
+        ${certsProjectsHTML(certs, projs)}
+      </div>`;
+
+    const page1HTML = `
+      <div class="resume-page" style="width:794px;height:1122px;font-family:'Segoe UI',Arial,Helvetica,sans-serif;background:#fff;color:#333;box-sizing:border-box;overflow:hidden;display:flex;flex-direction:column;justify-content:space-between;margin:0;flex-shrink:0;position:relative;">
+        <div style="position:absolute;top:0;right:0;width:14px;height:100px;background:#111;"></div>
+        <div>
+          <div style="display:flex;align-items:center;gap:20px;padding:36px 50px 20px 36px;box-sizing:border-box;">
+            ${profileImgHTML}
+            <div style="flex:1;">
+              <h1 style="margin:0;font-size:24px;color:#1a1a1a;"><span style="font-weight:400;">${basicInfo.name.split(" ")[0] || ""}</span> <strong>${basicInfo.name.split(" ").slice(1).join(" ")}</strong></h1>
+              <p style="margin:4px 0 0;font-size:12px;color:#666;">${headline}</p>
+            </div>
+            <div style="display:flex;flex-direction:column;gap:4px;font-size:9.5px;color:#555;text-align:right;">
+              <span>${basicInfo.phone}</span><span>${basicInfo.email}</span><span>${basicInfo.location}</span>
+            </div>
+          </div>
+          <div style="padding:0 36px;box-sizing:border-box;">
+            <h2 style="margin:0 0 8px;color:#1a1a1a;font-size:12.5px;font-weight:800;text-transform:uppercase;letter-spacing:1px;border-bottom:2px solid #ddd;padding-bottom:6px;">Profile Info</h2>
+            <p style="margin:12px 0 20px;color:#555;font-size:10.5px;line-height:1.6;">${summary}</p>
+          </div>
+          <div style="display:flex;box-sizing:border-box;">
+            <div style="flex:1;padding:0 20px 24px 36px;box-sizing:border-box;">
+              ${page1Experiences.length > 0 ? `<h2 style="margin:0 0 10px;color:#1a1a1a;font-size:12.5px;font-weight:800;text-transform:uppercase;letter-spacing:1px;border-bottom:2px solid #ddd;padding-bottom:6px;">Work Experience</h2><div style="margin-top:12px;">${renderExperiencesHTML(page1Experiences)}</div>` : ""}
+            </div>
+            ${rightCol(page1Languages, page1Certifications, page1Projects)}
+          </div>
+        </div>
+        <div style="padding:10px 36px;border-top:1px solid #eee;display:flex;justify-content:space-between;font-size:10px;color:#888;box-sizing:border-box;">
+          <span>${basicInfo.name}</span><span>Page 1 ${hasPage2 ? 'of 2' : ''}</span>
+        </div>
+      </div>`;
+
+    const page2HTML = hasPage2 ? `
+      <div class="resume-page" style="width:794px;height:1122px;font-family:'Segoe UI',Arial,Helvetica,sans-serif;background:#fff;color:#333;box-sizing:border-box;overflow:hidden;display:flex;flex-direction:column;justify-content:space-between;margin:0;flex-shrink:0;">
+        <div style="padding:32px 36px;box-sizing:border-box;">
+          ${page2Experiences.length > 0 ? `<h2 style="margin:0 0 10px;color:#1a1a1a;font-size:12.5px;font-weight:800;text-transform:uppercase;letter-spacing:1px;border-bottom:2px solid #ddd;padding-bottom:6px;">Work Experience</h2><div style="margin-top:12px;">${renderExperiencesHTML(page2Experiences)}</div>` : ""}
+          ${certsProjectsHTML(page2Certifications, page2Projects)}
+        </div>
+        <div style="padding:10px 36px;border-top:1px solid #eee;display:flex;justify-content:space-between;font-size:10px;color:#888;box-sizing:border-box;">
+          <span>${basicInfo.name}</span><span>Page 2 of 2</span>
+        </div>
+      </div>` : "";
+
+    return `
+      <div id="resume-render-target" style="width:794px;background:#fff;display:flex;flex-direction:column;gap:0px;margin:0;padding:0;box-sizing:border-box;">
+        ${page1HTML}
+        ${page2HTML}
+      </div>
+    `;
+  }
+
+  // ───────────────────────────────────────────────────────────────────────────
+  // Template 21: Blue Black Modern (split dark header, photo)
+  // ───────────────────────────────────────────────────────────────────────────
+  if (templateId === "template-21") {
+    const profileImgHTML = safeProfilePic
+      ? `<img src="${safeProfilePic}" alt="Profile" style="width:100%;height:100%;object-fit:cover;" />`
+      : `<div style="width:100%;height:100%;background:#D9D3CC;display:flex;align-items:center;justify-content:center;font-size:48px;font-weight:800;color:#2B2420;">${(basicInfo.name || "U")[0]}</div>`;
+
+    const renderExperiencesHTML = (exps: WorkExp[]) => exps.map(exp => {
+      const dateRange = `${exp.startMonth} ${exp.startYear} - ${exp.current ? "present" : `${exp.endMonth} ${exp.endYear}`}`;
+      const descLines = exp.description
+        ? exp.description.split(/\n/).map(l => l.trim()).filter(l => l.length > 0)
+            .map(l => `<li style="margin-bottom:4px;color:#555;font-size:10.5px;line-height:1.4;">${cleanLineText(l)}</li>`).join("")
+        : "";
+      return `
+        <div style="margin-bottom:16px;">
+          <p style="margin:0;font-weight:800;color:#1a1a1a;font-size:12px;">${exp.title}</p>
+          <p style="margin:2px 0 6px;color:#777;font-size:10.5px;">${exp.company} | ${dateRange}</p>
+          ${descLines ? `<ul style="margin:0 0 0 14px;padding:0;list-style-type:disc;">${descLines}</ul>` : ""}
+        </div>`;
+    }).join("");
+
+    const educationHTML = education.map(edu => `
+      <div style="margin-bottom:12px;">
+        <p style="margin:0;font-weight:700;color:#1a1a1a;font-size:10.5px;">${edu.degree}</p>
+        <p style="margin:2px 0 0;color:#777;font-size:9.5px;">${edu.college}</p>
+        <p style="margin:1px 0 0;color:#999;font-size:9px;">${formatMonthYear(edu.startMonth, edu.startYear)} - ${formatMonthYear(edu.endMonth, edu.endYear)}</p>
+      </div>`).join("");
+
+    const skillsHTML = skills.map(s => `<li style="margin-bottom:7px;color:#333;font-size:10.5px;">${cleanLineText(s)}</li>`).join("");
+
+    const certsProjectsHTML = (certs: Certification[], projs: Project[]) => {
+      const certsHTML = certs.length > 0 ? `
+        <h3 style="margin:18px 0 10px;color:#1a1a1a;font-size:12px;font-weight:800;">Certifications</h3>
+        <ul style="margin:0;padding:0 0 0 14px;list-style-type:disc;">${certs.map(c => `<li style="margin-bottom:6px;color:#333;font-size:10.5px;">${c.name}${c.issuer ? ` – ${c.issuer}` : ""}</li>`).join("")}</ul>` : "";
+      const projsHTML = projs.length > 0 ? `
+        <h3 style="margin:18px 0 10px;color:#1a1a1a;font-size:12px;font-weight:800;">Projects</h3>
+        ${projs.map(p => `<p style="margin:0 0 8px;color:#333;font-size:10.5px;"><strong>${p.name}</strong>${p.description ? ` — ${p.description}` : ""}</p>`).join("")}` : "";
+      return certsHTML + projsHTML;
+    };
+
+    const leftCol = (langs: Language[], certs: Certification[], projs: Project[]) => `
+      <div style="width:230px;padding:26px 20px 30px 36px;box-sizing:border-box;flex-shrink:0;border-right:1px solid #eee;">
+        <h3 style="margin:0 0 10px;color:#1a1a1a;font-size:12px;font-weight:800;">Contact</h3>
+        <div style="display:flex;flex-direction:column;gap:7px;font-size:10px;color:#333;margin-bottom:20px;">
+          <span style="display:inline-flex;align-items:center;gap:6px;">${getPhoneIcon("#2B2420")} ${basicInfo.phone}</span>
+          <span style="display:inline-flex;align-items:center;gap:6px;">${getEmailIcon("#2B2420")} ${basicInfo.email}</span>
+          <span style="display:inline-flex;align-items:center;gap:6px;">${getLocationIcon("#2B2420")} ${basicInfo.location}</span>
+        </div>
+        ${education.length > 0 ? `<h3 style="margin:0 0 10px;color:#1a1a1a;font-size:12px;font-weight:800;">Education</h3><div style="margin-bottom:20px;">${educationHTML}</div>` : ""}
+        <h3 style="margin:0 0 10px;color:#1a1a1a;font-size:12px;font-weight:800;">Skills</h3>
+        <ul style="margin:0 0 20px;padding:0 0 0 14px;list-style-type:disc;">${skillsHTML}</ul>
+        ${langs.length > 0 ? `<h3 style="margin:0 0 10px;color:#1a1a1a;font-size:12px;font-weight:800;">Language</h3><ul style="margin:0;padding:0 0 0 14px;list-style-type:disc;">${langs.map(l => `<li style="margin-bottom:7px;color:#333;font-size:10.5px;">${l.language}${l.proficiency ? ` (${l.proficiency})` : ""}</li>`).join("")}</ul>` : ""}
+        ${certsProjectsHTML(certs, projs)}
+      </div>`;
+
+    const page1HTML = `
+      <div class="resume-page" style="width:794px;height:1122px;font-family:'Segoe UI',Arial,Helvetica,sans-serif;background:#fff;color:#333;box-sizing:border-box;overflow:hidden;display:flex;flex-direction:column;justify-content:space-between;margin:0;flex-shrink:0;">
+        <div>
+          <div style="display:flex;height:170px;box-sizing:border-box;">
+            <div style="width:270px;background:#E9E4DD;overflow:hidden;flex-shrink:0;">${profileImgHTML}</div>
+            <div style="flex:1;background:#2B2420;display:flex;flex-direction:column;justify-content:center;padding:0 36px;box-sizing:border-box;">
+              <h1 style="margin:0;font-size:28px;font-weight:800;color:#fff;letter-spacing:0.5px;">${basicInfo.name}</h1>
+              <p style="margin:6px 0 0;font-size:13px;color:#D9D3CC;font-weight:600;letter-spacing:2px;text-transform:uppercase;">${headline}</p>
+            </div>
+          </div>
+          <div style="display:flex;box-sizing:border-box;">
+            ${leftCol(page1Languages, page1Certifications, page1Projects)}
+            <div style="flex:1;padding:26px 36px 24px 22px;box-sizing:border-box;">
+              <h2 style="margin:0 0 8px;color:#1a1a1a;font-size:13px;font-weight:800;text-transform:uppercase;letter-spacing:1px;">Profile</h2>
+              <p style="margin:0 0 20px;color:#555;font-size:11px;line-height:1.6;text-align:justify;">${summary}</p>
+              ${page1Experiences.length > 0 ? `<h2 style="margin:0 0 10px;color:#1a1a1a;font-size:13px;font-weight:800;text-transform:uppercase;letter-spacing:1px;">Experience</h2>${renderExperiencesHTML(page1Experiences)}` : ""}
+            </div>
+          </div>
+        </div>
+        <div style="padding:10px 36px;border-top:1px solid #eee;display:flex;justify-content:space-between;font-size:10px;color:#888;box-sizing:border-box;">
+          <span>${basicInfo.name}</span><span>Page 1 ${hasPage2 ? 'of 2' : ''}</span>
+        </div>
+      </div>`;
+
+    const page2HTML = hasPage2 ? `
+      <div class="resume-page" style="width:794px;height:1122px;font-family:'Segoe UI',Arial,Helvetica,sans-serif;background:#fff;color:#333;box-sizing:border-box;overflow:hidden;display:flex;flex-direction:column;justify-content:space-between;margin:0;flex-shrink:0;">
+        <div style="padding:32px 36px;box-sizing:border-box;">
+          ${page2Experiences.length > 0 ? `<h2 style="margin:0 0 10px;color:#1a1a1a;font-size:13px;font-weight:800;text-transform:uppercase;letter-spacing:1px;">Experience</h2>${renderExperiencesHTML(page2Experiences)}` : ""}
+        </div>
+        <div style="padding:10px 36px;border-top:1px solid #eee;display:flex;justify-content:space-between;font-size:10px;color:#888;box-sizing:border-box;">
+          <span>${basicInfo.name}</span><span>Page 2 of 2</span>
+        </div>
+      </div>` : "";
+
+    return `
+      <div id="resume-render-target" style="width:794px;background:#fff;display:flex;flex-direction:column;gap:0px;margin:0;padding:0;box-sizing:border-box;">
+        ${page1HTML}
+        ${page2HTML}
+      </div>
+    `;
+  }
+
+  // ───────────────────────────────────────────────────────────────────────────
+  // Template 22: Blue and White Modern ATS-Friendly (single column)
+  // ───────────────────────────────────────────────────────────────────────────
+  if (templateId === "template-22") {
+    const renderExperiencesHTML = (exps: WorkExp[]) => exps.map(exp => {
+      const dateRange = `${exp.startMonth} ${exp.startYear} - ${exp.current ? "Present" : `${exp.endMonth} ${exp.endYear}`}`;
+      const descLines = exp.description
+        ? exp.description.split(/\n/).map(l => l.trim()).filter(l => l.length > 0)
+            .map(l => `<li style="margin-bottom:3px;color:#333;font-size:10.5px;line-height:1.4;">${cleanLineText(l)}</li>`).join("")
+        : "";
+      return `
+        <div style="margin-bottom:14px;">
+          <div style="display:flex;justify-content:space-between;align-items:baseline;">
+            <span style="font-weight:700;color:#1a1a1a;font-size:11.5px;">${exp.company}</span>
+            <span style="color:#1656B0;font-size:10.5px;font-weight:700;">${dateRange}</span>
+          </div>
+          <p style="margin:1px 0 4px;color:#555;font-size:10.5px;">${exp.title}</p>
+          ${descLines ? `<ul style="margin:0 0 0 14px;padding:0;list-style-type:disc;">${descLines}</ul>` : ""}
+        </div>`;
+    }).join("");
+
+    const educationHTML = education.map(edu => `
+      <div style="margin-bottom:10px;display:flex;justify-content:space-between;">
+        <div>
+          <p style="margin:0;font-weight:700;color:#1a1a1a;font-size:11px;">${edu.degree}${edu.field ? ` (${edu.field})` : ""}</p>
+          <p style="margin:1px 0 0;color:#555;font-size:10px;">${edu.college}</p>
+        </div>
+        <span style="color:#1656B0;font-size:10px;font-weight:700;white-space:nowrap;">${formatMonthYear(edu.startMonth, edu.startYear)} - ${formatMonthYear(edu.endMonth, edu.endYear)}</span>
+      </div>`).join("");
+
+    const sectionHeading = (label: string) => `
+      <div style="display:flex;align-items:center;gap:10px;margin:20px 0 10px;">
+        <h2 style="margin:0;color:#1656B0;font-size:13px;font-weight:800;text-transform:uppercase;letter-spacing:1px;white-space:nowrap;">${label}</h2>
+        <div style="flex:1;height:2px;background:#1656B0;"></div>
+      </div>`;
+
+    const certsHTML = (certs: Certification[]) => certs.length > 0 ? `
+      ${sectionHeading("Certifications")}
+      <ul style="margin:0;padding:0 0 0 16px;list-style-type:disc;">
+        ${certs.map(c => `<li style="margin-bottom:5px;color:#333;font-size:10.5px;">${c.name}${c.issuer ? ` – ${c.issuer}` : ""}</li>`).join("")}
+      </ul>` : "";
+
+    const projsHTML = (projs: Project[]) => projs.length > 0 ? `
+      ${sectionHeading("Projects")}
+      ${projs.map(p => `<p style="margin:0 0 8px;color:#333;font-size:10.5px;"><strong>${p.name}</strong>${p.description ? ` — ${p.description}` : ""}</p>`).join("")}` : "";
+
+    const langsHTML = (langs: Language[]) => langs.length > 0 ? `
+      ${sectionHeading("Languages")}
+      <p style="margin:0;color:#333;font-size:10.5px;">${langs.map(l => `${l.language}${l.proficiency ? ` (${l.proficiency})` : ""}`).join(" · ")}</p>` : "";
+
+    const header = `
+      <div style="text-align:center;padding:34px 40px 0;box-sizing:border-box;">
+        <h1 style="margin:0;font-size:26px;font-weight:800;color:#1a1a1a;letter-spacing:1px;">${basicInfo.name.toUpperCase()}</h1>
+        <p style="margin:4px 0 10px;font-size:13px;color:#1656B0;font-weight:800;letter-spacing:3px;text-transform:uppercase;">${headline}</p>
+        <p style="margin:0 0 16px;font-size:10px;color:#555;">${[basicInfo.location, basicInfo.phone, basicInfo.email, websiteDisplay].filter(Boolean).join(" | ")}</p>
+      </div>
+      <div style="height:2px;background:#1656B0;margin:0 40px 6px;"></div>`;
+
+    const page1HTML = `
+      <div class="resume-page" style="width:794px;height:1122px;font-family:'Segoe UI',Arial,Helvetica,sans-serif;background:#fff;color:#333;box-sizing:border-box;overflow:hidden;display:flex;flex-direction:column;justify-content:space-between;margin:0;flex-shrink:0;">
+        <div>
+          ${header}
+          <div style="padding:0 40px;box-sizing:border-box;">
+            ${sectionHeading("Summary")}
+            <p style="margin:0;color:#333;font-size:11px;line-height:1.6;text-align:justify;">${summary}</p>
+
+            ${page1Experiences.length > 0 ? `${sectionHeading("Professional Experience")}${renderExperiencesHTML(page1Experiences)}` : ""}
+
+            ${sectionHeading("Skills")}
+            <p style="margin:0;color:#333;font-size:10.5px;line-height:1.6;">${skills.map(s => cleanLineText(s)).join(" | ")}</p>
+
+            ${education.length > 0 ? `${sectionHeading("Education")}${educationHTML}` : ""}
+
+            ${certsHTML(page1Certifications)}
+            ${projsHTML(page1Projects)}
+            ${langsHTML(page1Languages)}
+          </div>
+        </div>
+        <div style="padding:10px 40px;border-top:1px solid #eee;display:flex;justify-content:space-between;font-size:10px;color:#888;box-sizing:border-box;">
+          <span>${basicInfo.name}</span><span>Page 1 ${hasPage2 ? 'of 2' : ''}</span>
+        </div>
+      </div>`;
+
+    const page2HTML = hasPage2 ? `
+      <div class="resume-page" style="width:794px;height:1122px;font-family:'Segoe UI',Arial,Helvetica,sans-serif;background:#fff;color:#333;box-sizing:border-box;overflow:hidden;display:flex;flex-direction:column;justify-content:space-between;margin:0;flex-shrink:0;">
+        <div style="padding:32px 40px;box-sizing:border-box;">
+          ${page2Experiences.length > 0 ? `${sectionHeading("Professional Experience")}${renderExperiencesHTML(page2Experiences)}` : ""}
+          ${certsHTML(page2Certifications)}
+          ${projsHTML(page2Projects)}
+          ${langsHTML(page2Languages)}
+        </div>
+        <div style="padding:10px 40px;border-top:1px solid #eee;display:flex;justify-content:space-between;font-size:10px;color:#888;box-sizing:border-box;">
+          <span>${basicInfo.name}</span><span>Page 2 of 2</span>
+        </div>
+      </div>` : "";
+
+    return `
+      <div id="resume-render-target" style="width:794px;background:#fff;display:flex;flex-direction:column;gap:0px;margin:0;padding:0;box-sizing:border-box;">
+        ${page1HTML}
+        ${page2HTML}
+      </div>
+    `;
+  }
+
+  // ───────────────────────────────────────────────────────────────────────────
   // Template 3: Seema Chaudhry (Bright Blue Banner) - Default
   // ───────────────────────────────────────────────────────────────────────────
   const profileImgHTML = safeProfilePic
@@ -2913,15 +3403,98 @@ export function buildResumeHTML(
   `;
 }
 
+// Every template's page wrapper carries the shared "resume-page" class and is
+// styled with a fixed height:1122px + overflow:hidden so the multi-page split
+// (computed above from an estimated content height) lines up with the A4
+// pixel-slicing math in handleBuildResume. "single" mode overrides that with
+// height:auto + overflow:visible so the SAME markup instead flows as one
+// continuous, unclipped page — used for Preview, the Edit Resume panel, and
+// as the first pass of the real two-pass pagination decision (see
+// handleBuildResume): measure the natural height, and only fall back to the
+// estimated multi-page split above if it genuinely doesn't fit on one page.
+export function buildResumeHTML(
+  props: ResumeBuilderProps,
+  resolvedProfilePic: string | null,
+  templateId: string = "template-3",
+  mode?: "single"
+): string {
+  const html = buildResumeHTMLCore(props, resolvedProfilePic, templateId, mode);
+  if (mode === "single") {
+    return `<style>#resume-render-target .resume-page{height:auto !important;min-height:1122px;overflow:visible !important;}</style>${html}`;
+  }
+  return html;
+}
+
+// ── Editable Resume Preview ─────────────────────────────────────────────────────
+// Renders the generated resume HTML as a contentEditable region so a job seeker
+// can tweak wording for this specific export only. Edits are captured on blur
+// into the parent's override state — this component never touches the
+// underlying profile data, and is deliberately uncontrolled while focused
+// (re-feeding `html` back into dangerouslySetInnerHTML on every keystroke would
+// reset the cursor position).
+function EditableResumePreview({ html, onChange }: { html: string; onChange: (html: string) => void }) {
+  const containerRef = useRef<HTMLDivElement | null>(null);
+
+  const handleBlur = () => {
+    if (containerRef.current) {
+      onChange(containerRef.current.innerHTML);
+    }
+  };
+
+  return (
+    <div
+      ref={containerRef}
+      contentEditable
+      suppressContentEditableWarning
+      onBlur={handleBlur}
+      style={{ outline: "none", cursor: "text", boxShadow: "0 1px 4px rgba(0,0,0,0.12)", width: "794px" }}
+      dangerouslySetInnerHTML={{ __html: html }}
+    />
+  );
+}
+
 // ── Component ───────────────────────────────────────────────────────────────────
 export default function ResumeBuilder(props: ResumeBuilderProps) {
+  const navigate = useNavigate();
+  const isPremium = !!props.isPremium;
   const [generating, setGenerating] = useState(false);
   const [showValidation, setShowValidation] = useState(false);
   const [resolvedProfilePic, setResolvedProfilePic] = useState<string | null>(null);
   const [selectedTemplate, setSelectedTemplate] = useState<string>("template-3");
   const renderContainerRef = useRef<HTMLDivElement | null>(null);
 
+  // Defense in depth: if a free user somehow has a premium template selected
+  // (e.g. their plan just expired), fall back to a free one rather than
+  // letting Build/Preview run with it.
+  useEffect(() => {
+    if (!isPremium && !FREE_TEMPLATE_IDS.has(selectedTemplate)) {
+      setSelectedTemplate("template-3");
+    }
+  }, [isPremium, selectedTemplate]);
+
+  // Manual per-resume edits. Kept only in this component's state — never
+  // written back to the profile — so a job seeker can tweak wording for one
+  // export without touching the data used elsewhere on the site.
+  const [isEditingResume, setIsEditingResume] = useState(false);
+  const [resumeHtmlOverride, setResumeHtmlOverride] = useState<string | null>(null);
+  const [editorKey, setEditorKey] = useState(0);
+
   const validation = useMemo(() => validateProfile(props), [props]);
+
+  // Always a single flowing page here — Preview and the Edit Resume panel
+  // should never show a premature page break; only the actual PDF build
+  // (below) decides whether a second page is genuinely required.
+  const baseResumeHtml = useMemo(
+    () => buildResumeHTML(props, resolvedProfilePic, selectedTemplate, "single"),
+    [props, resolvedProfilePic, selectedTemplate]
+  );
+
+  // Switching templates re-lays-out the whole page, so edits tied to the old
+  // structure can't carry over — drop them rather than showing stale HTML.
+  useEffect(() => {
+    setResumeHtmlOverride(null);
+    setIsEditingResume(false);
+  }, [selectedTemplate]);
 
   // Preload/convert avatar to base64 on mount or when profilePic changes
   useEffect(() => {
@@ -2949,18 +3522,42 @@ export default function ResumeBuilder(props: ResumeBuilderProps) {
 
     let container: HTMLDivElement | null = null;
     try {
+      const singlePageHtml = resumeHtmlOverride ?? baseResumeHtml;
+
       container = document.createElement("div");
       container.style.position = "fixed";
       container.style.left = "-9999px";
       container.style.top = "0";
       container.style.zIndex = "-1";
-      container.innerHTML = buildResumeHTML(props, resolvedProfilePic, selectedTemplate);
+      container.innerHTML = singlePageHtml;
       document.body.appendChild(container);
 
-      const target = container.querySelector("#resume-render-target") as HTMLElement;
+      let target = container.querySelector("#resume-render-target") as HTMLElement;
       if (!target) throw new Error("Resume render target not found");
 
       await new Promise(r => setTimeout(r, 300));
+
+      // Decide the page count from how tall the content actually renders,
+      // not from the pre-render byte-count estimate — that estimate was
+      // pushing resumes onto an unnecessary second page even when everything
+      // genuinely fit on one. Only fall back to the estimated multi-page
+      // split (which still lets each template render page 1 / page 2 with
+      // its own designed layout) when the real, measured height doesn't fit.
+      // Hand-edited resumes (resumeHtmlOverride set) have no equivalent
+      // multi-page layout to fall back to, so an overly long edit still gets
+      // sliced — just mechanically, by the pixel-based multi-page logic
+      // further down, instead of per-template page breaks.
+      const firstPage = target.querySelector(".resume-page") as HTMLElement | null;
+      const naturalHeight = firstPage ? firstPage.getBoundingClientRect().height : 1122;
+      const fitsOnOnePage = naturalHeight <= 1130;
+
+      if (!fitsOnOnePage && !resumeHtmlOverride) {
+        // Replacing innerHTML detaches the old target node — re-query it.
+        container.innerHTML = buildResumeHTML(props, resolvedProfilePic, selectedTemplate);
+        target = container.querySelector("#resume-render-target") as HTMLElement;
+        if (!target) throw new Error("Resume render target not found");
+        await new Promise(r => setTimeout(r, 300));
+      }
 
       const canvas = await html2canvas(target, {
         scale: 2,
@@ -3006,7 +3603,7 @@ export default function ResumeBuilder(props: ResumeBuilderProps) {
       }
       setGenerating(false);
     }
-  }, [props, validation, resolvedProfilePic, selectedTemplate]);
+  }, [props, validation, resumeHtmlOverride, baseResumeHtml, resolvedProfilePic, selectedTemplate]);
 
   const handlePreviewClick = () => {
     if (!validation.isComplete) {
@@ -3015,7 +3612,18 @@ export default function ResumeBuilder(props: ResumeBuilderProps) {
     }
     setShowValidation(false);
 
-    window.open(`/jobseeker/dashboard/profile/resume?template=${selectedTemplate}`, "_blank");
+    // With manual edits in place, preview those exact edits rather than a
+    // freshly regenerated (and now out of sync) version from the profile.
+    if (resumeHtmlOverride) {
+      const doc = `<!DOCTYPE html><html><head><meta charset="utf-8" /><title>${props.basicInfo.name} - Resume</title></head><body style="margin:0;">${resumeHtmlOverride}</body></html>`;
+      const blob = new Blob([doc], { type: "text/html" });
+      const url = URL.createObjectURL(blob);
+      window.open(url, "_blank");
+      setTimeout(() => URL.revokeObjectURL(url), 60000);
+      return;
+    }
+
+    window.open(`/jobseeker/dashboard/profile/resume?template=${templateIdToSlug(selectedTemplate)}`, "_blank");
   };
 
   const templatesList = [
@@ -3024,15 +3632,20 @@ export default function ResumeBuilder(props: ResumeBuilderProps) {
     { id: "template-3", name: "Modern Blue", desc: "Classic banner header with blue accents" },
     { id: "template-4", name: "Elegant Crimson", desc: "Off-white sidebar with crimson red accents" },
     { id: "template-5", name: "Rounded Pastel", desc: "Rounded top header panel & two columns" },
-    { id: "template-6", name: "Maroon Creative", desc: "Burgundy header with side rails & slider skills" },
     { id: "template-7", name: "Executive Hexagon", desc: "Geometric hex photo with skill ring gauges" },
     { id: "template-8", name: "Black & Gold Minimalist", desc: "High-contrast dark header & progress meters" },
-    { id: "template-9", name: "Creative Pastel Bento", desc: "Playful lilac bento grid & pill badges" },
     { id: "template-10", name: "Emerald Botanical", desc: "Fresh green split layout & elegant serif header" },
     { id: "template-11", name: "Corporate Cyan", desc: "Cyan gradient header, icon badges & balanced 2-col" },
     { id: "template-12", name: "Minimalist Arch", desc: "Charcoal arch sidebar & clean timeline details" },
-    { id: "template-13", name: "Editorial Signature", desc: "Monochrome editorial banner & boxed initial badges" },
     { id: "template-14", name: "Geometric Emerald", desc: "Forest green diamond frames & split modern grid" },
+    { id: "template-15", name: "Teal Innovator", desc: "Dark teal sidebar with core skills & clean summary" },
+    { id: "template-16", name: "Monochrome Executive", desc: "Black & white minimalist with light gray side panel" },
+    { id: "template-17", name: "Warm Clinical", desc: "Beige tones, circular photo & icon section headers" },
+    { id: "template-18", name: "Slate Professional", desc: "Soft gray accents with a photo-topped side panel" },
+    { id: "template-20", name: "Studio Contrast", desc: "Bold photo header with skill & language progress bars" },
+    { id: "template-21", name: "Charcoal Split", desc: "Split dark header panel with photo & clean two-column body" },
+    { id: "template-22", name: "ATS Clarity", desc: "Centered ATS-friendly single column with blue accents" },
+    { id: "template-13", name: "Editorial Signature", desc: "Monochrome editorial banner & boxed initial badges" },
   ];
 
   return (
@@ -3053,26 +3666,40 @@ export default function ResumeBuilder(props: ResumeBuilderProps) {
       <div className="grid grid-cols-2 md:grid-cols-5 gap-4 mb-6">
         {templatesList.map((t) => {
           const isSelected = selectedTemplate === t.id;
+          const isLocked = !isPremium && !FREE_TEMPLATE_IDS.has(t.id);
           return (
             <button
               key={t.id}
-              onClick={() => setSelectedTemplate(t.id)}
+              onClick={() => {
+                if (isLocked) {
+                  navigate("/jobseeker/plans");
+                  return;
+                }
+                setSelectedTemplate(t.id);
+              }}
+              title={isLocked ? "Premium template — upgrade to unlock" : undefined}
               className={`text-left rounded-xl p-4 border transition-all duration-200 cursor-pointer relative group flex flex-col justify-between min-h-[110px] ${
                 isSelected
                   ? "border-[#FF2B2B] bg-[#FFF2F2] shadow-sm ring-1 ring-[#FF2B2B]"
+                  : isLocked
+                  ? "border-gray-200 bg-gray-50 hover:border-gray-300"
                   : "border-gray-200 hover:border-gray-300 bg-white hover:bg-gray-50"
               }`}
             >
               <div>
-                <p className={`font-semibold text-sm ${isSelected ? "text-[#FF2B2B]" : "text-[#3A1F1F]"}`}>
+                <p className={`font-semibold text-sm ${isSelected ? "text-[#FF2B2B]" : isLocked ? "text-gray-500" : "text-[#3A1F1F]"}`}>
                   {t.name}
                 </p>
-                <p className="text-xs text-gray-500 mt-1 leading-normal">
+                <p className={`text-xs mt-1 leading-normal ${isLocked ? "text-gray-400" : "text-gray-500"}`}>
                   {t.desc}
                 </p>
               </div>
-              
-              {isSelected && (
+
+              {isLocked ? (
+                <span className="absolute top-2 right-2 inline-flex items-center gap-1 bg-[#3A1F1F] text-white text-[10px] font-medium px-2 py-0.5 rounded-full">
+                  <Lock className="h-2.5 w-2.5" /> Premium
+                </span>
+              ) : isSelected && (
                 <span className="absolute top-2 right-2 bg-[#FF2B2B] text-white p-0.5 rounded-full">
                   <Check className="h-3.5 w-3.5" />
                 </span>
@@ -3109,7 +3736,7 @@ export default function ResumeBuilder(props: ResumeBuilderProps) {
       )}
 
       {/* Actions */}
-      <div className="flex flex-wrap gap-3">
+      <div className="flex flex-wrap items-center gap-3">
         {/* Preview Resume Button */}
         <Button
           onClick={handlePreviewClick}
@@ -3119,6 +3746,30 @@ export default function ResumeBuilder(props: ResumeBuilderProps) {
           <Eye className="h-4 w-4 mr-2" />
           Preview Resume
         </Button>
+
+        {/* Edit Resume Button */}
+        <Button
+          type="button"
+          onClick={() => {
+            if (!validation.isComplete) {
+              setShowValidation(true);
+              return;
+            }
+            setShowValidation(false);
+            setIsEditingResume((v) => !v);
+          }}
+          variant="outline"
+          className="rounded-full px-5 py-2 text-sm font-medium border-gray-200 text-[#3A1F1F] hover:bg-[#F6F6F6] transition-colors cursor-pointer"
+        >
+          <Pencil className="h-4 w-4 mr-2" />
+          {isEditingResume ? "Close Editor" : "Edit Resume"}
+        </Button>
+
+        {resumeHtmlOverride && (
+          <span className="inline-flex items-center gap-1 text-xs text-[#FF2B2B] bg-[#FFF2F2] px-2.5 py-1 rounded-full font-medium">
+            Custom edits applied
+          </span>
+        )}
 
         {/* Build Resume Button */}
         <Button
@@ -3148,6 +3799,47 @@ export default function ResumeBuilder(props: ResumeBuilderProps) {
         <p className="text-xs text-[#8A8A8A] mt-2">
           Complete all required profile fields to enable resume preview and generation.
         </p>
+      )}
+
+      {/* Inline resume text editor */}
+      {isEditingResume && (
+        <div className="mt-6 border border-gray-200 rounded-2xl overflow-hidden bg-[#F6F6F6]">
+          <div className="flex flex-wrap items-center justify-between gap-3 px-4 py-3 bg-white border-b border-gray-200">
+            <div>
+              <p className="text-sm font-semibold text-[#3A1F1F]">Edit Resume Text</p>
+              <p className="text-xs text-[#8A8A8A]">Click into any text to edit it for this resume only — your profile stays unchanged.</p>
+            </div>
+            <div className="flex items-center gap-3">
+              {resumeHtmlOverride && (
+                <button
+                  type="button"
+                  onClick={() => {
+                    setResumeHtmlOverride(null);
+                    setEditorKey((k) => k + 1);
+                  }}
+                  className="text-xs text-[#FF2B2B] hover:underline font-medium cursor-pointer"
+                >
+                  Reset to auto-generated
+                </button>
+              )}
+              <Button
+                type="button"
+                size="sm"
+                onClick={() => setIsEditingResume(false)}
+                className="rounded-full bg-[#3A1F1F] hover:bg-[#241313] text-white text-xs px-4 cursor-pointer"
+              >
+                Done
+              </Button>
+            </div>
+          </div>
+          <div className="overflow-auto p-6" style={{ maxHeight: "70vh" }}>
+            <EditableResumePreview
+              key={editorKey}
+              html={resumeHtmlOverride ?? baseResumeHtml}
+              onChange={setResumeHtmlOverride}
+            />
+          </div>
+        </div>
       )}
 
       {/* Hidden render container */}

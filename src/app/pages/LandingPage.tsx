@@ -20,6 +20,8 @@ import {
   Twitter,
   BadgeCheck,
   Quote,
+  Lock,
+  Sparkles,
 } from "lucide-react";
 import { Button } from "../components/ui/button";
 import { Input } from "../components/ui/input";
@@ -52,6 +54,7 @@ import JobShareButton from "../components/JobShareButton";
 import PublicFooter from "../components/PublicFooter";
 
 import { PLANS, calculateGst } from "../../lib/plans";
+import { JOBSEEKER_PLAN, getJobseekerPlanPrice } from "../../lib/jobseekerPlan";
 import { supabase, PREDEFINED_SEED_TITLES, type Job as DBJob, type RecruiterArticle, type Blog } from "../../lib/supabase";
 import { formatJobSalary, isJobVisibleToSeekers } from "../../lib/jobs";
 import { getRecommendedJobs, recordJobInteraction } from "../../lib/jobRecommendations";
@@ -1165,73 +1168,137 @@ export default function LandingPage() {
         <div className="container mx-auto px-4">
           <div className="text-center mb-12">
             <span className="inline-block bg-[#FF2B2B] text-white px-4 py-1 rounded-full text-sm mb-4">
-              RECRUITMENT
+              FOR RECRUITERS
             </span>
             <h2 className="text-4xl md:text-5xl font-bold text-[#3A1F1F] mb-4">
               Find the Perfect Plan to Hire Smarter
             </h2>
           </div>
 
-          <div className="grid md:grid-cols-3 gap-8 max-w-6xl mx-auto">
-            {pricingPlans.map((plan, index) => {
-              const isSelected = selectedPlan === plan.name;
-              return (
-                <div
-                  key={index}
-                  onClick={() => setSelectedPlan(plan.name)}
-                  // Same equal-height treatment as the dashboard cards.
-                  className={`bg-white rounded-2xl p-8 shadow-md hover:shadow-2xl transition-all duration-300 cursor-pointer border-2 flex flex-col h-full ${isSelected
-                    ? "border-[#FF2B2B] scale-105"
-                    : "border-gray-200 hover:border-[#FF2B2B]/60 hover:-translate-y-1"
-                    }`}
-                >
-                  <div className="flex items-center justify-between mb-2">
-                    <h3 className="text-2xl font-bold text-[#3A1F1F] flex items-center gap-2">
-                      {plan.name}
-                      {isSelected && <BadgeCheck className="h-6 w-6 text-[#FF2B2B]" />}
-                    </h3>
-                    {plan.popular && (
-                      <span className="bg-[#FF2B2B] text-white text-xs px-3 py-1 rounded-full font-semibold">
-                        Popular
-                      </span>
-                    )}
-                  </div>
-                  <div className="mb-6">
-                    <span className="text-5xl font-bold text-[#3A1F1F]">
-                      ₹{plan.price}
-                    </span>
-                    <span className="text-[#8A8A8A]">
-                      /{plan.period}
-                    </span>
-                    <p className="mt-1 text-xs text-[#8A8A8A]">
-                      + GST ₹{calculateGst(plan.price)}
-                    </p>
-                  </div>
-                  <Button
-                    onClick={(e) => {
-                      e.stopPropagation();
-                      handlePurchasePlan(plan.name);
-                    }}
-                    className="w-full rounded-full py-6 mb-6 bg-[#FF2B2B] hover:bg-[#e02525] text-white"
+          {/* Recruiter plans are being revised — shown for context only, not
+              purchasable from the homepage right now. Blurred with a
+              hover reveal rather than removed, so the section isn't just
+              missing. */}
+          <div className="group relative max-w-6xl mx-auto">
+            <div className="grid md:grid-cols-3 gap-8 blur-[3px] grayscale-[0.3] opacity-60 pointer-events-none select-none transition-all duration-300 group-hover:blur-[4px]">
+              {pricingPlans.map((plan, index) => {
+                const isSelected = selectedPlan === plan.name;
+                return (
+                  <div
+                    key={index}
+                    // Same equal-height treatment as the dashboard cards.
+                    className={`bg-white rounded-2xl p-8 shadow-md border-2 flex flex-col h-full ${isSelected ? "border-[#FF2B2B]" : "border-gray-200"
+                      }`}
                   >
-                    Purchase Plan <ArrowRight className="ml-2 h-5 w-5" />
-                  </Button>
-                  <ul className="space-y-3 flex-1">
-                    {plan.features.map((feature, idx) => (
-                      <li
-                        key={idx}
-                        className="flex items-start gap-3"
-                      >
-                        <BadgeCheck className="h-5 w-5 text-[#FF2B2B] flex-shrink-0 mt-0.5" />
-                        <span className="text-[#8A8A8A]">
-                          {feature}
+                    <div className="flex items-center justify-between mb-2">
+                      <h3 className="text-2xl font-bold text-[#3A1F1F] flex items-center gap-2">
+                        {plan.name}
+                        {isSelected && <BadgeCheck className="h-6 w-6 text-[#FF2B2B]" />}
+                      </h3>
+                      {plan.popular && (
+                        <span className="bg-[#FF2B2B] text-white text-xs px-3 py-1 rounded-full font-semibold">
+                          Popular
                         </span>
-                      </li>
-                    ))}
-                  </ul>
-                </div>
-              );
-            })}
+                      )}
+                    </div>
+                    <div className="mb-6">
+                      <span className="text-5xl font-bold text-[#3A1F1F]">
+                        ₹{plan.price}
+                      </span>
+                      <span className="text-[#8A8A8A]">
+                        /{plan.period}
+                      </span>
+                      <p className="mt-1 text-xs text-[#8A8A8A]">
+                        + GST ₹{calculateGst(plan.price)}
+                      </p>
+                    </div>
+                    <Button
+                      tabIndex={-1}
+                      className="w-full rounded-full py-6 mb-6 bg-[#FF2B2B] text-white"
+                    >
+                      Purchase Plan <ArrowRight className="ml-2 h-5 w-5" />
+                    </Button>
+                    <ul className="space-y-3 flex-1">
+                      {plan.features.map((feature, idx) => (
+                        <li
+                          key={idx}
+                          className="flex items-start gap-3"
+                        >
+                          <BadgeCheck className="h-5 w-5 text-[#FF2B2B] flex-shrink-0 mt-0.5" />
+                          <span className="text-[#8A8A8A]">
+                            {feature}
+                          </span>
+                        </li>
+                      ))}
+                    </ul>
+                  </div>
+                );
+              })}
+            </div>
+
+            {/* Hover reveal */}
+            <div className="absolute inset-0 flex items-center justify-center opacity-0 group-hover:opacity-100 transition-opacity duration-300">
+              <div className="bg-[#3A1F1F] text-white px-6 py-4 rounded-2xl shadow-xl flex items-center gap-3">
+                <Lock className="h-5 w-5 text-[#FF2B2B]" />
+                <span className="font-semibold">Coming on September 2026</span>
+              </div>
+            </div>
+          </div>
+        </div>
+      </section>
+
+      {/* Job Seeker Pricing Section */}
+      <section className="bg-[#F6F6F6] py-16 md:py-24">
+        <div className="container mx-auto px-4">
+          <div className="text-center mb-12">
+            <span className="inline-block bg-[#FF2B2B] text-white px-4 py-1 rounded-full text-sm mb-4">
+              FOR JOB SEEKERS
+            </span>
+            <h2 className="text-4xl md:text-5xl font-bold text-[#3A1F1F] mb-4">
+              Stand Out With RhirePro Premium
+            </h2>
+            <p className="text-lg text-[#8A8A8A] max-w-2xl mx-auto">
+              One plan, everything you need to get noticed and get hired faster.
+            </p>
+          </div>
+
+          <div className="max-w-md mx-auto">
+            <div className="bg-white rounded-2xl p-8 shadow-xl border-2 border-[#FF2B2B] flex flex-col">
+              <div className="flex items-center justify-between mb-2">
+                <h3 className="text-2xl font-bold text-[#3A1F1F] flex items-center gap-2">
+                  <Sparkles className="h-6 w-6 text-[#FF2B2B]" /> {JOBSEEKER_PLAN.name}
+                </h3>
+                {JOBSEEKER_PLAN.launchOfferActive && (
+                  <span className="bg-green-50 text-green-700 text-xs px-3 py-1 rounded-full font-semibold">
+                    Launch Offer · 50% off
+                  </span>
+                )}
+              </div>
+              <div className="mb-6 flex items-baseline gap-2">
+                {JOBSEEKER_PLAN.launchOfferActive && (
+                  <span className="text-xl text-gray-400 line-through">₹{JOBSEEKER_PLAN.basePrice}</span>
+                )}
+                <span className="text-5xl font-bold text-[#3A1F1F]">₹{getJobseekerPlanPrice()}</span>
+                <span className="text-[#8A8A8A]">/ {JOBSEEKER_PLAN.period}</span>
+              </div>
+              <Button
+                onClick={() => navigate(user && role === "jobseeker" ? "/jobseeker/plans" : "/jobseeker/signup")}
+                className="w-full rounded-full py-6 mb-6 bg-[#FF2B2B] hover:bg-[#e02525] text-white"
+              >
+                Upgrade to Premium <ArrowRight className="ml-2 h-5 w-5" />
+              </Button>
+              <ul className="space-y-3">
+                {JOBSEEKER_PLAN.features.map((feature, idx) => (
+                  <li key={idx} className="flex items-start gap-3">
+                    <BadgeCheck className="h-5 w-5 text-[#FF2B2B] flex-shrink-0 mt-0.5" />
+                    <span className="text-[#8A8A8A] text-sm">{feature}</span>
+                  </li>
+                ))}
+              </ul>
+              <p className="text-xs text-[#8A8A8A] text-center mt-6">
+                Valid for 30 days from purchase. Secure payment via Razorpay.
+              </p>
+            </div>
           </div>
         </div>
       </section>

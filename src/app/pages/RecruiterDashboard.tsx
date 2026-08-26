@@ -2905,6 +2905,10 @@ function PostJobPage() {
       setPostError("Please select at least one industry.");
       return;
     }
+    if (formData.locations.length === 0 && !formData.locationInput.trim()) {
+      setPostError("Please add at least one job location.");
+      return;
+    }
     const openingsVal = (formData.openings || "").trim();
     if (!openingsVal || !/^[1-9]\d*$/.test(openingsVal)) {
       setPostError("Number of Openings must be a positive whole number (e.g. 1, 2, 5, 10).");
@@ -3785,6 +3789,10 @@ function ManageJobsPage() {
     }
     if (editForm.industries.length === 0) {
       setEditError("Please select at least one industry.");
+      return;
+    }
+    if (editForm.locations.length === 0 && !editForm.locationInput.trim() && !editForm.location.trim()) {
+      setEditError("Please add at least one job location.");
       return;
     }
     const openingsVal = (editForm.openings || "").trim();

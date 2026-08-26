@@ -4,9 +4,11 @@ import { useLocation, useNavigate } from "react-router";
 import { Button } from "../components/ui/button";
 import { Badge } from "../components/ui/badge";
 import { useAuth } from "../../lib/auth-context";
+import { useJobseekerPlan } from "../../lib/jobseekerPlan";
 import { formatJobDeadline, formatJobSalary, getEffectiveJobStatus } from "../../lib/jobs";
 import { supabase } from "../../lib/supabase";
 import { getSavedJobsForCurrentUser, SavedJobWithJob } from "../services/jobService";
+import PremiumGate from "../components/PremiumGate";
 
 interface ComparePageLocationState {
   fromSavedJobs?: boolean;
@@ -125,6 +127,10 @@ export default function SavedJobsComparePage({ forcedState, embedded = false }: 
   const navigate = useNavigate();
   const location = useLocation();
   const { profile } = useAuth();
+  // Embedded usage (inside the Analytics "Compare" tab) is already gated by
+  // the parent's PremiumGate — only the standalone route needs its own gate,
+  // so a direct/bookmarked URL can't bypass it.
+  const { isPremium, loading: planLoading } = useJobseekerPlan();
 
   const navigationState = (forcedState || location.state || {}) as ComparePageLocationState;
   const storedCompareState = useMemo(readStoredCompareState, []);
@@ -304,7 +310,7 @@ export default function SavedJobsComparePage({ forcedState, embedded = false }: 
     );
   }
 
-  if (loading) {
+  if (loading || (!embedded && planLoading)) {
     return (
       <div className="container mx-auto px-4 py-10">
         <div className="bg-white rounded-2xl p-10 shadow-md text-center">
@@ -312,6 +318,20 @@ export default function SavedJobsComparePage({ forcedState, embedded = false }: 
           <p className="text-sm text-[#8A8A8A]">Loading saved jobs for comparison...</p>
         </div>
       </div>
+    );
+  }
+
+  if (!embedded && !isPremium) {
+    return (
+      <PremiumGate
+        locked
+        title="Compare Jobs is a Premium feature"
+        description="Get better visibility into which opportunities are the strongest fit."
+      >
+        <div className="container mx-auto px-4 py-8">
+          <div className="bg-white rounded-2xl p-10 shadow-md text-center h-64" />
+        </div>
+      </PremiumGate>
     );
   }
 

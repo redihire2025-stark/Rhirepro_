@@ -87,17 +87,31 @@ async function callGemini(apiKey, body) {
         await new Promise((resolve) => setTimeout(resolve, 300 + Math.floor(Math.random() * 200)));
       }
 
+      // A hung fetch (no response, no error — the request just never resolves)
+      // previously ran past Netlify's own function timeout, which kills the
+      // process outright and returns a bodiless 502 instead of the JSON error
+      // this function is built to produce. Bound every attempt so a stuck
+      // upstream call fails fast and the next model/attempt still fits inside
+      // DEADLINE_MS.
+      const remaining = DEADLINE_MS - (Date.now() - startedAt);
+      const controller = new AbortController();
+      const timeout = setTimeout(() => controller.abort(), Math.max(1000, remaining));
+
       let res;
       try {
         res = await fetch(endpointFor(model), {
           method: "POST",
           headers: { "Content-Type": "application/json", "X-goog-api-key": apiKey },
           body: serialized,
+          signal: controller.signal,
         });
       } catch (networkErr) {
-        // DNS / TLS / socket failure — retryable, and must never escape as a throw.
+        // DNS / TLS / socket failure, or our own abort above — retryable, and
+        // must never escape as a throw.
         last = { status: 0, message: `Could not reach the AI service: ${networkErr.message}` };
         continue;
+      } finally {
+        clearTimeout(timeout);
       }
 
       if (res.ok) {
