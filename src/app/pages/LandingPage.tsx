@@ -643,8 +643,7 @@ export default function LandingPage() {
         .select("*")
         .eq("status", "Published")
         .order("published_at", { ascending: false, nullsFirst: false })
-        .order("created_at", { ascending: false })
-        .limit(3);
+        .order("created_at", { ascending: false });
 
       if (isMountedRef.current && data) setPublishedArticles(data as RecruiterArticle[]);
     }
@@ -653,8 +652,6 @@ export default function LandingPage() {
   }, []);
 
   // Blogs live in their own table and are authored in the Super Admin panel.
-  // The section below used to reuse the article cards, which is why the four
-  // recruiter articles kept surfacing under "Blog".
   const [publishedBlogs, setPublishedBlogs] = useState<Pick<Blog, "id" | "title" | "summary" | "content" | "category" | "cover_image_url">[]>([]);
 
   useEffect(() => {
@@ -673,30 +670,19 @@ export default function LandingPage() {
     void loadPublishedBlogs();
   }, []);
 
-  const realPublishedArticles = useMemo(() => {
-    if (!Array.isArray(publishedArticles)) return [];
-    return publishedArticles.filter((article) => {
-      if (!article || article.status !== "Published") return false;
-      const cleanTitle = (article.title ?? "").trim().toLowerCase();
-      return !PREDEFINED_SEED_TITLES.has(cleanTitle);
-    });
-  }, [publishedArticles]);
-
-  const blogFeaturedCards = useMemo(() => {
-    if (realPublishedArticles.length === 0) {
+  const articleFeaturedCards = useMemo(() => {
+    if (!Array.isArray(publishedArticles) || publishedArticles.length === 0) {
       return [];
     }
-    return realPublishedArticles.slice(0, MAX_FEATURED_BLOGS).map((pub) => ({
+    return publishedArticles.slice(0, MAX_FEATURED_BLOGS).map((pub) => ({
       id: pub.id,
       title: pub.title,
       description: pub.summary ?? (pub.content ? pub.content.slice(0, 90) + "..." : ""),
       category: pub.category,
       image: pub.cover_image_url ?? BLOG_FALLBACK_IMAGE,
-      // recruiter_articles rows are Articles, not Blogs — /blog/:id reads the
-      // separate blogs table and would not find them.
       path: `/articles/${pub.id}`,
     }));
-  }, [realPublishedArticles]);
+  }, [publishedArticles]);
 
   const blogCards = useMemo(
     () =>
@@ -1507,7 +1493,7 @@ export default function LandingPage() {
             with the real row id.
           */}
           <div className="grid md:grid-cols-3 gap-8">
-            {blogFeaturedCards.map((card) => (
+            {articleFeaturedCards.map((card) => (
               <div key={card.id} className="bg-white rounded-2xl overflow-hidden shadow-md hover:shadow-lg transition-shadow border border-gray-100 flex flex-col">
                 <ImageWithFallback
                   src={card.image}
@@ -1531,7 +1517,15 @@ export default function LandingPage() {
               </div>
             ))}
           </div>
-          {blogFeaturedCards.length === 0 && (
+          <div className="mt-10 text-center">
+            <Button
+              onClick={() => navigate("/articles")}
+              className="bg-[#FF2B2B] hover:bg-[#e02525] text-white rounded-full px-8 py-6 cursor-pointer"
+            >
+              View All Articles <ArrowRight className="ml-2 h-5 w-5" />
+            </Button>
+          </div>
+          {articleFeaturedCards.length === 0 && (
             <p className="text-center text-[#8A8A8A]">No articles published yet. Check back soon.</p>
           )}
         </div>

@@ -324,24 +324,28 @@ export default function BlogDetailPage({ source = "blogs" }: { source?: "blogs" 
     void loadPublishedArticles();
   }, []);
 
+  const isArticles = source === "articles";
+  const pageLabel = isArticles ? "Article" : "Blog";
+  const pageLabelPlural = isArticles ? "Articles" : "Blogs";
+
   const staticArticle = articles.find(a => a.id === numericArticleId) || articles[0];
   const contentParagraphs = databaseArticle?.content
     .split(/\n{2,}/)
     .map(paragraph => paragraph.trim())
     .filter(Boolean) || [];
-  const fallbackKeyTakeaway = contentParagraphs[contentParagraphs.length - 1] || databaseArticle?.summary || "Thanks for reading this recruiter insight.";
+  const fallbackKeyTakeaway = contentParagraphs[contentParagraphs.length - 1] || databaseArticle?.summary || `Thanks for reading this ${pageLabel.toLowerCase()} insight.`;
   const article = databaseArticle ? {
     id: 0,
     title: databaseArticle.title,
     category: databaseArticle.category,
     date: formatArticleDate(databaseArticle),
-    author: "RhirePro Recruiter",
+    author: (databaseArticle as any)?.author_name || (isArticles ? "RhirePro Recruiter" : "RhirePro Editorial"),
     readTime: `${databaseArticle.read_time} min read`,
     intro: databaseArticle.summary || contentParagraphs[0] || databaseArticle.content,
     coverUrl: databaseArticle.cover_image_url,
     tags: Array.isArray(databaseArticle.tags) ? databaseArticle.tags : [],
     sections: (contentParagraphs.length > 1 ? contentParagraphs.slice(1) : contentParagraphs).map((paragraph, index) => ({
-      heading: index === 0 ? "Article" : `Insight ${index + 1}`,
+      heading: index === 0 ? pageLabel : `Insight ${index + 1}`,
       content: paragraph,
     })),
     conclusion: databaseArticle.key_takeaway || fallbackKeyTakeaway,
@@ -394,22 +398,23 @@ export default function BlogDetailPage({ source = "blogs" }: { source?: "blogs" 
     },
     [article.category, publishedArticles]
   );
+
   const currentDatabaseArticleIndex = databaseArticle
     ? publishedArticles.findIndex(link => link.id === databaseArticle.id)
     : -1;
   const previousArticlePath = databaseArticle
     ? currentDatabaseArticleIndex > 0
-      ? `/blog/${publishedArticles[currentDatabaseArticleIndex - 1].id}`
+      ? `${listBase}/${publishedArticles[currentDatabaseArticleIndex - 1].id}`
       : null
     : article.id > 1
-      ? `/blog/${article.id - 1}`
+      ? `${listBase}/${article.id - 1}`
       : null;
   const nextArticlePath = databaseArticle
     ? currentDatabaseArticleIndex >= 0 && currentDatabaseArticleIndex < publishedArticles.length - 1
-      ? `/blog/${publishedArticles[currentDatabaseArticleIndex + 1].id}`
+      ? `${listBase}/${publishedArticles[currentDatabaseArticleIndex + 1].id}`
       : null
     : article.id < articles.length
-      ? `/blog/${article.id + 1}`
+      ? `${listBase}/${article.id + 1}`
       : null;
 
   if (articleLoading) {
@@ -447,7 +452,7 @@ export default function BlogDetailPage({ source = "blogs" }: { source?: "blogs" 
               onClick={() => navigate(listBase)}
               className="bg-[#FF2B2B] hover:bg-[#e02525] text-white rounded-full px-6"
             >
-              Blog
+              {pageLabelPlural}
             </Button>
             <button onClick={() => navigate('/')} className="text-[#3A1F1F] hover:text-[#FF2B2B] transition-colors">
               Contact Us
@@ -472,7 +477,7 @@ export default function BlogDetailPage({ source = "blogs" }: { source?: "blogs" 
                 {[
                   { label: "Home", path: "/" },
                   { label: "Jobs", path: "/jobs" },
-                  { label: "Blog", path: "/blog" },
+                  { label: pageLabelPlural, path: listBase },
                   { label: "Sign In", path: "/signin" },
                 ].map(({ label, path }) => (
                   <button
@@ -495,7 +500,7 @@ export default function BlogDetailPage({ source = "blogs" }: { source?: "blogs" 
           <div className="flex items-center gap-2 text-sm text-[#8A8A8A] mb-6">
             <a href="/" className="hover:text-[#FF2B2B]">Home</a>
             <ChevronRight className="h-4 w-4" />
-            <a href="/blog" className="hover:text-[#FF2B2B]">Blog</a>
+            <a href={listBase} className="hover:text-[#FF2B2B]">{pageLabelPlural}</a>
             <ChevronRight className="h-4 w-4" />
             <span className="text-[#FF2B2B] border border-[#FF2B2B] px-3 py-1 rounded-full">
               {article.category}
@@ -574,7 +579,7 @@ export default function BlogDetailPage({ source = "blogs" }: { source?: "blogs" 
                 <p className="leading-relaxed text-white/90">{article.conclusion}</p>
               </div>
 
-              {/* Navigation between articles */}
+              {/* Navigation between articles/blogs */}
               <div className="bg-white rounded-2xl p-6 shadow-md flex justify-between items-center gap-4">
                 <Button
                   onClick={() => previousArticlePath && navigate(previousArticlePath)}
@@ -582,21 +587,21 @@ export default function BlogDetailPage({ source = "blogs" }: { source?: "blogs" 
                   variant="outline"
                   className="border-2 border-[#FF2B2B] text-[#FF2B2B] hover:bg-[#FF2B2B] hover:text-white rounded-full px-6 disabled:opacity-40"
                 >
-                  ← Previous Article
+                  ← Previous {pageLabel}
                 </Button>
                 <Button
                   onClick={() => navigate(listBase)}
                   variant="outline"
                   className="border-2 border-gray-300 text-[#3A1F1F] hover:bg-gray-100 rounded-full px-6"
                 >
-                  All Articles
+                  All {pageLabelPlural}
                 </Button>
                 <Button
                   onClick={() => nextArticlePath && navigate(nextArticlePath)}
                   disabled={!nextArticlePath}
                   className="bg-[#FF2B2B] hover:bg-[#e02525] text-white rounded-full px-6 disabled:opacity-40"
                 >
-                  Next Article →
+                  Next {pageLabel} →
                 </Button>
               </div>
             </div>
@@ -620,9 +625,9 @@ export default function BlogDetailPage({ source = "blogs" }: { source?: "blogs" 
                 </p>
               </div>
 
-              {/* Other Articles */}
+              {/* Other Articles / Blogs */}
               <div className="bg-white rounded-2xl p-6 shadow-md">
-                <h3 className="text-lg font-bold text-[#3A1F1F] mb-4">More Articles</h3>
+                <h3 className="text-lg font-bold text-[#3A1F1F] mb-4">More {pageLabelPlural}</h3>
                 <div className="space-y-4">
                   {moreArticles.length > 0 ? moreArticles.map(a => (
                     <div
@@ -645,7 +650,7 @@ export default function BlogDetailPage({ source = "blogs" }: { source?: "blogs" 
                     </div>
                   )) : (
                     <p className="text-sm text-[#8A8A8A] p-3">
-                      No more articles available yet.
+                      No more {pageLabelPlural.toLowerCase()} available yet.
                     </p>
                   )}
                 </div>
@@ -654,7 +659,7 @@ export default function BlogDetailPage({ source = "blogs" }: { source?: "blogs" 
                   variant="outline"
                   className="w-full mt-4 border-2 border-[#FF2B2B] text-[#FF2B2B] hover:bg-[#FF2B2B] hover:text-white rounded-full"
                 >
-                  View All Articles
+                  View All {pageLabelPlural}
                 </Button>
               </div>
 

@@ -4,6 +4,7 @@ import { supabase, Profile, Application } from "../../lib/supabase";
 import { decryptPhone } from "../../lib/phoneProtection";
 import { useAuth, SAFE_PROFILE_COLUMNS } from "../../lib/auth-context";
 import { formatActiveTime, parseActiveDate } from "../../lib/activeTime";
+import { formatMonthYear, formatYearMonthString } from "../../lib/monthYear";
 import {
   User, MapPin, Phone, Mail, Globe, Star, Briefcase, GraduationCap,
   Award, FileText, Download, Loader2, ArrowLeft, ShieldAlert,
@@ -88,7 +89,9 @@ interface Education {
   degree: string;
   field: string;
   college: string;
+  startMonth: string;
   startYear: string;
+  endMonth: string;
   endYear: string;
   score: string;
 }
@@ -97,7 +100,9 @@ interface Project {
   id: number;
   name: string;
   url: string;
+  startMonth: string;
   startYear: string;
+  endMonth: string;
   endYear: string;
   description: string;
 }
@@ -319,8 +324,8 @@ export default function ApplicantProfilePage() {
       if (eduRes.data) {
         mappedEdu = eduRes.data.map(e => ({
           id: e.id, degree: e.degree, field: e.field || "",
-          college: e.institution, startYear: e.start_year || "",
-          endYear: e.end_year || "", score: e.score || "",
+          college: e.institution, startMonth: e.start_month || "", startYear: e.start_year || "",
+          endMonth: e.end_month || "", endYear: e.end_year || "", score: e.score || "",
         }));
         setEducation(mappedEdu);
       }
@@ -329,7 +334,8 @@ export default function ApplicantProfilePage() {
       if (projRes.data) {
         mappedProj = projRes.data.map(p => ({
           id: p.id, name: p.name, url: p.url || "",
-          startYear: p.start_year || "", endYear: p.end_year || "", description: p.description || "",
+          startMonth: p.start_month || "", startYear: p.start_year || "",
+          endMonth: p.end_month || "", endYear: p.end_year || "", description: p.description || "",
         }));
         setProjects(mappedProj);
       }
@@ -859,7 +865,7 @@ export default function ApplicantProfilePage() {
                       <h4 className="font-semibold text-[#3A1F1F] text-base">{edu.degree}{edu.field ? ` in ${edu.field}` : ""}</h4>
                       <p className="text-[#8A8A8A] text-sm">{edu.college}</p>
                       <p className="text-[#8A8A8A] text-xs mt-0.5">
-                        {edu.startYear} – {edu.endYear}{edu.score ? ` • Score: ${edu.score}` : ""}
+                        {formatMonthYear(edu.startMonth, edu.startYear)} – {formatMonthYear(edu.endMonth, edu.endYear)}{edu.score ? ` • Score: ${edu.score}` : ""}
                       </p>
                     </div>
                   ))
@@ -882,7 +888,7 @@ export default function ApplicantProfilePage() {
                           {proj.url}
                         </a>
                       )}
-                      <p className="text-[#8A8A8A] text-xs mt-0.5">{proj.startYear} – {proj.endYear}</p>
+                      <p className="text-[#8A8A8A] text-xs mt-0.5">{formatMonthYear(proj.startMonth, proj.startYear)} – {formatMonthYear(proj.endMonth, proj.endYear)}</p>
                       {proj.description && <p className="text-[#8A8A8A] text-sm mt-2 leading-relaxed whitespace-pre-wrap">{proj.description}</p>}
                     </div>
                   ))
@@ -902,7 +908,7 @@ export default function ApplicantProfilePage() {
                       <h4 className="font-semibold text-[#3A1F1F] text-base">{cert.name}</h4>
                       {cert.issuer && <p className="text-[#8A8A8A] text-sm">{cert.issuer}</p>}
                       <p className="text-[#8A8A8A] text-xs mt-0.5">
-                        {cert.issueDate && `Issued: ${cert.issueDate}`}
+                        {cert.issueDate && `Issued: ${formatYearMonthString(cert.issueDate)}`}
                         {cert.credentialId && ` • Credential ID: ${cert.credentialId}`}
                       </p>
                     </div>

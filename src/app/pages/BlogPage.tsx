@@ -106,11 +106,7 @@ export default function BlogPage({ source = "blogs" }: { source?: "blogs" | "art
 
   const realBlogs = useMemo<BlogPageItem[]>(() => {
     return publishedArticles
-      .filter((article) => {
-        if (article.status !== "Published") return false;
-        const cleanTitle = (article.title || "").trim().toLowerCase();
-        return !PREDEFINED_SEED_TITLES.has(cleanTitle);
-      })
+      .filter((article) => article.status === "Published")
       .map((article) => ({
         id: article.id,
         title: article.title,
@@ -129,6 +125,10 @@ export default function BlogPage({ source = "blogs" }: { source?: "blogs" | "art
     () => Array.from(new Set(realBlogs.map((article) => article.category).filter(Boolean))),
     [realBlogs]
   );
+
+  const isArticles = source === "articles";
+  const pageLabel = isArticles ? "Articles" : "Blogs";
+  const pageLabelSingular = isArticles ? "Article" : "Blog";
 
   return (
     <div className="min-h-screen bg-[#F6F6F6]">
@@ -153,8 +153,11 @@ export default function BlogPage({ source = "blogs" }: { source?: "blogs" | "art
             <button onClick={() => navigate('/')} className="text-[#3A1F1F] hover:text-[#FF2B2B] transition-colors">
               About Us
             </button>
-            <button className="text-[#3A1F1F] hover:text-[#FF2B2B] transition-colors">
-              Pages
+            <button onClick={() => navigate('/jobs')} className="text-[#3A1F1F] hover:text-[#FF2B2B] transition-colors">
+              Jobs
+            </button>
+            <button onClick={() => navigate(isArticles ? "/blog" : "/articles")} className="text-[#3A1F1F] hover:text-[#FF2B2B] transition-colors">
+              {isArticles ? "Blogs" : "Articles"}
             </button>
             <button onClick={() => navigate('/')} className="text-[#3A1F1F] hover:text-[#FF2B2B] transition-colors">
               Contact Us
@@ -202,14 +205,16 @@ export default function BlogPage({ source = "blogs" }: { source?: "blogs" | "art
                 <a href="/" className="hover:text-[#FF2B2B]">Home</a>
                 <ChevronRight className="h-4 w-4" />
                 <span className="text-[#FF2B2B] border border-[#FF2B2B] px-3 py-1 rounded-full">
-                  Blogs
+                  {pageLabel}
                 </span>
               </div>
               <h1 className="text-4xl md:text-5xl font-bold text-[#3A1F1F] mb-4">
-                Stay Updated with the Latest Trends
+                Stay Updated with {pageLabel} & Insights
               </h1>
               <p className="text-[#8A8A8A] max-w-lg">
-                Blog updates with industry news, educational trends, and company updates. Insights that keep you informed.
+                {isArticles
+                  ? "Explore recruiter-authored articles with practical career advice, hiring tips, and workplace insights."
+                  : "Blog updates with industry news, educational trends, and company updates. Insights that keep you informed."}
               </p>
             </div>
             <div className="flex gap-4 items-center">
@@ -228,18 +233,20 @@ export default function BlogPage({ source = "blogs" }: { source?: "blogs" | "art
         </div>
       </section>
 
-      {/* Blog Grid Section */}
+      {/* Grid Section */}
       <section className="bg-white py-16 md:py-24">
         <div className="container mx-auto px-4">
           <div className="text-center mb-12">
             <span className="inline-block bg-[#FF2B2B] text-white px-4 py-1 rounded-full text-sm mb-4">
-              {selectedCategory ? selectedCategory : "LATEST BLOGS"}
+              {selectedCategory ? selectedCategory : `LATEST ${pageLabel.toUpperCase()}`}
             </span>
             <h2 className="text-4xl md:text-5xl font-bold text-[#3A1F1F] mb-4">
-              {selectedCategory ? `Blogs in ${selectedCategory}` : "Explore Our Latest Blogs"}
+              {selectedCategory ? `${pageLabel} in ${selectedCategory}` : `Explore Our Latest ${pageLabel}`}
             </h2>
             <p className="text-lg text-[#8A8A8A] max-w-3xl mx-auto">
-              Browse curated guides, tips, and insights published by our partner organizations.
+              {isArticles
+                ? "Browse recruiter-authored articles and career advice to advance your hiring or job search."
+                : "Browse curated guides, tips, and insights published by our partner organizations."}
             </p>
           </div>
           
@@ -279,9 +286,9 @@ export default function BlogPage({ source = "blogs" }: { source?: "blogs" | "art
           ) : (
             <div className="bg-[#ECECF4] rounded-2xl p-10 text-center">
               <BookOpen className="h-10 w-10 text-[#FF2B2B] mx-auto mb-3" />
-              <h3 className="text-xl font-bold text-[#3A1F1F] mb-2">No blogs available</h3>
+              <h3 className="text-xl font-bold text-[#3A1F1F] mb-2">No {pageLabel.toLowerCase()} available</h3>
               <p className="text-[#8A8A8A]">
-                {selectedCategory ? `No blogs published under "${selectedCategory}" category yet.` : "No blogs have been published by organization admins yet."}
+                {selectedCategory ? `No ${pageLabel.toLowerCase()} published under "${selectedCategory}" category yet.` : `No ${pageLabel.toLowerCase()} have been published yet.`}
               </p>
             </div>
           )}

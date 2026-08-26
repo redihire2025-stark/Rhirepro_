@@ -1,5 +1,5 @@
 import { useState, useMemo, useEffect, useCallback, useRef, type MouseEvent as ReactMouseEvent } from "react";
-import { useNavigate, Routes, Route, Link, useLocation } from "react-router";
+import { useNavigate, Routes, Route, Link, useLocation, useBlocker, type BlockerFunction } from "react-router";
 import { supabase, Job as DBJob, Notification } from "../../lib/supabase";
 import { getSearchApiUrl } from "../../lib/searchApi";
 import {
@@ -34,6 +34,8 @@ import { Button } from "../components/ui/button";
 import { Input } from "../components/ui/input";
 import { Popover, PopoverContent, PopoverTrigger } from "../components/ui/popover";
 import { Calendar } from "../components/ui/calendar";
+import { MonthYearPicker } from "../components/ui/month-year-picker";
+import { formatMonthYear, formatYearMonthString, parseYearMonthString, toYearMonthString } from "../../lib/monthYear";
 
 import {
   Pagination,
@@ -90,11 +92,12 @@ interface WorkExp {
 }
 interface Education {
   id: string; degree: string; field: string; college: string;
-  startYear: string; endYear: string; score: string;
+  startMonth: string; startYear: string; endMonth: string; endYear: string; score: string;
 }
 type EducationForm = Omit<Education, "id"> & { customField?: string };
 interface Project {
-  id: number | string; name: string; url: string; startYear: string; endYear: string; description: string;
+  id: number | string; name: string; url: string;
+  startMonth: string; startYear: string; endMonth: string; endYear: string; description: string;
 }
 interface Certification {
   id: number | string; name: string; issuer: string; issueDate: string; expiryDate: string; noExpiry: boolean; credentialId: string;
@@ -415,7 +418,18 @@ function isRecommendedJobForProfile(job: DBJob, recommendationTerms: string[]): 
 }
 
 const MONTHS = ["Jan", "Feb", "Mar", "Apr", "May", "Jun", "Jul", "Aug", "Sep", "Oct", "Nov", "Dec"];
-const YEARS = Array.from({ length: 17 }, (_, i) => String(2010 + i));
+// 60 years back covers essentially any real work/education start date; 10 years
+// forward covers certification expiry dates and near-future graduation years.
+const CURRENT_YEAR = new Date().getFullYear();
+const YEARS = Array.from({ length: 71 }, (_, i) => String(CURRENT_YEAR - 60 + i));
+// Bound passed to MonthYearPicker fields that can't be in the future — a job
+// can't start next month, a degree can't have finished next year, etc. Only
+// certification expiry is legitimately forward-looking, so it skips this.
+const TODAY_MONTH_YEAR = { month: MONTHS[new Date().getMonth()], year: String(CURRENT_YEAR) };
+// Sortable index for a Month/Year pair so start/end ranges can be compared.
+function monthYearIndex(month: string, year: string) {
+  return Number(year) * 12 + MONTHS.indexOf(month);
+}
 const JOBS_PER_PAGE = 12;
 type EducationCatalog = Record<string, string[]>;
 
@@ -1091,7 +1105,8 @@ export default function JobSeekerDashboard() {
 
     setNotificationsOpen(false);
     fetchNotifications();
-    navigate(getJobSeekerNotificationPath(notification));
+    const to = getJobSeekerNotificationPath(notification);
+    if (!warnUnsavedProfileChanges(to)) navigate(to);
   }, [fetchNotifications, getJobSeekerNotificationPath, navigate, profile?.id]);
 
   const handleClearAllNotifications = useCallback(async (e: React.MouseEvent) => {
@@ -1148,19 +1163,64 @@ export default function JobSeekerDashboard() {
    * it now covers every open editor and points the user at the Save button
    * rather than asking them to make the call in a bare browser dialog.
    */
-  const handleDashboardLinkClick = (event: ReactMouseEvent<HTMLAnchorElement>, to: string) => {
-    if (activeTab === "profile" && profilePrefsHasUnsavedChanges && to !== "/jobseeker/dashboard/profile") {
-      event.preventDefault();
+  const shouldWarnLeavingProfile = (to: string) =>
+    activeTab === "profile" && profilePrefsHasUnsavedChanges && to !== "/jobseeker/dashboard/profile";
+
+  /*
+   * Shared by every way of leaving the profile tab that we can catch before
+   * the navigation actually fires — sidebar links (via handleDashboardLinkClick,
+   * which owns preventDefault for the <Link>), the logo click, and notification
+   * clicks (which navigate themselves, so they just check the return value).
+   * Returns true when it intercepted the navigation.
+   */
+  const warnUnsavedProfileChanges = (to: string) => {
+    if (shouldWarnLeavingProfile(to)) {
       toast.warning("Your profile changes aren't saved", {
-        description: "Scroll to the bottom of the profile page and press Save, or leave without saving.",
+        description: "Save or cancel the open section on the profile page, or leave without saving.",
         duration: 8000,
         action: {
           label: "Leave anyway",
           onClick: () => navigate(to),
         },
       });
+      return true;
+    }
+    return false;
+  };
+
+  const handleDashboardLinkClick = (event: ReactMouseEvent<HTMLAnchorElement>, to: string) => {
+    if (warnUnsavedProfileChanges(to)) {
+      event.preventDefault();
     }
   };
+
+  /*
+   * Browser back/forward (and anything else that moves the router without
+   * going through one of the click handlers above, e.g. a swipe-back gesture)
+   * doesn't fire those handlers at all — react-router's data router has to
+   * intercept it directly via useBlocker instead.
+   */
+  const profileNavBlocker = useBlocker(
+    useCallback<BlockerFunction>(
+      ({ nextLocation }) => shouldWarnLeavingProfile(nextLocation.pathname),
+      [activeTab, profilePrefsHasUnsavedChanges],
+    ),
+  );
+
+  useEffect(() => {
+    if (profileNavBlocker.state !== "blocked") return;
+    const { proceed, reset } = profileNavBlocker;
+    toast.warning("Your profile changes aren't saved", {
+      description: "Save or cancel the open section on the profile page, or leave without saving.",
+      duration: 8000,
+      action: {
+        label: "Leave anyway",
+        onClick: () => proceed(),
+      },
+      onDismiss: () => reset(),
+      onAutoClose: () => reset(),
+    });
+  }, [profileNavBlocker.state]);
 
   const googleMeta = user?.user_metadata || {};
   const googleFullName = googleMeta.full_name || googleMeta.name || "";
@@ -1219,7 +1279,10 @@ export default function JobSeekerDashboard() {
               page rather than centred in whatever space is left over. */}
           <div className="flex items-center gap-4">
             <div className="flex-1 flex justify-start">
-              <div className="flex items-center gap-3 cursor-pointer" onClick={() => navigate("/jobseeker/dashboard")}>
+              <div className="flex items-center gap-3 cursor-pointer" onClick={() => {
+                const to = "/jobseeker/dashboard";
+                if (!warnUnsavedProfileChanges(to)) navigate(to);
+              }}>
                 <img src={logoImage} alt="RhirePro Logo" className="w-10 h-10" />
                 <div className="text-2xl font-bold text-[#3A1F1F]">Rhire<span className="text-[#FF2B2B]">Pro</span></div>
               </div>
@@ -3354,6 +3417,7 @@ function ProfilePage({ onPendingPrefsChange }: { onPendingPrefsChange?: (pending
   const [showAddExp, setShowAddExp] = useState(false);
   const [editingExpId, setEditingExpId] = useState<string | null>(null);
   const [expForm, setExpForm] = useState<Omit<WorkExp, "id">>(emptyExp);
+  const [savingExp, setSavingExp] = useState(false);
   /*
    * A fresher has nothing to add here, and an empty list read as an unfinished
    * profile rather than a deliberate "no experience yet". The flag persists to
@@ -3365,11 +3429,12 @@ function ProfilePage({ onPendingPrefsChange }: { onPendingPrefsChange?: (pending
   const isFresher = experienceType === "fresher";
 
   // Education
-  const emptyEdu: EducationForm = { degree: "", field: "", college: "", startYear: "2016", endYear: "2020", score: "", customField: "" };
+  const emptyEdu: EducationForm = { degree: "", field: "", college: "", startMonth: "Jan", startYear: "2016", endMonth: "Jan", endYear: "2020", score: "", customField: "" };
   const [education, setEducation] = useState<Education[]>([]);
   const [showAddEdu, setShowAddEdu] = useState(false);
   const [editingEduId, setEditingEduId] = useState<string | null>(null);
   const [eduForm, setEduForm] = useState<EducationForm>(emptyEdu);
+  const [savingEdu, setSavingEdu] = useState(false);
   const [educationDegreeOptions, setEducationDegreeOptions] = useState(DEFAULT_EDUCATION_DEGREE_OPTIONS);
   const [educationSpecializationOptions, setEducationSpecializationOptions] = useState<EducationCatalog>(DEFAULT_EDUCATION_SPECIALIZATION_OPTIONS);
 
@@ -3434,8 +3499,8 @@ function ProfilePage({ onPendingPrefsChange }: { onPendingPrefsChange?: (pending
       } else if (educationData && educationData.length > 0) {
         setEducation(educationData.map(e => ({
           id: e.id, degree: e.degree, field: e.field || "",
-          college: e.institution, startYear: e.start_year || "",
-          endYear: e.end_year || "", score: e.score || "",
+          college: e.institution, startMonth: e.start_month || "", startYear: e.start_year || "",
+          endMonth: e.end_month || "", endYear: e.end_year || "", score: e.score || "",
         })));
       }
 
@@ -3450,7 +3515,8 @@ function ProfilePage({ onPendingPrefsChange }: { onPendingPrefsChange?: (pending
       } else if (projectsData && projectsData.length > 0) {
         setProjects(projectsData.map(p => ({
           id: p.id, name: p.name, url: p.url || "",
-          startYear: p.start_year || "", endYear: p.end_year || "", description: p.description || "",
+          startMonth: p.start_month || "", startYear: p.start_year || "",
+          endMonth: p.end_month || "", endYear: p.end_year || "", description: p.description || "",
         })));
       }
 
@@ -3477,11 +3543,12 @@ function ProfilePage({ onPendingPrefsChange }: { onPendingPrefsChange?: (pending
   }, [profile?.id]);
 
   // Projects
-  const emptyProj = { name: "", url: "", startYear: "2023", endYear: "2024", description: "" };
+  const emptyProj = { name: "", url: "", startMonth: "Jan", startYear: "2023", endMonth: "Jan", endYear: "2024", description: "" };
   const [projects, setProjects] = useState<Project[]>([]);
   const [showAddProj, setShowAddProj] = useState(false);
   const [editingProjId, setEditingProjId] = useState<number | string | null>(null);
   const [projForm, setProjForm] = useState<Omit<Project,"id">>(emptyProj);
+  const [savingProj, setSavingProj] = useState(false);
 
   // Certifications
   const emptyCert = { name: "", issuer: "", issueDate: "", expiryDate: "", noExpiry: false, credentialId: "" };
@@ -3489,6 +3556,7 @@ function ProfilePage({ onPendingPrefsChange }: { onPendingPrefsChange?: (pending
   const [showAddCert, setShowAddCert] = useState(false);
   const [editingCertId, setEditingCertId] = useState<number | string | null>(null);
   const [certForm, setCertForm] = useState<Omit<Certification,"id">>(emptyCert);
+  const [savingCert, setSavingCert] = useState(false);
 
   // Languages
   const [languages, setLanguages] = useState<Language[]>([]);
@@ -3544,6 +3612,18 @@ function ProfilePage({ onPendingPrefsChange }: { onPendingPrefsChange?: (pending
   const hasUnsavedSections = openSections.length > 0;
   const [savingAll, setSavingAll] = useState(false);
 
+  /*
+   * These sections save themselves inline (their own Save/Add button), so they
+   * aren't part of openSections/saveAllSections above — but an open add/edit
+   * form here is just as easy to lose on navigation, so it still needs to warn.
+   */
+  const hasUnsavedListSections =
+    showAddExp || editingExpId !== null ||
+    showAddEdu || editingEduId !== null ||
+    showAddProj || editingProjId !== null ||
+    showAddCert || editingCertId !== null ||
+    showAddLang;
+
   async function saveAllSections() {
     setSavingAll(true);
     const failed: string[] = [];
@@ -3569,14 +3649,14 @@ function ProfilePage({ onPendingPrefsChange }: { onPendingPrefsChange?: (pending
   // Closing the tab or reloading is the browser's to warn about; it will not
   // show custom text, but it does stop an accidental navigation.
   useEffect(() => {
-    if (!hasUnsavedSections) return;
+    if (!hasUnsavedSections && !hasUnsavedListSections) return;
     const warn = (e: BeforeUnloadEvent) => {
       e.preventDefault();
       e.returnValue = "";
     };
     window.addEventListener("beforeunload", warn);
     return () => window.removeEventListener("beforeunload", warn);
-  }, [hasUnsavedSections]);
+  }, [hasUnsavedSections, hasUnsavedListSections]);
 
 
   const isPrefsDirty = useMemo(
@@ -3589,8 +3669,8 @@ function ProfilePage({ onPendingPrefsChange }: { onPendingPrefsChange?: (pending
   // just as easy to lose.
   useEffect(() => {
     if (!profile?.id) return;
-    onPendingPrefsChange?.((editingPrefs && isPrefsDirty) || editingBasic || editingSummary);
-  }, [editingPrefs, isPrefsDirty, editingBasic, editingSummary, onPendingPrefsChange, profile?.id]);
+    onPendingPrefsChange?.((editingPrefs && isPrefsDirty) || editingBasic || editingSummary || hasUnsavedListSections);
+  }, [editingPrefs, isPrefsDirty, editingBasic, editingSummary, hasUnsavedListSections, onPendingPrefsChange, profile?.id]);
 
   useEffect(() => {
     if (!profile?.id || !editingPrefs) return;
@@ -3859,41 +3939,53 @@ function ProfilePage({ onPendingPrefsChange }: { onPendingPrefsChange?: (pending
 
   async function saveExp() {
     if (!expForm.title || !expForm.company) return;
-    const startDate = `${expForm.startMonth} ${expForm.startYear}`;
-    const endDate = expForm.current ? null : `${expForm.endMonth} ${expForm.endYear}`;
-    if (editingExpId !== null) {
-      setExperiences(prev => prev.map(e => e.id === editingExpId ? { ...expForm, id: e.id } : e));
-      setEditingExpId(null);
-      if (profile?.id) {
-        const { error } = await supabase.from("work_experience").update({
-          company: expForm.company, title: expForm.title, location: expForm.location,
-          start_date: startDate, end_date: endDate,
-          is_current: expForm.current, description: expForm.description,
-        }).eq("id", editingExpId).eq("profile_id", profile.id);
-        if (error) {
-          console.error("Experience update error:", error.message);
-          alert("Failed to save experience. Please try again.");
-        }
-      }
-    } else {
-      let newId = String(Date.now());
-      if (profile?.id) {
-        const { data, error } = await supabase.from("work_experience").insert({
-          profile_id: profile.id, company: expForm.company, title: expForm.title,
-          location: expForm.location, start_date: startDate, end_date: endDate,
-          is_current: expForm.current, description: expForm.description,
-        }).select("id").single();
-        if (error) {
-          console.error("Experience insert error:", error.message);
-          alert("Failed to save experience. Please try again.");
-          return;
-        }
-        if (data?.id) newId = data.id;
-      }
-      setExperiences(prev => [...prev, { ...expForm, id: newId }]);
-      setShowAddExp(false);
+    if (savingExp) return;
+    if (!expForm.current && monthYearIndex(expForm.startMonth, expForm.startYear) > monthYearIndex(expForm.endMonth, expForm.endYear)) {
+      toast.error("Invalid dates", { description: "Start date must be before the end date." });
+      return;
     }
-    setExpForm(emptyExp);
+    setSavingExp(true);
+    try {
+      const startDate = `${expForm.startMonth} ${expForm.startYear}`;
+      const endDate = expForm.current ? null : `${expForm.endMonth} ${expForm.endYear}`;
+      if (editingExpId !== null) {
+        setExperiences(prev => prev.map(e => e.id === editingExpId ? { ...expForm, id: e.id } : e));
+        setEditingExpId(null);
+        if (profile?.id) {
+          const { error } = await supabase.from("work_experience").update({
+            company: expForm.company, title: expForm.title, location: expForm.location,
+            start_date: startDate, end_date: endDate,
+            is_current: expForm.current, description: expForm.description,
+          }).eq("id", editingExpId).eq("profile_id", profile.id);
+          if (error) {
+            console.error("Experience update error:", error.message);
+            toast.error("Failed to save experience", { description: "Please try again." });
+            return;
+          }
+        }
+      } else {
+        let newId = String(Date.now());
+        if (profile?.id) {
+          const { data, error } = await supabase.from("work_experience").insert({
+            profile_id: profile.id, company: expForm.company, title: expForm.title,
+            location: expForm.location, start_date: startDate, end_date: endDate,
+            is_current: expForm.current, description: expForm.description,
+          }).select("id").single();
+          if (error) {
+            console.error("Experience insert error:", error.message);
+            toast.error("Failed to save experience", { description: "Please try again." });
+            return;
+          }
+          if (data?.id) newId = data.id;
+        }
+        setExperiences(prev => [...prev, { ...expForm, id: newId }]);
+        setShowAddExp(false);
+      }
+      setExpForm(emptyExp);
+      toast.success("Work experience saved");
+    } finally {
+      setSavingExp(false);
+    }
   }
   function editExp(exp: WorkExp) {
     setEditingExpId(exp.id);
@@ -3913,151 +4005,204 @@ function ProfilePage({ onPendingPrefsChange }: { onPendingPrefsChange?: (pending
     if (!eduForm.degree) return;
     if (eduForm.degree !== "Not Educated" && !eduForm.college) return;
     if (eduForm.field === "Others" && !eduForm.customField?.trim()) return;
-
-    const effectiveField = eduForm.field === "Others" ? eduForm.customField?.trim() || "" : eduForm.field;
-    if (editingEduId !== null) {
-      setEducation(prev => prev.map(e => e.id === editingEduId ? {
-        id: e.id,
-        degree: eduForm.degree,
-        field: effectiveField,
-        college: eduForm.college,
-        startYear: eduForm.startYear,
-        endYear: eduForm.endYear,
-        score: eduForm.score,
-      } : e));
-      setEditingEduId(null);
-      if (profile?.id) {
-        const { error } = await supabase.from("education").update({
-          institution: eduForm.college,
-          degree: eduForm.degree,
-          field: effectiveField,
-          start_year: eduForm.startYear,
-          end_year: eduForm.endYear,
-          score: eduForm.score,
-        }).eq("id", editingEduId).eq("profile_id", profile.id);
-        if (error) {
-          console.error("Education update error:", error.message);
-          alert("Failed to save education. Please try again.");
-        }
-      }
-    } else {
-      let newId = String(Date.now());
-      if (profile?.id) {
-        const { data, error } = await supabase.from("education").insert({
-          profile_id: profile.id,
-          institution: eduForm.college,
-          degree: eduForm.degree,
-          field: effectiveField,
-          start_year: eduForm.startYear,
-          end_year: eduForm.endYear,
-          score: eduForm.score,
-        }).select("id").single();
-        if (error) {
-          console.error("Education insert error:", error.message);
-          alert("Failed to save education. Please try again.");
-          return;
-        }
-        if (data?.id) newId = data.id;
-      }
-      setEducation(prev => [...prev, {
-        id: newId,
-        degree: eduForm.degree,
-        field: effectiveField,
-        college: eduForm.college,
-        startYear: eduForm.startYear,
-        endYear: eduForm.endYear,
-        score: eduForm.score,
-      }]);
-      setShowAddEdu(false);
+    if (savingEdu) return;
+    if (eduForm.degree !== "Not Educated" && monthYearIndex(eduForm.startMonth, eduForm.startYear) > monthYearIndex(eduForm.endMonth, eduForm.endYear)) {
+      toast.error("Invalid dates", { description: "Start date must be before the end date." });
+      return;
     }
 
-    setEduForm(emptyEdu);
+    setSavingEdu(true);
+    try {
+      const effectiveField = eduForm.field === "Others" ? eduForm.customField?.trim() || "" : eduForm.field;
+      if (editingEduId !== null) {
+        setEducation(prev => prev.map(e => e.id === editingEduId ? {
+          id: e.id,
+          degree: eduForm.degree,
+          field: effectiveField,
+          college: eduForm.college,
+          startMonth: eduForm.startMonth,
+          startYear: eduForm.startYear,
+          endMonth: eduForm.endMonth,
+          endYear: eduForm.endYear,
+          score: eduForm.score,
+        } : e));
+        setEditingEduId(null);
+        if (profile?.id) {
+          const { error } = await supabase.from("education").update({
+            institution: eduForm.college,
+            degree: eduForm.degree,
+            field: effectiveField,
+            start_month: eduForm.startMonth,
+            start_year: eduForm.startYear,
+            end_month: eduForm.endMonth,
+            end_year: eduForm.endYear,
+            score: eduForm.score,
+          }).eq("id", editingEduId).eq("profile_id", profile.id);
+          if (error) {
+            console.error("Education update error:", error.message);
+            toast.error("Failed to save education", { description: "Please try again." });
+            return;
+          }
+        }
+      } else {
+        let newId = String(Date.now());
+        if (profile?.id) {
+          const { data, error } = await supabase.from("education").insert({
+            profile_id: profile.id,
+            institution: eduForm.college,
+            degree: eduForm.degree,
+            field: effectiveField,
+            start_month: eduForm.startMonth,
+            start_year: eduForm.startYear,
+            end_month: eduForm.endMonth,
+            end_year: eduForm.endYear,
+            score: eduForm.score,
+          }).select("id").single();
+          if (error) {
+            console.error("Education insert error:", error.message);
+            toast.error("Failed to save education", { description: "Please try again." });
+            return;
+          }
+          if (data?.id) newId = data.id;
+        }
+        setEducation(prev => [...prev, {
+          id: newId,
+          degree: eduForm.degree,
+          field: effectiveField,
+          college: eduForm.college,
+          startMonth: eduForm.startMonth,
+          startYear: eduForm.startYear,
+          endMonth: eduForm.endMonth,
+          endYear: eduForm.endYear,
+          score: eduForm.score,
+        }]);
+        setShowAddEdu(false);
+      }
+
+      setEduForm(emptyEdu);
+      toast.success("Education saved");
+    } finally {
+      setSavingEdu(false);
+    }
   }
 
   function editEdu(edu: Education) {
     const { field, customField } = getEducationFormField(edu.degree, edu.field);
     setEditingEduId(edu.id);
-    setEduForm({ degree: edu.degree, field, customField, college: edu.college, startYear: edu.startYear, endYear: edu.endYear, score: edu.score });
+    setEduForm({
+      degree: edu.degree, field, customField, college: edu.college,
+      startMonth: edu.startMonth || "Jan", startYear: edu.startYear,
+      endMonth: edu.endMonth || "Jan", endYear: edu.endYear, score: edu.score,
+    });
     setShowAddEdu(false);
   }
   function cancelEdu() { setEditingEduId(null); setShowAddEdu(false); setEduForm(emptyEdu); }
 
   async function saveProj() {
     if (!projForm.name) return;
-    if (editingProjId !== null) {
-      setProjects(prev => prev.map(p => p.id === editingProjId ? { ...projForm, id: p.id } : p));
-      setEditingProjId(null);
-      if (profile?.id) {
-        const { error } = await supabase.from("projects").update({
-          name: projForm.name, url: projForm.url, start_year: projForm.startYear,
-          end_year: projForm.endYear, description: projForm.description,
-        }).eq("id", editingProjId).eq("profile_id", profile.id);
-        if (error) {
-          console.error("Project update error:", error.message);
-          alert("Failed to save project. Please try again.");
-        }
-      }
-    } else {
-      let newId = Date.now();
-      if (profile?.id) {
-        const { data, error } = await supabase.from("projects").insert({
-          profile_id: profile.id, name: projForm.name, url: projForm.url,
-          start_year: projForm.startYear, end_year: projForm.endYear, description: projForm.description,
-        }).select("id").single();
-        if (error) {
-          console.error("Project insert error:", error.message);
-          alert("Failed to save project. Please try again.");
-          return;
-        }
-        if (data?.id) newId = data.id;
-      }
-      setProjects(prev => [...prev, { ...projForm, id: newId }]);
-      setShowAddProj(false);
+    if (savingProj) return;
+    if (monthYearIndex(projForm.startMonth, projForm.startYear) > monthYearIndex(projForm.endMonth, projForm.endYear)) {
+      toast.error("Invalid dates", { description: "Start date must be before the end date." });
+      return;
     }
-    setProjForm(emptyProj);
+    setSavingProj(true);
+    try {
+      if (editingProjId !== null) {
+        setProjects(prev => prev.map(p => p.id === editingProjId ? { ...projForm, id: p.id } : p));
+        setEditingProjId(null);
+        if (profile?.id) {
+          const { error } = await supabase.from("projects").update({
+            name: projForm.name, url: projForm.url, start_month: projForm.startMonth, start_year: projForm.startYear,
+            end_month: projForm.endMonth, end_year: projForm.endYear, description: projForm.description,
+          }).eq("id", editingProjId).eq("profile_id", profile.id);
+          if (error) {
+            console.error("Project update error:", error.message);
+            toast.error("Failed to save project", { description: "Please try again." });
+            return;
+          }
+        }
+      } else {
+        let newId = Date.now();
+        if (profile?.id) {
+          const { data, error } = await supabase.from("projects").insert({
+            profile_id: profile.id, name: projForm.name, url: projForm.url,
+            start_month: projForm.startMonth, start_year: projForm.startYear,
+            end_month: projForm.endMonth, end_year: projForm.endYear, description: projForm.description,
+          }).select("id").single();
+          if (error) {
+            console.error("Project insert error:", error.message);
+            toast.error("Failed to save project", { description: "Please try again." });
+            return;
+          }
+          if (data?.id) newId = data.id;
+        }
+        setProjects(prev => [...prev, { ...projForm, id: newId }]);
+        setShowAddProj(false);
+      }
+      setProjForm(emptyProj);
+      toast.success("Project saved");
+    } finally {
+      setSavingProj(false);
+    }
   }
   function editProj(proj: Project) {
     setEditingProjId(proj.id);
-    setProjForm({ name: proj.name, url: proj.url, startYear: proj.startYear, endYear: proj.endYear, description: proj.description });
+    setProjForm({
+      name: proj.name, url: proj.url,
+      startMonth: proj.startMonth || "Jan", startYear: proj.startYear,
+      endMonth: proj.endMonth || "Jan", endYear: proj.endYear, description: proj.description,
+    });
     setShowAddProj(false);
   }
   function cancelProj() { setEditingProjId(null); setShowAddProj(false); setProjForm(emptyProj); }
 
   async function saveCert() {
     if (!certForm.name) return;
-    if (editingCertId !== null) {
-      setCertifications(prev => prev.map(c => c.id === editingCertId ? { ...certForm, id: c.id } : c));
-      setEditingCertId(null);
-      if (profile?.id) {
-        const { error } = await supabase.from("certifications").update({
-          name: certForm.name, issuer: certForm.issuer,
-          issue_date: certForm.issueDate, expiry_date: certForm.noExpiry ? null : certForm.expiryDate,
-          no_expiry: certForm.noExpiry, credential_id: certForm.credentialId,
-        }).eq("id", editingCertId).eq("profile_id", profile.id);
-        if (error) {
-          console.error("Certification update error:", error.message);
-          alert("Failed to save certification. Please try again.");
-        }
-      }
-    } else {
-      let newId = Date.now();
-      if (profile?.id) {
-        const { data, error } = await supabase.from("certifications").insert({
-          profile_id: profile.id, name: certForm.name, issuer: certForm.issuer,
-          issue_date: certForm.issueDate, expiry_date: certForm.noExpiry ? null : certForm.expiryDate,
-          no_expiry: certForm.noExpiry, credential_id: certForm.credentialId,
-        }).select("id").single();
-        if (error) {
-          console.error("Certification insert error:", error.message);
-          alert("Failed to save certification. Please try again.");
-          return;
-        }
-        if (data?.id) newId = data.id;
-      }
-      setCertifications(prev => [...prev, { ...certForm, id: newId }]);
-      setShowAddCert(false);
+    if (savingCert) return;
+    if (!certForm.noExpiry && certForm.issueDate && certForm.expiryDate && certForm.expiryDate < certForm.issueDate) {
+      toast.error("Invalid dates", { description: "Expiry date must be on or after the issue date." });
+      return;
     }
-    setCertForm(emptyCert);
+    setSavingCert(true);
+    try {
+      if (editingCertId !== null) {
+        setCertifications(prev => prev.map(c => c.id === editingCertId ? { ...certForm, id: c.id } : c));
+        setEditingCertId(null);
+        if (profile?.id) {
+          const { error } = await supabase.from("certifications").update({
+            name: certForm.name, issuer: certForm.issuer,
+            issue_date: certForm.issueDate, expiry_date: certForm.noExpiry ? null : certForm.expiryDate,
+            no_expiry: certForm.noExpiry, credential_id: certForm.credentialId,
+          }).eq("id", editingCertId).eq("profile_id", profile.id);
+          if (error) {
+            console.error("Certification update error:", error.message);
+            toast.error("Failed to save certification", { description: "Please try again." });
+            return;
+          }
+        }
+      } else {
+        let newId = Date.now();
+        if (profile?.id) {
+          const { data, error } = await supabase.from("certifications").insert({
+            profile_id: profile.id, name: certForm.name, issuer: certForm.issuer,
+            issue_date: certForm.issueDate, expiry_date: certForm.noExpiry ? null : certForm.expiryDate,
+            no_expiry: certForm.noExpiry, credential_id: certForm.credentialId,
+          }).select("id").single();
+          if (error) {
+            console.error("Certification insert error:", error.message);
+            toast.error("Failed to save certification", { description: "Please try again." });
+            return;
+          }
+          if (data?.id) newId = data.id;
+        }
+        setCertifications(prev => [...prev, { ...certForm, id: newId }]);
+        setShowAddCert(false);
+      }
+      setCertForm(emptyCert);
+      toast.success("Certification saved");
+    } finally {
+      setSavingCert(false);
+    }
   }
   function editCert(cert: Certification) {
     setEditingCertId(cert.id);
@@ -4084,7 +4229,13 @@ function ProfilePage({ onPendingPrefsChange }: { onPendingPrefsChange?: (pending
       }).eq("id", profile.id);
       if (error) {
         console.error("Language update error:", error.message);
-        alert("Failed to save language. Please try again.");
+        toast.error("Failed to save language", { description: "Please try again." });
+        setLanguages(languages);
+      } else {
+        // Keep the cached profile in sync so it doesn't revert on the next
+        // navigation away from and back to this page (ProfilePage remounts
+        // and re-derives `languages` from the cached profile each time).
+        await refreshProfile();
       }
     }
   }
@@ -4507,7 +4658,7 @@ function ProfilePage({ onPendingPrefsChange }: { onPendingPrefsChange?: (pending
             {experiences.map((exp) => (
               <div key={exp.id}>
                 {editingExpId === exp.id ? (
-                  <ExpForm form={expForm} setForm={setExpForm} onSave={saveExp} onCancel={cancelExp} />
+                  <ExpForm form={expForm} setForm={setExpForm} onSave={saveExp} onCancel={cancelExp} saving={savingExp} />
                 ) : (
                   <div className="border-l-2 border-[#FF2B2B] pl-4 flex justify-between">
                     <div>
@@ -4543,7 +4694,7 @@ function ProfilePage({ onPendingPrefsChange }: { onPendingPrefsChange?: (pending
             {experiences.length === 0 && !showAddExp && (
               <p className="text-[#8A8A8A] text-sm italic">No work experience added yet.</p>
             )}
-            {showAddExp && <ExpForm form={expForm} setForm={setExpForm} onSave={saveExp} onCancel={cancelExp} />}
+            {showAddExp && <ExpForm form={expForm} setForm={setExpForm} onSave={saveExp} onCancel={cancelExp} saving={savingExp} />}
           </div>
           )}
         </div>
@@ -4567,13 +4718,14 @@ function ProfilePage({ onPendingPrefsChange }: { onPendingPrefsChange?: (pending
                     onCancel={cancelEdu}
                     degreeOptions={educationDegreeOptions}
                     specializationOptionsByDegree={educationSpecializationOptions}
+                    saving={savingEdu}
                   />
                 ) : (
                   <div className="border-l-2 border-[#FF2B2B] pl-4 flex justify-between">
                     <div>
                       <h4 className="font-semibold text-[#3A1F1F]">{edu.degree}{edu.field ? ` in ${edu.field}` : ""}</h4>
                       <p className="text-[#8A8A8A] text-sm">{edu.college}</p>
-                      <p className="text-[#8A8A8A] text-xs mt-0.5">{edu.startYear} – {edu.endYear}{edu.score ? ` • ${edu.score}` : ""}</p>
+                      <p className="text-[#8A8A8A] text-xs mt-0.5">{formatMonthYear(edu.startMonth, edu.startYear)} – {formatMonthYear(edu.endMonth, edu.endYear)}{edu.score ? ` • ${edu.score}` : ""}</p>
                     </div>
                     <div className="flex gap-1 shrink-0 ml-4">
                       <Button variant="ghost" size="icon" className="h-8 w-8 text-[#8A8A8A] hover:text-[#FF2B2B]" onClick={() => editEdu(edu)}><Pencil className="h-4 w-4" /></Button>
@@ -4601,6 +4753,7 @@ function ProfilePage({ onPendingPrefsChange }: { onPendingPrefsChange?: (pending
                 onCancel={cancelEdu}
                 degreeOptions={educationDegreeOptions}
                 specializationOptionsByDegree={educationSpecializationOptions}
+                saving={savingEdu}
               />
             )}
           </div>
@@ -4618,13 +4771,13 @@ function ProfilePage({ onPendingPrefsChange }: { onPendingPrefsChange?: (pending
             {projects.map((proj) => (
               <div key={proj.id}>
                 {editingProjId === proj.id ? (
-                  <ProjForm form={projForm} setForm={setProjForm} onSave={saveProj} onCancel={cancelProj} />
+                  <ProjForm form={projForm} setForm={setProjForm} onSave={saveProj} onCancel={cancelProj} saving={savingProj} />
                 ) : (
                   <div className="border-l-2 border-[#FF2B2B] pl-4 flex justify-between">
                     <div>
                       <h4 className="font-semibold text-[#3A1F1F]">{proj.name}</h4>
                       {proj.url && <a href={proj.url} target="_blank" rel="noopener noreferrer" className="text-[#FF2B2B] text-xs hover:underline">{proj.url}</a>}
-                      <p className="text-[#8A8A8A] text-xs mt-0.5">{proj.startYear} – {proj.endYear}</p>
+                      <p className="text-[#8A8A8A] text-xs mt-0.5">{formatMonthYear(proj.startMonth, proj.startYear)} – {formatMonthYear(proj.endMonth, proj.endYear)}</p>
                       {proj.description && <p className="text-[#8A8A8A] text-sm mt-1">{proj.description}</p>}
                     </div>
                     <div className="flex gap-1 shrink-0 ml-4">
@@ -4636,7 +4789,7 @@ function ProfilePage({ onPendingPrefsChange }: { onPendingPrefsChange?: (pending
               </div>
             ))}
             {projects.length === 0 && !showAddProj && <p className="text-[#8A8A8A] text-sm italic">No projects added yet.</p>}
-            {showAddProj && <ProjForm form={projForm} setForm={setProjForm} onSave={saveProj} onCancel={cancelProj} />}
+            {showAddProj && <ProjForm form={projForm} setForm={setProjForm} onSave={saveProj} onCancel={cancelProj} saving={savingProj} />}
           </div>
         </div>
 
@@ -4652,15 +4805,15 @@ function ProfilePage({ onPendingPrefsChange }: { onPendingPrefsChange?: (pending
             {certifications.map((cert) => (
               <div key={cert.id}>
                 {editingCertId === cert.id ? (
-                  <CertForm form={certForm} setForm={setCertForm} onSave={saveCert} onCancel={cancelCert} />
+                  <CertForm form={certForm} setForm={setCertForm} onSave={saveCert} onCancel={cancelCert} saving={savingCert} />
                 ) : (
                   <div className="border-l-2 border-[#FF2B2B] pl-4 flex justify-between">
                     <div>
                       <h4 className="font-semibold text-[#3A1F1F]">{cert.name}</h4>
                       {cert.issuer && <p className="text-[#8A8A8A] text-sm">{cert.issuer}</p>}
                       <p className="text-[#8A8A8A] text-xs mt-0.5">
-                        {cert.issueDate && `Issued: ${cert.issueDate}`}
-                        {(cert.noExpiry || cert.expiryDate) && `${cert.issueDate ? " • " : ""}${cert.noExpiry ? "No Expiry" : `Expires: ${cert.expiryDate}`}`}
+                        {cert.issueDate && `Issued: ${formatYearMonthString(cert.issueDate)}`}
+                        {(cert.noExpiry || cert.expiryDate) && `${cert.issueDate ? " • " : ""}${cert.noExpiry ? "No Expiry" : `Expires: ${formatYearMonthString(cert.expiryDate)}`}`}
                         {cert.credentialId && ` • ID: ${cert.credentialId}`}
                       </p>
                     </div>
@@ -4673,7 +4826,7 @@ function ProfilePage({ onPendingPrefsChange }: { onPendingPrefsChange?: (pending
               </div>
             ))}
             {certifications.length === 0 && !showAddCert && <p className="text-[#8A8A8A] text-sm italic">No certifications added yet.</p>}
-            {showAddCert && <CertForm form={certForm} setForm={setCertForm} onSave={saveCert} onCancel={cancelCert} />}
+            {showAddCert && <CertForm form={certForm} setForm={setCertForm} onSave={saveCert} onCancel={cancelCert} saving={savingCert} />}
           </div>
         </div>
 
@@ -4698,6 +4851,8 @@ function ProfilePage({ onPendingPrefsChange }: { onPendingPrefsChange?: (pending
                     if (error) {
                       console.error("Language delete error:", error.message);
                       setLanguages(languages);
+                    } else {
+                      await refreshProfile();
                     }
                   }
                 }} className="ml-1 text-[#8A8A8A] hover:text-[#FF2B2B]"><X className="h-3 w-3" /></button>
@@ -5244,11 +5399,12 @@ function ProfilePage({ onPendingPrefsChange }: { onPendingPrefsChange?: (pending
 }
 
 // ── Sub-forms ──────────────────────────────────────────────────────────────────
-function ExpForm({ form, setForm, onSave, onCancel }: {
+function ExpForm({ form, setForm, onSave, onCancel, saving }: {
   form: Omit<WorkExp, "id">;
   setForm: (f: Omit<WorkExp, "id">) => void;
   onSave: () => void;
   onCancel: () => void;
+  saving?: boolean;
 }) {
   return (
     <div className="bg-[#F6F6F6] rounded-xl p-5 space-y-4 border border-gray-200">
@@ -5273,32 +5429,34 @@ function ExpForm({ form, setForm, onSave, onCancel }: {
         <div className="flex items-end gap-2">
           <div className="flex-1">
             <label className="block text-sm text-[#3A1F1F] mb-1">Start</label>
-            <div className="flex gap-2">
-              <Select value={form.startMonth} onValueChange={(v) => setForm({ ...form, startMonth: v })}>
-                <SelectTrigger className="bg-white border-gray-200 rounded-xl"><SelectValue /></SelectTrigger>
-                <SelectContent>{MONTHS.map(m => <SelectItem key={m} value={m}>{m}</SelectItem>)}</SelectContent>
-              </Select>
-              <Select value={form.startYear} onValueChange={(v) => setForm({ ...form, startYear: v })}>
-                <SelectTrigger className="bg-white border-gray-200 rounded-xl"><SelectValue /></SelectTrigger>
-                <SelectContent>{YEARS.map(y => <SelectItem key={y} value={y}>{y}</SelectItem>)}</SelectContent>
-              </Select>
-            </div>
+            <MonthYearPicker
+              month={form.startMonth}
+              year={form.startYear}
+              minYear={Number(YEARS[0])}
+              maxYear={Number(YEARS[YEARS.length - 1])}
+              maxMonthYear={TODAY_MONTH_YEAR}
+              onChange={(m, y) => {
+                const pastEnd = !form.current && monthYearIndex(m, y) > monthYearIndex(form.endMonth, form.endYear);
+                setForm(pastEnd ? { ...form, startMonth: m, startYear: y, endMonth: m, endYear: y } : { ...form, startMonth: m, startYear: y });
+              }}
+              className="bg-white border-gray-200 rounded-xl"
+            />
           </div>
         </div>
         {!form.current && (
           <div className="flex items-end gap-2">
             <div className="flex-1">
               <label className="block text-sm text-[#3A1F1F] mb-1">End</label>
-              <div className="flex gap-2">
-                <Select value={form.endMonth} onValueChange={(v) => setForm({ ...form, endMonth: v })}>
-                  <SelectTrigger className="bg-white border-gray-200 rounded-xl"><SelectValue /></SelectTrigger>
-                  <SelectContent>{MONTHS.map(m => <SelectItem key={m} value={m}>{m}</SelectItem>)}</SelectContent>
-                </Select>
-                <Select value={form.endYear} onValueChange={(v) => setForm({ ...form, endYear: v })}>
-                  <SelectTrigger className="bg-white border-gray-200 rounded-xl"><SelectValue /></SelectTrigger>
-                  <SelectContent>{YEARS.map(y => <SelectItem key={y} value={y}>{y}</SelectItem>)}</SelectContent>
-                </Select>
-              </div>
+              <MonthYearPicker
+                month={form.endMonth}
+                year={form.endYear}
+                minYear={Number(YEARS[0])}
+                maxYear={Number(YEARS[YEARS.length - 1])}
+                minMonthYear={{ month: form.startMonth, year: form.startYear }}
+                maxMonthYear={TODAY_MONTH_YEAR}
+                onChange={(m, y) => setForm({ ...form, endMonth: m, endYear: y })}
+                className="bg-white border-gray-200 rounded-xl"
+              />
             </div>
           </div>
         )}
@@ -5317,20 +5475,21 @@ function ExpForm({ form, setForm, onSave, onCancel }: {
         />
       </div>
       <div className="flex gap-3">
-        <Button className="bg-[#FF2B2B] hover:bg-[#e02525] text-white rounded-full" onClick={onSave}>Save</Button>
-        <Button variant="outline" className="rounded-full" onClick={onCancel}>Cancel</Button>
+        <Button className="bg-[#FF2B2B] hover:bg-[#e02525] text-white rounded-full" onClick={onSave} disabled={saving}>{saving ? "Saving..." : "Save"}</Button>
+        <Button variant="outline" className="rounded-full" onClick={onCancel} disabled={saving}>Cancel</Button>
       </div>
     </div>
   );
 }
 
-function EduForm({ form, setForm, onSave, onCancel, degreeOptions, specializationOptionsByDegree }: {
+function EduForm({ form, setForm, onSave, onCancel, degreeOptions, specializationOptionsByDegree, saving }: {
   form: EducationForm;
   setForm: (f: EducationForm) => void;
   onSave: () => void;
   onCancel: () => void;
   degreeOptions: string[];
   specializationOptionsByDegree: EducationCatalog;
+  saving?: boolean;
 }) {
   const specializationOptions = specializationOptionsByDegree[form.degree] || [];
   const educationDetailsDisabled = form.degree === "Not Educated";
@@ -5408,18 +5567,34 @@ function EduForm({ form, setForm, onSave, onCancel, degreeOptions, specializatio
           />
         </div>
         <div>
-          <label className="block text-sm text-[#3A1F1F] mb-1">Start Year</label>
-          <Select value={form.startYear} onValueChange={(v) => setForm({ ...form, startYear: v })} disabled={educationDetailsDisabled}>
-            <SelectTrigger className="bg-white border-gray-200 rounded-xl disabled:opacity-60"><SelectValue /></SelectTrigger>
-            <SelectContent>{YEARS.map(y => <SelectItem key={y} value={y}>{y}</SelectItem>)}</SelectContent>
-          </Select>
+          <label className="block text-sm text-[#3A1F1F] mb-1">Start Date</label>
+          <MonthYearPicker
+            month={form.startMonth}
+            year={form.startYear}
+            minYear={Number(YEARS[0])}
+            maxYear={Number(YEARS[YEARS.length - 1])}
+            maxMonthYear={TODAY_MONTH_YEAR}
+            disabled={educationDetailsDisabled}
+            onChange={(m, y) => {
+              const pastEnd = monthYearIndex(m, y) > monthYearIndex(form.endMonth, form.endYear);
+              setForm(pastEnd ? { ...form, startMonth: m, startYear: y, endMonth: m, endYear: y } : { ...form, startMonth: m, startYear: y });
+            }}
+            className="bg-white border-gray-200 rounded-xl disabled:opacity-60"
+          />
         </div>
         <div>
-          <label className="block text-sm text-[#3A1F1F] mb-1">End Year</label>
-          <Select value={form.endYear} onValueChange={(v) => setForm({ ...form, endYear: v })} disabled={educationDetailsDisabled}>
-            <SelectTrigger className="bg-white border-gray-200 rounded-xl disabled:opacity-60"><SelectValue /></SelectTrigger>
-            <SelectContent>{YEARS.map(y => <SelectItem key={y} value={y}>{y}</SelectItem>)}</SelectContent>
-          </Select>
+          <label className="block text-sm text-[#3A1F1F] mb-1">End Date</label>
+          <MonthYearPicker
+            month={form.endMonth}
+            year={form.endYear}
+            minYear={Number(YEARS[0])}
+            maxYear={Number(YEARS[YEARS.length - 1])}
+            minMonthYear={{ month: form.startMonth, year: form.startYear }}
+            maxMonthYear={TODAY_MONTH_YEAR}
+            disabled={educationDetailsDisabled}
+            onChange={(m, y) => setForm({ ...form, endMonth: m, endYear: y })}
+            className="bg-white border-gray-200 rounded-xl disabled:opacity-60"
+          />
         </div>
         <div>
           <label className="block text-sm text-[#3A1F1F] mb-1">Score (CGPA / %)</label>
@@ -5433,18 +5608,19 @@ function EduForm({ form, setForm, onSave, onCancel, degreeOptions, specializatio
         </div>
       </div>
       <div className="flex gap-3">
-        <Button className="bg-[#FF2B2B] hover:bg-[#e02525] text-white rounded-full" onClick={onSave}>Save</Button>
-        <Button variant="outline" className="rounded-full" onClick={onCancel}>Cancel</Button>
+        <Button className="bg-[#FF2B2B] hover:bg-[#e02525] text-white rounded-full" onClick={onSave} disabled={saving}>{saving ? "Saving..." : "Save"}</Button>
+        <Button variant="outline" className="rounded-full" onClick={onCancel} disabled={saving}>Cancel</Button>
       </div>
     </div>
   );
 }
 
-function ProjForm({ form, setForm, onSave, onCancel }: {
+function ProjForm({ form, setForm, onSave, onCancel, saving }: {
   form: Omit<Project, "id">;
   setForm: (f: Omit<Project, "id">) => void;
   onSave: () => void;
   onCancel: () => void;
+  saving?: boolean;
 }) {
   return (
     <div className="bg-[#F6F6F6] rounded-xl p-5 space-y-4 border border-gray-200">
@@ -5458,18 +5634,32 @@ function ProjForm({ form, setForm, onSave, onCancel }: {
           <Input value={form.url} onChange={(e) => setForm({ ...form, url: e.target.value })} className="bg-white border-gray-200 rounded-xl" placeholder="https://..." />
         </div>
         <div>
-          <label className="block text-sm text-[#3A1F1F] mb-1">Start Year</label>
-          <Select value={form.startYear} onValueChange={(v) => setForm({ ...form, startYear: v })}>
-            <SelectTrigger className="bg-white border-gray-200 rounded-xl"><SelectValue /></SelectTrigger>
-            <SelectContent>{YEARS.map(y => <SelectItem key={y} value={y}>{y}</SelectItem>)}</SelectContent>
-          </Select>
+          <label className="block text-sm text-[#3A1F1F] mb-1">Start Date</label>
+          <MonthYearPicker
+            month={form.startMonth}
+            year={form.startYear}
+            minYear={Number(YEARS[0])}
+            maxYear={Number(YEARS[YEARS.length - 1])}
+            maxMonthYear={TODAY_MONTH_YEAR}
+            onChange={(m, y) => {
+              const pastEnd = monthYearIndex(m, y) > monthYearIndex(form.endMonth, form.endYear);
+              setForm(pastEnd ? { ...form, startMonth: m, startYear: y, endMonth: m, endYear: y } : { ...form, startMonth: m, startYear: y });
+            }}
+            className="bg-white border-gray-200 rounded-xl"
+          />
         </div>
         <div>
-          <label className="block text-sm text-[#3A1F1F] mb-1">End Year</label>
-          <Select value={form.endYear} onValueChange={(v) => setForm({ ...form, endYear: v })}>
-            <SelectTrigger className="bg-white border-gray-200 rounded-xl"><SelectValue /></SelectTrigger>
-            <SelectContent>{YEARS.map(y => <SelectItem key={y} value={y}>{y}</SelectItem>)}</SelectContent>
-          </Select>
+          <label className="block text-sm text-[#3A1F1F] mb-1">End Date</label>
+          <MonthYearPicker
+            month={form.endMonth}
+            year={form.endYear}
+            minYear={Number(YEARS[0])}
+            maxYear={Number(YEARS[YEARS.length - 1])}
+            minMonthYear={{ month: form.startMonth, year: form.startYear }}
+            maxMonthYear={TODAY_MONTH_YEAR}
+            onChange={(m, y) => setForm({ ...form, endMonth: m, endYear: y })}
+            className="bg-white border-gray-200 rounded-xl"
+          />
         </div>
         <div className="md:col-span-2">
           <label className="block text-sm text-[#3A1F1F] mb-1">Description *</label>
@@ -5477,18 +5667,19 @@ function ProjForm({ form, setForm, onSave, onCancel }: {
         </div>
       </div>
       <div className="flex gap-3">
-        <Button className="bg-[#FF2B2B] hover:bg-[#e02525] text-white rounded-full" onClick={onSave}>Save</Button>
-        <Button variant="outline" className="rounded-full" onClick={onCancel}>Cancel</Button>
+        <Button className="bg-[#FF2B2B] hover:bg-[#e02525] text-white rounded-full" onClick={onSave} disabled={saving}>{saving ? "Saving..." : "Save"}</Button>
+        <Button variant="outline" className="rounded-full" onClick={onCancel} disabled={saving}>Cancel</Button>
       </div>
     </div>
   );
 }
 
-function CertForm({ form, setForm, onSave, onCancel }: {
+function CertForm({ form, setForm, onSave, onCancel, saving }: {
   form: Omit<Certification, "id">;
   setForm: (f: Omit<Certification, "id">) => void;
   onSave: () => void;
   onCancel: () => void;
+  saving?: boolean;
 }) {
   return (
     <div className="bg-[#F6F6F6] rounded-xl p-5 space-y-4 border border-gray-200">
@@ -5503,14 +5694,29 @@ function CertForm({ form, setForm, onSave, onCancel }: {
         </div>
         <div>
           <label className="block text-sm text-[#3A1F1F] mb-1">Issue Date</label>
-          <Input type="month" value={form.issueDate} onChange={(e) => setForm({ ...form, issueDate: e.target.value })} className="bg-white border-gray-200 rounded-xl" />
+          <MonthYearPicker
+            month={parseYearMonthString(form.issueDate).month}
+            year={parseYearMonthString(form.issueDate).year}
+            minYear={Number(YEARS[0])}
+            maxYear={Number(YEARS[YEARS.length - 1])}
+            maxMonthYear={TODAY_MONTH_YEAR}
+            onChange={(m, y) => {
+              const issueDate = toYearMonthString(m, y);
+              const expiryNowInvalid = !form.noExpiry && form.expiryDate && issueDate && form.expiryDate < issueDate;
+              setForm(expiryNowInvalid ? { ...form, issueDate, expiryDate: issueDate } : { ...form, issueDate });
+            }}
+            className="bg-white border-gray-200 rounded-xl"
+          />
         </div>
         <div>
           <label className="block text-sm text-[#3A1F1F] mb-1">Certification Expiry Date</label>
-          <Input
-            type="month"
-            value={form.expiryDate}
-            onChange={(e) => setForm({ ...form, expiryDate: e.target.value })}
+          <MonthYearPicker
+            month={parseYearMonthString(form.expiryDate).month}
+            year={parseYearMonthString(form.expiryDate).year}
+            minYear={Number(YEARS[0])}
+            maxYear={Number(YEARS[YEARS.length - 1])}
+            minMonthYear={form.issueDate ? parseYearMonthString(form.issueDate) : undefined}
+            onChange={(m, y) => setForm({ ...form, expiryDate: toYearMonthString(m, y) })}
             disabled={form.noExpiry}
             className="bg-white border-gray-200 rounded-xl disabled:cursor-not-allowed disabled:bg-gray-100"
           />
@@ -5530,8 +5736,8 @@ function CertForm({ form, setForm, onSave, onCancel }: {
         </div>
       </div>
       <div className="flex gap-3">
-        <Button className="bg-[#FF2B2B] hover:bg-[#e02525] text-white rounded-full" onClick={onSave}>Save</Button>
-        <Button variant="outline" className="rounded-full" onClick={onCancel}>Cancel</Button>
+        <Button className="bg-[#FF2B2B] hover:bg-[#e02525] text-white rounded-full" onClick={onSave} disabled={saving}>{saving ? "Saving..." : "Save"}</Button>
+        <Button variant="outline" className="rounded-full" onClick={onCancel} disabled={saving}>Cancel</Button>
       </div>
     </div>
   );
@@ -7430,7 +7636,9 @@ function ResumePreviewPage() {
           degree: e.degree,
           field: e.field || "",
           college: e.institution,
+          startMonth: e.start_month || "",
           startYear: e.start_year || "",
+          endMonth: e.end_month || "",
           endYear: e.end_year || "",
           score: e.score || "",
         })));
@@ -7450,7 +7658,9 @@ function ResumePreviewPage() {
           id: p.id,
           name: p.name,
           url: p.url || "",
+          startMonth: p.start_month || "",
           startYear: p.start_year || "",
+          endMonth: p.end_month || "",
           endYear: p.end_year || "",
           description: p.description || "",
         })));
