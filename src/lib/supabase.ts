@@ -335,7 +335,9 @@ export interface Education {
   institution: string;
   degree: string;
   field: string | null;
+  start_month: string | null;
   start_year: string | null;
+  end_month: string | null;
   end_year: string | null;
   score: string | null;
 }

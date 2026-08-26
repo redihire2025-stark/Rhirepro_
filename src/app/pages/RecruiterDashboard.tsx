@@ -17,6 +17,7 @@ import {
 } from "../../lib/jobs";
 import { PLANS, FREE_DAILY_POST_LIMIT, getPlanById, validatePromo, getPlanPriceBreakdown } from "../../lib/plans";
 import { sanitizePhoneInput } from "../../lib/inputSanitizers";
+import { formatMonthYear } from "../../lib/monthYear";
 import {
   INDIA_CITY_OPTIONS,
   getAllCountriesList,
@@ -5009,7 +5010,7 @@ function SearchCandidateProfileModal({
                         <div>
                           <p className="text-sm font-semibold text-[#3A1F1F]">{e.degree} in {e.field}</p>
                           <p className="text-xs text-blue-600 font-medium">{e.institution}</p>
-                          <p className="text-xs text-[#8A8A8A]">{e.start_year} – {e.end_year}{e.score ? ` · ${e.score}` : ""}</p>
+                          <p className="text-xs text-[#8A8A8A]">{formatMonthYear(e.start_month, e.start_year)} – {formatMonthYear(e.end_month, e.end_year)}{e.score ? ` · ${e.score}` : ""}</p>
                         </div>
                       </div>
                     ))}
@@ -5856,7 +5857,7 @@ function SearchCandidatesPage() {
               .select(`
                 id, first_name, last_name, avatar_url, headline, current_title, current_company, location, experience_type, total_experience, skills, about, created_at, updated_at, last_active_at,
                 work_experience(id, company, title, start_date, end_date, description, is_current),
-                education(id, institution, degree, field, start_year, end_year)
+                education(id, institution, degree, field, start_month, start_year, end_month, end_year)
               `)
               .in("id", matchedIds);
 
@@ -5881,7 +5882,7 @@ function SearchCandidatesPage() {
           .select(`
             id, first_name, last_name, avatar_url, headline, current_title, current_company, location, experience_type, total_experience, skills, about, created_at, updated_at, last_active_at, preferred_location, desired_job_title, job_type_pref, work_auth, willing_to_relocate, preferred_interview_mode,
             work_experience(id, company, title, start_date, end_date, description, is_current),
-            education(id, institution, degree, field, start_year, end_year)
+            education(id, institution, degree, field, start_month, start_year, end_month, end_year)
           `);
 
         if (activeKeywords.trim()) {
@@ -5942,7 +5943,7 @@ function SearchCandidatesPage() {
               .select(`
                 id, first_name, last_name, avatar_url, headline, current_title, current_company, location, experience_type, total_experience, skills, about, created_at, updated_at, last_active_at,
                 work_experience(id, company, title, start_date, end_date, description, is_current),
-                education(id, institution, degree, field, start_year, end_year)
+                education(id, institution, degree, field, start_month, start_year, end_month, end_year)
               `)
               .overlaps("skills", allSkillTerms);
             if (skillMatches) {
@@ -5958,7 +5959,7 @@ function SearchCandidatesPage() {
             .select(`
               id, first_name, last_name, avatar_url, headline, current_title, current_company, location, experience_type, total_experience, skills, about, created_at, updated_at, last_active_at, preferred_location, desired_job_title, job_type_pref, work_auth, willing_to_relocate, preferred_interview_mode,
               work_experience(id, company, title, start_date, end_date, description, is_current),
-              education(id, institution, degree, field, start_year, end_year)
+              education(id, institution, degree, field, start_month, start_year, end_month, end_year)
             `);
           if (location.trim()) broadSkillQuery = broadSkillQuery.ilike("location", `%${location.trim()}%`);
           if (currentCompany.trim()) broadSkillQuery = broadSkillQuery.ilike("current_company", `%${currentCompany.trim()}%`);
@@ -7721,7 +7722,7 @@ Best regards,
               .select(`
                 id, first_name, last_name, avatar_url, headline, current_title, current_company, location, experience_type, total_experience, skills, about, email, phone, created_at, updated_at, last_active_at, preferred_location, desired_job_title, job_type_pref, work_auth, willing_to_relocate, preferred_interview_mode,
                 work_experience(id, company, title, start_date, end_date, description, is_current),
-                education(id, institution, degree, field, start_year, end_year)
+                education(id, institution, degree, field, start_month, start_year, end_month, end_year)
               `)
               .in("id", matchedIds);
             if (hydratedData && hydratedData.length > 0) {
@@ -7743,7 +7744,7 @@ Best regards,
           .select(`
             id, first_name, last_name, avatar_url, headline, current_title, current_company, location, experience_type, total_experience, skills, about, email, phone, created_at, updated_at, last_active_at, preferred_location, desired_job_title, job_type_pref, work_auth, willing_to_relocate, preferred_interview_mode,
             work_experience(id, company, title, start_date, end_date, description, is_current),
-            education(id, institution, degree, field, start_year, end_year)
+            education(id, institution, degree, field, start_month, start_year, end_month, end_year)
           `);
 
         if (activeKeywords.trim()) {
@@ -7806,7 +7807,7 @@ Best regards,
               .select(`
                 id, first_name, last_name, avatar_url, headline, current_title, current_company, location, experience_type, total_experience, skills, about, email, phone,
                 work_experience(id, company, title, start_date, end_date, description, is_current),
-                education(id, institution, degree, field, start_year, end_year)
+                education(id, institution, degree, field, start_month, start_year, end_month, end_year)
               `)
               .overlaps("skills", allSkillTerms);
             if (skillMatches) {
@@ -8661,7 +8662,7 @@ function ApplicantsPage() {
       .from("applications")
       .select(`
         id, status, applied_at, cover_letter, resume_url, recruiter_id, profile_id, job_id,
-        profile:profiles(id, first_name, last_name, email, avatar_url, headline, location, total_experience, skills, current_title, current_company, expected_salary, notice_period, current_salary, about, work_experience(id, company, title, start_date, end_date, description, is_current), education(id, institution, degree, field, start_year, end_year)),
+        profile:profiles(id, first_name, last_name, email, avatar_url, headline, location, total_experience, skills, current_title, current_company, expected_salary, notice_period, current_salary, about, work_experience(id, company, title, start_date, end_date, description, is_current), education(id, institution, degree, field, start_month, start_year, end_month, end_year)),
         job:jobs(id, title),
         interview_details(id, interview_message, meeting_url, status, created_at, updated_at)
       `)
@@ -9797,11 +9798,16 @@ function ApplicantsPage() {
                       type TSpan = { startVal: number; endVal: number; type: 'work' | 'edu'; tooltip: string };
                       const spans: TSpan[] = [];
                       const nowVal = new Date().getFullYear() * 12 + new Date().getMonth() + 1;
+                      const monthAbbr = ["jan", "feb", "mar", "apr", "may", "jun", "jul", "aug", "sep", "oct", "nov", "dec"];
                       edu.forEach(e => {
                         const startYear = e.start_year ? Number(e.start_year) : null;
                         const endYear = e.end_year ? Number(e.end_year) : null;
-                        const s = startYear ? startYear * 12 + 1 : null;
-                        const en = endYear ? endYear * 12 + 6 : null;
+                        // Real months when the record has them; otherwise fall back to the
+                        // same Jan-start/June-end guess used before months were tracked.
+                        const startMonthIdx = e.start_month ? monthAbbr.indexOf(String(e.start_month).toLowerCase().slice(0, 3)) : -1;
+                        const endMonthIdx = e.end_month ? monthAbbr.indexOf(String(e.end_month).toLowerCase().slice(0, 3)) : -1;
+                        const s = startYear ? startYear * 12 + (startMonthIdx >= 0 ? startMonthIdx + 1 : 1) : null;
+                        const en = endYear ? endYear * 12 + (endMonthIdx >= 0 ? endMonthIdx + 1 : 6) : null;
                         if (s && en && en > s) spans.push({ startVal: s, endVal: en, type: 'edu', tooltip: `Education: ${e.degree}${e.field ? " in " + e.field : ""} · ${e.institution}` });
                       });
                       workExp.forEach(exp => {
@@ -10816,33 +10822,95 @@ function ArticleEditorPage() {
     setArticleImagePreview("");
   };
 
+  const [postType, setPostType] = useState<"article" | "blog">("article");
+  const isPremiumOrOrgAdmin = Boolean(
+    recruiterProfile?.is_org_admin ||
+    recruiterProfile?.org_role === "admin" ||
+    (recruiterProfile?.plan_id && recruiterProfile.plan_id !== "free")
+  );
+
   const publishArticleDraft = async () => {
     if (!recruiterProfile?.id) return;
+    setArticleError("");
+
     const title = articleDraft.title.trim();
+    const summary = articleDraft.summary.trim();
     const content = articleDraft.content.trim();
-    if (!title || !content) return;
+    const coverImage = articleImagePreview.trim();
+
+    if (!title) {
+      setArticleError("Please enter a title.");
+      return;
+    }
+    if (!summary) {
+      setArticleError("Please enter a short summary.");
+      return;
+    }
+    if (!coverImage) {
+      setArticleError("Cover image is required. Please upload an image from your device.");
+      return;
+    }
+    if (!content) {
+      setArticleError("Please write the main content before publishing.");
+      return;
+    }
 
     const readTime = Math.max(1, Math.ceil(content.split(/\s+/).length / 180));
-    const articlePayload = {
-      recruiter_id: recruiterProfile.id,
-      title,
-      category: articleDraft.category,
-      summary: articleDraft.summary.trim(),
-      key_takeaway: articleDraft.keyTakeaway.trim(),
-      content,
-      cover_image_name: articleDraft.imageName,
-      cover_image_url: articleImagePreview,
-      read_time: readTime,
-      status: "Published",
-    };
+    
+    if (postType === "blog" && isPremiumOrOrgAdmin) {
+      const blogPayload = {
+        author_id: user?.id || null,
+        author_name: recruiterProfile.recruiter_name || recruiterProfile.company_name || "Recruiter",
+        title,
+        category: articleDraft.category,
+        summary: articleDraft.summary.trim(),
+        key_takeaway: articleDraft.keyTakeaway.trim(),
+        content,
+        cover_image_name: articleDraft.imageName,
+        cover_image_url: articleImagePreview,
+        read_time: readTime,
+        status: "Published",
+        published_at: new Date().toISOString(),
+        updated_at: new Date().toISOString(),
+      };
 
-    const { error } = articleId
-      ? await supabase.from("recruiter_articles").update(articlePayload).eq("id", articleId)
-      : await supabase.from("recruiter_articles").insert(articlePayload);
+      let res = articleId
+        ? await supabase.from("blogs").update(blogPayload).eq("id", articleId)
+        : await supabase.from("blogs").insert(blogPayload);
 
-    if (error) {
-      setArticleError(error.message);
-      return;
+      if (res.error && (res.error.code === "23503" || res.error.message?.includes("foreign key constraint"))) {
+        res = articleId
+          ? await supabase.from("blogs").update({ ...blogPayload, author_id: null }).eq("id", articleId)
+          : await supabase.from("blogs").insert({ ...blogPayload, author_id: null });
+      }
+
+      if (res.error) {
+        setArticleError(res.error.message);
+        return;
+      }
+    } else {
+      const articlePayload = {
+        recruiter_id: recruiterProfile.id,
+        title,
+        category: articleDraft.category,
+        summary: articleDraft.summary.trim(),
+        key_takeaway: articleDraft.keyTakeaway.trim(),
+        content,
+        cover_image_name: articleDraft.imageName,
+        cover_image_url: articleImagePreview,
+        read_time: readTime,
+        status: "Published",
+        published_at: new Date().toISOString(),
+      };
+
+      const { error } = articleId
+        ? await supabase.from("recruiter_articles").update(articlePayload).eq("id", articleId)
+        : await supabase.from("recruiter_articles").insert(articlePayload);
+
+      if (error) {
+        setArticleError(error.message);
+        return;
+      }
     }
 
     navigate("/recruiter/dashboard/analytics");

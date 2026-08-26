@@ -3,6 +3,7 @@ import { FileText, Loader2, AlertCircle, CheckCircle, Download, Eye, Layout, Che
 import { Button } from "./ui/button";
 import html2canvas from "html2canvas-pro";
 import { jsPDF } from "jspdf";
+import { formatMonthYear, formatYearMonthString } from "../../lib/monthYear";
 
 // ── Types ────────────────────────────────────────────────────────────────────────
 export interface BasicInfo {
@@ -33,7 +34,9 @@ export interface Education {
   degree: string;
   field: string;
   college: string;
+  startMonth: string;
   startYear: string;
+  endMonth: string;
   endYear: string;
   score: string;
 }
@@ -42,7 +45,9 @@ export interface Project {
   id: number | string;
   name: string;
   url: string;
+  startMonth: string;
   startYear: string;
+  endMonth: string;
   endYear: string;
   description: string;
 }
@@ -295,7 +300,7 @@ export function buildResumeHTML(
       <div style="margin-bottom:10px;">
         <div style="display:flex;justify-content:space-between;align-items:baseline;margin-bottom:2px;">
           <span style="font-weight:700;color:#111;font-size:12px;">${p.name}</span>
-          ${p.startYear ? `<span style="color:#555;font-size:11px;font-weight:600;">${p.startYear} – ${p.endYear || "Present"}</span>` : ""}
+          ${p.startYear ? `<span style="color:#555;font-size:11px;font-weight:600;">${formatMonthYear(p.startMonth, p.startYear)} – ${p.endYear ? formatMonthYear(p.endMonth, p.endYear) : "Present"}</span>` : ""}
         </div>
         ${p.description ? `<p style="margin:0;color:#444;font-size:11px;line-height:1.4;">${p.description}</p>` : ""}
       </div>
@@ -328,7 +333,7 @@ export function buildResumeHTML(
     };
 
     const educationHTML = education.map(edu => {
-      const yearRange = `${edu.startYear} – ${edu.endYear}`;
+      const yearRange = `${formatMonthYear(edu.startMonth, edu.startYear)} – ${formatMonthYear(edu.endMonth, edu.endYear)}`;
       return `
         <div style="margin-bottom:10px;">
           <div style="display:flex;justify-content:space-between;align-items:baseline;margin-bottom:2px;">
@@ -466,7 +471,7 @@ export function buildResumeHTML(
     }).join("");
 
     const educationHTML = education.map(edu => {
-      const yearRange = `${edu.startYear} – ${edu.endYear}`;
+      const yearRange = `${formatMonthYear(edu.startMonth, edu.startYear)} – ${formatMonthYear(edu.endMonth, edu.endYear)}`;
       return `
         <div style="position:relative;padding-left:24px;margin-bottom:12px;box-sizing:border-box;">
           <!-- Node dot -->
@@ -502,7 +507,7 @@ export function buildResumeHTML(
                 <div style="position:absolute;left:-4px;top:4px;width:10px;height:10px;border-radius:50%;background:#0d3b66;border:2px solid #fff;z-index:2;"></div>
                 <p style="margin:0 0 2px;font-weight:700;color:#111;font-size:11.5px;display:flex;justify-content:space-between;flex-wrap:wrap;box-sizing:border-box;">
                   <span>${p.name}</span>
-                  ${p.startYear ? `<span style="color:#666;font-weight:500;font-size:10.5px;">${p.startYear} – ${p.endYear || "Present"}</span>` : ""}
+                  ${p.startYear ? `<span style="color:#666;font-weight:500;font-size:10.5px;">${formatMonthYear(p.startMonth, p.startYear)} – ${p.endYear ? formatMonthYear(p.endMonth, p.endYear) : "Present"}</span>` : ""}
                 </p>
                 ${p.description ? `<p style="margin:0;color:#555;font-size:10.5px;line-height:1.4;">${p.description}</p>` : ""}
               </div>
@@ -522,7 +527,7 @@ export function buildResumeHTML(
                 <!-- Node dot -->
                 <div style="position:absolute;left:-4px;top:4px;width:10px;height:10px;border-radius:50%;background:#0d3b66;border:2px solid #fff;z-index:2;"></div>
                 <p style="margin:0;font-weight:700;color:#111;font-size:11.5px;">${c.name}${c.issuer ? ` – ${c.issuer}` : ""}</p>
-                ${c.issueDate ? `<p style="margin:2px 0 0;color:#666;font-size:10px;">Issued: ${c.issueDate}</p>` : ""}
+                ${c.issueDate ? `<p style="margin:2px 0 0;color:#666;font-size:10px;">Issued: ${formatYearMonthString(c.issueDate)}</p>` : ""}
               </div>
             `).join("")}
           </div>
@@ -691,7 +696,7 @@ export function buildResumeHTML(
     }).join("");
 
     const educationHTML = education.map(edu => {
-      const yearRange = `${edu.startYear} – ${edu.endYear}`;
+      const yearRange = `${formatMonthYear(edu.startMonth, edu.startYear)} – ${formatMonthYear(edu.endMonth, edu.endYear)}`;
       return `
         <div style="margin-bottom:10px;box-sizing:border-box;">
           <p style="margin:0 0 2px;font-weight:700;color:#111;font-size:11.5px;">${edu.college}</p>
@@ -722,7 +727,7 @@ export function buildResumeHTML(
             <div style="margin-bottom:8px;">
               <p style="margin:0 0 2px;font-weight:700;color:#111;font-size:11.5px;display:flex;justify-content:space-between;">
                 <span>${p.name}</span>
-                ${p.startYear ? `<span style="color:#666;font-size:10.5px;">${p.startYear}–${p.endYear || "Present"}</span>` : ""}
+                ${p.startYear ? `<span style="color:#666;font-size:10.5px;">${formatMonthYear(p.startMonth, p.startYear)}–${p.endYear ? formatMonthYear(p.endMonth, p.endYear) : "Present"}</span>` : ""}
               </p>
               ${p.description ? `<p style="margin:0;color:#444;font-size:10.5px;line-height:1.4;">${p.description}</p>` : ""}
             </div>
@@ -736,7 +741,7 @@ export function buildResumeHTML(
           ${certs.map(c => `
             <div style="margin-bottom:6px;display:flex;justify-content:space-between;align-items:baseline;">
               <span style="font-weight:700;color:#111;font-size:11.5px;">${c.name}</span>
-              ${c.issueDate ? `<span style="color:#666;font-size:10px;">${c.issueDate}</span>` : ""}
+              ${c.issueDate ? `<span style="color:#666;font-size:10px;">${formatYearMonthString(c.issueDate)}</span>` : ""}
             </div>
           `).join("")}
         </div>`
@@ -873,7 +878,7 @@ export function buildResumeHTML(
     }).join("");
 
     const educationHTML = education.map(edu => {
-      const yearRange = `${edu.startYear} – ${edu.endYear}`;
+      const yearRange = `${formatMonthYear(edu.startMonth, edu.startYear)} – ${formatMonthYear(edu.endMonth, edu.endYear)}`;
       return `
         <div style="margin-bottom:10px;box-sizing:border-box;">
           <p style="margin:0;font-weight:700;color:#111;font-size:11.5px;display:flex;justify-content:space-between;align-items:baseline;">
@@ -902,7 +907,7 @@ export function buildResumeHTML(
             <div style="margin-bottom:8px;">
               <p style="margin:0 0 2px;font-weight:700;color:#111;font-size:11.5px;display:flex;justify-content:space-between;">
                 <span>${p.name}</span>
-                ${p.startYear ? `<span style="color:#666;font-size:10.5px;">${p.startYear}–${p.endYear || "Present"}</span>` : ""}
+                ${p.startYear ? `<span style="color:#666;font-size:10.5px;">${formatMonthYear(p.startMonth, p.startYear)}–${p.endYear ? formatMonthYear(p.endMonth, p.endYear) : "Present"}</span>` : ""}
               </p>
               ${p.description ? `<p style="margin:0;color:#444;font-size:10.5px;line-height:1.4;">${p.description}</p>` : ""}
             </div>
@@ -916,7 +921,7 @@ export function buildResumeHTML(
           ${certs.map(c => `
             <div style="margin-bottom:6px;display:flex;justify-content:space-between;align-items:baseline;">
               <span style="font-weight:700;color:#111;font-size:11.5px;">${c.name}</span>
-              ${c.issueDate ? `<span style="color:#666;font-size:10px;">${c.issueDate}</span>` : ""}
+              ${c.issueDate ? `<span style="color:#666;font-size:10px;">${formatYearMonthString(c.issueDate)}</span>` : ""}
             </div>
           `).join("")}
         </div>`
@@ -1086,7 +1091,7 @@ export function buildResumeHTML(
   }).join("");
 
   const educationHTML = education.map(edu => {
-    const yearRange = `${edu.startYear} – ${edu.endYear}`;
+    const yearRange = `${formatMonthYear(edu.startMonth, edu.startYear)} – ${formatMonthYear(edu.endMonth, edu.endYear)}`;
     const details: string[] = [];
     if (edu.field) details.push(edu.field);
     if (edu.score) details.push(`Score: ${edu.score}`);
@@ -1121,7 +1126,7 @@ export function buildResumeHTML(
           <div style="margin-bottom:8px;">
             <div style="display:flex;justify-content:between;align-items:baseline;margin-bottom:2px;">
               <span style="font-weight:700;color:#111;font-size:12px;flex:1;">${p.name}</span>
-              ${p.startYear ? `<span style="color:#555;font-size:11px;font-weight:500;white-space:nowrap;">${p.startYear} – ${p.endYear || "Present"}</span>` : ""}
+              ${p.startYear ? `<span style="color:#555;font-size:11px;font-weight:500;white-space:nowrap;">${formatMonthYear(p.startMonth, p.startYear)} – ${p.endYear ? formatMonthYear(p.endMonth, p.endYear) : "Present"}</span>` : ""}
             </div>
             ${p.description ? `<p style="margin:0;color:#444;font-size:11px;line-height:1.4;">${p.description}</p>` : ""}
           </div>
@@ -1135,7 +1140,7 @@ export function buildResumeHTML(
         ${certs.map(c => `
           <div style="margin-bottom:6px;display:flex;justify-content:between;align-items:baseline;">
             <span style="font-weight:700;color:#111;font-size:11.5px;flex:1;">${c.name}${c.issuer ? ` – ${c.issuer}` : ""}</span>
-            ${c.issueDate ? `<span style="color:#666;font-size:10px;font-weight:500;white-space:nowrap;">Issued: ${c.issueDate}</span>` : ""}
+            ${c.issueDate ? `<span style="color:#666;font-size:10px;font-weight:500;white-space:nowrap;">Issued: ${formatYearMonthString(c.issueDate)}</span>` : ""}
           </div>
         `).join("")}
       </div>`

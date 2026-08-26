@@ -9,7 +9,7 @@ import {
   Clock, ArrowLeft, LogOut, Shield, RefreshCw, Send,
   LayoutGrid, TrendingUp, CreditCard, Download, ArrowRight,
   BookOpen, Edit3, Trash2, Eye, EyeOff, Tag, Image as ImageIcon,
-  Search, Filter, ExternalLink, FileText,
+  Search, Filter, ExternalLink, FileText, Upload,
 } from "lucide-react";
 import { Button } from "../components/ui/button";
 import { Input } from "../components/ui/input";
@@ -137,6 +137,7 @@ const stripHtmlTags = (input: string): string => input.replace(/<[^>]*>/g, "");
 const sanitizeUrl = (url: string): string | null => {
   const trimmed = url.trim();
   if (!trimmed) return null;
+  if (trimmed.startsWith("data:image/")) return trimmed;
   try {
     const parsed = new URL(trimmed);
     return ["http:", "https:"].includes(parsed.protocol) ? trimmed : null;
@@ -189,6 +190,7 @@ export default function OrgAdminPanel() {
   const [blogCategory, setBlogCategory] = useState(DEFAULT_BLOG_CATEGORY);
   const [blogTags, setBlogTags] = useState("");
   const [blogCoverUrl, setBlogCoverUrl] = useState("");
+  const [blogCoverName, setBlogCoverName] = useState("");
   const [blogSummary, setBlogSummary] = useState("");
   const [blogContent, setBlogContent] = useState("");
   const [blogStatus, setBlogStatus] = useState<"Published" | "Draft">("Published");
@@ -398,13 +400,44 @@ export default function OrgAdminPanel() {
       }));
       setTeamApps(mappedApps);
 
-      // Fetch org-scoped blogs
+      // Fetch org-scoped blogs from the `blogs` table (exclude platform / Super Admin seed blogs)
       const { data: blogsData } = await supabase
-        .from("recruiter_articles")
+        .from("blogs")
         .select("*")
-        .in("recruiter_id", allIds)
         .order("created_at", { ascending: false });
-      setTeamBlogs((blogsData || []) as RecruiterArticle[]);
+
+      const SEED_OR_PLATFORM_TITLES = new Set([
+        "building a strong employer brand for better hiring",
+        "why remote work continues to grow in 2026",
+        "top interview mistakes candidates should avoid",
+        "how companies are adapting to hiring challenges",
+        "how to make your resume stand out in 2026",
+        "10 proven strategies to attract and hire top software engineers",
+        "5 interview tips every job seeker should know",
+        "how to build a strong employer brand to attract top talent",
+      ]);
+
+      const orgBlogs = ((blogsData || []) as any[]).filter((blog) => {
+        const cleanTitle = (blog.title || "").trim().toLowerCase();
+        if (SEED_OR_PLATFORM_TITLES.has(cleanTitle)) return false;
+        if (blog.author_name === "RhirePro Editorial") return false;
+
+        if (blog.author_id && allIds.includes(blog.author_id)) return true;
+        if (blog.org_id && (blog.org_id === recruiterProfile?.org_id || blog.org_id === recruiterProfile?.id || blog.org_id === user.id)) return true;
+        
+        // Fallback for blogs created by this org admin when author_id is null
+        if (blog.author_name && recruiterProfile && (
+          blog.author_name === recruiterProfile.recruiter_name ||
+          blog.author_name === recruiterProfile.company_name ||
+          blog.author_name === "Org Admin"
+        )) {
+          return true;
+        }
+
+        return false;
+      });
+
+      setTeamBlogs(orgBlogs);
 
       // Cache the loaded data
       orgCache = {
@@ -427,6 +460,7 @@ export default function OrgAdminPanel() {
     setBlogCategory(DEFAULT_BLOG_CATEGORY);
     setBlogTags("");
     setBlogCoverUrl("");
+    setBlogCoverName("");
     setBlogSummary("");
     setBlogContent("");
     setBlogStatus("Published");
@@ -440,6 +474,7 @@ export default function OrgAdminPanel() {
     setBlogCategory(blog.category || DEFAULT_BLOG_CATEGORY);
     setBlogTags(Array.isArray(blog.tags) ? blog.tags.join(", ") : "");
     setBlogCoverUrl(blog.cover_image_url || "");
+    setBlogCoverName(blog.cover_image_name || (blog.cover_image_url ? "Cover image" : ""));
     setBlogSummary(blog.summary || "");
     setBlogContent(blog.content || "");
     setBlogStatus(blog.status || "Published");
@@ -447,9 +482,35 @@ export default function OrgAdminPanel() {
     setBlogModalOpen(true);
   };
 
+  const handleBlogImageUpload = (event: React.ChangeEvent<HTMLInputElement>) => {
+    const file = event.target.files?.[0];
+    if (!file) return;
+
+    setBlogCoverName(file.name);
+    const reader = new FileReader();
+    reader.onload = () => {
+      setBlogCoverUrl(typeof reader.result === "string" ? reader.result : "");
+    };
+    reader.readAsDataURL(file);
+    event.currentTarget.value = "";
+  };
+
+  const handleRemoveBlogCoverImage = () => {
+    setBlogCoverUrl("");
+    setBlogCoverName("");
+  };
+
   const handleSaveBlog = useCallback(async () => {
     if (!blogTitle.trim()) {
       setBlogError("Blog title is required.");
+      return;
+    }
+    if (!blogSummary.trim()) {
+      setBlogError("Blog summary is required.");
+      return;
+    }
+    if (!blogCoverUrl.trim()) {
+      setBlogError("Cover image is required. Please upload an image from your device.");
       return;
     }
     if (!blogContent.trim()) {
@@ -475,60 +536,44 @@ export default function OrgAdminPanel() {
 
       let error: any = null;
 
-      // 1. Try full payload with org_id and tags
-      const fullPayload: Record<string, any> = {
+      const blogPayload: Record<string, any> = {
         title: sanitizedTitle,
         category: blogCategory,
         tags: tagsArray,
         summary: sanitizedSummary,
         content: sanitizedContent,
         cover_image_url: sanitizedCoverUrl,
+        cover_image_name: blogCoverName || null,
         status: blogStatus,
         read_time: calcReadTime,
-        recruiter_id: user?.id,
-        org_id: recruiterProfile?.org_id ?? user?.id,
+        author_id: user?.id || null,
+        author_name: recruiterProfile?.company_name || recruiterProfile?.recruiter_name || "Org Admin",
         published_at: blogStatus === "Published" ? new Date().toISOString() : null,
+        updated_at: new Date().toISOString(),
       };
 
       if (editingBlog) {
-        const res = await supabase
-          .from("recruiter_articles")
-          .update(fullPayload)
+        let res = await supabase
+          .from("blogs")
+          .update(blogPayload)
           .eq("id", editingBlog.id);
+        if (res.error && (res.error.code === "23503" || res.error.message?.includes("foreign key constraint"))) {
+          res = await supabase
+            .from("blogs")
+            .update({ ...blogPayload, author_id: null })
+            .eq("id", editingBlog.id);
+        }
         error = res.error;
       } else {
-        const res = await supabase
-          .from("recruiter_articles")
-          .insert([fullPayload]);
-        error = res.error;
-      }
-
-      // 2. If schema cache error for org_id or tags, fallback to baseline table fields
-      if (error && (error.message?.includes("org_id") || error.message?.includes("tags") || error.message?.includes("schema cache"))) {
-        const fallbackPayload: Record<string, any> = {
-          title: sanitizedTitle,
-          category: blogCategory,
-          summary: sanitizedSummary || (tagsArray.length > 0 ? `Tags: ${tagsArray.join(", ")}` : null),
-          content: sanitizedContent,
-          cover_image_url: sanitizedCoverUrl,
-          status: blogStatus,
-          read_time: calcReadTime,
-          recruiter_id: user?.id,
-          published_at: blogStatus === "Published" ? new Date().toISOString() : null,
-        };
-
-        if (editingBlog) {
-          const res = await supabase
-            .from("recruiter_articles")
-            .update(fallbackPayload)
-            .eq("id", editingBlog.id);
-          error = res.error;
-        } else {
-          const res = await supabase
-            .from("recruiter_articles")
-            .insert([fallbackPayload]);
-          error = res.error;
+        let res = await supabase
+          .from("blogs")
+          .insert([blogPayload]);
+        if (res.error && (res.error.code === "23503" || res.error.message?.includes("foreign key constraint"))) {
+          res = await supabase
+            .from("blogs")
+            .insert([{ ...blogPayload, author_id: null }]);
         }
+        error = res.error;
       }
 
       if (error) throw error;
@@ -540,16 +585,17 @@ export default function OrgAdminPanel() {
     } finally {
       setBlogSaving(false);
     }
-  }, [blogTitle, blogContent, blogTags, blogCategory, blogSummary, blogCoverUrl, blogStatus, user?.id, recruiterProfile?.org_id, editingBlog, loadData]);
+  }, [blogTitle, blogContent, blogTags, blogCategory, blogSummary, blogCoverUrl, blogStatus, user?.id, recruiterProfile?.recruiter_name, recruiterProfile?.company_name, editingBlog, loadData]);
 
   const handleTogglePublishStatus = useCallback(async (blog: RecruiterArticle) => {
     const newStatus = blog.status === "Published" ? "Draft" : "Published";
     try {
       await supabase
-        .from("recruiter_articles")
+        .from("blogs")
         .update({
           status: newStatus,
           published_at: newStatus === "Published" ? new Date().toISOString() : blog.published_at,
+          updated_at: new Date().toISOString(),
         })
         .eq("id", blog.id);
 
@@ -561,7 +607,7 @@ export default function OrgAdminPanel() {
 
   const handleDeleteBlog = useCallback(async (blogId: string) => {
     try {
-      await supabase.from("recruiter_articles").delete().eq("id", blogId);
+      await supabase.from("blogs").delete().eq("id", blogId);
       setDeleteBlogId(null);
       await loadData(true);
     } catch (err) {
@@ -1956,20 +2002,37 @@ export default function OrgAdminPanel() {
 
             <div>
               <label className="text-xs font-semibold text-[#3A1F1F] block mb-1">
-                Cover Image URL <span className="text-[#8A8A8A] font-normal">(optional)</span>
+                Cover Image <span className="text-red-500">*</span>
               </label>
-              <Input
-                type="text"
-                value={blogCoverUrl}
-                onChange={e => setBlogCoverUrl(e.target.value)}
-                placeholder="https://images.unsplash.com/..."
-                className="rounded-xl bg-[#F6F6F6] border-gray-200 text-xs"
-              />
+              <label className="aspect-video max-h-[160px] w-full rounded-xl bg-[#F6F6F6] border border-dashed border-gray-300 flex items-center justify-center cursor-pointer hover:bg-red-50 hover:border-red-200 overflow-hidden relative transition-colors">
+                {blogCoverUrl ? (
+                  <img src={blogCoverUrl} alt="Blog cover preview" className="w-full h-full object-cover rounded-xl" />
+                ) : (
+                  <div className="text-center px-4 py-6">
+                    <Upload className="h-7 w-7 text-[#FF2B2B] mx-auto mb-1.5" />
+                    <p className="text-xs text-[#8A8A8A]">Upload cover image from device</p>
+                    <p className="text-[10px] text-[#A0A0A0] mt-0.5">PNG, JPG, WEBP up to 5MB</p>
+                  </div>
+                )}
+                <input type="file" accept="image/*" className="hidden" onChange={handleBlogImageUpload} />
+              </label>
+              {(blogCoverUrl || blogCoverName) && (
+                <div className="flex items-center justify-between gap-2 mt-2">
+                  <p className="text-xs text-[#8A8A8A] truncate">{blogCoverName || "Cover image"}</p>
+                  <button
+                    type="button"
+                    onClick={handleRemoveBlogCoverImage}
+                    className="text-xs font-medium text-[#FF2B2B] hover:underline flex-shrink-0"
+                  >
+                    Remove
+                  </button>
+                </div>
+              )}
             </div>
 
             <div>
               <label className="text-xs font-semibold text-[#3A1F1F] block mb-1">
-                Short Summary / Excerpt <span className="text-[#8A8A8A] font-normal">(optional)</span>
+                Short Summary / Excerpt <span className="text-red-500">*</span>
               </label>
               <textarea
                 rows={2}

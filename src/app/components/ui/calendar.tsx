@@ -27,7 +27,7 @@ function Calendar({
             : "text-sm font-medium",
         caption_dropdowns: "flex items-center gap-1.5",
         dropdown:
-          "appearance-none bg-background border border-input rounded-md text-sm font-medium px-2 py-1 cursor-pointer focus:outline-none focus:ring-1 focus:ring-ring hover:bg-accent",
+          "appearance-none bg-background border border-input rounded-md text-sm font-medium px-2 py-1 cursor-pointer focus:outline-none focus:ring-1 focus:ring-ring",
         dropdown_month: "relative",
         dropdown_year: "relative",
         dropdown_icon: "hidden",
