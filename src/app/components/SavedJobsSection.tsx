@@ -17,6 +17,7 @@ import { getAppliedJobs, getSavedJobs, removeSavedJob, SavedJobWithJob } from ".
 import { formatJobSalary, isJobVisibleToSeekers } from "../../lib/jobs";
 import { supabase, Job } from "../../lib/supabase";
 import { useAuth } from "../../lib/auth-context";
+import ProfileCompletionModal, { checkApplicationRequirements } from "./ProfileCompletionModal";
 
 const JOBS_PER_PAGE = 12;
 const MAX_COMPARE_JOBS = 3;
@@ -96,10 +97,21 @@ export default function SavedJobsSection({
   const [currentPage, setCurrentPage] = useState(1);
   const [compareJobIds, setCompareJobIds] = useState<string[]>([]);
   const [compareError, setCompareError] = useState("");
+  const [profileCompletionModalOpen, setProfileCompletionModalOpen] = useState(false);
+  const [pendingApplyJobTitle, setPendingApplyJobTitle] = useState("");
 
   async function handleApplyDirectly(job: Job) {
     const currentUserId = userId || profile?.id;
     if (!currentUserId || !job?.id) return;
+
+    // Validate 3 mandatory fields: Professional Summary, Resume Upload, Preferred Job Settings
+    const reqStatus = checkApplicationRequirements(profile);
+    if (!reqStatus.isComplete) {
+      setPendingApplyJobTitle(job.title || "this job");
+      setProfileCompletionModalOpen(true);
+      return;
+    }
+
     const jobIdStr = String(job.id);
     setApplyingId(jobIdStr);
     try {
@@ -507,6 +519,14 @@ export default function SavedJobsSection({
           </Pagination>
         </div>
       )}
+
+      <ProfileCompletionModal
+        isOpen={profileCompletionModalOpen}
+        onClose={() => setProfileCompletionModalOpen(false)}
+        profile={profile}
+        jobTitle={pendingApplyJobTitle}
+        onNavigateToProfile={() => navigate("/jobseeker/dashboard/profile")}
+      />
     </div>
   );
 }

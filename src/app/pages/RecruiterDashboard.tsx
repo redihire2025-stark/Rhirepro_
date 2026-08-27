@@ -5828,7 +5828,10 @@ function SearchCandidatesPage() {
     // missing GRANT on recruiter_search_keywords, since fixed) as silent
     // per-device data loss instead of a visible one.
     if (activeKeywords.trim() && recruiterProfile?.id) {
-      const tokens = activeKeywords.trim().toLowerCase().split(/\s+/).filter(Boolean);
+      const BOOLEAN_OPERATORS = new Set(["and", "or", "not"]);
+      const tokens = activeKeywords.trim().toLowerCase().split(/\s+/)
+        .filter(Boolean)
+        .filter(token => !BOOLEAN_OPERATORS.has(token));
       if (tokens.length > 0) {
         void supabase.rpc("log_recruiter_keywords", { p_recruiter_id: recruiterProfile.id, p_keywords: tokens })
           .then(({ error: kErr }) => {

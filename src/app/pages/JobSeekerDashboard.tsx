@@ -23,6 +23,7 @@ import AppliedJobsSection from "../components/AppliedJobsSection";
 import { DeleteAccountCard } from "../components/DeleteAccountCard";
 import { SupportTicketDialog } from "../components/SupportTicketDialog";
 import ResumePreviewDialog, { getStorageObjectFromUrl, buildPreviewUrl } from "../components/ResumePreviewDialog";
+import ProfileCompletionModal, { checkApplicationRequirements } from "../components/ProfileCompletionModal";
 import {
   Bell, LogOut, Search, MapPin, DollarSign, Briefcase, Filter, Bookmark,
   User, BarChart3, Lightbulb, Upload, Plus, X, Pencil, Trash2,
@@ -701,7 +702,6 @@ const POPULAR_PREFERRED_LOCATIONS = [
 ];
 
 const EXPECTED_SALARY_LPA_OPTIONS = [
-  "Less than 3 LPA",
   "3 LPA",
   "4 LPA",
   "5 LPA",
@@ -893,6 +893,7 @@ interface ProfileScoreFields {
   about?: string | null;
   skills?: string[] | null;
   resume_url?: string | null;
+  desired_job_title?: string | null;
   expected_salary?: string | null;
   notice_period?: string | null;
   experience_type?: "fresher" | "experienced" | null;
@@ -915,14 +916,15 @@ export function calculateProfileCompletionScore(
   if ((profile.about || "").trim().length > 20) score += 10;
   score += Math.min(10, Math.round(((profile.skills?.length || 0) / 3) * 10));
   // A fresher has declared they have no work history, so withholding these points
-  // would keep them permanently under 100 and bounce them to the profile page on
+  // would keep them permanently under 80 and bounce them to the profile page on
   // every fresh login.
   if (counts.workExperience > 0 || profile.experience_type === "fresher") score += 20;
   if (counts.education > 0) score += 15;
   if (counts.projects > 0) score += 5;
   if (counts.certifications > 0) score += 5;
   if (profile.resume_url) score += 10;
-  score += Math.round(([profile.expected_salary, profile.notice_period].filter(Boolean).length / 2) * 10);
+  const prefFields = [profile.desired_job_title, profile.expected_salary, profile.notice_period];
+  score += Math.round((prefFields.filter(Boolean).length / 3) * 10);
   return Math.min(100, Math.max(0, score));
 }
 
@@ -955,19 +957,10 @@ export default function JobSeekerDashboard() {
       : location.pathname.includes("/insights") ? "insights"
         : "find-job";
 
-  // On root dashboard path: check profile completion on initial login/session start only.
-  // Uses session storage so subsequent page reloads stay on the current page.
+  // On root dashboard path: check profile completion on initial login/session start.
   const completionCheckRef = useRef(false);
   const isRootPath = location.pathname === "/jobseeker/dashboard" || location.pathname === "/jobseeker/dashboard/";
-  const [checkingCompletion, setCheckingCompletion] = useState(() => {
-    if (!isRootPath) return false;
-    try {
-      if (!user?.id) return true;
-      return !window.sessionStorage.getItem(`jobseeker_initial_check_done_${user.id}`);
-    } catch {
-      return false;
-    }
-  });
+  const [checkingCompletion, setCheckingCompletion] = useState(isRootPath);
 
   // Safety fallback: ensure dashboard loading screen never hangs indefinitely
   useEffect(() => {
@@ -988,32 +981,17 @@ export default function JobSeekerDashboard() {
       return;
     }
 
-    if (completionCheckRef.current) return;
-    completionCheckRef.current = true;
-
-    const sessionKey = `jobseeker_initial_check_done_${user.id}`;
-    const alreadyChecked = (() => {
-      try {
-        return window.sessionStorage.getItem(sessionKey) === "true";
-      } catch {
-        return false;
-      }
-    })();
-
-    if (!isRootPath || alreadyChecked) {
+    if (!isRootPath) {
       setCheckingCompletion(false);
       return;
     }
 
+    if (completionCheckRef.current) return;
+    completionCheckRef.current = true;
+
     const pid = profile.id;
     (async () => {
       try {
-        try {
-          window.sessionStorage.setItem(sessionKey, "true");
-        } catch {
-          // ignore storage errors
-        }
-
         const [expRes, eduRes, projRes, certRes] = await Promise.all([
           supabase.from("work_experience").select("id", { count: "exact", head: true }).eq("profile_id", pid),
           supabase.from("education").select("id", { count: "exact", head: true }).eq("profile_id", pid),
@@ -1029,7 +1007,9 @@ export default function JobSeekerDashboard() {
           certifications: certRes.count || 0,
         });
 
-        if (score < 100) {
+        // If profile completion is below 80%, navigate to View Profile on login.
+        // Once 80% or above is reached, user lands directly on Find a Job.
+        if (score < 80) {
           navigate("/jobseeker/dashboard/profile", { replace: true });
         }
       } catch (err) {
@@ -1038,7 +1018,6 @@ export default function JobSeekerDashboard() {
         if (!isCancelled) {
           setCheckingCompletion(false);
         }
-
       }
     })();
 
@@ -1663,6 +1642,8 @@ function FindJobPage() {
   const [jobsLoading, setJobsLoading] = useState(true);
   const [jobsError, setJobsError] = useState("");
   const [appliedJobIds, setAppliedJobIds] = useState<string[]>([]);
+  const [profileCompletionModalOpen, setProfileCompletionModalOpen] = useState(false);
+  const [pendingApplyJobTitle, setPendingApplyJobTitle] = useState("");
   const [savedJobIds, setSavedJobIds] = useState<string[]>([]);
   const [applyingId, setApplyingId] = useState<string | null>(null);
   const [selectedJob, setSelectedJob] = useState<DashboardDisplayJob | null>(null);
@@ -2397,6 +2378,15 @@ function FindJobPage() {
     if (!userId) return;
     if (appliedJobIds.includes(job.id)) return;
     if (!isJobVisibleToSeekers(job)) return;
+
+    // Validate 3 mandatory fields: Professional Summary, Resume Upload, Preferred Job Settings
+    const reqStatus = checkApplicationRequirements(profile);
+    if (!reqStatus.isComplete) {
+      setPendingApplyJobTitle(job.title || "this job");
+      setProfileCompletionModalOpen(true);
+      return;
+    }
+
     // Applying without opening the panel is possible straight from a card, and
     // an application with no view behind it makes the funnel nonsensical.
     countJobView(job.id);
@@ -3193,6 +3183,14 @@ function FindJobPage() {
           )}
         </div>
       </div>
+
+      <ProfileCompletionModal
+        isOpen={profileCompletionModalOpen}
+        onClose={() => setProfileCompletionModalOpen(false)}
+        profile={profile}
+        jobTitle={pendingApplyJobTitle}
+        onNavigateToProfile={() => navigate("/jobseeker/dashboard/profile")}
+      />
     </div>
   );
 }
@@ -3209,6 +3207,7 @@ function ProfilePage({ onPendingPrefsChange }: { onPendingPrefsChange?: (pending
   const [profilePic, setProfilePic] = useState<string | null>(null);
   const [editingBasic, setEditingBasic] = useState(false);
   const [basicForm, setBasicForm] = useState({ ...basicInfo });
+  const [basicErrors, setBasicErrors] = useState<Record<string, string>>({});
 
   /*
    * Switching dashboard tabs unmounts this form, so anything typed but not yet
@@ -3243,12 +3242,22 @@ function ProfilePage({ onPendingPrefsChange }: { onPendingPrefsChange?: (pending
    * time a column changed.
    */
   async function saveBasicInfo(): Promise<boolean> {
-    // Input already strips non-digits and caps at 10 as you type, but that
-    // only stops *too many* — this catches too few before it's saved.
-    if (basicForm.phone && basicForm.phone.length !== 10) {
-      toast.error("Phone number must be exactly 10 digits.");
+    const errors: Record<string, string> = {};
+    if (!basicForm.name.trim()) errors.name = "Full Name is required.";
+    if (!basicForm.headline.trim()) errors.headline = "Professional Headline is required.";
+    const cleanPhone = basicForm.phone.replace(/\D/g, "");
+    if (!cleanPhone || cleanPhone.length !== 10) errors.phone = "Phone number must be exactly 10 digits.";
+    if (!basicForm.location.trim()) errors.location = "Location is required.";
+    if (!basicForm.dob.trim()) errors.dob = "Date of Birth is required.";
+    if (!basicForm.gender.trim()) errors.gender = "Gender is required.";
+    if (!basicForm.maritalStatus.trim()) errors.maritalStatus = "Marital Status is required.";
+
+    if (Object.keys(errors).length > 0) {
+      setBasicErrors(errors);
       return false;
     }
+    setBasicErrors({});
+
     setBasicInfo(basicForm);
     setEditingBasic(false);
     discardBasicDraft();
@@ -3301,22 +3310,26 @@ function ProfilePage({ onPendingPrefsChange }: { onPendingPrefsChange?: (pending
     const currentLpa = parseSalaryLpa(normalizedPrefs.currentSalary);
     const expectedLpa = parseSalaryLpa(normalizedPrefs.expectedSalary);
     if (currentLpa !== null && expectedLpa !== null && expectedLpa < currentLpa) {
-      toast.error("Invalid salary range", { description: "Expected salary must be equal to or greater than current salary." });
+      toast.error("Expected salary cannot be less than current salary");
+      return false;
+    }
+    if (expectedLpa !== null && expectedLpa < 3) {
+      toast.error("Expected salary must be at least 3 LPA");
       return false;
     }
     setPreferences(normalizedPrefs);
     setEditingPrefs(false);
     if (profile?.id) {
-      const payload: Record<string, any> = {
-        desired_job_title: normalizedPrefs.desiredJobTitle || null,
-        job_type_pref: normalizedPrefs.jobType || null,
-        preferred_location: normalizedPrefs.preferredLocation || null,
-        current_salary: normalizedPrefs.currentSalary || null,
-        expected_salary: normalizedPrefs.expectedSalary || null,
-        notice_period: normalizedPrefs.noticePeriod || null,
-        work_auth: normalizedPrefs.workAuth || null,
-        willing_to_relocate: normalizedPrefs.willingToRelocate || null,
-        preferred_interview_mode: Array.isArray(normalizedPrefs.preferredInterviewMode) && normalizedPrefs.preferredInterviewMode.length > 0 ? normalizedPrefs.preferredInterviewMode : null,
+      const payload: Record<string, unknown> = {
+        desired_job_title: normalizedPrefs.desiredJobTitle,
+        job_type_pref: normalizedPrefs.jobType,
+        preferred_location: normalizedPrefs.preferredLocation,
+        current_salary: normalizedPrefs.currentSalary,
+        expected_salary: normalizedPrefs.expectedSalary,
+        notice_period: normalizedPrefs.noticePeriod,
+        work_auth: normalizedPrefs.workAuth,
+        willing_to_relocate: normalizedPrefs.willingToRelocate,
+        preferred_interview_mode: normalizedPrefs.preferredInterviewMode,
       };
 
       let { error } = await supabase.from("profiles").update(payload).eq("id", profile.id);
@@ -3378,8 +3391,12 @@ function ProfilePage({ onPendingPrefsChange }: { onPendingPrefsChange?: (pending
     const googleFullName = meta.full_name || meta.name || "";
     const googleFirstName = googleFullName ? googleFullName.split(" ")[0] : "";
     const googleLastName = googleFullName ? googleFullName.split(" ").slice(1).join(" ") : "";
-    const firstName = profile?.first_name || meta.first_name || googleFirstName;
-    const lastName = profile?.last_name || meta.last_name || googleLastName;
+    const firstName = profile?.first_name !== undefined && profile?.first_name !== null
+      ? profile.first_name
+      : (meta.first_name || googleFirstName || "");
+    const lastName = profile?.last_name !== undefined && profile?.last_name !== null
+      ? profile.last_name
+      : (meta.last_name || googleLastName || "");
     const info = {
       name: `${firstName} ${lastName}`.trim(),
       headline: profile?.headline || "",
@@ -3625,8 +3642,11 @@ function ProfilePage({ onPendingPrefsChange }: { onPendingPrefsChange?: (pending
   });
   const [editingPrefs, setEditingPrefs] = useState(false);
   const [prefsForm, setPrefsForm] = useState({ ...preferences });
-  // Live salary check as the user picks values, instead of only surfacing the
-  // problem in a toast after they hit Save.
+  const salaryBelowMin = useMemo(() => {
+    const expected = parseSalaryLpa(prefsForm.expectedSalary);
+    return expected !== null && expected < 3;
+  }, [prefsForm.expectedSalary]);
+
   const salaryMismatch = useMemo(() => {
     const current = parseSalaryLpa(prefsForm.currentSalary);
     const expected = parseSalaryLpa(prefsForm.expectedSalary);
@@ -4306,7 +4326,7 @@ function ProfilePage({ onPendingPrefsChange }: { onPendingPrefsChange?: (pending
               <div className="grid md:grid-cols-2 gap-4">
                 {[
                   { label: "Full Name *", key: "name" },
-                  { label: "Professional Headline", key: "headline" },
+                  { label: "Professional Headline *", key: "headline" },
                   { label: "Phone *", key: "phone" },
                   { label: "Email *", key: "email" },
                   { label: "Location *", key: "location" },
@@ -4318,21 +4338,44 @@ function ProfilePage({ onPendingPrefsChange }: { onPendingPrefsChange?: (pending
                       inputMode={key === "phone" ? "numeric" : undefined}
                       maxLength={key === "phone" ? 10 : undefined}
                       value={basicForm[key as keyof typeof basicForm]}
-                      onChange={(e) => setBasicForm(f => ({ ...f, [key]: sanitizeFieldInput(key, e.target.value) }))}
-                      className="bg-[#F6F6F6] border-gray-200 rounded-xl"
+                      onChange={(e) => {
+                        const val = sanitizeFieldInput(key, e.target.value);
+                        setBasicForm(f => ({ ...f, [key]: val }));
+                        if (basicErrors[key]) {
+                          setBasicErrors(errs => {
+                            const copy = { ...errs };
+                            delete copy[key];
+                            return copy;
+                          });
+                        }
+                      }}
+                      className={`bg-[#F6F6F6] border-gray-200 rounded-xl ${
+                        basicErrors[key] || (key === "phone" && basicForm.phone && basicForm.phone.replace(/\D/g, "").length !== 10)
+                          ? "border-red-400 focus-visible:ring-red-400"
+                          : ""
+                      }`}
                     />
+                    {basicErrors[key] ? (
+                      <p className="text-xs text-red-500 mt-1">{basicErrors[key]}</p>
+                    ) : key === "phone" && basicForm.phone && basicForm.phone.replace(/\D/g, "").length !== 10 ? (
+                      <p className="text-xs text-red-500 mt-1">
+                        Phone number must be exactly 10 digits ({basicForm.phone.replace(/\D/g, "").length}/10)
+                      </p>
+                    ) : null}
                   </div>
                 ))}
 
                 <div>
-                  <label className="block text-sm text-[#3A1F1F] mb-1">Date of Birth</label>
+                  <label className="block text-sm text-[#3A1F1F] mb-1">Date of Birth *</label>
                   <Popover open={dobPickerOpen} onOpenChange={setDobPickerOpen}>
                     <PopoverTrigger asChild>
                       <Input
                         value={dobDisplayValue}
                         placeholder="Select Date of Birth"
                         readOnly
-                        className="bg-[#F6F6F6] border-gray-200 rounded-xl cursor-pointer"
+                        className={`bg-[#F6F6F6] border-gray-200 rounded-xl cursor-pointer ${
+                          basicErrors.dob ? "border-red-400 focus-visible:ring-red-400" : ""
+                        }`}
                       />
                     </PopoverTrigger>
                     <PopoverContent align="start" side="bottom" className="p-0 mt-2 w-auto">
@@ -4351,30 +4394,68 @@ function ProfilePage({ onPendingPrefsChange }: { onPendingPrefsChange?: (pending
                             ...form,
                             dob: date ? toIsoDate(date) : "",
                           }));
+                          if (basicErrors.dob) {
+                            setBasicErrors(errs => {
+                              const copy = { ...errs };
+                              delete copy.dob;
+                              return copy;
+                            });
+                          }
                           if (date) setDobPickerOpen(false);
                         }}
                         disabled={{ after: today, before: earliestAllowedDob }}
                       />
                     </PopoverContent>
                   </Popover>
+                  {basicErrors.dob && <p className="text-xs text-red-500 mt-1">{basicErrors.dob}</p>}
                 </div>
                 <div>
-                  <label className="block text-sm text-[#3A1F1F] mb-1">Gender</label>
-                  <Select value={basicForm.gender} onValueChange={(v) => setBasicForm(f => ({ ...f, gender: v }))}>
-                    <SelectTrigger className="bg-[#F6F6F6] border-gray-200 rounded-xl"><SelectValue /></SelectTrigger>
+                  <label className="block text-sm text-[#3A1F1F] mb-1">Gender *</label>
+                  <Select
+                    value={basicForm.gender}
+                    onValueChange={(v) => {
+                      setBasicForm(f => ({ ...f, gender: v }));
+                      if (basicErrors.gender) {
+                        setBasicErrors(errs => {
+                          const copy = { ...errs };
+                          delete copy.gender;
+                          return copy;
+                        });
+                      }
+                    }}
+                  >
+                    <SelectTrigger className={`bg-[#F6F6F6] border-gray-200 rounded-xl ${
+                      basicErrors.gender ? "border-red-400 focus-visible:ring-red-400" : ""
+                    }`}><SelectValue /></SelectTrigger>
                     <SelectContent>
                       {["Male", "Female", "Non-binary", "Prefer not to say"].map(g => <SelectItem key={g} value={g}>{g}</SelectItem>)}
                     </SelectContent>
                   </Select>
+                  {basicErrors.gender && <p className="text-xs text-red-500 mt-1">{basicErrors.gender}</p>}
                 </div>
                 <div>
-                  <label className="block text-sm text-[#3A1F1F] mb-1">Marital Status</label>
-                  <Select value={basicForm.maritalStatus} onValueChange={(v) => setBasicForm(f => ({ ...f, maritalStatus: v }))}>
-                    <SelectTrigger className="bg-[#F6F6F6] border-gray-200 rounded-xl"><SelectValue /></SelectTrigger>
+                  <label className="block text-sm text-[#3A1F1F] mb-1">Marital Status *</label>
+                  <Select
+                    value={basicForm.maritalStatus}
+                    onValueChange={(v) => {
+                      setBasicForm(f => ({ ...f, maritalStatus: v }));
+                      if (basicErrors.maritalStatus) {
+                        setBasicErrors(errs => {
+                          const copy = { ...errs };
+                          delete copy.maritalStatus;
+                          return copy;
+                        });
+                      }
+                    }}
+                  >
+                    <SelectTrigger className={`bg-[#F6F6F6] border-gray-200 rounded-xl ${
+                      basicErrors.maritalStatus ? "border-red-400 focus-visible:ring-red-400" : ""
+                    }`}><SelectValue /></SelectTrigger>
                     <SelectContent>
                       {["Single", "Married", "Divorced", "Widowed"].map(s => <SelectItem key={s} value={s}>{s}</SelectItem>)}
                     </SelectContent>
                   </Select>
+                  {basicErrors.maritalStatus && <p className="text-xs text-red-500 mt-1">{basicErrors.maritalStatus}</p>}
                 </div>
                 <div>
                   <label className="block text-sm text-[#3A1F1F] mb-1">LinkedIn Profile</label>
@@ -5243,11 +5324,15 @@ function ProfilePage({ onPendingPrefsChange }: { onPendingPrefsChange?: (pending
                     placeholder="Select or type expected salary (e.g. 12 LPA)..."
                     options={EXPECTED_SALARY_LPA_OPTIONS}
                   />
-                  {salaryMismatch && (
+                  {salaryMismatch ? (
                     <p className="text-xs text-red-600 mt-1">
                       Expected salary should be equal to or greater than current salary.
                     </p>
-                  )}
+                  ) : salaryBelowMin ? (
+                    <p className="text-xs text-red-600 mt-1">
+                      Expected salary must be at least 3 LPA.
+                    </p>
+                  ) : null}
                 </div>
                 {[
                   { label: "Notice Period", key: "noticePeriod" },
@@ -5777,6 +5862,8 @@ function AnalyticsPage() {
   const [savedJobs, setSavedJobs] = useState<SavedJobWithJob[]>([]);
   const [selectedInterviewJob, setSelectedInterviewJob] = useState<AppliedJobWithJob | null>(null);
   const [selectedOfferJob, setSelectedOfferJob] = useState<AppliedJobWithJob | null>(null);
+  const [profileCompletionModalOpen, setProfileCompletionModalOpen] = useState(false);
+  const [pendingApplyJobTitle, setPendingApplyJobTitle] = useState("");
   /*
    * Applied and Saved both open the same detail panel, and the panel only ever
    * reads .job and .job_id. Typing the state to that shared shape lets either
@@ -5816,6 +5903,15 @@ function AnalyticsPage() {
     const jobIdStr = String(job.id);
     const alreadyApplied = appliedJobs.some(a => String(a.job_id) === jobIdStr || String(a.job?.id) === jobIdStr);
     if (alreadyApplied) return;
+
+    // Validate 3 mandatory fields: Professional Summary, Resume Upload, Preferred Job Settings
+    const reqStatus = checkApplicationRequirements(profile);
+    if (!reqStatus.isComplete) {
+      setPendingApplyJobTitle(job.title || "this job");
+      setProfileCompletionModalOpen(true);
+      return;
+    }
+
     setApplyingId(jobIdStr);
     try {
       const { error: applyErr } = await supabase.from("applications").insert({
@@ -6832,6 +6928,14 @@ function AnalyticsPage() {
           </div>
         </div>
       )}
+
+      <ProfileCompletionModal
+        isOpen={profileCompletionModalOpen}
+        onClose={() => setProfileCompletionModalOpen(false)}
+        profile={profile}
+        jobTitle={pendingApplyJobTitle}
+        onNavigateToProfile={() => navigate("/jobseeker/dashboard/profile")}
+      />
     </div>
   );
 }
