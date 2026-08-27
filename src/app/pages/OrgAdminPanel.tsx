@@ -1,5 +1,6 @@
 import { useState, useEffect, useCallback, useRef, useMemo } from "react";
 import { Link, useNavigate, useParams } from "react-router";
+import { toast } from "sonner";
 import { supabase, type RecruiterArticle } from "../../lib/supabase";
 import { useAuth } from "../../lib/auth-context";
 import logoImage from "../../logo/logo.png";
@@ -22,6 +23,15 @@ import {
   DropdownMenu, DropdownMenuContent, DropdownMenuItem,
   DropdownMenuSeparator, DropdownMenuTrigger,
 } from "../components/ui/dropdown-menu";
+import {
+  Pagination,
+  PaginationContent,
+  PaginationItem,
+  PaginationLink,
+  PaginationPrevious,
+  PaginationNext,
+  PaginationEllipsis,
+} from "../components/ui/pagination";
 
 // ─── Types ───────────────────────────────────────────────────────────────────
 
@@ -178,9 +188,23 @@ export default function OrgAdminPanel() {
   const [inviteError, setInviteError] = useState("");
   const [inviteSuccess, setInviteSuccess] = useState(false);
 
-  // Filters
+  // Filters & Pagination
   const [jobSearch, setJobSearch] = useState("");
   const [appStatusFilter, setAppStatusFilter] = useState("all");
+  const [jobPage, setJobPage] = useState(1);
+  const [appPage, setAppPage] = useState(1);
+  const JOBS_PER_PAGE = 10;
+  const APPS_PER_PAGE = 10;
+
+  // Reset job page when search filter changes
+  useEffect(() => {
+    setJobPage(1);
+  }, [jobSearch]);
+
+  // Reset app page when status filter changes
+  useEffect(() => {
+    setAppPage(1);
+  }, [appStatusFilter]);
 
   // Blog Management State
   const [teamBlogs, setTeamBlogs] = useState<RecruiterArticle[]>([]);
@@ -255,49 +279,84 @@ export default function OrgAdminPanel() {
     }
   }, [memberId, members]);
 
-  // Export recruiter usage data to CSV (Excel compatible)
+  // Export recruiter usage data to CSV (Excel compatible with standard flat tabular layout)
   const exportMemberToExcel = (member: OrgMember, keywords: { keyword: string; created_at: string }[]) => {
-    let csvContent = "\ufeff"; // BOM for UTF-8 compatibility in Excel
-    
-    // Recruiter Profile
-    csvContent += `"RECRUITER PROFILE REPORT"\n`;
-    csvContent += `"Recruiter Name:","${member.recruiter_name || "(No name)"}"\n`;
-    csvContent += `"Email Address:","${member.email}"\n`;
-    csvContent += `"Role in Org:","${member.org_role}"\n`;
-    csvContent += `"Status:","${memberStatusBadge(member).label}"\n`;
-    csvContent += `"Joined Date:","${new Date(member.created_at).toLocaleDateString("en-IN")}"\n`;
-    csvContent += `\n`;
-    
-    // Usage Stats
-    csvContent += `"USAGE STATISTICS"\n`;
-    csvContent += `"Metric","Value"\n`;
-    csvContent += `"Jobs Posted","${member.jobs_count}"\n`;
-    csvContent += `"Profiles Viewed","${member.profiles_viewed || 0}"\n`;
-    csvContent += `"Resumes Downloaded","${member.resumes_used || 0}"\n`;
-    csvContent += `"Total Keywords Searched","${member.keywords_used || 0}"\n`;
-    csvContent += `\n`;
-    
-    // Aggregate Top Keywords
-    csvContent += `"TOP KEYWORDS SEARCHED"\n`;
-    csvContent += `"Keyword","Search Count"\n`;
-    const keywordCounts: Record<string, number> = {};
-    keywords.forEach(k => {
-      const kw = k.keyword.trim().toLowerCase();
-      keywordCounts[kw] = (keywordCounts[kw] || 0) + 1;
-    });
-    const sortedKeywords = Object.entries(keywordCounts).sort((a, b) => b[1] - a[1]);
-    sortedKeywords.forEach(([kw, count]) => {
-      csvContent += `"${kw.replace(/"/g, '""')}","${count}"\n`;
-    });
-    csvContent += `\n`;
-    
-    // Search History Log
-    csvContent += `"SEARCH HISTORY LOG"\n`;
-    csvContent += `"Keyword","Searched At"\n`;
-    keywords.forEach(k => {
-      csvContent += `"${k.keyword.replace(/"/g, '""')}","${new Date(k.created_at).toLocaleString("en-IN")}"\n`;
-    });
-    
+    const clean = (val: string | number | null | undefined) => `"${String(val ?? "").replace(/"/g, '""')}"`;
+
+    const formatDateDMY = (dateInput: string | Date) => {
+      const d = new Date(dateInput);
+      if (isNaN(d.getTime())) return "—";
+      const day = String(d.getDate()).padStart(2, "0");
+      const month = String(d.getMonth() + 1).padStart(2, "0");
+      const year = d.getFullYear();
+      return `${day}-${month}-${year}`;
+    };
+
+    const formatTime = (dateInput: string | Date) => {
+      const d = new Date(dateInput);
+      if (isNaN(d.getTime())) return "—";
+      return d.toLocaleTimeString("en-IN", { hour: "2-digit", minute: "2-digit", hour12: true });
+    };
+
+    const rows: string[] = [];
+
+    // Title header banner
+    const recruiterDisplayName = (member.recruiter_name || member.email).toUpperCase();
+    rows.push([clean(`RECRUITER USAGE & SEARCH ANALYTICS REPORT - ${recruiterDisplayName}`)].join(","));
+
+    // Flat Column Headers (matching standard business Excel reports)
+    rows.push([
+      clean("SL.No."),
+      clean("RECRUITER_NAME"),
+      clean("EMAIL_ADDRESS"),
+      clean("ROLE"),
+      clean("STATUS"),
+      clean("SEARCH_KEYWORD"),
+      clean("SEARCH_DATE"),
+      clean("SEARCH_TIME"),
+      clean("PROFILES_VIEWED"),
+      clean("RESUMES_DOWNLOADED"),
+      clean("JOBS_POSTED"),
+      clean("TOTAL_SEARCHES"),
+    ].join(","));
+
+    if (keywords.length === 0) {
+      // If no search logs, output the member's profile & usage row with placeholder for search keyword
+      rows.push([
+        clean(1),
+        clean(member.recruiter_name || "(No name)"),
+        clean(member.email),
+        clean(member.org_role),
+        clean(memberStatusBadge(member).label),
+        clean("—"),
+        clean(formatDateDMY(member.created_at)),
+        clean("—"),
+        clean(member.profiles_viewed || 0),
+        clean(member.resumes_used || 0),
+        clean(member.jobs_count || 0),
+        clean(member.keywords_used || 0),
+      ].join(","));
+    } else {
+      // Output each search keyword entry as a standard line item
+      keywords.forEach((log, index) => {
+        rows.push([
+          clean(index + 1),
+          clean(member.recruiter_name || "(No name)"),
+          clean(member.email),
+          clean(member.org_role),
+          clean(memberStatusBadge(member).label),
+          clean(log.keyword),
+          clean(formatDateDMY(log.created_at)),
+          clean(formatTime(log.created_at)),
+          clean(member.profiles_viewed || 0),
+          clean(member.resumes_used || 0),
+          clean(member.jobs_count || 0),
+          clean(member.keywords_used || keywords.length),
+        ].join(","));
+      });
+    }
+
+    const csvContent = "\ufeff" + rows.join("\r\n");
     const blob = new Blob([csvContent], { type: "text/csv;charset=utf-8;" });
     const url = URL.createObjectURL(blob);
     const link = document.createElement("a");
@@ -308,6 +367,7 @@ export default function OrgAdminPanel() {
     document.body.appendChild(link);
     link.click();
     document.body.removeChild(link);
+    URL.revokeObjectURL(url);
   };
   // Auth guard
   useEffect(() => {
@@ -763,11 +823,21 @@ export default function OrgAdminPanel() {
   };
 
   const handleRevokeInvitation = async (inviteId: string) => {
-    await supabase
-      .from("recruiter_invitations")
-      .update({ status: "revoked" })
-      .eq("id", inviteId);
-    await loadData();
+    setActionLoading(inviteId);
+    try {
+      const { error } = await supabase
+        .from("recruiter_invitations")
+        .update({ status: "revoked" })
+        .eq("id", inviteId);
+      if (error) throw error;
+      toast.success("Invitation revoked successfully");
+      await loadData();
+    } catch (err: unknown) {
+      const errMsg = err instanceof Error ? err.message : "Failed to revoke invitation";
+      toast.error(errMsg);
+    } finally {
+      setActionLoading(null);
+    }
   };
 
   const handleSignOut = async () => {
@@ -790,9 +860,21 @@ export default function OrgAdminPanel() {
     j.recruiter_name.toLowerCase().includes(jobSearch.toLowerCase())
   ), [teamJobs, jobSearch]);
 
+  const totalJobPages = Math.max(1, Math.ceil(filteredJobs.length / JOBS_PER_PAGE));
+  const paginatedJobs = useMemo(() => {
+    const start = (jobPage - 1) * JOBS_PER_PAGE;
+    return filteredJobs.slice(start, start + JOBS_PER_PAGE);
+  }, [filteredJobs, jobPage]);
+
   const filteredApps = useMemo(() => teamApps.filter(a =>
     appStatusFilter === "all" || a.status === appStatusFilter
   ), [teamApps, appStatusFilter]);
+
+  const totalAppPages = Math.max(1, Math.ceil(filteredApps.length / APPS_PER_PAGE));
+  const paginatedApps = useMemo(() => {
+    const start = (appPage - 1) * APPS_PER_PAGE;
+    return filteredApps.slice(start, start + APPS_PER_PAGE);
+  }, [teamApps, appStatusFilter, filteredApps, appPage]);
 
   const filteredBlogs = useMemo(() => teamBlogs.filter(blog => {
     const matchesStatus = blogStatusFilter === "all" || blog.status === blogStatusFilter;
@@ -1391,9 +1473,13 @@ export default function OrgAdminPanel() {
                             <Button
                               variant="ghost"
                               size="sm"
+                              disabled={actionLoading === inv.id}
                               className="text-red-500 hover:text-red-600 text-xs h-7"
                               onClick={() => handleRevokeInvitation(inv.id)}
                             >
+                              {actionLoading === inv.id ? (
+                                <Loader2 className="h-3 w-3 animate-spin mr-1" />
+                              ) : null}
                               Revoke
                             </Button>
                           </td>
@@ -1421,53 +1507,134 @@ export default function OrgAdminPanel() {
                 />
               </div>
               {dataLoading ? <LoadingCard /> : (
-                <div className="overflow-x-auto">
-                  <table className="w-full">
-                    <thead>
-                      <tr className="bg-[#F6F6F6] text-xs text-[#8A8A8A] font-medium uppercase tracking-wide">
-                        <th className="text-left px-6 py-3">Job Title</th>
-                        <th className="text-left px-6 py-3">Posted By</th>
-                        <th className="text-left px-6 py-3">Status</th>
-                        <th className="text-left px-6 py-3">Location</th>
-                        <th className="text-left px-6 py-3">Views</th>
-                        <th className="text-left px-6 py-3">Posted</th>
-                        <th className="text-left px-6 py-3">Deadline</th>
-                      </tr>
-                    </thead>
-                    <tbody className="divide-y divide-gray-50">
-                      {filteredJobs.map(job => (
-                        <tr key={job.id} className="hover:bg-[#FFF8F8] transition-colors">
-                          <td className="px-6 py-4">
-                            <p className="text-sm font-medium text-[#3A1F1F]">{job.title}</p>
-                            <p className="text-xs text-[#8A8A8A]">{job.company_name}</p>
-                          </td>
-                          <td className="px-6 py-4 text-sm text-[#3A1F1F]">{job.recruiter_name}</td>
-                          <td className="px-6 py-4">
-                            <Badge
-                              className={`text-xs ${STATUS_COLOR[job.status] || "bg-gray-100 text-gray-500"}`}
-                              variant="secondary"
-                            >
-                              {job.status}
-                            </Badge>
-                          </td>
-                          <td className="px-6 py-4 text-sm text-[#8A8A8A]">{job.location || "—"}</td>
-                          <td className="px-6 py-4 text-sm text-[#3A1F1F]">{job.views ?? 0}</td>
-                          <td className="px-6 py-4 text-xs text-[#8A8A8A]">{fmtDate(job.created_at)}</td>
-                          <td className="px-6 py-4 text-xs text-[#8A8A8A]">
-                            {job.deadline ? fmtDate(job.deadline) : "—"}
-                          </td>
+                <>
+                  <div className="overflow-x-auto">
+                    <table className="w-full">
+                      <thead>
+                        <tr className="bg-[#F6F6F6] text-xs text-[#8A8A8A] font-medium uppercase tracking-wide">
+                          <th className="text-left px-6 py-3">Job Title</th>
+                          <th className="text-left px-6 py-3">Posted By</th>
+                          <th className="text-left px-6 py-3">Status</th>
+                          <th className="text-left px-6 py-3">Location</th>
+                          <th className="text-left px-6 py-3">Views</th>
+                          <th className="text-left px-6 py-3">Posted</th>
+                          <th className="text-left px-6 py-3">Deadline</th>
                         </tr>
-                      ))}
-                      {filteredJobs.length === 0 && (
-                        <tr>
-                          <td colSpan={7} className="px-6 py-12 text-center text-[#8A8A8A] text-sm">
-                            No jobs found.
-                          </td>
-                        </tr>
-                      )}
-                    </tbody>
-                  </table>
-                </div>
+                      </thead>
+                      <tbody className="divide-y divide-gray-50">
+                        {paginatedJobs.map(job => (
+                          <tr key={job.id} className="hover:bg-[#FFF8F8] transition-colors">
+                            <td className="px-6 py-4">
+                              <p className="text-sm font-medium text-[#3A1F1F]">{job.title}</p>
+                              <p className="text-xs text-[#8A8A8A]">{job.company_name}</p>
+                            </td>
+                            <td className="px-6 py-4 text-sm text-[#3A1F1F]">{job.recruiter_name}</td>
+                            <td className="px-6 py-4">
+                              <Badge
+                                className={`text-xs ${STATUS_COLOR[job.status] || "bg-gray-100 text-gray-500"}`}
+                                variant="secondary"
+                              >
+                                {job.status}
+                              </Badge>
+                            </td>
+                            <td className="px-6 py-4 text-sm text-[#8A8A8A]">{job.location || "—"}</td>
+                            <td className="px-6 py-4 text-sm text-[#3A1F1F]">{job.views ?? 0}</td>
+                            <td className="px-6 py-4 text-xs text-[#8A8A8A]">{fmtDate(job.created_at)}</td>
+                            <td className="px-6 py-4 text-xs text-[#8A8A8A]">
+                              {job.deadline ? fmtDate(job.deadline) : "—"}
+                            </td>
+                          </tr>
+                        ))}
+                        {filteredJobs.length === 0 && (
+                          <tr>
+                            <td colSpan={7} className="px-6 py-12 text-center text-[#8A8A8A] text-sm">
+                              No jobs found.
+                            </td>
+                          </tr>
+                        )}
+                      </tbody>
+                    </table>
+                  </div>
+
+                  {/* Jobs Pagination */}
+                  {totalJobPages > 1 && (
+                    <div className="px-6 py-4 border-t border-gray-100 flex flex-col sm:flex-row items-center justify-between gap-4">
+                      <p className="text-xs text-[#8A8A8A]">
+                        Showing <span className="font-semibold text-[#3A1F1F]">{(jobPage - 1) * JOBS_PER_PAGE + 1}</span> to{" "}
+                        <span className="font-semibold text-[#3A1F1F]">
+                          {Math.min(jobPage * JOBS_PER_PAGE, filteredJobs.length)}
+                        </span>{" "}
+                        of <span className="font-semibold text-[#3A1F1F]">{filteredJobs.length}</span> jobs
+                      </p>
+                      <Pagination className="mx-0 w-auto">
+                        <PaginationContent className="flex-wrap justify-center gap-1.5">
+                          <PaginationItem>
+                            <PaginationPrevious
+                              href="#"
+                              onClick={(event) => {
+                                event.preventDefault();
+                                if (jobPage > 1) setJobPage(p => p - 1);
+                              }}
+                              className={jobPage === 1 ? "pointer-events-none opacity-50 text-xs h-8 px-2.5" : "text-xs h-8 px-2.5 cursor-pointer"}
+                            />
+                          </PaginationItem>
+
+                          {(() => {
+                            const delta = 1;
+                            const range: (number | string)[] = [];
+                            for (let i = 1; i <= totalJobPages; i++) {
+                              if (i === 1 || i === totalJobPages || (i >= jobPage - delta && i <= jobPage + delta)) {
+                                range.push(i);
+                              } else if (range[range.length - 1] !== "...") {
+                                range.push("...");
+                              }
+                            }
+                            return range.map((page, idx) => {
+                              if (page === "...") {
+                                return (
+                                  <PaginationItem key={`ellipsis-job-${idx}`}>
+                                    <PaginationEllipsis className="text-[#8A8A8A] size-8" />
+                                  </PaginationItem>
+                                );
+                              }
+                              const pageNum = page as number;
+                              return (
+                                <PaginationItem key={`job-page-${pageNum}`}>
+                                  <PaginationLink
+                                    href="#"
+                                    isActive={jobPage === pageNum}
+                                    onClick={(event) => {
+                                      event.preventDefault();
+                                      setJobPage(pageNum);
+                                    }}
+                                    className={
+                                      jobPage === pageNum
+                                        ? "border-[#FF2B2B] bg-[#FF2B2B] text-white hover:bg-[#e02525] hover:text-white size-8 text-xs font-semibold"
+                                        : "text-[#3A1F1F] size-8 text-xs cursor-pointer hover:bg-gray-100"
+                                    }
+                                  >
+                                    {pageNum}
+                                  </PaginationLink>
+                                </PaginationItem>
+                              );
+                            });
+                          })()}
+
+                          <PaginationItem>
+                            <PaginationNext
+                              href="#"
+                              onClick={(event) => {
+                                event.preventDefault();
+                                if (jobPage < totalJobPages) setJobPage(p => p + 1);
+                              }}
+                              className={jobPage === totalJobPages ? "pointer-events-none opacity-50 text-xs h-8 px-2.5" : "text-xs h-8 px-2.5 cursor-pointer"}
+                            />
+                          </PaginationItem>
+                        </PaginationContent>
+                      </Pagination>
+                    </div>
+                  )}
+                </>
               )}
             </div>
           </TabsContent>
@@ -1492,44 +1659,125 @@ export default function OrgAdminPanel() {
                 </select>
               </div>
               {dataLoading ? <LoadingCard /> : (
-                <div className="overflow-x-auto">
-                  <table className="w-full">
-                    <thead>
-                      <tr className="bg-[#F6F6F6] text-xs text-[#8A8A8A] font-medium uppercase tracking-wide">
-                        <th className="text-left px-6 py-3">Candidate</th>
-                        <th className="text-left px-6 py-3">Job</th>
-                        <th className="text-left px-6 py-3">Posted By</th>
-                        <th className="text-left px-6 py-3">Status</th>
-                        <th className="text-left px-6 py-3">Applied</th>
-                      </tr>
-                    </thead>
-                    <tbody className="divide-y divide-gray-50">
-                      {filteredApps.map(app => (
-                        <tr key={app.id} className="hover:bg-[#FFF8F8] transition-colors">
-                          <td className="px-6 py-4 text-sm font-medium text-[#3A1F1F]">{app.candidate_name}</td>
-                          <td className="px-6 py-4 text-sm text-[#3A1F1F]">{app.job_title}</td>
-                          <td className="px-6 py-4 text-sm text-[#8A8A8A]">{app.recruiter_name}</td>
-                          <td className="px-6 py-4">
-                            <Badge
-                              className={`text-xs ${APP_STATUS_COLOR[app.status] || "bg-gray-100 text-gray-500"}`}
-                              variant="secondary"
-                            >
-                              {app.status}
-                            </Badge>
-                          </td>
-                          <td className="px-6 py-4 text-xs text-[#8A8A8A]">{fmtDate(app.applied_at)}</td>
+                <>
+                  <div className="overflow-x-auto">
+                    <table className="w-full">
+                      <thead>
+                        <tr className="bg-[#F6F6F6] text-xs text-[#8A8A8A] font-medium uppercase tracking-wide">
+                          <th className="text-left px-6 py-3">Candidate</th>
+                          <th className="text-left px-6 py-3">Job</th>
+                          <th className="text-left px-6 py-3">Posted By</th>
+                          <th className="text-left px-6 py-3">Status</th>
+                          <th className="text-left px-6 py-3">Applied</th>
                         </tr>
-                      ))}
-                      {filteredApps.length === 0 && (
-                        <tr>
-                          <td colSpan={5} className="px-6 py-12 text-center text-[#8A8A8A] text-sm">
-                            No applications found.
-                          </td>
-                        </tr>
-                      )}
-                    </tbody>
-                  </table>
-                </div>
+                      </thead>
+                      <tbody className="divide-y divide-gray-50">
+                        {paginatedApps.map(app => (
+                          <tr key={app.id} className="hover:bg-[#FFF8F8] transition-colors">
+                            <td className="px-6 py-4 text-sm font-medium text-[#3A1F1F]">{app.candidate_name}</td>
+                            <td className="px-6 py-4 text-sm text-[#3A1F1F]">{app.job_title}</td>
+                            <td className="px-6 py-4 text-sm text-[#8A8A8A]">{app.recruiter_name}</td>
+                            <td className="px-6 py-4">
+                              <Badge
+                                className={`text-xs ${APP_STATUS_COLOR[app.status] || "bg-gray-100 text-gray-500"}`}
+                                variant="secondary"
+                              >
+                                {app.status}
+                              </Badge>
+                            </td>
+                            <td className="px-6 py-4 text-xs text-[#8A8A8A]">{fmtDate(app.applied_at)}</td>
+                          </tr>
+                        ))}
+                        {filteredApps.length === 0 && (
+                          <tr>
+                            <td colSpan={5} className="px-6 py-12 text-center text-[#8A8A8A] text-sm">
+                              No applications found.
+                            </td>
+                          </tr>
+                        )}
+                      </tbody>
+                    </table>
+                  </div>
+
+                  {/* Applications Pagination */}
+                  {totalAppPages > 1 && (
+                    <div className="px-6 py-4 border-t border-gray-100 flex flex-col sm:flex-row items-center justify-between gap-4">
+                      <p className="text-xs text-[#8A8A8A]">
+                        Showing <span className="font-semibold text-[#3A1F1F]">{(appPage - 1) * APPS_PER_PAGE + 1}</span> to{" "}
+                        <span className="font-semibold text-[#3A1F1F]">
+                          {Math.min(appPage * APPS_PER_PAGE, filteredApps.length)}
+                        </span>{" "}
+                        of <span className="font-semibold text-[#3A1F1F]">{filteredApps.length}</span> applications
+                      </p>
+                      <Pagination className="mx-0 w-auto">
+                        <PaginationContent className="flex-wrap justify-center gap-1.5">
+                          <PaginationItem>
+                            <PaginationPrevious
+                              href="#"
+                              onClick={(event) => {
+                                event.preventDefault();
+                                if (appPage > 1) setAppPage(p => p - 1);
+                              }}
+                              className={appPage === 1 ? "pointer-events-none opacity-50 text-xs h-8 px-2.5" : "text-xs h-8 px-2.5 cursor-pointer"}
+                            />
+                          </PaginationItem>
+
+                          {(() => {
+                            const delta = 1;
+                            const range: (number | string)[] = [];
+                            for (let i = 1; i <= totalAppPages; i++) {
+                              if (i === 1 || i === totalAppPages || (i >= appPage - delta && i <= appPage + delta)) {
+                                range.push(i);
+                              } else if (range[range.length - 1] !== "...") {
+                                range.push("...");
+                              }
+                            }
+                            return range.map((page, idx) => {
+                              if (page === "...") {
+                                return (
+                                  <PaginationItem key={`ellipsis-app-${idx}`}>
+                                    <PaginationEllipsis className="text-[#8A8A8A] size-8" />
+                                  </PaginationItem>
+                                );
+                              }
+                              const pageNum = page as number;
+                              return (
+                                <PaginationItem key={`app-page-${pageNum}`}>
+                                  <PaginationLink
+                                    href="#"
+                                    isActive={appPage === pageNum}
+                                    onClick={(event) => {
+                                      event.preventDefault();
+                                      setAppPage(pageNum);
+                                    }}
+                                    className={
+                                      appPage === pageNum
+                                        ? "border-[#FF2B2B] bg-[#FF2B2B] text-white hover:bg-[#e02525] hover:text-white size-8 text-xs font-semibold"
+                                        : "text-[#3A1F1F] size-8 text-xs cursor-pointer hover:bg-gray-100"
+                                    }
+                                  >
+                                    {pageNum}
+                                  </PaginationLink>
+                                </PaginationItem>
+                              );
+                            });
+                          })()}
+
+                          <PaginationItem>
+                            <PaginationNext
+                              href="#"
+                              onClick={(event) => {
+                                event.preventDefault();
+                                if (appPage < totalAppPages) setAppPage(p => p + 1);
+                              }}
+                              className={appPage === totalAppPages ? "pointer-events-none opacity-50 text-xs h-8 px-2.5" : "text-xs h-8 px-2.5 cursor-pointer"}
+                            />
+                          </PaginationItem>
+                        </PaginationContent>
+                      </Pagination>
+                    </div>
+                  )}
+                </>
               )}
             </div>
           </TabsContent>

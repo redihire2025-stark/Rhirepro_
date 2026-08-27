@@ -9,6 +9,7 @@ import { formatJobDeadline, formatJobSalary, getEffectiveJobStatus } from "../..
 import { supabase } from "../../lib/supabase";
 import { getSavedJobsForCurrentUser, SavedJobWithJob } from "../services/jobService";
 import PremiumGate from "../components/PremiumGate";
+import { SafeHtml } from "../components/ui/safe-html";
 
 interface ComparePageLocationState {
   fromSavedJobs?: boolean;
@@ -476,9 +477,10 @@ export default function SavedJobsComparePage({ forcedState, embedded = false }: 
                       {jdSections.map((section, sectionIndex) => (
                         <section key={section.title} className={sectionIndex > 0 ? "pt-4 border-t border-gray-200" : ""}>
                           <h4 className="text-sm font-semibold text-[#3A1F1F] mb-2">{section.title}</h4>
-                          <div className="text-sm text-[#5A5A5A] whitespace-pre-wrap leading-6 pl-4 pr-2">
-                            {section.value}
-                          </div>
+                          <SafeHtml
+                            content={section.value}
+                            className="text-sm text-[#5A5A5A] whitespace-pre-wrap leading-6 pl-4 pr-2"
+                          />
                         </section>
                       ))}
                     </div>

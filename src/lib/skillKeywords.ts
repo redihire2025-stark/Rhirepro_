@@ -514,10 +514,21 @@ export function fuzzyMatch(query: string, target: string): boolean {
   const t = target.toLowerCase().trim();
 
   if (!q) return true;
+
+  const tTokens = t.split(/\s+/).filter(Boolean);
+
+  // A 1-2 char query is too short for a mid-word substring match to mean
+  // anything ("ht" would otherwise match "fli-ght", "li-ght", "playwri-ght"
+  // since "ht" just happens to sit inside those words). Require it to match
+  // at the start of a word instead, so "ht" finds "HTML"/"HT LT Panels" but
+  // not unrelated words that merely contain those letters.
+  if (q.length <= 2) {
+    return tTokens.some(tToken => tToken.startsWith(q));
+  }
+
   if (t.includes(q)) return true;
 
   const qTokens = q.split(/\s+/).filter(Boolean);
-  const tTokens = t.split(/\s+/).filter(Boolean);
 
   return qTokens.every(qToken => {
     const tolerance = allowedEditDistance(qToken.length);
