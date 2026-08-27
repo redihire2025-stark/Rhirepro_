@@ -462,7 +462,7 @@ export default function JobDetailPage() {
                   </div>
                 </div>
 
-                <div className="grid md:grid-cols-4 gap-4 mb-6">
+                <div className="grid grid-cols-2 sm:grid-cols-3 gap-4 mb-6">
                   <div className="flex items-center gap-3 text-[#8A8A8A]">
                     <MapPin className="h-5 w-5 text-[#FF2B2B]" />
                     <div>
@@ -488,15 +488,6 @@ export default function JobDetailPage() {
                       <p className="font-semibold text-[#3A1F1F]">{currentJob.experience}</p>
                     </div>
                   </div>
-                  {currentJob.preferredJoiningTime && (
-                    <div className="flex items-center gap-3 text-[#8A8A8A]">
-                      <Calendar className="h-5 w-5 text-[#FF2B2B]" />
-                      <div>
-                        <p className="text-xs">Joining Time</p>
-                        <p className="font-semibold text-[#3A1F1F]">{currentJob.preferredJoiningTime}</p>
-                      </div>
-                    </div>
-                  )}
                 </div>
 
                 <Button className="bg-[#FF2B2B] hover:bg-[#e02525] text-white rounded-full px-12 py-6" onClick={handleApplyClick}>
@@ -551,11 +542,78 @@ export default function JobDetailPage() {
                   </>
                 )}
 
-                {currentJob.additionalInfo && (
-                  <p className="text-[#8A8A8A] text-sm italic mt-8">
-                    {currentJob.additionalInfo}
-                  </p>
+                {job.skills && job.skills.length > 0 && (
+                  <div className="mt-8">
+                    <h3 className="text-2xl font-bold text-[#3A1F1F] mb-3">Key Skills:</h3>
+                    <div className="flex flex-wrap gap-2">
+                      {job.skills.map((s, i) => (
+                        <span key={i} className="bg-[#ECECF4] text-[#3A1F1F] text-sm px-3.5 py-1.5 rounded-full font-medium">{s}</span>
+                      ))}
+                    </div>
+                  </div>
                 )}
+
+                {job.perks && job.perks.length > 0 && (
+                  <div className="mt-8">
+                    <h3 className="text-2xl font-bold text-[#3A1F1F] mb-3">Perks & Benefits:</h3>
+                    <div className="flex flex-wrap gap-2">
+                      {job.perks.map((p, i) => (
+                        <span key={i} className="bg-green-50 text-green-700 text-sm px-3.5 py-1.5 rounded-full font-medium">{p}</span>
+                      ))}
+                    </div>
+                  </div>
+                )}
+
+                {/* Additional Job Details & Requirements */}
+                <div className="mt-8 pt-6 border-t border-gray-100">
+                  <h3 className="text-2xl font-bold text-[#3A1F1F] mb-4">Job Details & Requirements :</h3>
+                  <div className="grid grid-cols-2 sm:grid-cols-3 gap-y-4 gap-x-6 bg-[#F8F9FB] rounded-2xl p-5 border border-gray-100">
+                    <div>
+                      <p className="text-xs text-[#8A8A8A] mb-0.5">Employment Type</p>
+                      <p className="font-semibold text-[#3A1F1F] text-sm">{job.employment_type || "Full-time"}</p>
+                    </div>
+                    <div>
+                      <p className="text-xs text-[#8A8A8A] mb-0.5">Work Mode</p>
+                      <p className="font-semibold text-[#3A1F1F] text-sm">{job.work_mode || "Work from Office"}</p>
+                    </div>
+                    <div>
+                      <p className="text-xs text-[#8A8A8A] mb-0.5">Qualification / Degree</p>
+                      <p className="font-semibold text-[#3A1F1F] text-sm">{job.education || "Any Graduate / Relevant Degree"}</p>
+                    </div>
+                    {job.specialization && (
+                      <div>
+                        <p className="text-xs text-[#8A8A8A] mb-0.5">Specialization</p>
+                        <p className="font-semibold text-[#3A1F1F] text-sm">{job.specialization}</p>
+                      </div>
+                    )}
+                    {job.department && (
+                      <div>
+                        <p className="text-xs text-[#8A8A8A] mb-0.5">Department</p>
+                        <p className="font-semibold text-[#3A1F1F] text-sm">{job.department}</p>
+                      </div>
+                    )}
+                    <div>
+                      <p className="text-xs text-[#8A8A8A] mb-0.5">Industry</p>
+                      <p className="font-semibold text-[#3A1F1F] text-sm">
+                        {Array.isArray(job.industries) && job.industries.length > 0
+                          ? job.industries.join(", ")
+                          : (job.industry || "IT / Software")}
+                      </p>
+                    </div>
+                    <div>
+                      <p className="text-xs text-[#8A8A8A] mb-0.5">Notice Period / Joining</p>
+                      <p className="font-semibold text-[#3A1F1F] text-sm">{job.preferred_joining_time || currentJob.preferredJoiningTime || "Immediate / Negotiable"}</p>
+                    </div>
+                    <div>
+                      <p className="text-xs text-[#8A8A8A] mb-0.5">Interview Mode</p>
+                      <p className="font-semibold text-[#3A1F1F] text-sm">{job.interview_mode || "In-Person"}</p>
+                    </div>
+                    <div>
+                      <p className="text-xs text-[#8A8A8A] mb-0.5">Number of Openings</p>
+                      <p className="font-semibold text-[#3A1F1F] text-sm">{job.openings || 1} {Number(job.openings || 1) > 1 ? "Openings" : "Opening"}</p>
+                    </div>
+                  </div>
+                </div>
 
                 <Button className="mt-8 bg-[#FF2B2B] hover:bg-[#e02525] text-white rounded-full px-12 py-6" onClick={handleApplyClick}>
                   Apply Now

@@ -1346,10 +1346,17 @@ function CandidateProfileModal({ candidate, open, onClose }: { candidate: Candid
 export default function RecruiterDashboard() {
   const navigate = useNavigate();
   const location = useLocation();
-  const { recruiterProfile, user, loading: authLoading, signOut, isOrgAdmin } = useAuth();
+  const { recruiterProfile, user, role, loading: authLoading, signOut, isOrgAdmin } = useAuth();
 
   const [activeSub, setActiveSub] = useState<RecruiterSubscription | null>(null);
   const [loadingSub, setLoadingSub] = useState(true);
+
+  // If authenticated user is a Job Seeker, redirect to Job Seeker dashboard
+  useEffect(() => {
+    if (!authLoading && user && role === "jobseeker") {
+      navigate("/jobseeker/dashboard", { replace: true });
+    }
+  }, [authLoading, user, role, navigate]);
 
   // Auth guard — redirect to sign-in if not authenticated.
   // OAuth lands directly on this route with the session still in the URL, and

@@ -1,4 +1,4 @@
-import { useEffect, useState, useCallback } from "react";
+import { useEffect, useState, useCallback, useRef } from "react";
 import { toast } from "sonner";
 import { MoreHorizontal, Plus, Send, Undo2, Trash2, Pencil, Upload, BookOpen, Loader2 } from "lucide-react";
 import { DataTable, DataTableColumn } from "../../components/ui/data-table";
@@ -105,6 +105,8 @@ export default function SuperAdminBlogs() {
   const [saving, setSaving] = useState(false);
   const [formError, setFormError] = useState("");
   const [modalOpen, setModalOpen] = useState(false);
+  const [discardConfirmOpen, setDiscardConfirmOpen] = useState(false);
+  const formSnapshotRef = useRef<DraftForm>(EMPTY_DRAFT);
 
   const fetchRows = useCallback(async () => {
     setLoading(true);
@@ -183,13 +185,14 @@ export default function SuperAdminBlogs() {
   const openNew = () => {
     setEditing(null);
     setForm(EMPTY_DRAFT);
+    formSnapshotRef.current = EMPTY_DRAFT;
     setFormError("");
     setModalOpen(true);
   };
 
   const openEdit = (row: Blog) => {
     setEditing(row);
-    setForm({
+    const draft = {
       title: row.title ?? "",
       category: row.category ?? "Industry Insights",
       summary: row.summary ?? "",
@@ -199,9 +202,26 @@ export default function SuperAdminBlogs() {
       author_name: row.author_name ?? "",
       read_time: row.read_time ?? 5,
       tags: Array.isArray(row.tags) ? row.tags.join(", ") : "",
-    });
+    };
+    setForm(draft);
+    formSnapshotRef.current = draft;
     setFormError("");
     setModalOpen(true);
+  };
+
+  // A stray click on the overlay or the Cancel button used to close the
+  // dialog immediately, silently discarding whatever was typed. Now it only
+  // closes outright when the form still matches what it was opened with;
+  // otherwise it asks for confirmation first.
+  const hasUnsavedBlogChanges = () =>
+    JSON.stringify(form) !== JSON.stringify(formSnapshotRef.current);
+
+  const requestCloseModal = () => {
+    if (hasUnsavedBlogChanges()) {
+      setDiscardConfirmOpen(true);
+    } else {
+      setModalOpen(false);
+    }
   };
 
   const save = async (publish: boolean) => {
@@ -430,7 +450,7 @@ export default function SuperAdminBlogs() {
         )}
       />
 
-      <Dialog open={modalOpen} onOpenChange={setModalOpen}>
+      <Dialog open={modalOpen} onOpenChange={(open) => { if (open) setModalOpen(true); else requestCloseModal(); }}>
         <DialogContent className="max-w-2xl max-h-[90vh] overflow-y-auto">
           <DialogHeader>
             <DialogTitle className="flex items-center gap-2 text-[#3A1F1F]">
@@ -577,7 +597,7 @@ export default function SuperAdminBlogs() {
               <Button
                 variant="outline"
                 className="flex-1 rounded-full"
-                onClick={() => setModalOpen(false)}
+                onClick={requestCloseModal}
                 disabled={saving}
               >
                 Cancel
@@ -594,6 +614,35 @@ export default function SuperAdminBlogs() {
                 )}
               </Button>
             </div>
+          </div>
+        </DialogContent>
+      </Dialog>
+
+      {/* Discard Changes Confirmation */}
+      <Dialog open={discardConfirmOpen} onOpenChange={setDiscardConfirmOpen}>
+        <DialogContent className="max-w-md">
+          <DialogHeader>
+            <DialogTitle className="text-[#3A1F1F]">Discard changes?</DialogTitle>
+          </DialogHeader>
+          <div className="py-3">
+            <p className="text-sm text-[#8A8A8A]">
+              You have unsaved changes to this blog. Closing now will discard them.
+            </p>
+          </div>
+          <div className="flex gap-3 pt-2">
+            <Button
+              variant="outline"
+              className="flex-1 rounded-full"
+              onClick={() => setDiscardConfirmOpen(false)}
+            >
+              Keep Editing
+            </Button>
+            <Button
+              className="flex-1 bg-red-600 hover:bg-red-700 text-white rounded-full"
+              onClick={() => { setDiscardConfirmOpen(false); setModalOpen(false); }}
+            >
+              Discard
+            </Button>
           </div>
         </DialogContent>
       </Dialog>

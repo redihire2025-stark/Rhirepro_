@@ -109,30 +109,21 @@ const STATUS_COLOR: Record<string, string> = {
 
 const ACTIVITY_WINDOW_MS = 24 * 60 * 60 * 1000;
 
-function hasSignedInRecently(lastLoginAt: string | null) {
+function hasSignedInRecently(lastLoginAt: string | null | undefined) {
   if (!lastLoginAt) return false;
   const seen = new Date(lastLoginAt).getTime();
   return !isNaN(seen) && Date.now() - seen <= ACTIVITY_WINDOW_MS;
 }
 
-// A member can be `is_active` and still be unable to sign in at all — sign-in
-// is gated separately by verification_status, which super admin approves.
-// Showing "Active" for a Pending/Rejected member is misleading, so that
-// approval state takes priority over is_active whenever it isn't Verified.
-//
-// Below that, "Active" used to mean only "not manually deactivated" — every
-// member stayed Active forever regardless of whether they'd ever signed in.
-// It now also requires a sign-in within the last 24 hours (last_login_at,
-// written on every recruiter sign-in), so the badge reflects real activity;
-// a manual Deactivate still always wins and shows Inactive.
-function memberStatusBadge(member: OrgMember) {
+function memberStatusBadge(member: OrgMember, currentUserId?: string) {
   if (member.verification_status === "Rejected") {
     return { label: "Rejected", className: "bg-red-100 text-red-700" };
   }
   if (member.verification_status && member.verification_status !== "Verified") {
     return { label: "Pending Approval", className: "bg-yellow-100 text-yellow-700" };
   }
-  return member.is_active && hasSignedInRecently(member.last_login_at)
+  const isOnlineRecently = (currentUserId && member.id === currentUserId) || hasSignedInRecently(member.last_login_at);
+  return member.is_active && isOnlineRecently
     ? { label: "Active", className: "bg-green-100 text-green-700" }
     : { label: "Inactive", className: "bg-gray-100 text-gray-500" };
 }
@@ -236,6 +227,8 @@ export default function OrgAdminPanel() {
   const [blogSaving, setBlogSaving] = useState(false);
   const [blogError, setBlogError] = useState("");
   const [blogSearchQuery, setBlogSearchQuery] = useState("");
+  const [discardBlogConfirmOpen, setDiscardBlogConfirmOpen] = useState(false);
+  const blogFormSnapshotRef = useRef<Record<string, unknown>>({});
   // Analytics and Subscription Usage list every member with no way to find
   // one; both tables are driven by this.
   const [memberSearchQuery, setMemberSearchQuery] = useState("");
@@ -414,7 +407,25 @@ export default function OrgAdminPanel() {
         "get_org_members_with_stats",
         { p_admin_id: user.id }
       );
-      const membersList: OrgMember[] = membersData || [];
+      let membersList: OrgMember[] = membersData || [];
+
+      // Fetch last_login_at for accurate 24-hour activity check
+      const memberIds = membersList.map(m => m.id);
+      if (memberIds.length > 0) {
+        const { data: profileLogins } = await supabase
+          .from("recruiter_profiles")
+          .select("id, last_login_at")
+          .in("id", memberIds);
+
+        const loginMap = new Map((profileLogins || []).map(p => [p.id, p.last_login_at]));
+        membersList = membersList.map(m => ({
+          ...m,
+          last_login_at: m.id === user.id
+            ? (loginMap.get(m.id) || recruiterProfile?.last_login_at || new Date().toISOString())
+            : (loginMap.get(m.id) ?? m.last_login_at ?? null),
+        }));
+      }
+
       setMembers(membersList);
 
       // Build recruiter name map
@@ -540,21 +551,53 @@ export default function OrgAdminPanel() {
     setBlogContent("");
     setBlogStatus("Published");
     setBlogError("");
+    blogFormSnapshotRef.current = {
+      title: "", category: DEFAULT_BLOG_CATEGORY, tags: "", coverUrl: "",
+      summary: "", content: "", status: "Published",
+    };
     setBlogModalOpen(true);
   };
 
   const handleOpenEditBlog = (blog: RecruiterArticle) => {
     setEditingBlog(blog);
-    setBlogTitle(blog.title || "");
-    setBlogCategory(blog.category || DEFAULT_BLOG_CATEGORY);
-    setBlogTags(Array.isArray(blog.tags) ? blog.tags.join(", ") : "");
-    setBlogCoverUrl(blog.cover_image_url || "");
+    const title = blog.title || "";
+    const category = blog.category || DEFAULT_BLOG_CATEGORY;
+    const tags = Array.isArray(blog.tags) ? blog.tags.join(", ") : "";
+    const coverUrl = blog.cover_image_url || "";
+    const summary = blog.summary || "";
+    const content = blog.content || "";
+    const status = blog.status || "Published";
+    setBlogTitle(title);
+    setBlogCategory(category);
+    setBlogTags(tags);
+    setBlogCoverUrl(coverUrl);
     setBlogCoverName(blog.cover_image_name || (blog.cover_image_url ? "Cover image" : ""));
-    setBlogSummary(blog.summary || "");
-    setBlogContent(blog.content || "");
-    setBlogStatus(blog.status || "Published");
+    setBlogSummary(summary);
+    setBlogContent(content);
+    setBlogStatus(status);
     setBlogError("");
+    blogFormSnapshotRef.current = { title, category, tags, coverUrl, summary, content, status };
     setBlogModalOpen(true);
+  };
+
+  // A stray click on the overlay or the Cancel button used to close the
+  // dialog immediately, silently discarding whatever was typed. Now it only
+  // closes outright when the form still matches what it was opened with;
+  // otherwise it asks for confirmation first.
+  const hasUnsavedBlogChanges = () => {
+    const current = {
+      title: blogTitle, category: blogCategory, tags: blogTags, coverUrl: blogCoverUrl,
+      summary: blogSummary, content: blogContent, status: blogStatus,
+    };
+    return JSON.stringify(current) !== JSON.stringify(blogFormSnapshotRef.current);
+  };
+
+  const requestCloseBlogModal = () => {
+    if (hasUnsavedBlogChanges()) {
+      setDiscardBlogConfirmOpen(true);
+    } else {
+      setBlogModalOpen(false);
+    }
   };
 
   const handleBlogImageUpload = (event: React.ChangeEvent<HTMLInputElement>) => {
@@ -715,7 +758,7 @@ export default function OrgAdminPanel() {
     setInviteLoading(true);
     setInviteError("");
     try {
-      const activeCount = members.filter(m => m.is_active).length;
+      const seatsUsed = members.filter(m => m.is_active).length;
       const maxSeats = recruiterProfile.max_seats || 5;
       const pending = invitations.find(
         i => i.invited_email === inviteEmail.trim().toLowerCase() && i.status === "pending"
@@ -728,10 +771,10 @@ export default function OrgAdminPanel() {
       // admin could send more invites than they have seats for, and end up
       // over the limit the moment more than maxSeats of them get accepted.
       const pendingCount = invitations.filter(i => i.status === "pending").length;
-      if (activeCount + pendingCount >= maxSeats) {
+      if (seatsUsed + pendingCount >= maxSeats) {
         setInviteError(
           pendingCount > 0
-            ? `Seat limit reached (${maxSeats} seats — ${activeCount} active, ${pendingCount} pending). Wait for a pending invite to be used or revoke one before sending another.`
+            ? `Seat limit reached (${maxSeats} seats — ${seatsUsed} used, ${pendingCount} pending). Wait for a pending invite to be used or revoke one before sending another.`
             : `Seat limit reached (${maxSeats} seats). Upgrade your plan to add more.`
         );
         return;
@@ -864,9 +907,11 @@ export default function OrgAdminPanel() {
 
   // ── Derived stats ───────────────────────────────────────────
 
-  const activeCount = members.filter(m => m.is_active).length;
+  const activeMembersCount = members.filter(m => memberStatusBadge(m, user?.id).label === "Active").length;
+  const activeCount = activeMembersCount;
+  const seatsUsed = members.filter(m => m.is_active).length;
   const maxSeats = recruiterProfile?.max_seats || 5;
-  const seatPct = Math.min((activeCount / maxSeats) * 100, 100);
+  const seatPct = Math.min((seatsUsed / maxSeats) * 100, 100);
   const pendingInvitations = invitations.filter(i => i.status === "pending");
   const companyInitials = (recruiterProfile?.company_name || "RC")
     .split(" ").map(w => w[0]).join("").slice(0, 2).toUpperCase();
@@ -938,15 +983,11 @@ export default function OrgAdminPanel() {
   // blank tiles.
   const todayStr = new Date().toDateString();
   const overviewKpis = useMemo(() => serverKpis ? {
-    // Recruiter headcount always comes from `members`/`activeCount`, the same
+    // Recruiter headcount always comes from `members`/`activeMembersCount`, the same
     // client-side source the "Team Members" summary card at the top of the
-    // page uses. The RPC counts recruiters differently (it excludes the
-    // admin's own row and additionally checks is_disabled, a field the
-    // client never fetches), so mixing the two sources made this tile
-    // disagree with the summary card above it even though both were labeled
-    // "active".
+    // page uses.
     totalRecruiters: members.length,
-    activeRecruiters: activeCount,
+    activeRecruiters: activeMembersCount,
     totalJobs: serverKpis.total_jobs,
     activeJobs: serverKpis.active_jobs,
     closedJobs: serverKpis.closed_jobs,
@@ -957,7 +998,7 @@ export default function OrgAdminPanel() {
     successfulHires: serverKpis.successful_hires,
   } : {
     totalRecruiters: members.length,
-    activeRecruiters: activeCount,
+    activeRecruiters: activeMembersCount,
     totalJobs: teamJobs.length,
     activeJobs: teamJobs.filter(j => j.status === "Active").length,
     closedJobs: teamJobs.filter(j => j.status === "Closed").length,
@@ -966,7 +1007,7 @@ export default function OrgAdminPanel() {
     interviewsScheduled: teamApps.filter(a => a.status === "Interview Scheduled").length,
     offersReleased: teamApps.filter(a => a.status === "Offered").length,
     successfulHires: teamApps.filter(a => ["Hired", "Joined"].includes(a.status)).length,
-  }, [serverKpis, members.length, activeCount, teamJobs, teamApps, todayStr]);
+  }, [serverKpis, members.length, activeMembersCount, teamJobs, teamApps, todayStr]);
 
   const filteredMembers = useMemo(() => {
     const q = memberSearchQuery.toLowerCase().trim();
@@ -1227,8 +1268,8 @@ export default function OrgAdminPanel() {
       <div className="container mx-auto px-4 py-8 max-w-7xl">
         {/* Summary cards */}
         <div className="grid grid-cols-2 md:grid-cols-4 gap-4 mb-8">
-          <SummaryCard icon={<Users className="h-5 w-5 text-[#FF2B2B]" />} label="Team Members" value={`${activeCount} active`} sub={`${members.length} total`} onClick={() => setActiveTab("team")} />
-          <SummaryCard icon={<Shield className="h-5 w-5 text-blue-500" />} label="Sub-Users" value={`${activeCount} / ${maxSeats}`} sub={`${maxSeats - activeCount} remaining`} onClick={() => setActiveTab("team")} />
+          <SummaryCard icon={<Users className="h-5 w-5 text-[#FF2B2B]" />} label="Team Members" value={`${activeMembersCount} active`} sub={`${members.length} total`} onClick={() => setActiveTab("team")} />
+          <SummaryCard icon={<Shield className="h-5 w-5 text-blue-500" />} label="Sub-Users" value={`${seatsUsed} / ${maxSeats}`} sub={`${maxSeats - seatsUsed} remaining`} onClick={() => setActiveTab("team")} />
           <SummaryCard icon={<Briefcase className="h-5 w-5 text-green-500" />} label="Total Jobs" value={String(teamJobs.length)} sub={`${teamJobs.filter(j => j.status === "Active").length} active`} onClick={() => setActiveTab("jobs")} />
           <SummaryCard icon={<BarChart2 className="h-5 w-5 text-purple-500" />} label="Total Applications" value={String(teamApps.length)} sub={`${teamApps.filter(a => ["Hired", "Joined"].includes(a.status)).length} hired`} onClick={() => setActiveTab("applications")} />
         </div>
@@ -1299,8 +1340,8 @@ export default function OrgAdminPanel() {
                 <div>
                   <h3 className="font-semibold text-[#3A1F1F]">Sub User Used</h3>
                   <p className="text-sm text-[#8A8A8A] mt-0.5">
-                    {activeCount} of {maxSeats} seats used
-                    {maxSeats - activeCount > 0 && ` · ${maxSeats - activeCount} available`}
+                    {seatsUsed} of {maxSeats} seats used
+                    {maxSeats - seatsUsed > 0 && ` · ${maxSeats - seatsUsed} available`}
                   </p>
                 </div>
                 <Button
@@ -1372,10 +1413,10 @@ export default function OrgAdminPanel() {
                           </td>
                           <td className="px-6 py-4">
                             <Badge
-                              className={`text-xs ${memberStatusBadge(member).className}`}
+                              className={`text-xs ${memberStatusBadge(member, user?.id).className}`}
                               variant="secondary"
                             >
-                              {memberStatusBadge(member).label}
+                              {memberStatusBadge(member, user?.id).label}
                             </Badge>
                           </td>
                           <td className="px-6 py-4 text-sm text-[#3A1F1F] font-medium">{member.jobs_count}</td>
@@ -2202,7 +2243,7 @@ export default function OrgAdminPanel() {
       </div>
 
       {/* Create / Edit Blog Dialog */}
-      <Dialog open={blogModalOpen} onOpenChange={setBlogModalOpen}>
+      <Dialog open={blogModalOpen} onOpenChange={(open) => { if (open) setBlogModalOpen(true); else requestCloseBlogModal(); }}>
         <DialogContent className="max-w-2xl max-h-[90vh] overflow-y-auto">
           <DialogHeader>
             <DialogTitle className="flex items-center gap-2 text-[#3A1F1F]">
@@ -2355,7 +2396,7 @@ export default function OrgAdminPanel() {
               <Button
                 variant="outline"
                 className="flex-1 rounded-full"
-                onClick={() => setBlogModalOpen(false)}
+                onClick={requestCloseBlogModal}
                 disabled={blogSaving}
               >
                 Cancel
@@ -2372,6 +2413,35 @@ export default function OrgAdminPanel() {
                 )}
               </Button>
             </div>
+          </div>
+        </DialogContent>
+      </Dialog>
+
+      {/* Discard Blog Changes Confirmation */}
+      <Dialog open={discardBlogConfirmOpen} onOpenChange={setDiscardBlogConfirmOpen}>
+        <DialogContent className="max-w-md">
+          <DialogHeader>
+            <DialogTitle className="text-[#3A1F1F]">Discard changes?</DialogTitle>
+          </DialogHeader>
+          <div className="py-3">
+            <p className="text-sm text-[#8A8A8A]">
+              You have unsaved changes to this blog. Closing now will discard them.
+            </p>
+          </div>
+          <div className="flex gap-3 pt-2">
+            <Button
+              variant="outline"
+              className="flex-1 rounded-full"
+              onClick={() => setDiscardBlogConfirmOpen(false)}
+            >
+              Keep Editing
+            </Button>
+            <Button
+              className="flex-1 bg-red-600 hover:bg-red-700 text-white rounded-full"
+              onClick={() => { setDiscardBlogConfirmOpen(false); setBlogModalOpen(false); }}
+            >
+              Discard
+            </Button>
           </div>
         </DialogContent>
       </Dialog>

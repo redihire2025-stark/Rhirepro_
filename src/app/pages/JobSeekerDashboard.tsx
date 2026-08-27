@@ -931,7 +931,14 @@ export function calculateProfileCompletionScore(
 // ── Main Dashboard ─────────────────────────────────────────────────────────────
 export default function JobSeekerDashboard() {
   const navigate = useNavigate();
-  const { profile, user, loading: authLoading, signOut, refreshProfile } = useAuth();
+  const { profile, user, role, loading: authLoading, signOut, refreshProfile } = useAuth();
+
+  // If authenticated user is a Recruiter, redirect to Recruiter dashboard
+  useEffect(() => {
+    if (!authLoading && user && role === "recruiter") {
+      navigate("/recruiter/dashboard", { replace: true });
+    }
+  }, [authLoading, user, role, navigate]);
 
   // Auth guard — redirect to sign-in if not authenticated.
   // OAuth lands directly on this route with the session still in the URL, and
@@ -2817,8 +2824,26 @@ function FindJobPage() {
                           <DollarSign className="h-3.5 w-3.5 mr-1.5 text-[#FF2B2B] shrink-0" />{job.salary}
                         </div>
                         <div className="flex items-center text-sm text-[#8A8A8A]">
-                          <Clock className="h-3.5 w-3.5 mr-1.5 text-[#FF2B2B] shrink-0" />{job.type}
+                          <Clock className="h-3.5 w-3.5 mr-1.5 text-[#FF2B2B] shrink-0" />
+                          <span>{job.type}</span>
+                          {job.dbJob?.work_mode && (
+                            <span className="ml-1 text-xs bg-gray-100 text-[#5A5A5A] px-1.5 py-0.5 rounded">
+                              {job.dbJob.work_mode}
+                            </span>
+                          )}
                         </div>
+                        {job.dbJob?.experience_min != null && (
+                          <div className="flex items-center text-sm text-[#8A8A8A]">
+                            <Briefcase className="h-3.5 w-3.5 mr-1.5 text-[#FF2B2B] shrink-0" />
+                            {job.dbJob.experience_min}{job.dbJob.experience_max ? `–${job.dbJob.experience_max}` : "+"} yrs exp
+                          </div>
+                        )}
+                        {job.dbJob?.education && (
+                          <div className="flex items-center text-sm text-[#8A8A8A] truncate">
+                            <GraduationCap className="h-3.5 w-3.5 mr-1.5 text-[#FF2B2B] shrink-0" />
+                            <span className="truncate">{job.dbJob.education}{job.dbJob.specialization ? ` (${job.dbJob.specialization})` : ""}</span>
+                          </div>
+                        )}
                       </div>
                       <Button
                         variant="outline"
@@ -2970,18 +2995,6 @@ function FindJobPage() {
                         : selectedJob.experience || "Not specified"}
                     </p>
                   </div>
-                  {selectedJob.interviewMode ? (
-                    <div>
-                      <p className="text-xs text-[#8A8A8A] mb-0.5">Interview Mode</p>
-                      <p className="font-semibold text-[#3A1F1F] text-sm">{selectedJob.interviewMode}</p>
-                    </div>
-                  ) : null}
-                  {(selectedJob.preferredJoiningTime || selectedJob.dbJob?.preferred_joining_time) ? (
-                    <div>
-                      <p className="text-xs text-[#8A8A8A] mb-0.5">Joining Time</p>
-                      <p className="font-semibold text-[#3A1F1F] text-sm">{selectedJob.preferredJoiningTime || selectedJob.dbJob?.preferred_joining_time}</p>
-                    </div>
-                  ) : null}
                 </div>
 
                 <div className="flex gap-2 mb-6">
@@ -3052,13 +3065,64 @@ function FindJobPage() {
                 {selectedJob.dbJob?.perks && selectedJob.dbJob.perks.length > 0 && (
                   <>
                     <h3 className="text-base font-bold text-[#3A1F1F] mb-2">Perks & Benefits :</h3>
-                    <div className="flex flex-wrap gap-2">
+                    <div className="flex flex-wrap gap-2 mb-5">
                       {selectedJob.dbJob.perks.map((p, i) => (
                         <span key={i} className="bg-green-50 text-green-700 text-xs px-3 py-1.5 rounded-full font-medium">{p}</span>
                       ))}
                     </div>
                   </>
                 )}
+
+                {/* Additional Job Details & Requirements */}
+                <div className="mb-6 pt-5 border-t border-gray-100">
+                  <h3 className="text-base font-bold text-[#3A1F1F] mb-3">Job Details & Requirements :</h3>
+                  <div className="grid grid-cols-2 sm:grid-cols-3 gap-y-3.5 gap-x-4 bg-[#F8F9FB] rounded-xl p-4 border border-gray-100">
+                    <div>
+                      <p className="text-xs text-[#8A8A8A] mb-0.5">Employment Type</p>
+                      <p className="font-semibold text-[#3A1F1F] text-sm">{selectedJob.dbJob?.employment_type || selectedJob.type || "Full-time"}</p>
+                    </div>
+                    <div>
+                      <p className="text-xs text-[#8A8A8A] mb-0.5">Work Mode</p>
+                      <p className="font-semibold text-[#3A1F1F] text-sm">{selectedJob.dbJob?.work_mode || "Work from Office"}</p>
+                    </div>
+                    <div>
+                      <p className="text-xs text-[#8A8A8A] mb-0.5">Qualification / Degree</p>
+                      <p className="font-semibold text-[#3A1F1F] text-sm">{selectedJob.dbJob?.education || "Any Graduate / Relevant Degree"}</p>
+                    </div>
+                    {selectedJob.dbJob?.specialization && (
+                      <div>
+                        <p className="text-xs text-[#8A8A8A] mb-0.5">Specialization</p>
+                        <p className="font-semibold text-[#3A1F1F] text-sm">{selectedJob.dbJob.specialization}</p>
+                      </div>
+                    )}
+                    {selectedJob.dbJob?.department && (
+                      <div>
+                        <p className="text-xs text-[#8A8A8A] mb-0.5">Department</p>
+                        <p className="font-semibold text-[#3A1F1F] text-sm">{selectedJob.dbJob.department}</p>
+                      </div>
+                    )}
+                    <div>
+                      <p className="text-xs text-[#8A8A8A] mb-0.5">Industry</p>
+                      <p className="font-semibold text-[#3A1F1F] text-sm">
+                        {Array.isArray(selectedJob.dbJob?.industries) && selectedJob.dbJob.industries.length > 0
+                          ? selectedJob.dbJob.industries.join(", ")
+                          : (selectedJob.dbJob?.industry || selectedJob.industry || "IT / Software")}
+                      </p>
+                    </div>
+                    <div>
+                      <p className="text-xs text-[#8A8A8A] mb-0.5">Notice Period / Joining</p>
+                      <p className="font-semibold text-[#3A1F1F] text-sm">{selectedJob.dbJob?.preferred_joining_time || selectedJob.preferredJoiningTime || "Immediate / Negotiable"}</p>
+                    </div>
+                    <div>
+                      <p className="text-xs text-[#8A8A8A] mb-0.5">Interview Mode</p>
+                      <p className="font-semibold text-[#3A1F1F] text-sm">{selectedJob.dbJob?.interview_mode || selectedJob.interviewMode || "In-Person"}</p>
+                    </div>
+                    <div>
+                      <p className="text-xs text-[#8A8A8A] mb-0.5">Number of Openings</p>
+                      <p className="font-semibold text-[#3A1F1F] text-sm">{selectedJob.dbJob?.openings || 1} {Number(selectedJob.dbJob?.openings || 1) > 1 ? "Openings" : "Opening"}</p>
+                    </div>
+                  </div>
+                </div>
 
                 {selectedJob.dbJob?.recruiter && (
                   <div className="mt-8 pt-6 border-t border-gray-200/60 space-y-4">
