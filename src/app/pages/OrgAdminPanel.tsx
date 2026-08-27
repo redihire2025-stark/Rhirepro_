@@ -42,6 +42,7 @@ type OrgMember = {
   org_role: string;
   is_active: boolean;
   verification_status: string | null;
+  last_login_at: string | null;
   jobs_count: number;
   applications_count: number;
   hires_count: number;
@@ -106,10 +107,24 @@ const STATUS_COLOR: Record<string, string> = {
   Expired: "bg-red-100 text-red-600",
 };
 
+const ACTIVITY_WINDOW_MS = 24 * 60 * 60 * 1000;
+
+function hasSignedInRecently(lastLoginAt: string | null) {
+  if (!lastLoginAt) return false;
+  const seen = new Date(lastLoginAt).getTime();
+  return !isNaN(seen) && Date.now() - seen <= ACTIVITY_WINDOW_MS;
+}
+
 // A member can be `is_active` and still be unable to sign in at all — sign-in
 // is gated separately by verification_status, which super admin approves.
 // Showing "Active" for a Pending/Rejected member is misleading, so that
 // approval state takes priority over is_active whenever it isn't Verified.
+//
+// Below that, "Active" used to mean only "not manually deactivated" — every
+// member stayed Active forever regardless of whether they'd ever signed in.
+// It now also requires a sign-in within the last 24 hours (last_login_at,
+// written on every recruiter sign-in), so the badge reflects real activity;
+// a manual Deactivate still always wins and shows Inactive.
 function memberStatusBadge(member: OrgMember) {
   if (member.verification_status === "Rejected") {
     return { label: "Rejected", className: "bg-red-100 text-red-700" };
@@ -117,7 +132,7 @@ function memberStatusBadge(member: OrgMember) {
   if (member.verification_status && member.verification_status !== "Verified") {
     return { label: "Pending Approval", className: "bg-yellow-100 text-yellow-700" };
   }
-  return member.is_active
+  return member.is_active && hasSignedInRecently(member.last_login_at)
     ? { label: "Active", className: "bg-green-100 text-green-700" }
     : { label: "Inactive", className: "bg-gray-100 text-gray-500" };
 }
@@ -667,11 +682,13 @@ export default function OrgAdminPanel() {
 
   const handleDeleteBlog = useCallback(async (blogId: string) => {
     try {
-      await supabase.from("blogs").delete().eq("id", blogId);
+      const { error } = await supabase.from("blogs").delete().eq("id", blogId);
+      if (error) throw error;
       setDeleteBlogId(null);
       await loadData(true);
-    } catch (err) {
+    } catch (err: any) {
       console.error("Failed to delete blog", err);
+      toast.error("Failed to delete blog", { description: err?.message || "Please try again." });
     }
   }, [loadData]);
 

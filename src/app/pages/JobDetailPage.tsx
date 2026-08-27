@@ -14,6 +14,7 @@ import { SafeHtml } from "../components/ui/safe-html";
 import { extractTextFromHtml } from "../../lib/recruiterJobHelpers";
 import { ImageWithFallback } from "../components/figma/ImageWithFallback";
 import PublicFooter from "../components/PublicFooter";
+import ProfileCompletionModal, { checkApplicationRequirements } from "../components/ProfileCompletionModal";
 
 function parseCompanyDescription(text: string | null | undefined): { aboutCompany: string; companyInfo: string } {
   const val = (text || "").trim();
@@ -82,6 +83,7 @@ export default function JobDetailPage() {
   const navigate = useNavigate();
   const { id } = useParams();
   const { role, profile, signOut } = useAuth();
+  const [profileCompletionModalOpen, setProfileCompletionModalOpen] = useState(false);
 
   useEffect(() => {
     let mounted = true;
@@ -187,6 +189,12 @@ export default function JobDetailPage() {
 
   const handleApplyClick = () => {
     if (role === "jobseeker") {
+      // Validate 3 mandatory fields: Professional Summary, Resume Upload, Preferred Job Settings
+      const reqStatus = checkApplicationRequirements(profile);
+      if (!reqStatus.isComplete) {
+        setProfileCompletionModalOpen(true);
+        return;
+      }
       navigate("/jobseeker/dashboard");
       return;
     }
@@ -680,6 +688,14 @@ export default function JobDetailPage() {
 
       {/* Footer */}
       <PublicFooter />
+
+      <ProfileCompletionModal
+        isOpen={profileCompletionModalOpen}
+        onClose={() => setProfileCompletionModalOpen(false)}
+        profile={profile}
+        jobTitle={currentJob?.title}
+        onNavigateToProfile={() => navigate("/jobseeker/dashboard/profile")}
+      />
     </div>
   );
 }
