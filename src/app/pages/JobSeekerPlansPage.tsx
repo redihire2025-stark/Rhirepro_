@@ -7,7 +7,6 @@ import {
   getJobseekerPlanPrice,
   validateJobseekerPromo,
   applyJobseekerPromo,
-  JOBSEEKER_PROMO_CODES,
 } from "../../lib/jobseekerPlan";
 import { Button } from "../components/ui/button";
 import { Input } from "../components/ui/input";
@@ -143,9 +142,7 @@ export default function JobSeekerPlansPage() {
           </div>
         </div>
 
-        {/* Coupon code — a request to remove any of these is a one-line edit
-            in JOBSEEKER_PROMO_CODES (src/lib/jobseekerPlan.ts) and the
-            matching PROMO_CODES object in netlify/shared/jobseekerPayments.mjs. */}
+        {/* Coupon code input field */}
         {!isPremium && (
           <div className="bg-white rounded-2xl shadow-sm border border-gray-100 p-5 mt-6">
             <div className="flex items-center gap-2 mb-3">
@@ -181,22 +178,6 @@ export default function JobSeekerPlansPage() {
                 <CheckCircle className="h-3.5 w-3.5" /> Coupon {promo.code} applied — {promo.label}
               </p>
             )}
-            <div className="flex flex-wrap gap-2 mt-3">
-              {JOBSEEKER_PROMO_CODES.map((p) => (
-                <button
-                  key={p.code}
-                  type="button"
-                  onClick={() => {
-                    setPromoInput(p.code);
-                    setPromoError("");
-                    setAppliedPromo(p.code);
-                  }}
-                  className="text-xs bg-[#F6F6F6] hover:bg-[#ECECF4] text-[#3A1F1F] px-3 py-1.5 rounded-full transition-colors"
-                >
-                  {p.code} · {p.label}
-                </button>
-              ))}
-            </div>
           </div>
         )}
       </div>
