@@ -500,10 +500,18 @@ function joinPreferredJobTitles(titles: string[]): string {
   return titles.map((title) => title.trim()).filter(Boolean).join(", ");
 }
 
+// "Work from Home" and "Remote" both mean the same remote-work preference;
+// collapse the legacy label so old saved profiles and new picks can't both
+// show up as separate chips.
+function normalizeLocationLabel(location: string): string {
+  const trimmed = location.trim();
+  return trimmed.toLowerCase() === "work from home" ? "Remote" : trimmed;
+}
+
 function splitPreferredLocations(value: string | string[] | null | undefined): string[] {
   if (!value) return [];
   if (Array.isArray(value)) {
-    return Array.from(new Set(value.map((loc) => String(loc).trim()).filter(Boolean)));
+    return Array.from(new Set(value.map((loc) => normalizeLocationLabel(String(loc))).filter(Boolean)));
   }
   const str = String(value).trim();
   if (!str) return [];
@@ -511,7 +519,7 @@ function splitPreferredLocations(value: string | string[] | null | undefined): s
     try {
       const parsed = JSON.parse(str);
       if (Array.isArray(parsed)) {
-        return Array.from(new Set(parsed.map((loc) => String(loc).trim()).filter(Boolean)));
+        return Array.from(new Set(parsed.map((loc) => normalizeLocationLabel(String(loc))).filter(Boolean)));
       }
     } catch {
       // fallback to comma split
@@ -521,7 +529,7 @@ function splitPreferredLocations(value: string | string[] | null | undefined): s
     new Set(
       str
         .split(",")
-        .map((loc) => loc.trim())
+        .map((loc) => normalizeLocationLabel(loc))
         .filter(Boolean)
     )
   );
@@ -529,6 +537,13 @@ function splitPreferredLocations(value: string | string[] | null | undefined): s
 
 function joinPreferredLocations(locations: string[]): string {
   return Array.from(new Set(locations.map((loc) => loc.trim()).filter(Boolean))).join(", ");
+}
+
+// Salary fields are free-text/combobox values like "8 LPA" or "8 - 12 LPA";
+// pull out the first number so current vs. expected can be compared.
+function parseSalaryLpa(value: string): number | null {
+  const match = String(value || "").match(/\d+(\.\d+)?/);
+  return match ? parseFloat(match[0]) : null;
 }
 
 function getPrefsDraftKey(profileId: string) {
@@ -665,7 +680,6 @@ const POPULAR_LOCATION_SUGGESTIONS = [
 const POPULAR_PREFERRED_LOCATIONS = [
   "Remote",
   "Hybrid",
-  "Work from Home",
   "Anywhere in India",
   "Bengaluru",
   "Hyderabad",
@@ -3284,6 +3298,12 @@ function ProfilePage({ onPendingPrefsChange }: { onPendingPrefsChange?: (pending
       desiredJobTitle: joinPreferredJobTitles(splitPreferredJobTitles(prefsForm.desiredJobTitle)),
       preferredLocation: joinPreferredLocations(splitPreferredLocations(prefsForm.preferredLocation)),
     };
+    const currentLpa = parseSalaryLpa(normalizedPrefs.currentSalary);
+    const expectedLpa = parseSalaryLpa(normalizedPrefs.expectedSalary);
+    if (currentLpa !== null && expectedLpa !== null && expectedLpa < currentLpa) {
+      toast.error("Invalid salary range", { description: "Expected salary must be equal to or greater than current salary." });
+      return false;
+    }
     setPreferences(normalizedPrefs);
     setEditingPrefs(false);
     if (profile?.id) {
@@ -3346,9 +3366,6 @@ function ProfilePage({ onPendingPrefsChange }: { onPendingPrefsChange?: (pending
   const skillInputRef = useRef<HTMLInputElement>(null);
   const [preferredJobPickerOpen, setPreferredJobPickerOpen] = useState(false);
   const [preferredJobSearch, setPreferredJobSearch] = useState("");
-  const [preferredJobOptions, setPreferredJobOptions] = useState<string[]>([]);
-  const [preferredJobOptionsLoading, setPreferredJobOptionsLoading] = useState(false);
-  const [preferredJobOptionsError, setPreferredJobOptionsError] = useState("");
   const preferredJobFieldRef = useRef<HTMLDivElement>(null);
   const [preferredLocationPickerOpen, setPreferredLocationPickerOpen] = useState(false);
   const [preferredLocationSearch, setPreferredLocationSearch] = useState("");
@@ -3379,13 +3396,19 @@ function ProfilePage({ onPendingPrefsChange }: { onPendingPrefsChange?: (pending
     };
     if (info.name || info.email || info.phone) {
       setBasicInfo(info);
-      setBasicForm(info);
+      // Only refresh the editable copy when the user isn't mid-edit, so an
+      // unrelated profile refetch (e.g. saving a skill/certification elsewhere
+      // on the page) can't stomp on in-progress typing in this section.
+      if (!editingBasic) setBasicForm(info);
     }
     const googleAvatar = meta.avatar_url || meta.picture || "";
     if (profile?.avatar_url) setProfilePic(profile.avatar_url);
     else if (googleAvatar) setProfilePic(googleAvatar);
     if (profile?.resume_url) setResumeFile(profile.resume_url);
-    if (profile?.about) { setSummary(profile.about); setSummaryForm(profile.about); }
+    if (profile?.about) {
+      setSummary(profile.about);
+      if (!editingSummary) setSummaryForm(profile.about);
+    }
     setSkills(profile?.skills ?? []);
     // Legacy rows can have a null experience_type; "experienced" matches what the
     // recruiter side already shows for those, so the two views stay consistent.
@@ -3405,7 +3428,9 @@ function ProfilePage({ onPendingPrefsChange }: { onPendingPrefsChange?: (pending
         preferredInterviewMode: normalizeInterviewModes(p.preferred_interview_mode),
       };
       setPreferences(prefs);
-      setPrefsForm(profile.id ? loadPrefsDraft(profile.id, prefs) : prefs);
+      // Same guard as basicForm/summaryForm above: don't clobber in-progress
+      // edits when this effect re-runs due to an unrelated profile refetch.
+      if (!editingPrefs) setPrefsForm(profile.id ? loadPrefsDraft(profile.id, prefs) : prefs);
     }
     // Languages
     if (profile?.languages?.length) {
@@ -3600,6 +3625,13 @@ function ProfilePage({ onPendingPrefsChange }: { onPendingPrefsChange?: (pending
   });
   const [editingPrefs, setEditingPrefs] = useState(false);
   const [prefsForm, setPrefsForm] = useState({ ...preferences });
+  // Live salary check as the user picks values, instead of only surfacing the
+  // problem in a toast after they hit Save.
+  const salaryMismatch = useMemo(() => {
+    const current = parseSalaryLpa(prefsForm.currentSalary);
+    const expected = parseSalaryLpa(prefsForm.expectedSalary);
+    return current !== null && expected !== null && expected < current;
+  }, [prefsForm.currentSalary, prefsForm.expectedSalary]);
 
   /*
    * Each section here saves itself, which meant a user filling several of them
@@ -3722,13 +3754,12 @@ function ProfilePage({ onPendingPrefsChange }: { onPendingPrefsChange?: (pending
     [prefsForm.desiredJobTitle],
   );
   const filteredPreferredJobOptions = useMemo(() => {
-    const query = preferredJobSearch.trim().toLowerCase();
+    const query = preferredJobSearch.trim();
     const selected = new Set(selectedPreferredJobTitles.map((title) => title.toLowerCase()));
-    return preferredJobOptions.filter((title) => {
-      const matches = !query || title.toLowerCase().includes(query);
-      return matches && !selected.has(title.toLowerCase());
-    });
-  }, [preferredJobOptions, preferredJobSearch, selectedPreferredJobTitles]);
+    return DESIGNATION_OPTIONS
+      .filter(title => fuzzyMatch(query, title) && !selected.has(title.toLowerCase()))
+      .slice(0, 80);
+  }, [preferredJobSearch, selectedPreferredJobTitles]);
 
   const selectedPreferredLocations = useMemo(
     () => splitPreferredLocations(prefsForm.preferredLocation),
@@ -3782,51 +3813,6 @@ function ProfilePage({ onPendingPrefsChange }: { onPendingPrefsChange?: (pending
     document.addEventListener("mousedown", handleClickOutside);
     return () => document.removeEventListener("mousedown", handleClickOutside);
   }, [preferredLocationPickerOpen]);
-  useEffect(() => {
-    if (!editingPrefs || !preferredJobPickerOpen) return;
-
-    let cancelled = false;
-    const timer = window.setTimeout(async () => {
-      setPreferredJobOptionsLoading(true);
-      setPreferredJobOptionsError("");
-
-      const query = preferredJobSearch.trim();
-      let request = supabase
-        .from("jobs")
-        .select("title")
-        .eq("status", "Active")
-        .order("created_at", { ascending: false })
-        .limit(60);
-
-      if (query) {
-        request = request.ilike("title", `%${escapeLikeValue(query)}%`);
-      }
-
-      const { data, error } = await request;
-      if (cancelled) return;
-
-      setPreferredJobOptionsLoading(false);
-      if (error) {
-        setPreferredJobOptions([]);
-        setPreferredJobOptionsError("Unable to load role suggestions.");
-        return;
-      }
-
-      const titles = Array.from(
-        new Set(
-          (data || [])
-            .map((job) => (job.title || "").trim())
-            .filter(Boolean)
-        )
-      );
-      setPreferredJobOptions(titles);
-    }, 250);
-
-    return () => {
-      cancelled = true;
-      window.clearTimeout(timer);
-    };
-  }, [editingPrefs, preferredJobPickerOpen, preferredJobSearch]);
 
   // ── Helpers ───────────────────────────────────────────────────────────────
   async function addSkill(skill: string) {
@@ -3896,7 +3882,7 @@ function ProfilePage({ onPendingPrefsChange }: { onPendingPrefsChange?: (pending
   }
 
   function addPreferredLocation(location: string) {
-    const nextLocation = location.trim();
+    const nextLocation = normalizeLocationLabel(location);
     if (!nextLocation) return;
     const currentLocations = splitPreferredLocations(prefsForm.preferredLocation);
     if (currentLocations.some((existing) => existing.toLowerCase() === nextLocation.toLowerCase())) {
@@ -5069,14 +5055,7 @@ function ProfilePage({ onPendingPrefsChange }: { onPendingPrefsChange?: (pending
                     {preferredJobPickerOpen && (
                       <div className="absolute left-0 right-0 top-full z-[80] mt-2 overflow-hidden rounded-xl border border-gray-200 bg-white shadow-xl">
                         <div className="max-h-72 overflow-y-auto p-1">
-                          {preferredJobOptionsLoading ? (
-                            <div className="flex items-center gap-2 rounded-lg px-3 py-2 text-sm text-[#8A8A8A]">
-                              <Loader2 className="h-4 w-4 animate-spin text-[#FF2B2B]" />
-                              <span>Loading role suggestions...</span>
-                            </div>
-                          ) : preferredJobOptionsError ? (
-                            <div className="rounded-lg px-3 py-2 text-sm text-red-600">{preferredJobOptionsError}</div>
-                          ) : filteredPreferredJobOptions.length === 0 && preferredJobSearch.trim() ? (
+                          {filteredPreferredJobOptions.length === 0 && preferredJobSearch.trim() ? (
                             <button
                               type="button"
                               onClick={() => addPreferredJobTitle(preferredJobSearch)}
@@ -5264,6 +5243,11 @@ function ProfilePage({ onPendingPrefsChange }: { onPendingPrefsChange?: (pending
                     placeholder="Select or type expected salary (e.g. 12 LPA)..."
                     options={EXPECTED_SALARY_LPA_OPTIONS}
                   />
+                  {salaryMismatch && (
+                    <p className="text-xs text-red-600 mt-1">
+                      Expected salary should be equal to or greater than current salary.
+                    </p>
+                  )}
                 </div>
                 {[
                   { label: "Notice Period", key: "noticePeriod" },
@@ -5390,7 +5374,7 @@ function ProfilePage({ onPendingPrefsChange }: { onPendingPrefsChange?: (pending
             </div>
             <Button
               className="bg-[#FF2B2B] hover:bg-[#e02525] text-white rounded-full px-8 shrink-0"
-              disabled={!hasUnsavedSections || savingAll}
+              disabled={!hasUnsavedSections || savingAll || (editingPrefs && salaryMismatch)}
               onClick={() => { void saveAllSections(); }}
             >
               {savingAll ? "Saving..." : "Save"}

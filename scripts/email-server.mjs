@@ -832,32 +832,50 @@ const server = http.createServer(async (req, res) => {
     return;
   }
 
-  // ── POST /api/ai-insights  (delegates to netlify/functions/ai-insights.mjs) ──
-  // Dev parity only: vite proxies /api to this server, so without this route the
-  // Career Insights panel would 404 locally while working in production. The
-  // Netlify handler is a plain Request -> Response function, so reuse it
-  // verbatim rather than duplicating the prompt and retry logic here.
-  if (req.method === "POST" && req.url === "/api/ai-insights") {
-    const body = await readBody(req);
+  // ── Delegated Netlify Functions (Dev Parity) ──
+  // Vite proxies /api to this server. We delegate requests to the corresponding
+  // Netlify function handler (which takes standard Web Request -> returns Response).
+  const netlifyFuncName = (req.url.split("?")[0] || "").replace(/^\/api\//, "");
+  const functionMap = {
+    "jobseeker-plan-status": "jobseeker-plan-status.mjs",
+    "jobseeker-payments-create-order": "jobseeker-payments-create-order.mjs",
+    "jobseeker-payments-verify-payment": "jobseeker-payments-verify-payment.mjs",
+    "jobseeker-payments-verify": "jobseeker-payments-verify-payment.mjs",
+    "match-score": "match-score.mjs",
+    "org-remove-member": "org-remove-member.mjs",
+    "org-plan-cancelled": "org-plan-cancelled.mjs",
+    "payments-create-order": "payments-create-order.mjs",
+    "payments-verify-payment": "payments-verify-payment.mjs",
+    "payments-verify": "payments-verify-payment.mjs",
+    "ai-insights": "ai-insights.mjs",
+  };
+
+  if (functionMap[netlifyFuncName]) {
+    const file = functionMap[netlifyFuncName];
     try {
-      const { default: aiInsights } = await import("../netlify/functions/ai-insights.mjs");
-      const response = await aiInsights(
-        new Request("http://localhost:3001/api/ai-insights", {
-          method: "POST",
-          headers: { "Content-Type": "application/json" },
-          body: JSON.stringify(body ?? {}),
-        })
-      );
-      const text = await response.text();
-      if (response.ok) {
-        logApiRequest({ function_name: routeName, status_code: response.status, duration_ms: Date.now() - requestStart });
-      } else {
-        logApiRequest({ function_name: routeName, status_code: response.status, duration_ms: Date.now() - requestStart, error_message: text });
+      const body = ["GET", "HEAD"].includes(req.method) ? undefined : await readBody(req);
+      const { default: handler } = await import(`../netlify/functions/${file}`);
+      const headers = new Headers();
+      for (const [k, v] of Object.entries(req.headers)) {
+        if (v) headers.set(k, Array.isArray(v) ? v.join(", ") : v);
       }
-      res.writeHead(response.status, { "Content-Type": "application/json" });
+      const webReq = new Request(`http://localhost:3001${req.url}`, {
+        method: req.method,
+        headers,
+        body: body ? JSON.stringify(body) : undefined,
+      });
+      const response = await handler(webReq);
+      const text = await response.text();
+      res.writeHead(response.status, {
+        "Content-Type": response.headers.get("Content-Type") || "application/json",
+      });
       res.end(text);
-    } catch (err) { fail(500, err.message || "AI insights failed"); }
-    return;
+      return;
+    } catch (err) {
+      console.error(`[netlify-dev: ${file}] error:`, err);
+      fail(500, err.message || "Failed to execute function");
+      return;
+    }
   }
 
   res.writeHead(404); res.end("Not found");
