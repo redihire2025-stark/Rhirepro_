@@ -160,7 +160,7 @@ export default function JobSeekerPaymentGatewayPage() {
       setErrorMsg(err.message || "Failed to initialize Razorpay checkout");
       setStatus("failed");
     }
-  }, [profile, refreshProfile]);
+  }, [profile, refreshProfile, promoCode]);
 
   if (status === "success") {
     return (
