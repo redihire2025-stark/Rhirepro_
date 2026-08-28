@@ -117,7 +117,7 @@ export function AuthProvider({ children }: { children: ReactNode }) {
       });
   };
 
-  const fetchProfile = async (userId: string, userRole: string, retries = 3) => {
+  const fetchProfile = async (userId: string, userRole: string, retries = 2) => {
     if (userRole === "super_admin") {
       setProfile(null);
       setRecruiterProfile(null);
@@ -125,35 +125,75 @@ export function AuthProvider({ children }: { children: ReactNode }) {
     }
     try {
       if (userRole === "recruiter") {
-        // `authenticated` no longer holds SELECT on the sensitive columns of
-        // recruiter_profiles (email, billing counters, seat limits) — that
-        // stopped any signed-in user reading every recruiter's address. A
-        // recruiter still needs their own full row, so read it through the
-        // SECURITY DEFINER function, which is scoped to auth.uid().
-        const { data, error } = await supabase.rpc("my_recruiter_profile").maybeSingle();
-        if (error) console.error("Error fetching recruiter profile:", error);
-        if (!data && retries > 0) {
-          await new Promise(r => setTimeout(r, 800));
+        // First check if this user has a recruiter profile
+        const { data: recData, error: recError } = await supabase.rpc("my_recruiter_profile").maybeSingle();
+        if (recError) console.error("Error fetching recruiter profile:", recError);
+
+        if (recData) {
+          setRecruiterProfile(recData as RecruiterProfile);
+          setProfile(null);
+          setRole("recruiter");
+          return;
+        }
+
+        // If not found in recruiter_profiles, check if this user is actually an existing Job Seeker
+        let { data: jsData } = await supabase.from("profiles").select(SAFE_PROFILE_COLUMNS).eq("id", userId).maybeSingle();
+        if (!jsData) {
+          const fallbackRes = await supabase.from("profiles").select("*").eq("id", userId).maybeSingle();
+          jsData = fallbackRes.data;
+        }
+
+        if (jsData) {
+          // Found in job seekers table — auto-correct role to jobseeker
+          setProfile(jsData as Profile);
+          setRecruiterProfile(null);
+          setRole("jobseeker");
+          supabase.auth.updateUser({ data: { role: "jobseeker" } }).catch(() => {});
+          touchLastActive(userId, jsData.last_active_at ?? null);
+          return;
+        }
+
+        if (retries > 0) {
+          await new Promise((r) => setTimeout(r, 600));
           return fetchProfile(userId, userRole, retries - 1);
         }
-        setRecruiterProfile(data as RecruiterProfile | null);
+
+        setRecruiterProfile(null);
         setProfile(null);
       } else {
-        let { data, error } = await supabase.from("profiles").select(SAFE_PROFILE_COLUMNS).eq("id", userId).single();
-        if (error) {
-          console.error("Error fetching jobseeker profile with SAFE_PROFILE_COLUMNS, trying fallback select('*'):", error);
-          const fallbackRes = await supabase.from("profiles").select("*").eq("id", userId).single();
-          data = fallbackRes.data;
-          if (fallbackRes.error) console.error("Fallback fetch jobseeker profile error:", fallbackRes.error);
+        // userRole is "jobseeker"
+        let { data: jsData, error: jsError } = await supabase.from("profiles").select(SAFE_PROFILE_COLUMNS).eq("id", userId).maybeSingle();
+        if (jsError) {
+          const fallbackRes = await supabase.from("profiles").select("*").eq("id", userId).maybeSingle();
+          jsData = fallbackRes.data;
         }
-        if (!data && retries > 0) {
-          await new Promise(r => setTimeout(r, 800));
+
+        if (jsData) {
+          setProfile(jsData as Profile);
+          setRecruiterProfile(null);
+          setRole("jobseeker");
+          touchLastActive(userId, jsData.last_active_at ?? null);
+          return;
+        }
+
+        // If not found in profiles, check if this user is actually an existing Recruiter!
+        const { data: recData } = await supabase.rpc("my_recruiter_profile").maybeSingle();
+        if (recData) {
+          // Found in recruiter_profiles — auto-correct role to recruiter
+          setRecruiterProfile(recData as RecruiterProfile);
+          setProfile(null);
+          setRole("recruiter");
+          supabase.auth.updateUser({ data: { role: "recruiter" } }).catch(() => {});
+          return;
+        }
+
+        if (retries > 0) {
+          await new Promise((r) => setTimeout(r, 600));
           return fetchProfile(userId, userRole, retries - 1);
         }
-        const userProfile = data as Profile | null;
-        setProfile(userProfile);
+
+        setProfile(null);
         setRecruiterProfile(null);
-        touchLastActive(userId, userProfile?.last_active_at ?? null);
       }
     } catch (err) {
       console.error("fetchProfile error:", err);
