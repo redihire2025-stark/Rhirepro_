@@ -18,7 +18,7 @@ import { useAuth } from "../../lib/auth-context";
 import { decryptPhone, encryptPhone } from "../../lib/phoneProtection";
 import { draftKey, useFormDraft } from "../../lib/useFormDraft";
 import { toast } from "sonner";
-import { INDIA_CITY_OPTIONS } from "../../lib/locationData";
+import { INDIA_CITY_OPTIONS, isIndianLocation } from "../../lib/locationData";
 import AppliedJobsSection from "../components/AppliedJobsSection";
 import { DeleteAccountCard } from "../components/DeleteAccountCard";
 import { SupportTicketDialog } from "../components/SupportTicketDialog";
@@ -5935,6 +5935,38 @@ function AnalyticsPage() {
    */
   type JobDetailSelection = { job_id?: string | number | null; job?: SavedJobWithJob["job"] | null };
   const [selectedSavedJob, setSelectedSavedJob] = useState<JobDetailSelection | null>(null);
+
+  // Automatically hydrate recruiter company details if not already present on the selected job
+  useEffect(() => {
+    const job = selectedSavedJob?.job;
+    if (!job || job.recruiter || !job.recruiter_id) return;
+    let isCancelled = false;
+
+    supabase
+      .from("recruiter_profiles")
+      .select("id, recruiter_name, company_name, company_size, company_type, industry, company_description, website, location, logo_url, cover_image_url, tagline, linkedin_url, cin, founded, phone")
+      .eq("id", job.recruiter_id)
+      .maybeSingle()
+      .then(({ data, error }) => {
+        if (!error && data && !isCancelled) {
+          setSelectedSavedJob((prev) => {
+            if (!prev || !prev.job || prev.job.id !== job.id) return prev;
+            return {
+              ...prev,
+              job: {
+                ...prev.job,
+                recruiter: data as any,
+              },
+            };
+          });
+        }
+      });
+
+    return () => {
+      isCancelled = true;
+    };
+  }, [selectedSavedJob?.job?.id, selectedSavedJob?.job?.recruiter_id]);
+
   const [applyingId, setApplyingId] = useState<string | null>(null);
   const [selectedOfferDetails, setSelectedOfferDetails] = useState<OfferPanelDetails | null>(null);
   const [analyticsLoading, setAnalyticsLoading] = useState(true);
@@ -5997,6 +6029,21 @@ function AnalyticsPage() {
       setApplyingId(null);
     }
   };
+
+  const handleToggleSave = async (job: DBJob) => {
+    if (!profile?.id || !job?.id) return;
+    const jobIdStr = String(job.id);
+    const isSaved = savedJobs.some(s => String(s.job_id) === jobIdStr || String(s.job?.id) === jobIdStr);
+    if (isSaved) {
+      await supabase.from("saved_jobs").delete().eq("profile_id", profile.id).eq("job_id", job.id);
+      setSavedJobs(prev => prev.filter(s => String(s.job_id) !== jobIdStr && String(s.job?.id) !== jobIdStr));
+    } else {
+      await supabase.from("saved_jobs").insert({ profile_id: profile.id, job_id: job.id });
+      recordJobInteraction(job, profile.id);
+      setSavedJobs(prev => [{ id: `saved-${Date.now()}`, profile_id: profile.id, job_id: job.id, saved_at: new Date().toISOString(), job }, ...prev]);
+    }
+  };
+
   const [compareState, setCompareState] = useState<{
     fromSavedJobs: true;
     selectedJobIds: string[];
@@ -6631,140 +6678,356 @@ function AnalyticsPage() {
         {/* Right Sidebar — hidden when compare is active */}
         {activeTab !== "compare" && !analyticsLoading && (
           <div className="lg:col-span-1 space-y-4 sticky top-6 self-start">
-            {/* Saved Job Details Panel */}
-            {selectedSavedJob && selectedSavedJob.job && (
-              <div className="bg-white rounded-2xl border border-gray-100 p-5 shadow-[0_2px_8px_rgba(16,24,40,0.08)] space-y-4 max-h-[calc(100vh-120px)] overflow-y-auto custom-scrollbar">
-                <div className="flex items-start justify-between gap-3">
-                  <div className="flex items-center gap-3">
-                    {selectedSavedJob.job.recruiter?.logo_url ? (
-                      <img src={selectedSavedJob.job.recruiter.logo_url} alt="" className="w-10 h-10 rounded-xl object-cover border border-gray-200" />
-                    ) : (
-                      <div className="w-10 h-10 rounded-xl bg-red-50 flex items-center justify-center text-[#FF2B2B] font-bold text-base border border-gray-200">
-                        {(selectedSavedJob.job.company_name || "C")[0].toUpperCase()}
+            {/* Saved / Applied Job Details Panel */}
+            {selectedSavedJob && selectedSavedJob.job && (() => {
+              const job = selectedSavedJob.job;
+              const targetId = String(selectedSavedJob.job_id || job.id);
+              const isApplied = justAppliedJobIds.has(targetId) || appliedJobs.some(a => String(a.job_id) === targetId || String(a.job?.id) === targetId);
+              const isSaved = savedJobs.some(s => String(s.job_id) === targetId || String(s.job?.id) === targetId);
+              const companyName = job.company_name || job.recruiter?.company_name || "Company";
+
+              return (
+                <div className="bg-white rounded-2xl border border-gray-100 shadow-[0_2px_8px_rgba(16,24,40,0.08)] overflow-hidden max-h-[calc(100vh-120px)] flex flex-col">
+                  <div className="p-6 overflow-y-auto flex-1 custom-scrollbar">
+                    {/* Header */}
+                    <div className="flex items-start justify-between mb-4">
+                      <div className="flex items-center gap-3">
+                        {job.recruiter?.logo_url ? (
+                          <img src={job.recruiter.logo_url} alt="" className="w-12 h-12 rounded-xl object-cover border border-gray-200" />
+                        ) : (
+                          <div className="w-12 h-12 rounded-xl bg-red-50 flex items-center justify-center text-[#FF2B2B] font-bold text-lg border border-gray-200">
+                            {(companyName || "C")[0].toUpperCase()}
+                          </div>
+                        )}
+                        <div>
+                          <span className="text-[10px] font-semibold text-green-700 bg-green-50 border border-green-100 px-2 py-0.5 rounded-full mb-1 inline-block">Verified Company</span>
+                          <p className="text-sm font-semibold text-[#3A1F1F]">{companyName}</p>
+                        </div>
+                      </div>
+                      <div className="flex items-center gap-2">
+                        {job.applicant_count != null && job.applicant_count > 0 && (
+                          <div
+                            className="bg-[#FFF2F2] text-[#FF2B2B] rounded-full px-2.5 py-1 text-xs font-semibold flex items-center gap-1.5 border border-red-100 shadow-sm shrink-0"
+                            title={`${job.applicant_count} candidates applied`}
+                          >
+                            <Users className="h-3.5 w-3.5 shrink-0" />
+                            <span>{job.applicant_count} applied</span>
+                          </div>
+                        )}
+                        <JobShareButton jobId={targetId} title={job.title} className="shrink-0 -mr-1 -mt-1" />
+                        <button
+                          type="button"
+                          onClick={() => setSelectedSavedJob(null)}
+                          className="text-[#8A8A8A] hover:text-[#3A1F1F] p-1"
+                          aria-label="Close details"
+                        >
+                          <X className="h-5 w-5" />
+                        </button>
+                      </div>
+                    </div>
+
+                    {/* Title & Posted Date */}
+                    <div className="flex items-center justify-between gap-4 flex-wrap mb-4">
+                      <h2 className="text-2xl font-bold text-[#3A1F1F]">{job.title}</h2>
+                      {job.created_at && (
+                        <span className="text-sm text-[#8A8A8A] font-medium bg-[#ECECF4] px-3 py-1.5 rounded-full shrink-0">
+                          Posted {new Date(job.created_at).toLocaleDateString('en-US', { day: 'numeric', month: 'short', year: 'numeric' })}
+                        </span>
+                      )}
+                    </div>
+
+                    {/* Quick Info Grid */}
+                    <div className="flex flex-wrap gap-4 mb-5 pb-5 border-b border-gray-100">
+                      <div>
+                        <p className="text-xs text-[#8A8A8A] mb-0.5">Location</p>
+                        <p className="font-semibold text-[#3A1F1F] text-sm">{job.location || job.work_mode || "India"}</p>
+                      </div>
+                      <div>
+                        <p className="text-xs text-[#8A8A8A] mb-0.5">Salary</p>
+                        <p className="font-semibold text-[#3A1F1F] text-sm">{formatJobSalary(job)}</p>
+                      </div>
+                      <div>
+                        <p className="text-xs text-[#8A8A8A] mb-0.5">Experience</p>
+                        <p className="font-semibold text-[#3A1F1F] text-sm">
+                          {job.experience_min != null
+                            ? `${job.experience_min}${job.experience_max ? `–${job.experience_max}` : "+"} years`
+                            : "Not specified"}
+                        </p>
+                      </div>
+                    </div>
+
+                    {/* Action Buttons */}
+                    <div className="flex gap-2 mb-6">
+                      {(() => {
+                        if (!isApplied && !isJobVisibleToSeekers(job)) {
+                          return (
+                            <Badge className="bg-red-50 text-red-700 text-xs rounded-full px-4 py-2 font-medium border border-red-200">
+                              <Clock className="h-4 w-4 mr-1.5" /> No longer accepting applications
+                            </Badge>
+                          );
+                        }
+                        return isApplied ? (
+                          <Badge className="bg-emerald-100 text-emerald-700 text-xs rounded-full px-5 py-2.5 font-medium border-0 flex items-center">
+                            <CheckCircle className="h-4 w-4 mr-1.5" /> Applied
+                          </Badge>
+                        ) : (
+                          <Button
+                            className="rounded-full px-6 bg-[#FF2B2B] hover:bg-[#e02525] text-white"
+                            disabled={applyingId === targetId}
+                            onClick={() => void handleApplyFromSaved(job)}
+                          >
+                            {applyingId === targetId ? (
+                              <>
+                                <Loader2 className="h-3.5 w-3.5 animate-spin mr-1.5" />
+                                Applying...
+                              </>
+                            ) : (
+                              "Apply Now"
+                            )}
+                          </Button>
+                        );
+                      })()}
+                      <Button
+                        variant="outline"
+                        className={`rounded-full ${isSaved ? "border-[#FF2B2B] text-[#FF2B2B]" : "border-gray-200"}`}
+                        onClick={() => void handleToggleSave(job)}
+                      >
+                        <Bookmark className="h-4 w-4 mr-1" fill={isSaved ? "currentColor" : "none"} />
+                        {isSaved ? "Saved" : "Save"}
+                      </Button>
+                    </div>
+
+                    {/* About the Role */}
+                    {job.description && (
+                      <div className="mb-5">
+                        <h3 className="text-base font-bold text-[#3A1F1F] mb-2">About the Role :</h3>
+                        <SafeHtml
+                          content={job.description}
+                          className="rich-text-content text-[#8A8A8A] text-sm leading-relaxed [&_ul]:list-disc [&_ul]:pl-5 [&_ol]:list-decimal [&_ol]:pl-5 [&_h2]:text-base [&_h2]:font-bold [&_h2]:mt-2 [&_h2]:mb-1 [&_h3]:text-sm [&_h3]:font-bold [&_h3]:mt-1.5 [&_h3]:mb-1 [&_a]:text-[#FF2B2B] [&_a]:underline"
+                        />
                       </div>
                     )}
-                    <div>
-                      <span className="text-[10px] font-semibold text-green-700 bg-green-50 border border-green-100 px-2 py-0.5 rounded-full inline-block mb-0.5">Verified Company</span>
-                      <p className="text-xs font-semibold text-[#3A1F1F]">{selectedSavedJob.job.company_name}</p>
-                    </div>
-                  </div>
-                  <button
-                    type="button"
-                    onClick={() => setSelectedSavedJob(null)}
-                    className="text-[#8A8A8A] hover:text-[#3A1F1F] transition-colors p-1"
-                    aria-label="Close details"
-                  >
-                    <X className="h-4 w-4" />
-                  </button>
-                </div>
 
-                <div>
-                  <h2 className="text-lg font-bold text-[#3A1F1F]">{selectedSavedJob.job.title}</h2>
-                  {selectedSavedJob.job.created_at && (
-                    <p className="text-xs text-[#8A8A8A] mt-0.5">
-                      Posted {new Date(selectedSavedJob.job.created_at).toLocaleDateString('en-US', { day: 'numeric', month: 'short', year: 'numeric' })}
-                    </p>
-                  )}
-                </div>
+                    {/* Roles & Responsibilities */}
+                    {job.roles_responsibilities && job.roles_responsibilities.trim() && (
+                      <div className="mb-5">
+                        <h3 className="text-base font-bold text-[#3A1F1F] mb-2">Roles & Responsibilities :</h3>
+                        <SafeHtml
+                          content={job.roles_responsibilities}
+                          className="rich-text-content text-[#8A8A8A] text-sm leading-relaxed [&_ul]:list-disc [&_ul]:pl-5 [&_ol]:list-decimal [&_ol]:pl-5 [&_h2]:text-base [&_h2]:font-bold [&_h2]:mt-2 [&_h2]:mb-1 [&_h3]:text-sm [&_h3]:font-bold [&_h3]:mt-1.5 [&_h3]:mb-1 [&_a]:text-[#FF2B2B] [&_a]:underline"
+                        />
+                      </div>
+                    )}
 
-                <div className="grid grid-cols-2 gap-2.5 p-3 bg-[#F8FAFC] rounded-xl text-xs text-[#3A1F1F]">
-                  <div>
-                    <span className="text-[#8A8A8A] block mb-0.5 text-[11px]">Location</span>
-                    <span className="font-semibold">{selectedSavedJob.job.location || selectedSavedJob.job.work_mode || "India"}</span>
-                  </div>
-                  <div>
-                    <span className="text-[#8A8A8A] block mb-0.5 text-[11px]">Salary</span>
-                    <span className="font-semibold">{formatJobSalary(selectedSavedJob.job)}</span>
-                  </div>
-                  <div>
-                    <span className="text-[#8A8A8A] block mb-0.5 text-[11px]">Experience</span>
-                    <span className="font-semibold">
-                      {selectedSavedJob.job.experience_min != null
-                        ? `${selectedSavedJob.job.experience_min}${selectedSavedJob.job.experience_max ? `–${selectedSavedJob.job.experience_max}` : "+"} years`
-                        : /* Canonical DB jobs expose experience through min/max numeric fields. */
-                        "Not specified"}
-                    </span>
-                  </div>
-                  {selectedSavedJob.job.preferred_joining_time && (
-                    <div>
-                      <span className="text-[#8A8A8A] block mb-0.5 text-[11px]">Joining Time</span>
-                      <span className="font-semibold">{selectedSavedJob.job.preferred_joining_time}</span>
-                    </div>
-                  )}
-                </div>
+                    {/* Requirements / Qualifications */}
+                    {job.requirements && job.requirements.trim() && (
+                      <div className="mb-5">
+                        <h3 className="text-base font-bold text-[#3A1F1F] mb-2">Requirements / Qualifications :</h3>
+                        <SafeHtml
+                          content={job.requirements}
+                          className="rich-text-content text-[#8A8A8A] text-sm leading-relaxed [&_ul]:list-disc [&_ul]:pl-5 [&_ol]:list-decimal [&_ol]:pl-5 [&_h2]:text-base [&_h2]:font-bold [&_h2]:mt-2 [&_h2]:mb-1 [&_h3]:text-sm [&_h3]:font-bold [&_h3]:mt-1.5 [&_h3]:mb-1 [&_a]:text-[#FF2B2B] [&_a]:underline"
+                        />
+                      </div>
+                    )}
 
-                {/* Action Buttons */}
-                <div className="flex items-center gap-2 pt-1">
-                  {(() => {
-                    const targetId = String(selectedSavedJob.job_id || selectedSavedJob.job.id);
-                    const isApplied = justAppliedJobIds.has(targetId) || appliedJobs.some(a => String(a.job_id) === targetId || String(a.job?.id) === targetId);
-                    // The Expired filter can open this panel, and applying to a
-                    // closed posting would silently fail on the recruiter side.
-                    if (!isApplied && !isJobVisibleToSeekers(selectedSavedJob.job)) {
-                      return (
-                        <Badge className="bg-red-50 text-red-700 text-xs rounded-full px-4 py-2 font-medium border border-red-200">
-                          <Clock className="h-4 w-4 mr-1.5" /> No longer accepting applications
-                        </Badge>
-                      );
-                    }
-                    return isApplied ? (
-                      <Badge className="bg-emerald-100 text-emerald-700 text-xs rounded-full px-4 py-2 font-medium border-0">
-                        <CheckCircle className="h-4 w-4 mr-1.5" /> Applied
-                      </Badge>
-                    ) : (
-                      <Button
-                        size="sm"
-                        className="rounded-full text-xs bg-[#FF2B2B] hover:bg-[#e02525] text-white px-5 py-2 flex items-center gap-1.5"
-                        disabled={applyingId === targetId}
-                        onClick={() => {
-                          if (selectedSavedJob.job) void handleApplyFromSaved(selectedSavedJob.job);
-                        }}
-                      >
-                        {applyingId === targetId ? (
-                          <>
-                            <Loader2 className="h-3.5 w-3.5 animate-spin" />
-                            Applying...
-                          </>
-                        ) : (
-                          "Apply Now"
+                    {/* Key Skills */}
+                    {job.skills && job.skills.length > 0 && (
+                      <>
+                        <h3 className="text-base font-bold text-[#3A1F1F] mb-2">Key Skills :</h3>
+                        <div className="flex flex-wrap gap-2 mb-5">
+                          {job.skills.map((s, i) => (
+                            <span key={i} className="bg-[#ECECF4] text-[#3A1F1F] text-xs px-3 py-1.5 rounded-full font-medium">{s}</span>
+                          ))}
+                        </div>
+                      </>
+                    )}
+
+                    {/* Perks & Benefits */}
+                    {job.perks && job.perks.length > 0 && (
+                      <>
+                        <h3 className="text-base font-bold text-[#3A1F1F] mb-2">Perks & Benefits :</h3>
+                        <div className="flex flex-wrap gap-2 mb-5">
+                          {job.perks.map((p, i) => (
+                            <span key={i} className="bg-green-50 text-green-700 text-xs px-3 py-1.5 rounded-full font-medium">{p}</span>
+                          ))}
+                        </div>
+                      </>
+                    )}
+
+                    {/* Additional Job Details & Requirements */}
+                    <div className="mb-6 pt-5 border-t border-gray-100">
+                      <h3 className="text-base font-bold text-[#3A1F1F] mb-3">Job Details & Requirements :</h3>
+                      <div className="grid grid-cols-2 sm:grid-cols-3 gap-y-3.5 gap-x-4 bg-[#F8F9FB] rounded-xl p-4 border border-gray-100">
+                        <div>
+                          <p className="text-xs text-[#8A8A8A] mb-0.5">Employment Type</p>
+                          <p className="font-semibold text-[#3A1F1F] text-sm">{job.employment_type || "Full-time"}</p>
+                        </div>
+                        <div>
+                          <p className="text-xs text-[#8A8A8A] mb-0.5">Work Mode</p>
+                          <p className="font-semibold text-[#3A1F1F] text-sm">{job.work_mode || "Work from Office"}</p>
+                        </div>
+                        <div>
+                          <p className="text-xs text-[#8A8A8A] mb-0.5">Qualification / Degree</p>
+                          <p className="font-semibold text-[#3A1F1F] text-sm">{job.education || "Any Graduate / Relevant Degree"}</p>
+                        </div>
+                        {job.specialization && (
+                          <div>
+                            <p className="text-xs text-[#8A8A8A] mb-0.5">Specialization</p>
+                            <p className="font-semibold text-[#3A1F1F] text-sm">{job.specialization}</p>
+                          </div>
                         )}
-                      </Button>
-                    );
-                  })()}
+                        {job.department && (
+                          <div>
+                            <p className="text-xs text-[#8A8A8A] mb-0.5">Department</p>
+                            <p className="font-semibold text-[#3A1F1F] text-sm">{job.department}</p>
+                          </div>
+                        )}
+                        <div>
+                          <p className="text-xs text-[#8A8A8A] mb-0.5">Industry</p>
+                          <p className="font-semibold text-[#3A1F1F] text-sm">
+                            {Array.isArray(job.industries) && job.industries.length > 0
+                              ? job.industries.join(", ")
+                              : (job.industry || "IT / Software")}
+                          </p>
+                        </div>
+                        <div>
+                          <p className="text-xs text-[#8A8A8A] mb-0.5">Notice Period / Joining</p>
+                          <p className="font-semibold text-[#3A1F1F] text-sm">{job.preferred_joining_time || "Immediate / Negotiable"}</p>
+                        </div>
+                        <div>
+                          <p className="text-xs text-[#8A8A8A] mb-0.5">Interview Mode</p>
+                          <p className="font-semibold text-[#3A1F1F] text-sm">{job.interview_mode || "In-Person"}</p>
+                        </div>
+                        <div>
+                          <p className="text-xs text-[#8A8A8A] mb-0.5">Number of Openings</p>
+                          <p className="font-semibold text-[#3A1F1F] text-sm">{job.openings || 1} {Number(job.openings || 1) > 1 ? "Openings" : "Opening"}</p>
+                        </div>
+                      </div>
+                    </div>
+
+                    {/* Company Profile */}
+                    {job.recruiter && (
+                      <div className="mt-8 pt-6 border-t border-gray-200/60 space-y-4">
+                        <div className="flex items-center justify-between border-b border-gray-200/60 pb-3">
+                          <h4 className="text-lg font-bold text-[#3A1F1F]">Company Profile</h4>
+                          {job.recruiter.website && (
+                            <a href={job.recruiter.website} target="_blank" rel="noreferrer" className="text-sm text-[#FF2B2B] hover:underline flex items-center gap-1 font-medium">
+                              <Globe className="h-4 w-4" /> Website
+                            </a>
+                          )}
+                        </div>
+
+                        {job.recruiter.tagline && (
+                          <p className="text-sm italic text-[#5A5A5A] border-l-2 border-[#FF2B2B] pl-2">
+                            "{job.recruiter.tagline}"
+                          </p>
+                        )}
+
+                        {(() => {
+                          const { aboutCompany, companyInfo } = parseCompanyDescription(job.recruiter.company_description);
+                          const hasAbout = aboutCompany && aboutCompany !== "<p><br></p>" && aboutCompany !== "<p></p>";
+                          const hasInfo = companyInfo && companyInfo !== "<p><br></p>" && companyInfo !== "<p></p>";
+
+                          return (
+                            <>
+                              {hasAbout && (
+                                <div>
+                                  <h5 className="font-semibold text-[#3A1F1F] text-sm mb-1.5">About Company</h5>
+                                  <div className="text-sm text-[#6A6A6A] leading-relaxed [&_ul]:list-disc [&_ul]:pl-5 [&_ol]:list-decimal [&_ol]:pl-5 [&_h2]:text-base [&_h2]:font-bold [&_h2]:mt-2 [&_h2]:mb-1 [&_h3]:text-sm [&_h3]:font-bold [&_h3]:mt-1.5 [&_h3]:mb-1 [&_a]:text-[#FF2B2B] [&_a]:underline">
+                                    <SafeHtml content={aboutCompany} />
+                                  </div>
+                                </div>
+                              )}
+
+                              <h5 className={`font-semibold text-[#3A1F1F] text-sm mb-1.5 mt-4 ${(job.recruiter.tagline || hasAbout)
+                                ? "pt-3 border-t border-gray-200/60"
+                                : ""
+                                }`}>
+                                Company Information
+                              </h5>
+
+                              {hasInfo && (
+                                <div className="text-sm text-[#6A6A6A] leading-relaxed mb-3 [&_ul]:list-disc [&_ul]:pl-5 [&_ol]:list-decimal [&_ol]:pl-5 [&_h2]:text-base [&_h2]:font-bold [&_h2]:mt-2 [&_h2]:mb-1 [&_h3]:text-sm [&_h3]:font-bold [&_h3]:mt-1.5 [&_h3]:mb-1 [&_a]:text-[#FF2B2B] [&_a]:underline">
+                                  <SafeHtml content={companyInfo} />
+                                </div>
+                              )}
+                            </>
+                          );
+                        })()}
+                        <div className="grid grid-cols-2 gap-x-4 gap-y-3">
+                          {job.recruiter.industry && (
+                            <div>
+                              <span className="text-xs text-[#8A8A8A] block mb-0.5">Industry</span>
+                              <span className="font-semibold text-[#3A1F1F] text-sm">{job.recruiter.industry}</span>
+                            </div>
+                          )}
+                          {job.recruiter.company_type && (
+                            <div>
+                              <span className="text-xs text-[#8A8A8A] block mb-0.5">Company Type</span>
+                              <span className="font-semibold text-[#3A1F1F] text-sm">{job.recruiter.company_type}</span>
+                            </div>
+                          )}
+                          {job.recruiter.company_size && (
+                            <div>
+                              <span className="text-xs text-[#8A8A8A] block mb-0.5">Company Size</span>
+                              <span className="font-semibold text-[#3A1F1F] text-sm">{job.recruiter.company_size} employees</span>
+                            </div>
+                          )}
+                          {job.recruiter.founded && (
+                            <div>
+                              <span className="text-xs text-[#8A8A8A] block mb-0.5">Founded Year</span>
+                              <span className="font-semibold text-[#3A1F1F] text-sm">{job.recruiter.founded}</span>
+                            </div>
+                          )}
+                          {job.recruiter.location && (
+                            <div>
+                              <span className="text-xs text-[#8A8A8A] block mb-0.5">Headquarters</span>
+                              <span className="font-semibold text-[#3A1F1F] text-sm flex items-center gap-0.5">
+                                <MapPin className="h-3.5 w-3.5 text-[#FF2B2B]" /> {job.recruiter.location}
+                              </span>
+                            </div>
+                          )}
+                          {job.recruiter.phone && (
+                            <div>
+                              <span className="text-xs text-[#8A8A8A] block mb-0.5">Phone</span>
+                              <span className="font-semibold text-[#3A1F1F] text-sm">{decryptPhone(job.recruiter.phone)}</span>
+                            </div>
+                          )}
+                          {job.recruiter.cin && (
+                            <div>
+                              <span className="text-xs text-[#8A8A8A] block mb-0.5">CIN Number</span>
+                              <span className="font-semibold text-[#3A1F1F] text-sm">{job.recruiter.cin}</span>
+                            </div>
+                          )}
+                          {job.recruiter.recruiter_name && (
+                            <div>
+                              <span className="text-xs text-[#8A8A8A] block mb-0.5">HR Contact</span>
+                              <span className="font-semibold text-[#3A1F1F] text-sm">{job.recruiter.recruiter_name}</span>
+                            </div>
+                          )}
+                          {job.recruiter.website && (
+                            <div className="col-span-2">
+                              <span className="text-xs text-[#8A8A8A] block mb-0.5">Website</span>
+                              <a href={job.recruiter.website} target="_blank" rel="noreferrer" className="font-semibold text-[#FF2B2B] hover:underline truncate block text-sm">
+                                {job.recruiter.website}
+                              </a>
+                            </div>
+                          )}
+                          {job.recruiter.linkedin_url && (
+                            <div className="col-span-2">
+                              <span className="text-xs text-[#8A8A8A] block mb-0.5">LinkedIn</span>
+                              <a href={job.recruiter.linkedin_url} target="_blank" rel="noreferrer" className="font-semibold text-[#FF2B2B] hover:underline truncate block text-sm">
+                                {job.recruiter.linkedin_url}
+                              </a>
+                            </div>
+                          )}
+                        </div>
+                      </div>
+                    )}
+                  </div>
                 </div>
-
-                {/* Description / Roles / Requirements */}
-                {selectedSavedJob.job.description && (
-                  <div className="pt-2 border-t border-gray-100">
-                    <h4 className="text-xs font-bold text-[#3A1F1F] mb-1.5">About the Role :</h4>
-                    <SafeHtml
-                      content={selectedSavedJob.job.description}
-                      className="rich-text-content text-[#8A8A8A] text-xs leading-relaxed"
-                    />
-                  </div>
-                )}
-
-                {selectedSavedJob.job.roles_responsibilities && (
-                  <div className="pt-2 border-t border-gray-100">
-                    <h4 className="text-xs font-bold text-[#3A1F1F] mb-1.5">Roles & Responsibilities :</h4>
-                    <SafeHtml
-                      content={selectedSavedJob.job.roles_responsibilities}
-                      className="rich-text-content text-[#8A8A8A] text-xs leading-relaxed"
-                    />
-                  </div>
-                )}
-
-                {selectedSavedJob.job.requirements && (
-                  <div className="pt-2 border-t border-gray-100">
-                    <h4 className="text-xs font-bold text-[#3A1F1F] mb-1.5">Requirements / Qualifications :</h4>
-                    <SafeHtml
-                      content={selectedSavedJob.job.requirements}
-                      className="rich-text-content text-[#8A8A8A] text-xs leading-relaxed"
-                    />
-                  </div>
-                )}
-              </div>
-            )}
+              );
+            })()}
             {activeTab === "applied" && selectedOfferJob && (
               <div className="bg-white rounded-2xl border border-gray-100 p-5 shadow-[0_2px_8px_rgba(16,24,40,0.08)]">
                 <div className="flex items-start justify-between gap-3">

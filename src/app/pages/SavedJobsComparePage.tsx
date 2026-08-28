@@ -82,17 +82,37 @@ function normalizeText(value: string): string {
   return value.trim().replace(/\s+/g, " ").toLowerCase();
 }
 
-function normalizeJDSection(value: string | null | undefined, fallback: string): string {
-  const normalized = (value || "").trim();
-  if (!normalized) return fallback;
-  return normalized;
+function isRichTextEmpty(html: string | null | undefined): boolean {
+  if (!html) return true;
+  const stripped = html.replace(/<[^>]*>/g, "").replace(/&nbsp;/g, " ").trim();
+  return stripped.length === 0;
 }
 
-function formatQualifications(job: NonNullable<SavedJobWithJob["job"]>): string {
-  if (job.description?.trim()) return job.description.trim();
-  if (job.requirements?.trim()) return job.requirements.trim();
-  if (job.education?.trim()) return job.education.trim();
-  return "N/A";
+function getJobSections(job: NonNullable<SavedJobWithJob["job"]>): { title: string; content: string }[] {
+  const sections: { title: string; content: string }[] = [];
+
+  if (job.description && !isRichTextEmpty(job.description)) {
+    sections.push({
+      title: "About the Role",
+      content: job.description.trim(),
+    });
+  }
+
+  if (job.roles_responsibilities && !isRichTextEmpty(job.roles_responsibilities)) {
+    sections.push({
+      title: "Roles & Responsibilities",
+      content: job.roles_responsibilities.trim(),
+    });
+  }
+
+  if (job.requirements && !isRichTextEmpty(job.requirements)) {
+    sections.push({
+      title: "Requirements / Qualifications",
+      content: job.requirements.trim(),
+    });
+  }
+
+  return sections;
 }
 
 function readStoredCompareState(): ComparePageLocationState {
@@ -450,39 +470,59 @@ export default function SavedJobsComparePage({ forcedState, embedded = false }: 
           </div>
 
           <div className="bg-white rounded-2xl p-5 shadow-md">
-            <h2 className="text-lg font-semibold text-[#3A1F1F] mb-4">Full JD</h2>
-            <div className="flex gap-4 overflow-x-auto pb-1">
+            <h2 className="text-lg font-semibold text-[#3A1F1F] mb-4">Job Details & Description</h2>
+            <div className="flex gap-4 overflow-x-auto pb-2">
               {selectedJobs.map((savedJob) => {
                 const job = savedJob.job!;
-                const jdSections = [
-                  {
-                    title: "Roles & Responsibilities",
-                    value: normalizeJDSection(job.roles_responsibilities, "N/A"),
-                  },
-                  {
-                    title: "Requirements",
-                    value: normalizeJDSection(job.requirements, "N/A"),
-                  },
-                  {
-                    title: "Qualifications",
-                    value: normalizeJDSection(formatQualifications(job), "N/A"),
-                  },
-                ];
+                const sections = getJobSections(job);
 
                 return (
-                  <article key={savedJob.id} className="min-w-[320px] md:min-w-[360px] flex-1 border border-gray-200 rounded-xl bg-[#F6F6F6] p-6">
-                    <h3 className="text-base font-semibold text-[#3A1F1F]">{job.title?.trim() || "N/A"}</h3>
-                    <p className="text-sm text-[#8A8A8A] mb-4">{job.company_name?.trim() || "N/A"}</p>
-                    <div className="max-h-[420px] overflow-y-auto space-y-5 pr-2">
-                      {jdSections.map((section, sectionIndex) => (
-                        <section key={section.title} className={sectionIndex > 0 ? "pt-4 border-t border-gray-200" : ""}>
-                          <h4 className="text-sm font-semibold text-[#3A1F1F] mb-2">{section.title}</h4>
-                          <SafeHtml
-                            content={section.value}
-                            className="text-sm text-[#5A5A5A] whitespace-pre-wrap leading-6 pl-4 pr-2"
-                          />
+                  <article key={savedJob.id} className="min-w-[320px] md:min-w-[360px] flex-1 border border-gray-200 rounded-xl bg-[#F6F6F6] p-6 flex flex-col">
+                    <div className="pb-3 mb-3 border-b border-gray-200">
+                      <h3 className="text-base font-semibold text-[#3A1F1F]">{job.title?.trim() || "N/A"}</h3>
+                      <p className="text-sm text-[#8A8A8A]">{job.company_name?.trim() || "N/A"}</p>
+                    </div>
+
+                    <div className="max-h-[480px] overflow-y-auto space-y-4 pr-2 flex-1">
+                      {sections.length > 0 ? (
+                        sections.map((section, sectionIndex) => (
+                          <section key={section.title} className={sectionIndex > 0 ? "pt-4 border-t border-gray-200" : ""}>
+                            <h4 className="text-sm font-semibold text-[#3A1F1F] mb-2">{section.title}</h4>
+                            <SafeHtml
+                              content={section.content}
+                              className="rich-text-content text-sm text-[#5A5A5A] leading-relaxed [&_ul]:list-disc [&_ul]:pl-5 [&_ol]:list-decimal [&_ol]:pl-5 [&_h2]:text-base [&_h2]:font-bold [&_h2]:mt-2 [&_h2]:mb-1 [&_h3]:text-sm [&_h3]:font-bold [&_h3]:mt-1.5 [&_h3]:mb-1 [&_a]:text-[#FF2B2B] [&_a]:underline"
+                            />
+                          </section>
+                        ))
+                      ) : (
+                        <p className="text-sm text-[#8A8A8A]">No additional details provided.</p>
+                      )}
+
+                      {job.skills && job.skills.length > 0 && (
+                        <section className="pt-4 border-t border-gray-200">
+                          <h4 className="text-sm font-semibold text-[#3A1F1F] mb-2">Key Skills</h4>
+                          <div className="flex flex-wrap gap-1.5">
+                            {job.skills.map((skill, sIdx) => (
+                              <span key={sIdx} className="bg-white border border-gray-200 text-[#3A1F1F] text-xs px-2.5 py-1 rounded-full font-medium shadow-xs">
+                                {skill}
+                              </span>
+                            ))}
+                          </div>
                         </section>
-                      ))}
+                      )}
+
+                      {job.perks && job.perks.length > 0 && (
+                        <section className="pt-4 border-t border-gray-200">
+                          <h4 className="text-sm font-semibold text-[#3A1F1F] mb-2">Perks & Benefits</h4>
+                          <div className="flex flex-wrap gap-1.5">
+                            {job.perks.map((perk, pIdx) => (
+                              <span key={pIdx} className="bg-green-50 border border-green-200 text-green-700 text-xs px-2.5 py-1 rounded-full font-medium">
+                                {perk}
+                              </span>
+                            ))}
+                          </div>
+                        </section>
+                      )}
                     </div>
                   </article>
                 );

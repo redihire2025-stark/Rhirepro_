@@ -462,30 +462,30 @@ export default function JobDetailPage() {
                   </div>
                 </div>
 
-                <div className="grid grid-cols-2 sm:grid-cols-3 gap-4 mb-6">
-                  <div className="flex items-center gap-3 text-[#8A8A8A]">
-                    <MapPin className="h-5 w-5 text-[#FF2B2B]" />
-                    <div>
-                      <p className="text-xs">Location</p>
-                      <p className="font-semibold text-[#3A1F1F]">
+                <div className="flex flex-wrap items-start gap-6 mb-6 pb-6 border-b border-gray-100">
+                  <div className="flex items-start gap-3 text-[#8A8A8A] min-w-[150px] max-w-full flex-1">
+                    <MapPin className="h-5 w-5 text-[#FF2B2B] shrink-0 mt-0.5" />
+                    <div className="min-w-0">
+                      <p className="text-xs text-[#8A8A8A] mb-0.5">Location</p>
+                      <p className="font-semibold text-[#3A1F1F] text-sm break-words">
                         {Array.isArray((currentJob as any).locations) && (currentJob as any).locations.length > 0
                           ? (currentJob as any).locations.join(", ")
                           : currentJob.location}
                       </p>
                     </div>
                   </div>
-                  <div className="flex items-center gap-3 text-[#8A8A8A]">
-                    <DollarSign className="h-5 w-5 text-[#FF2B2B]" />
+                  <div className="flex items-start gap-3 text-[#8A8A8A] min-w-[130px]">
+                    <DollarSign className="h-5 w-5 text-[#FF2B2B] shrink-0 mt-0.5" />
                     <div>
-                      <p className="text-xs">Salary</p>
-                      <p className="font-semibold text-[#3A1F1F]">{currentJob.salary}</p>
+                      <p className="text-xs text-[#8A8A8A] mb-0.5">Salary</p>
+                      <p className="font-semibold text-[#3A1F1F] text-sm whitespace-nowrap">{currentJob.salary}</p>
                     </div>
                   </div>
-                  <div className="flex items-center gap-3 text-[#8A8A8A]">
-                    <Clock className="h-5 w-5 text-[#FF2B2B]" />
+                  <div className="flex items-start gap-3 text-[#8A8A8A] min-w-[130px]">
+                    <Clock className="h-5 w-5 text-[#FF2B2B] shrink-0 mt-0.5" />
                     <div>
-                      <p className="text-xs">Experience</p>
-                      <p className="font-semibold text-[#3A1F1F]">{currentJob.experience}</p>
+                      <p className="text-xs text-[#8A8A8A] mb-0.5">Experience</p>
+                      <p className="font-semibold text-[#3A1F1F] text-sm whitespace-nowrap">{currentJob.experience}</p>
                     </div>
                   </div>
                 </div>
