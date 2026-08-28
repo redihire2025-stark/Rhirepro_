@@ -269,6 +269,11 @@ export const router = createBrowserRouter([
     errorElement: <ErrorPage />,
   },
   {
+    path: "/recruiter/admin/job/:jobId",
+    Component: OrgAdminPanel,
+    errorElement: <ErrorPage />,
+  },
+  {
     path: "/recruiter/join/:token",
     Component: RecruiterInviteAccept,
     errorElement: <ErrorPage />,

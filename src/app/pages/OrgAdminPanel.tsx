@@ -1,7 +1,7 @@
 import { useState, useEffect, useCallback, useRef, useMemo } from "react";
 import { Link, useNavigate, useParams } from "react-router";
 import { toast } from "sonner";
-import { supabase, type RecruiterArticle } from "../../lib/supabase";
+import { supabase, type RecruiterArticle, type Job } from "../../lib/supabase";
 import { useAuth } from "../../lib/auth-context";
 import logoImage from "../../logo/logo.png";
 import {
@@ -15,6 +15,7 @@ import {
 import { Button } from "../components/ui/button";
 import { Input } from "../components/ui/input";
 import { Badge } from "../components/ui/badge";
+import { SafeHtml } from "../components/ui/safe-html";
 import {
   Dialog, DialogContent, DialogHeader, DialogTitle,
 } from "../components/ui/dialog";
@@ -173,7 +174,7 @@ let orgCache: {
 
 export default function OrgAdminPanel() {
   const navigate = useNavigate();
-  const { memberId } = useParams<{ memberId: string }>();
+  const { memberId, jobId } = useParams<{ memberId: string; jobId: string }>();
   const { user, recruiterProfile, isOrgAdmin, loading: authLoading, signOut } = useAuth();
 
   const initialMountRef = useRef(true);
@@ -276,6 +277,14 @@ export default function OrgAdminPanel() {
     window.open(`/recruiter/admin/member/${member.id}`, "_blank");
   };
 
+  const handleJobClick = (job: OrgJob) => {
+    window.open(`/recruiter/admin/job/${job.id}`, "_blank");
+  };
+
+  const handleApplicationClick = (app: OrgApplication) => {
+    window.open(`/recruiter/applicant/${app.id}/profile`, "_blank");
+  };
+
   // If memberId is present, auto-fetch details once members load
   useEffect(() => {
     if (memberId && members.length > 0) {
@@ -286,6 +295,33 @@ export default function OrgAdminPanel() {
       }
     }
   }, [memberId, members]);
+
+  // Job detail (deep-linked): the jobs/applications list only carries the
+  // columns the table renders, so the full posting (description, skills,
+  // salary, etc.) is fetched separately once a job is opened.
+  const [jobDetail, setJobDetail] = useState<Job | null>(null);
+  const [jobDetailLoading, setJobDetailLoading] = useState(false);
+
+  useEffect(() => {
+    if (!jobId) {
+      setJobDetail(null);
+      return;
+    }
+    let cancelled = false;
+    setJobDetailLoading(true);
+    supabase
+      .from("jobs")
+      .select("*")
+      .eq("id", jobId)
+      .maybeSingle()
+      .then(({ data }) => {
+        if (!cancelled) {
+          setJobDetail((data as Job) || null);
+          setJobDetailLoading(false);
+        }
+      });
+    return () => { cancelled = true; };
+  }, [jobId]);
 
   // Export recruiter usage data to CSV (Excel compatible with standard flat tabular layout)
   const exportMemberToExcel = (member: OrgMember, keywords: { keyword: string; created_at: string }[]) => {
@@ -1260,6 +1296,176 @@ export default function OrgAdminPanel() {
     );
   }
 
+  if (jobId) {
+    if (dataLoading || jobDetailLoading) {
+      return (
+        <div className="min-h-screen bg-[#F6F6F6]">
+          {renderHeader()}
+          <div className="container mx-auto px-4 py-8 max-w-3xl">
+            <LoadingCard />
+          </div>
+        </div>
+      );
+    }
+
+    const jobSummary = teamJobs.find(j => j.id === jobId);
+    if (!jobDetail && !jobSummary) {
+      return (
+        <div className="min-h-screen bg-[#F6F6F6]">
+          {renderHeader()}
+          <div className="container mx-auto px-4 py-8 max-w-3xl text-center">
+            <div className="bg-white rounded-2xl p-8 shadow-sm border border-gray-100">
+              <h3 className="text-xl font-bold text-[#3A1F1F] mb-2">Job Not Found</h3>
+              <p className="text-sm text-[#8A8A8A]">The job with ID {jobId} was not found in your organization.</p>
+              <Button className="mt-4 bg-[#FF2B2B] hover:bg-[#e02525] rounded-full" onClick={() => window.close()}>
+                Close Window
+              </Button>
+            </div>
+          </div>
+        </div>
+      );
+    }
+
+    const job = (jobDetail || jobSummary) as Job & Partial<OrgJob>;
+    const postedBy = jobSummary?.recruiter_name || "Unknown";
+    const jobApplications = teamApps.filter(a => a.job_id === jobId);
+
+    return (
+      <div className="min-h-screen bg-[#F6F6F6]">
+        {renderHeader()}
+
+        <div className="container mx-auto px-4 py-8 max-w-3xl">
+          <div className="bg-white rounded-2xl p-6 shadow-sm border border-gray-100">
+            {/* Header/Title block */}
+            <div className="flex flex-col sm:flex-row sm:items-center sm:justify-between gap-4 border-b pb-4 mb-6 border-gray-100">
+              <div>
+                <h3 className="text-xl font-bold text-[#3A1F1F]">{job.title}</h3>
+                <p className="text-xs text-[#8A8A8A] font-normal">{job.company_name} · Posted by {postedBy}</p>
+              </div>
+              <div className="flex items-center gap-2">
+                <Badge
+                  className={`text-xs ${STATUS_COLOR[job.status] || "bg-gray-100 text-gray-500"}`}
+                  variant="secondary"
+                >
+                  {job.status}
+                </Badge>
+                <Button
+                  variant="outline"
+                  onClick={() => window.close()}
+                  className="text-[#8A8A8A] hover:text-[#3A1F1F] text-xs py-1.5 px-4 rounded-full"
+                >
+                  Close Window
+                </Button>
+              </div>
+            </div>
+
+            {/* Job Meta Info */}
+            <div className="grid grid-cols-2 sm:grid-cols-3 gap-4 bg-gray-50 p-4 rounded-xl mb-6">
+              <div>
+                <span className="text-xs text-[#8A8A8A] block font-medium">Location</span>
+                <span className="text-sm font-semibold text-[#3A1F1F]">{job.location || "—"}</span>
+              </div>
+              <div>
+                <span className="text-xs text-[#8A8A8A] block font-medium">Work Mode</span>
+                <span className="text-sm font-semibold text-[#3A1F1F]">{job.work_mode || "—"}</span>
+              </div>
+              <div>
+                <span className="text-xs text-[#8A8A8A] block font-medium">Employment Type</span>
+                <span className="text-sm font-semibold text-[#3A1F1F]">{job.employment_type || "—"}</span>
+              </div>
+              <div>
+                <span className="text-xs text-[#8A8A8A] block font-medium">Posted On</span>
+                <span className="text-sm font-semibold text-[#3A1F1F]">{fmtDate(job.created_at)}</span>
+              </div>
+              <div>
+                <span className="text-xs text-[#8A8A8A] block font-medium">Deadline</span>
+                <span className="text-sm font-semibold text-[#3A1F1F]">{job.deadline ? fmtDate(job.deadline) : "—"}</span>
+              </div>
+              <div>
+                <span className="text-xs text-[#8A8A8A] block font-medium">Openings</span>
+                <span className="text-sm font-semibold text-[#3A1F1F]">{job.openings ?? "—"}</span>
+              </div>
+            </div>
+
+            {/* Usage Stats */}
+            <div className="mb-6">
+              <h4 className="text-sm font-bold text-[#3A1F1F] mb-3">Job Statistics</h4>
+              <div className="grid grid-cols-2 sm:grid-cols-3 gap-4">
+                <div className="bg-white border border-gray-150 p-3.5 rounded-xl text-center shadow-xs">
+                  <span className="text-xs text-[#8A8A8A] block mb-1 font-medium">Views</span>
+                  <span className="text-xl font-bold text-[#3A1F1F]">{job.views ?? 0}</span>
+                </div>
+                <div className="bg-white border border-gray-150 p-3.5 rounded-xl text-center shadow-xs">
+                  <span className="text-xs text-[#8A8A8A] block mb-1 font-medium">Applications</span>
+                  <span className="text-xl font-bold text-[#3A1F1F]">{jobApplications.length}</span>
+                </div>
+                <div className="bg-white border border-gray-150 p-3.5 rounded-xl text-center shadow-xs">
+                  <span className="text-xs text-[#8A8A8A] block mb-1 font-medium">Salary Range</span>
+                  <span className="text-xl font-bold text-[#3A1F1F]">
+                    {job.salary_min || job.salary_max ? `${job.salary_min ?? "—"} - ${job.salary_max ?? "—"}` : "—"}
+                  </span>
+                </div>
+              </div>
+            </div>
+
+            {job.skills && job.skills.length > 0 && (
+              <div className="mb-6">
+                <h4 className="text-sm font-bold text-[#3A1F1F] mb-2">Skills Required</h4>
+                <div className="flex flex-wrap gap-2">
+                  {job.skills.map((s, i) => (
+                    <span key={i} className="bg-red-50 text-[#FF2B2B] text-xs font-medium px-2.5 py-1 rounded-lg border border-red-100">
+                      {s}
+                    </span>
+                  ))}
+                </div>
+              </div>
+            )}
+
+            {job.description && (
+              <div className="mb-6">
+                <h4 className="text-sm font-bold text-[#3A1F1F] mb-2">Description</h4>
+                <SafeHtml content={job.description} className="text-sm text-[#3A1F1F] prose prose-sm max-w-none" />
+              </div>
+            )}
+
+            {/* Applicants for this job */}
+            <div>
+              <div className="flex justify-between items-center mb-3">
+                <h4 className="text-sm font-bold text-[#3A1F1F]">Applicants</h4>
+                <span className="text-xs text-[#8A8A8A] font-medium">Total: {jobApplications.length}</span>
+              </div>
+              {jobApplications.length === 0 ? (
+                <div className="text-center py-6 border border-dashed rounded-xl text-sm text-[#8A8A8A]">
+                  No applications received yet for this job.
+                </div>
+              ) : (
+                <div className="border border-gray-100 rounded-xl overflow-hidden divide-y divide-gray-50">
+                  {jobApplications.map(app => (
+                    <div
+                      key={app.id}
+                      onClick={() => handleApplicationClick(app)}
+                      className="flex justify-between items-center px-4 py-3 text-sm cursor-pointer hover:bg-[#FFF8F8] transition-colors"
+                    >
+                      <span className="font-medium text-[#3A1F1F]">{app.candidate_name}</span>
+                      <div className="flex items-center gap-3">
+                        <Badge
+                          className={`text-xs ${APP_STATUS_COLOR[app.status] || "bg-gray-100 text-gray-500"}`}
+                          variant="secondary"
+                        >
+                          {app.status}
+                        </Badge>
+                        <span className="text-xs text-[#8A8A8A]">{fmtDate(app.applied_at)}</span>
+                      </div>
+                    </div>
+                  ))}
+                </div>
+              )}
+            </div>
+          </div>
+        </div>
+      </div>
+    );
+  }
 
   return (
     <div className="min-h-screen bg-[#F6F6F6]">
@@ -1581,7 +1787,11 @@ export default function OrgAdminPanel() {
                       </thead>
                       <tbody className="divide-y divide-gray-50">
                         {paginatedJobs.map(job => (
-                          <tr key={job.id} className="hover:bg-[#FFF8F8] transition-colors">
+                          <tr
+                            key={job.id}
+                            onClick={() => handleJobClick(job)}
+                            className="hover:bg-[#FFF8F8] transition-colors cursor-pointer"
+                          >
                             <td className="px-6 py-4">
                               <p className="text-sm font-medium text-[#3A1F1F]">{job.title}</p>
                               <p className="text-xs text-[#8A8A8A]">{job.company_name}</p>
@@ -1731,7 +1941,11 @@ export default function OrgAdminPanel() {
                       </thead>
                       <tbody className="divide-y divide-gray-50">
                         {paginatedApps.map(app => (
-                          <tr key={app.id} className="hover:bg-[#FFF8F8] transition-colors">
+                          <tr
+                            key={app.id}
+                            onClick={() => handleApplicationClick(app)}
+                            className="hover:bg-[#FFF8F8] transition-colors cursor-pointer"
+                          >
                             <td className="px-6 py-4 text-sm font-medium text-[#3A1F1F]">{app.candidate_name}</td>
                             <td className="px-6 py-4 text-sm text-[#3A1F1F]">{app.job_title}</td>
                             <td className="px-6 py-4 text-sm text-[#8A8A8A]">{app.recruiter_name}</td>
@@ -1846,10 +2060,10 @@ export default function OrgAdminPanel() {
               <>
                 {/* Overview cards */}
                 <div className="grid grid-cols-2 md:grid-cols-4 gap-4 mb-6">
-                  <AnalyticsCard label="Active Jobs" value={teamJobs.filter(j => j.status === "Active").length} color="text-green-600" />
-                  <AnalyticsCard label="Total Applications" value={teamApps.length} color="text-blue-600" />
-                  <AnalyticsCard label="Total Hires" value={teamApps.filter(a => ["Hired", "Joined"].includes(a.status)).length} color="text-purple-600" />
-                  <AnalyticsCard label="Active Members" value={activeCount} color="text-[#FF2B2B]" />
+                  <AnalyticsCard label="Active Jobs" value={teamJobs.filter(j => j.status === "Active").length} color="text-green-600" onClick={() => setActiveTab("jobs")} />
+                  <AnalyticsCard label="Total Applications" value={teamApps.length} color="text-blue-600" onClick={() => setActiveTab("applications")} />
+                  <AnalyticsCard label="Total Hires" value={teamApps.filter(a => ["Hired", "Joined"].includes(a.status)).length} color="text-purple-600" onClick={() => setActiveTab("applications")} />
+                  <AnalyticsCard label="Active Members" value={activeCount} color="text-[#FF2B2B]" onClick={() => setActiveTab("team")} />
                 </div>
 
                 <div className="relative mb-4 max-w-sm">
