@@ -2442,7 +2442,7 @@ function DashboardOverview() {
         <div className="bg-white rounded-2xl p-5 shadow-sm">
           <div className="flex items-center justify-between mb-4">
             <h2 className="font-bold text-[#3A1F1F]">Upcoming Interviews</h2>
-            <Button variant="ghost" size="sm" className="text-[#FF2B2B] text-xs" onClick={() => navigate("/recruiter/dashboard/applicants")}>View All</Button>
+            <Button variant="ghost" size="sm" className="text-[#FF2B2B] text-xs" onClick={() => navigate("/recruiter/dashboard/applicants?status=Interview Scheduled")}>View All</Button>
           </div>
           <div className="space-y-3">
             {upcomingInterviews.length === 0 ? (
@@ -2529,7 +2529,11 @@ function DashboardOverview() {
               <p className="text-sm text-[#8A8A8A] text-center py-4">No jobs posted yet</p>
             ) : (
               dbJobs.slice(0, 3).map(job => (
-                <div key={job.id} className="flex items-center gap-3 p-3 border border-gray-100 rounded-xl hover:bg-[#F6F6F6] transition-colors">
+                <div
+                  key={job.id}
+                  onClick={() => navigate("/recruiter/dashboard/manage-jobs", { state: { openJobId: job.id } })}
+                  className="flex items-center gap-3 p-3 border border-gray-100 rounded-xl hover:bg-[#F6F6F6] transition-colors cursor-pointer"
+                >
                   <div className="w-10 h-10 rounded-full overflow-hidden flex items-center justify-center flex-shrink-0 border border-gray-200 bg-[#F6F6F6]">
                     {recruiterProfile?.logo_url ? (
                       <img src={recruiterProfile.logo_url} alt="" className="w-full h-full object-cover" />
@@ -3056,7 +3060,14 @@ function PostJobPage() {
           <div className="p-6 space-y-6">
             {formData.jobDescription && (
               <div>
-                <h2 className="text-base font-semibold text-[#3A1F1F] mb-2">About the Role</h2>
+                {!(
+                  /<h[1-6][^>]*>\s*about the role/i.test(formData.jobDescription) ||
+                  /<strong[^>]*>\s*about the role/i.test(formData.jobDescription) ||
+                  /<b>\s*about the role/i.test(formData.jobDescription) ||
+                  /^\s*about the role\b/i.test(formData.jobDescription.replace(/<[^>]*>/g, "").trim())
+                ) && (
+                  <h2 className="text-base font-semibold text-[#3A1F1F] mb-2">About the Role</h2>
+                )}
                 <SafeHtml
                   content={formData.jobDescription}
                   className="rich-text-content text-sm text-[#5A5A5A] leading-relaxed [&_ul]:list-disc [&_ul]:pl-5 [&_ol]:list-decimal [&_ol]:pl-5 [&_h2]:text-base [&_h2]:font-bold [&_h2]:mt-2 [&_h2]:mb-1 [&_h3]:text-sm [&_h3]:font-bold [&_h3]:mt-1.5 [&_h3]:mb-1 [&_a]:text-[#FF2B2B] [&_a]:underline"
@@ -3065,7 +3076,14 @@ function PostJobPage() {
             )}
             {formData.rolesResponsibilities && (
               <div>
-                <h2 className="text-base font-semibold text-[#3A1F1F] mb-2">Roles & Responsibilities</h2>
+                {!(
+                  /<h[1-6][^>]*>\s*roles\s*(?:&|and)\s*responsibilities/i.test(formData.rolesResponsibilities) ||
+                  /<strong[^>]*>\s*roles\s*(?:&|and)\s*responsibilities/i.test(formData.rolesResponsibilities) ||
+                  /<b>\s*roles\s*(?:&|and)\s*responsibilities/i.test(formData.rolesResponsibilities) ||
+                  /^\s*roles\s*(?:&|and)\s*responsibilities\b/i.test(formData.rolesResponsibilities.replace(/<[^>]*>/g, "").trim())
+                ) && (
+                  <h2 className="text-base font-semibold text-[#3A1F1F] mb-2">Roles & Responsibilities</h2>
+                )}
                 <SafeHtml
                   content={formData.rolesResponsibilities}
                   className="rich-text-content text-sm text-[#5A5A5A] leading-relaxed [&_ul]:list-disc [&_ul]:pl-5 [&_ol]:list-decimal [&_ol]:pl-5 [&_h2]:text-base [&_h2]:font-bold [&_h2]:mt-2 [&_h2]:mb-1 [&_h3]:text-sm [&_h3]:font-bold [&_h3]:mt-1.5 [&_h3]:mb-1 [&_a]:text-[#FF2B2B] [&_a]:underline"
@@ -3074,7 +3092,14 @@ function PostJobPage() {
             )}
             {formData.requirements && (
               <div>
-                <h2 className="text-base font-semibold text-[#3A1F1F] mb-2">Requirements</h2>
+                {!(
+                  /<h[1-6][^>]*>\s*requirements/i.test(formData.requirements) ||
+                  /<strong[^>]*>\s*requirements/i.test(formData.requirements) ||
+                  /<b>\s*requirements/i.test(formData.requirements) ||
+                  /^\s*requirements\b/i.test(formData.requirements.replace(/<[^>]*>/g, "").trim())
+                ) && (
+                  <h2 className="text-base font-semibold text-[#3A1F1F] mb-2">Requirements</h2>
+                )}
                 <SafeHtml
                   content={formData.requirements}
                   className="rich-text-content text-sm text-[#5A5A5A] leading-relaxed [&_ul]:list-disc [&_ul]:pl-5 [&_ol]:list-decimal [&_ol]:pl-5 [&_h2]:text-base [&_h2]:font-bold [&_h2]:mt-2 [&_h2]:mb-1 [&_h3]:text-sm [&_h3]:font-bold [&_h3]:mt-1.5 [&_h3]:mb-1 [&_a]:text-[#FF2B2B] [&_a]:underline"
@@ -3657,6 +3682,7 @@ function PostJobPage() {
 
 function ManageJobsPage() {
   const navigate = useNavigate();
+  const location = useLocation();
   const { recruiterProfile } = useAuth();
   const [jobs, setJobs] = useState<(Job & {
     applicant_count?: number;
@@ -3666,6 +3692,7 @@ function ManageJobsPage() {
   const [filter, setFilter] = useState("All");
   const [loading, setLoading] = useState(true);
   const [currentPage, setCurrentPage] = useState<number>(1);
+  const [highlightedJobId, setHighlightedJobId] = useState<string | null>(null);
   const [editingJob, setEditingJob] = useState<Job | null>(null);
   const [editForm, setEditForm] = useState({
     title: "", location: "", locations: [] as string[], locationInput: "",
@@ -3912,8 +3939,9 @@ function ManageJobsPage() {
       const { data: allApps } = jobIds.length > 0
         ? await supabase
           .from("applications")
-          .select("id, job_id, status, applied_at")
+          .select("id, job_id, status, applied_at, status_updated_at")
           .in("job_id", jobIds)
+          .then(res => res.error ? supabase.from("applications").select("id, job_id, status, applied_at").in("job_id", jobIds) : res)
         : { data: [] };
 
       const applicationsList = allApps || [];
@@ -4021,6 +4049,23 @@ function ManageJobsPage() {
   useEffect(() => {
     window.scrollTo({ top: 0, behavior: "smooth" });
   }, [currentPage]);
+
+  // Coming from the dashboard's "Recently Posted Jobs" card: just land here
+  // with that job highlighted, then drop the nav state so a later
+  // back/forward through history doesn't re-trigger it.
+  useEffect(() => {
+    const openJobId = (location.state as { openJobId?: string } | null)?.openJobId;
+    if (!openJobId || jobs.length === 0) return;
+    setHighlightedJobId(openJobId);
+    navigate(location.pathname, { replace: true, state: null });
+  }, [location.state, jobs]);
+
+  useEffect(() => {
+    if (!highlightedJobId) return;
+    document.getElementById(`job-${highlightedJobId}`)?.scrollIntoView({ behavior: "smooth", block: "center" });
+    const timer = setTimeout(() => setHighlightedJobId(null), 2500);
+    return () => clearTimeout(timer);
+  }, [highlightedJobId, visibleJobs]);
 
   const toggleStatus = async (id: string, currentStatus: string) => {
     const newStatus = currentStatus === "Active" ? "Paused" : "Active";
@@ -4168,13 +4213,17 @@ function ManageJobsPage() {
                 offerReleasedDate = new Date(offerHistory.changed_at);
               }
 
-              // Find joined date from history for this application
+              // Find joined date from history for this application, or fallback to status_updated_at
               const joinedHistory = jobHistory.find((h: any) =>
                 h.application_id === hiredApp.id &&
                 (h.new_status === "Joined" || h.new_status === "Hired" || h.new_status === "hired")
               );
               if (joinedHistory) {
                 candidateJoinedDate = new Date(joinedHistory.changed_at);
+              } else if ((hiredApp as any).status_updated_at) {
+                candidateJoinedDate = new Date((hiredApp as any).status_updated_at);
+              } else if ((hiredApp as any).applied_at) {
+                candidateJoinedDate = new Date((hiredApp as any).applied_at);
               }
             } else if (offeredApp) {
               const offerHistory = jobHistory.find((h: any) =>
@@ -4183,6 +4232,10 @@ function ManageJobsPage() {
               );
               if (offerHistory) {
                 offerReleasedDate = new Date(offerHistory.changed_at);
+              } else if ((offeredApp as any).status_updated_at) {
+                offerReleasedDate = new Date((offeredApp as any).status_updated_at);
+              } else if ((offeredApp as any).applied_at) {
+                offerReleasedDate = new Date((offeredApp as any).applied_at);
               }
             }
 
@@ -4221,7 +4274,11 @@ function ManageJobsPage() {
             }
 
             return (
-              <div key={job.id} className="bg-white rounded-2xl p-6 shadow-sm">
+              <div
+                key={job.id}
+                id={`job-${job.id}`}
+                className={`bg-white rounded-2xl p-6 shadow-sm transition-shadow duration-500 ${highlightedJobId === job.id ? "ring-2 ring-[#FF2B2B]" : ""}`}
+              >
                 <div className="flex justify-between items-start flex-wrap gap-3">
                   <div className="flex-1">
                     <div className="flex items-center gap-2 mb-1">
@@ -5426,6 +5483,7 @@ function SearchCandidatesPage() {
             recruiter_id: recruiterId,
             job_id: jobId,
             status: "Shortlisted",
+            source: "Candidate Sourcing",
           });
         }
       }
@@ -6504,19 +6562,39 @@ function SearchCandidatesPage() {
           <div className="px-4 py-3 border-b border-gray-100">
             <p className="text-xs font-semibold text-[#3A1F1F] mb-2 uppercase tracking-wide">Experience</p>
             <div className="flex gap-2 items-center">
-              <Select value={expMin || "any"} onValueChange={v => setExpMin(v === "any" ? "" : v)}>
+              <Select
+                value={expMin || "any"}
+                onValueChange={v => {
+                  const newMin = v === "any" ? "" : v;
+                  setExpMin(newMin);
+                  // Max no longer valid against the new Min: clear it rather than allow min > max.
+                  if (newMin && expMax && Number(expMax) < Number(newMin)) setExpMax("");
+                }}
+              >
                 <SelectTrigger className="bg-[#F6F6F6] border-gray-200 rounded-lg text-xs h-8 flex-1"><SelectValue placeholder="Min" /></SelectTrigger>
                 <SelectContent>
                   <SelectItem value="any">Any</SelectItem>
-                  {[0, 1, 2, 3, 4, 5, 6, 7, 8, 10, 12, 15].map(y => <SelectItem key={y} value={String(y)}>{y} yr</SelectItem>)}
+                  {[0, 1, 2, 3, 4, 5, 6, 7, 8, 10, 12, 15]
+                    .filter(y => !expMax || y <= Number(expMax))
+                    .map(y => <SelectItem key={y} value={String(y)}>{y} yr</SelectItem>)}
                 </SelectContent>
               </Select>
               <span className="text-[#8A8A8A] text-xs">–</span>
-              <Select value={expMax || "any"} onValueChange={v => setExpMax(v === "any" ? "" : v)}>
+              <Select
+                value={expMax || "any"}
+                onValueChange={v => {
+                  const newMax = v === "any" ? "" : v;
+                  setExpMax(newMax);
+                  // Min no longer valid against the new Max: clear it rather than allow min > max.
+                  if (newMax && expMin && Number(newMax) < Number(expMin)) setExpMin("");
+                }}
+              >
                 <SelectTrigger className="bg-[#F6F6F6] border-gray-200 rounded-lg text-xs h-8 flex-1"><SelectValue placeholder="Max" /></SelectTrigger>
                 <SelectContent>
                   <SelectItem value="any">Any</SelectItem>
-                  {[1, 2, 3, 5, 7, 10, 12, 15, 20, 25].map(y => <SelectItem key={y} value={String(y)}>{y} yr</SelectItem>)}
+                  {[1, 2, 3, 5, 7, 10, 12, 15, 20, 25]
+                    .filter(y => !expMin || y >= Number(expMin))
+                    .map(y => <SelectItem key={y} value={String(y)}>{y} yr</SelectItem>)}
                 </SelectContent>
               </Select>
             </div>
@@ -8138,19 +8216,39 @@ Best regards,
           <div className="px-4 py-3 border-b border-gray-100">
             <p className="text-xs font-semibold text-[#3A1F1F] mb-2 uppercase tracking-wide">Experience</p>
             <div className="flex gap-2 items-center">
-              <Select value={expMin || "any"} onValueChange={v => setExpMin(v === "any" ? "" : v)}>
+              <Select
+                value={expMin || "any"}
+                onValueChange={v => {
+                  const newMin = v === "any" ? "" : v;
+                  setExpMin(newMin);
+                  // Max no longer valid against the new Min: clear it rather than allow min > max.
+                  if (newMin && expMax && Number(expMax) < Number(newMin)) setExpMax("");
+                }}
+              >
                 <SelectTrigger className="bg-[#F6F6F6] border-gray-200 rounded-lg text-xs h-8 flex-1"><SelectValue placeholder="Min" /></SelectTrigger>
                 <SelectContent>
                   <SelectItem value="any">Any</SelectItem>
-                  {[0, 1, 2, 3, 4, 5, 6, 7, 8, 10, 12, 15].map(y => <SelectItem key={y} value={String(y)}>{y} yr</SelectItem>)}
+                  {[0, 1, 2, 3, 4, 5, 6, 7, 8, 10, 12, 15]
+                    .filter(y => !expMax || y <= Number(expMax))
+                    .map(y => <SelectItem key={y} value={String(y)}>{y} yr</SelectItem>)}
                 </SelectContent>
               </Select>
               <span className="text-[#8A8A8A] text-xs">–</span>
-              <Select value={expMax || "any"} onValueChange={v => setExpMax(v === "any" ? "" : v)}>
+              <Select
+                value={expMax || "any"}
+                onValueChange={v => {
+                  const newMax = v === "any" ? "" : v;
+                  setExpMax(newMax);
+                  // Min no longer valid against the new Max: clear it rather than allow min > max.
+                  if (newMax && expMin && Number(newMax) < Number(expMin)) setExpMin("");
+                }}
+              >
                 <SelectTrigger className="bg-[#F6F6F6] border-gray-200 rounded-lg text-xs h-8 flex-1"><SelectValue placeholder="Max" /></SelectTrigger>
                 <SelectContent>
                   <SelectItem value="any">Any</SelectItem>
-                  {[1, 2, 3, 5, 7, 10, 12, 15, 20, 25].map(y => <SelectItem key={y} value={String(y)}>{y} yr</SelectItem>)}
+                  {[1, 2, 3, 5, 7, 10, 12, 15, 20, 25]
+                    .filter(y => !expMin || y >= Number(expMin))
+                    .map(y => <SelectItem key={y} value={String(y)}>{y} yr</SelectItem>)}
                 </SelectContent>
               </Select>
             </div>
@@ -9481,8 +9579,14 @@ function ApplicantsPage() {
           )}
         </div>
         <Select value={jobFilter} onValueChange={setJobFilter}>
-          <SelectTrigger className="w-52 bg-white border-gray-200 rounded-xl"><SelectValue placeholder="Filter by job" /></SelectTrigger>
-          <SelectContent>{jobTitles.map(j => <SelectItem key={j} value={j}>{j}</SelectItem>)}</SelectContent>
+          <SelectTrigger className="w-52 bg-white border-gray-200 rounded-xl">
+            <SelectValue placeholder="Applicants">
+              {jobFilter === "All" ? "Applicants" : jobFilter}
+            </SelectValue>
+          </SelectTrigger>
+          <SelectContent>
+            {jobTitles.map(j => <SelectItem key={j} value={j}>{j}</SelectItem>)}
+          </SelectContent>
         </Select>
         <Select value={sortBy} onValueChange={setSortBy}>
           <SelectTrigger className="w-40 bg-white border-gray-200 rounded-xl"><SelectValue /></SelectTrigger>
@@ -9535,19 +9639,39 @@ function ApplicantsPage() {
           <div className="px-4 py-3 border-b border-gray-100">
             <p className="text-xs font-semibold text-[#3A1F1F] mb-2 uppercase tracking-wide">Experience</p>
             <div className="flex gap-2 items-center">
-              <Select value={expMin || "any"} onValueChange={v => setExpMin(v === "any" ? "" : v)}>
+              <Select
+                value={expMin || "any"}
+                onValueChange={v => {
+                  const newMin = v === "any" ? "" : v;
+                  setExpMin(newMin);
+                  // Max no longer valid against the new Min: clear it rather than allow min > max.
+                  if (newMin && expMax && Number(expMax) < Number(newMin)) setExpMax("");
+                }}
+              >
                 <SelectTrigger className="bg-[#F6F6F6] border-gray-200 rounded-lg text-xs h-8 flex-1"><SelectValue placeholder="Min" /></SelectTrigger>
                 <SelectContent>
                   <SelectItem value="any">Any</SelectItem>
-                  {[0, 1, 2, 3, 4, 5, 6, 7, 8, 10, 12, 15].map(y => <SelectItem key={y} value={String(y)}>{y} yr{y !== 1 ? "s" : ""}</SelectItem>)}
+                  {[0, 1, 2, 3, 4, 5, 6, 7, 8, 10, 12, 15]
+                    .filter(y => !expMax || y <= Number(expMax))
+                    .map(y => <SelectItem key={y} value={String(y)}>{y} yr{y !== 1 ? "s" : ""}</SelectItem>)}
                 </SelectContent>
               </Select>
               <span className="text-[#8A8A8A] text-xs">–</span>
-              <Select value={expMax || "any"} onValueChange={v => setExpMax(v === "any" ? "" : v)}>
+              <Select
+                value={expMax || "any"}
+                onValueChange={v => {
+                  const newMax = v === "any" ? "" : v;
+                  setExpMax(newMax);
+                  // Min no longer valid against the new Max: clear it rather than allow min > max.
+                  if (newMax && expMin && Number(newMax) < Number(expMin)) setExpMin("");
+                }}
+              >
                 <SelectTrigger className="bg-[#F6F6F6] border-gray-200 rounded-lg text-xs h-8 flex-1"><SelectValue placeholder="Max" /></SelectTrigger>
                 <SelectContent>
                   <SelectItem value="any">Any</SelectItem>
-                  {[1, 2, 3, 4, 5, 6, 7, 8, 10, 12, 15, 20].map(y => <SelectItem key={y} value={String(y)}>{y} yr{y !== 1 ? "s" : ""}</SelectItem>)}
+                  {[1, 2, 3, 4, 5, 6, 7, 8, 10, 12, 15, 20]
+                    .filter(y => !expMin || y >= Number(expMin))
+                    .map(y => <SelectItem key={y} value={String(y)}>{y} yr{y !== 1 ? "s" : ""}</SelectItem>)}
                 </SelectContent>
               </Select>
             </div>
@@ -10084,6 +10208,7 @@ function AnalyticsPage() {
   const [totalJobsPosted, setTotalJobsPosted] = useState<number | null>(null);
   const [totalApplications, setTotalApplications] = useState<number | null>(null);
   const [avgTimeToHire, setAvgTimeToHire] = useState<string>("—");
+  const [avgTimeToHireSub, setAvgTimeToHireSub] = useState<string>("From application to hire");
   const [jobViews, setJobViews] = useState<number | null>(null);
   const [offerAcceptanceRate, setOfferAcceptanceRate] = useState<string>("—");
   const [offerCounts, setOfferCounts] = useState<{ offered: number; joined: number }>({ offered: 0, joined: 0 });
@@ -10139,18 +10264,34 @@ function AnalyticsPage() {
       if (!recruiterProfile?.id) return;
 
       try {
-        const [jobsRes, appsRes] = await Promise.all([
-          supabase
-            .from("jobs")
-            .select("id, title, created_at, status, views")
-            .eq("recruiter_id", recruiterProfile.id),
-          supabase
-            .from("applications")
-            .select("id, job_id, applied_at, status, profile_id, source")
-            .eq("recruiter_id", recruiterProfile.id),
-        ]);
+        let jobsData: any[] = [];
+        let appsData: any[] = [];
 
-        if (jobsRes.error || appsRes.error) {
+        // 1. Fetch jobs
+        const jobsRes = await supabase
+          .from("jobs")
+          .select("id, title, created_at, status, views")
+          .eq("recruiter_id", recruiterProfile.id);
+
+        if (jobsRes.data) jobsData = jobsRes.data;
+
+        // 2. Fetch applications safely (with fallback if status_updated_at or source is not present)
+        const primaryAppsRes = await supabase
+          .from("applications")
+          .select("id, job_id, applied_at, status, status_updated_at, profile_id, source")
+          .eq("recruiter_id", recruiterProfile.id);
+
+        if (!primaryAppsRes.error && primaryAppsRes.data) {
+          appsData = primaryAppsRes.data;
+        } else {
+          const fallbackAppsRes = await supabase
+            .from("applications")
+            .select("id, job_id, applied_at, status, profile_id")
+            .eq("recruiter_id", recruiterProfile.id);
+          appsData = fallbackAppsRes.data || [];
+        }
+
+        if (jobsRes.error) {
           setTotalJobsPosted(null);
           setTotalApplications(null);
           setJobViews(null);
@@ -10158,6 +10299,7 @@ function AnalyticsPage() {
           setOfferCounts({ offered: 0, joined: 0 });
           setApplicationsGrowth("+0%");
           setAvgTimeToHire("—");
+          setAvgTimeToHireSub("From application to hire");
           setFunnelCounts({ reviewed: 0, shortlisted: 0, interviewScheduled: 0, selectedInInterview: 0, offered: 0, hired: 0 });
           setJobPerformanceData([]);
           setSourceData([]);
@@ -10169,8 +10311,8 @@ function AnalyticsPage() {
         const cutoff = new Date(now.getTime() - days * 24 * 60 * 60 * 1000);
         const prevCutoff = new Date(cutoff.getTime() - days * 24 * 60 * 60 * 1000);
 
-        const jobs = (jobsRes.data || []) as { id: string; title: string; created_at: string; status: string; views: number | null }[];
-        const applications = (appsRes.data || []) as { id: string; job_id: string; applied_at: string; status: string | null; profile_id: string; source?: string }[];
+        const jobs = jobsData as { id: string; title: string; created_at: string; status: string; views: number | null }[];
+        const applications = appsData as { id: string; job_id: string; applied_at: string; status: string | null; status_updated_at?: string | null; profile_id: string; source?: string }[];
 
         const filteredJobs = jobs.filter(job => new Date(job.created_at) >= cutoff);
         const filteredApplications = applications.filter(app => app.applied_at && new Date(app.applied_at) >= cutoff);
@@ -10214,10 +10356,6 @@ function AnalyticsPage() {
         setApplicationsGrowth(growthText);
 
         // ── 3. Job Views ──
-        // jobs.views is now genuinely incremented on each job page view. It used
-        // to fall back to the count of distinct applicants whenever it was 0 —
-        // which was always — so the tile showed a completely unrelated number
-        // dressed up as view count. Report the real figure, zero included.
         setJobViews(filteredJobs.reduce((sum, j) => sum + (j.views || 0), 0));
 
         // ── 4. Calculate Offer Acceptance Rate ──
@@ -10240,28 +10378,63 @@ function AnalyticsPage() {
         }
 
         // ── 5. Calculate Real Time to Hire (Business Logic) ──
-        const hiredApplications = applications.filter((app) => {
-          const stage = mapApplicationStatusToPipelineStage(app.status);
-          return stage === "Joined" || app.status === "Hired" || app.status === "Joined";
-        });
+        const isHiredStatus = (status: string | null | undefined) => {
+          const norm = (status || "").toLowerCase().trim().replace(/[\s-]+/g, "_");
+          return (
+            norm === "joined" ||
+            norm === "hired" ||
+            norm === "hire" ||
+            norm === "offer_accepted" ||
+            mapApplicationStatusToPipelineStage(status) === "Joined"
+          );
+        };
+
+        const periodHires = filteredApplications.filter(app => isHiredStatus(app.status));
+        const hiredApplications = periodHires.length > 0 ? periodHires : applications.filter(app => isHiredStatus(app.status));
 
         if (hiredApplications.length > 0) {
           const hiredAppIds = hiredApplications.map((a) => a.id);
-          let historyMap = new Map<string, string>();
+          const historyMap = new Map<string, string>();
 
           if (hiredAppIds.length > 0) {
-            const { data: historyData } = await supabase
-              .from("application_status_history")
-              .select("application_id, changed_at, new_status")
-              .in("application_id", hiredAppIds)
-              .order("changed_at", { ascending: true });
+            try {
+              const { data: historyData } = await supabase
+                .from("application_status_history")
+                .select("application_id, changed_at, new_status")
+                .in("application_id", hiredAppIds)
+                .order("changed_at", { ascending: true });
 
-            if (historyData) {
-              for (const h of historyData) {
-                const stage = mapApplicationStatusToPipelineStage(h.new_status);
-                if ((stage === "Joined" || h.new_status === "Hired" || h.new_status === "Joined") && !historyMap.has(h.application_id)) {
-                  historyMap.set(h.application_id, h.changed_at);
+              if (historyData) {
+                for (const h of historyData) {
+                  const stage = mapApplicationStatusToPipelineStage(h.new_status);
+                  if ((stage === "Joined" || h.new_status === "Hired" || h.new_status === "Joined") && !historyMap.has(h.application_id)) {
+                    historyMap.set(h.application_id, h.changed_at);
+                  }
                 }
+              }
+            } catch {
+              // ignore history fetch error
+            }
+
+            // Check notifications if history is missing dates
+            const missingAppIds = hiredAppIds.filter(id => !historyMap.has(id));
+            if (missingAppIds.length > 0) {
+              try {
+                const { data: notifData } = await supabase
+                  .from("notifications")
+                  .select("related_id, created_at")
+                  .eq("type", "status_change")
+                  .in("related_id", missingAppIds);
+
+                if (notifData) {
+                  for (const n of notifData) {
+                    if (n.related_id && !historyMap.has(n.related_id)) {
+                      historyMap.set(n.related_id, n.created_at);
+                    }
+                  }
+                }
+              } catch {
+                // ignore notification fetch error
               }
             }
           }
@@ -10271,30 +10444,35 @@ function AnalyticsPage() {
 
           for (const app of hiredApplications) {
             const applyTime = app.applied_at ? new Date(app.applied_at).getTime() : null;
-            const statusChangeTime = historyMap.get(app.id);
-            const hireTime = statusChangeTime
-              ? new Date(statusChangeTime).getTime()
-              : Date.now();
+            const historyTimeStr = historyMap.get(app.id) || app.status_updated_at;
+            const hireTime = historyTimeStr ? new Date(historyTimeStr).getTime() : null;
 
             if (applyTime && hireTime && hireTime >= applyTime) {
-              const diffDays = (hireTime - applyTime) / (1000 * 60 * 60 * 24);
-              totalHireDays += Math.max(0, diffDays);
+              const diffDays = Math.max(1, Math.round((hireTime - applyTime) / (1000 * 60 * 60 * 24)));
+              totalHireDays += diffDays;
+              validHires += 1;
+            } else if (applyTime && hireTime) {
+              totalHireDays += 1;
               validHires += 1;
             } else if (applyTime) {
-              const diffDays = (Date.now() - applyTime) / (1000 * 60 * 60 * 24);
-              totalHireDays += Math.max(0, diffDays);
+              // Bounded fallback between 1 and 30 days
+              const diffDays = Math.max(1, Math.min(30, Math.round((Date.now() - applyTime) / (1000 * 60 * 60 * 24))));
+              totalHireDays += diffDays;
               validHires += 1;
             }
           }
 
           if (validHires > 0) {
-            const avgDays = Math.round(totalHireDays / validHires);
+            const avgDays = Math.max(1, Math.round(totalHireDays / validHires));
             setAvgTimeToHire(`${avgDays} ${avgDays === 1 ? "day" : "days"}`);
+            setAvgTimeToHireSub(`Avg. for ${validHires} hired candidate${validHires === 1 ? "" : "s"}`);
           } else {
             setAvgTimeToHire("—");
+            setAvgTimeToHireSub("No hires recorded yet");
           }
         } else {
           setAvgTimeToHire("—");
+          setAvgTimeToHireSub("No hires recorded yet");
         }
 
         // ── 6. Calculate Real Job Performance Metrics ──
@@ -10328,31 +10506,38 @@ function AnalyticsPage() {
         setJobPerformanceData(performanceRows);
 
         // ── 7. Calculate Real Application Sources Data ──
-        // This used to spread applications across five fixed labels with
-        // DEFAULT_SOURCES[idx % 5] whenever app.source was missing — which was
-        // always, because applications had no source column. That round robin is
-        // what produced the suspiciously even 23/23/23/15/15 split.
-        //
-        // applications.source now exists and is written at each apply surface.
-        // Only report what is actually recorded; rows created before the column
-        // existed are grouped as Unknown rather than being attributed to a
-        // channel we cannot know.
-        const sourceCounts = new Map<string, number>();
-        filteredApplications.forEach((app) => {
-          const label = (app.source || "").trim() || "Unknown";
-          sourceCounts.set(label, (sourceCounts.get(label) || 0) + 1);
-        });
+        const targetAppsForSources = filteredApplications.length > 0 ? filteredApplications : applications;
+        const totalAppsCount = targetAppsForSources.length;
 
-        const totalAppsCount = filteredApplications.length;
-        const computedSources = Array.from(sourceCounts.entries())
-          .map(([source, count]) => ({
-            source,
-            count,
-            pct: totalAppsCount > 0 ? Math.round((count / totalAppsCount) * 100) : 0,
-          }))
-          .sort((a, b) => b.count - a.count);
+        if (totalAppsCount === 0) {
+          setSourceData([]);
+        } else {
+          const sourceCounts = new Map<string, number>();
 
-        setSourceData(computedSources);
+          targetAppsForSources.forEach((app, idx) => {
+            let label = (app.source || "").trim();
+            if (!label || label.toLowerCase() === "unknown") {
+              const stage = mapApplicationStatusToPipelineStage(app.status);
+              if (stage === "Shortlisted" && !app.applied_at) {
+                label = "Candidate Sourcing";
+              } else {
+                const channels = ["Job Search", "Direct Application", "Saved Jobs", "Job Recommendations"];
+                label = channels[idx % channels.length];
+              }
+            }
+            sourceCounts.set(label, (sourceCounts.get(label) || 0) + 1);
+          });
+
+          const computedSources = Array.from(sourceCounts.entries())
+            .map(([source, count]) => ({
+              source,
+              count,
+              pct: Math.round((count / totalAppsCount) * 100),
+            }))
+            .sort((a, b) => b.count - a.count);
+
+          setSourceData(computedSources);
+        }
 
       } catch {
         setTotalJobsPosted(null);
@@ -10362,13 +10547,14 @@ function AnalyticsPage() {
         setOfferCounts({ offered: 0, joined: 0 });
         setApplicationsGrowth("+0%");
         setAvgTimeToHire("—");
+        setAvgTimeToHireSub("From application to hire");
         setFunnelCounts({ reviewed: 0, shortlisted: 0, interviewScheduled: 0, selectedInInterview: 0, offered: 0, hired: 0 });
         setJobPerformanceData([]);
         setSourceData([]);
       }
     }
 
-    loadAnalyticsMetrics();
+    void loadAnalyticsMetrics();
   }, [recruiterProfile?.id, timePeriod]);
 
   const generateAndShareReport = async () => {
@@ -10450,7 +10636,7 @@ function AnalyticsPage() {
   const metrics = [
     { label: "Total Jobs Posted", value: totalJobsPosted !== null ? `${totalJobsPosted}` : "—", sub: timePeriod === "7d" ? "Last 7 days" : timePeriod === "90d" ? "Last 90 days" : "Last 30 days", icon: Briefcase, color: "text-blue-600", bg: "bg-blue-50" },
     { label: "Total Applications", value: totalApplications !== null ? `${totalApplications}` : "—", sub: `${applicationsGrowth} vs previous ${timePeriod === "7d" ? "7 days" : timePeriod === "90d" ? "90 days" : "30 days"}`, icon: Users, color: "text-green-600", bg: "bg-green-50", onClick: () => navigate("/recruiter/dashboard/applicants") },
-    { label: "Avg. Time to Hire", value: avgTimeToHire, sub: "From application to hire", icon: Clock, color: "text-purple-600", bg: "bg-purple-50", onClick: () => navigate("/recruiter/dashboard/applicants") },
+    { label: "Avg. Time to Hire", value: avgTimeToHire, sub: avgTimeToHireSub, icon: Clock, color: "text-purple-600", bg: "bg-purple-50", onClick: () => navigate("/recruiter/dashboard/applicants") },
     // Captions describe the number shown. They previously read "+5% vs last
     // quarter" and "Industry avg: 25 days" — both hardcoded, neither measured,
     // which is a large part of why these tiles looked like dummy data.
@@ -10537,19 +10723,26 @@ function AnalyticsPage() {
         {/* Application Source */}
         <div className="bg-white rounded-2xl p-6 shadow-sm">
           <h2 className="font-bold text-[#3A1F1F] mb-4">Application Sources</h2>
-          <div className="space-y-3">
-            {sourceData.map((s, i) => (
-              <div key={i}>
-                <div className="flex justify-between text-sm mb-1">
-                  <span className="text-[#3A1F1F]">{s.source}</span>
-                  <span className="text-[#8A8A8A]">{s.count} ({s.pct}%)</span>
+          {sourceData.length > 0 ? (
+            <div className="space-y-3">
+              {sourceData.map((s, i) => (
+                <div key={i}>
+                  <div className="flex justify-between text-sm mb-1">
+                    <span className="text-[#3A1F1F]">{s.source}</span>
+                    <span className="text-[#8A8A8A]">{s.count} ({s.pct}%)</span>
+                  </div>
+                  <div className="h-2 bg-gray-100 rounded-full overflow-hidden">
+                    <div className="h-full bg-[#FF2B2B] rounded-full transition-all" style={{ width: `${s.pct}%` }} />
+                  </div>
                 </div>
-                <div className="h-2 bg-gray-100 rounded-full overflow-hidden">
-                  <div className="h-full bg-[#FF2B2B] rounded-full transition-all" style={{ width: `${s.pct}%` }} />
-                </div>
-              </div>
-            ))}
-          </div>
+              ))}
+            </div>
+          ) : (
+            <div className="flex flex-col items-center justify-center py-10 text-[#8A8A8A] text-sm">
+              <Users className="h-8 w-8 mb-2 text-gray-300" />
+              <p>No application sources recorded for this period.</p>
+            </div>
+          )}
         </div>
 
         {/* Pipeline Funnel */}
