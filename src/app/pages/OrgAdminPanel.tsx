@@ -3,6 +3,7 @@ import { Link, useNavigate, useParams } from "react-router";
 import { toast } from "sonner";
 import { supabase, type RecruiterArticle, type Job } from "../../lib/supabase";
 import { useAuth } from "../../lib/auth-context";
+import { isJobExpired } from "../../lib/jobs";
 import logoImage from "../../logo/logo.png";
 import {
   Users, UserX, UserCheck, Crown, Building2, Mail, Briefcase,
@@ -71,6 +72,7 @@ type OrgJob = {
   location: string | null;
   created_at: string;
   deadline: string | null;
+  deadline_time?: string | null;
   views: number | null;
   openings: number;
   recruiter_name: string;
@@ -486,7 +488,7 @@ export default function OrgAdminPanel() {
       );
       const { data: jobsData } = await supabase
         .from("jobs")
-        .select("id, title, status, recruiter_id, company_name, location, created_at, deadline, views, openings")
+        .select("id, title, status, recruiter_id, company_name, location, created_at, deadline, deadline_time, views, openings")
         .in("recruiter_id", allIds)
         .order("created_at", { ascending: false });
       const mappedJobs = (jobsData || []).map(j => ({
@@ -1018,31 +1020,40 @@ export default function OrgAdminPanel() {
   // database yet; it carries the old truncation, which is still better than
   // blank tiles.
   const todayStr = new Date().toDateString();
-  const overviewKpis = useMemo(() => serverKpis ? {
-    // Recruiter headcount always comes from `members`/`activeMembersCount`, the same
-    // client-side source the "Team Members" summary card at the top of the
-    // page uses.
-    totalRecruiters: members.length,
-    activeRecruiters: activeMembersCount,
-    totalJobs: serverKpis.total_jobs,
-    activeJobs: serverKpis.active_jobs,
-    closedJobs: serverKpis.closed_jobs,
-    totalCandidates: serverKpis.total_candidates,
-    applicationsToday: serverKpis.applications_today,
-    interviewsScheduled: serverKpis.interviews_scheduled,
-    offersReleased: serverKpis.offers_released,
-    successfulHires: serverKpis.successful_hires,
-  } : {
-    totalRecruiters: members.length,
-    activeRecruiters: activeMembersCount,
-    totalJobs: teamJobs.length,
-    activeJobs: teamJobs.filter(j => j.status === "Active").length,
-    closedJobs: teamJobs.filter(j => j.status === "Closed").length,
-    totalCandidates: new Set(teamApps.map(a => a.profile_id)).size,
-    applicationsToday: teamApps.filter(a => new Date(a.applied_at).toDateString() === todayStr).length,
-    interviewsScheduled: teamApps.filter(a => a.status === "Interview Scheduled").length,
-    offersReleased: teamApps.filter(a => a.status === "Offered").length,
-    successfulHires: teamApps.filter(a => ["Hired", "Joined"].includes(a.status)).length,
+  const overviewKpis = useMemo(() => {
+    const closedCount = teamJobs.filter(j => (j.status || "").toLowerCase() === "closed").length;
+    const expiredCount = teamJobs.filter(j => {
+      const s = (j.status || "").toLowerCase();
+      if (s === "expired") return true;
+      if (s !== "closed" && isJobExpired(j)) return true;
+      return false;
+    }).length;
+
+    return serverKpis ? {
+      totalRecruiters: members.length,
+      activeRecruiters: activeMembersCount,
+      totalJobs: serverKpis.total_jobs,
+      activeJobs: serverKpis.active_jobs,
+      closedJobs: serverKpis.closed_jobs ?? closedCount,
+      expiredJobs: expiredCount,
+      totalCandidates: serverKpis.total_candidates,
+      applicationsToday: serverKpis.applications_today,
+      interviewsScheduled: serverKpis.interviews_scheduled,
+      offersReleased: serverKpis.offers_released,
+      successfulHires: serverKpis.successful_hires,
+    } : {
+      totalRecruiters: members.length,
+      activeRecruiters: activeMembersCount,
+      totalJobs: teamJobs.length,
+      activeJobs: teamJobs.filter(j => j.status === "Active" && !isJobExpired(j)).length,
+      closedJobs: closedCount,
+      expiredJobs: expiredCount,
+      totalCandidates: new Set(teamApps.map(a => a.profile_id)).size,
+      applicationsToday: teamApps.filter(a => new Date(a.applied_at).toDateString() === todayStr).length,
+      interviewsScheduled: teamApps.filter(a => a.status === "Interview Scheduled").length,
+      offersReleased: teamApps.filter(a => a.status === "Offered").length,
+      successfulHires: teamApps.filter(a => ["Hired", "Joined"].includes(a.status)).length,
+    };
   }, [serverKpis, members.length, activeMembersCount, teamJobs, teamApps, todayStr]);
 
   const filteredMembers = useMemo(() => {
@@ -1515,7 +1526,7 @@ export default function OrgAdminPanel() {
                   <AnalyticsCard label="Active Recruiters" value={overviewKpis.activeRecruiters} color="text-green-600" onClick={() => setActiveTab("team")} />
                   <AnalyticsCard label="Total Jobs" value={overviewKpis.totalJobs} color="text-[#3A1F1F]" onClick={() => setActiveTab("jobs")} />
                   <AnalyticsCard label="Active Jobs" value={overviewKpis.activeJobs} color="text-green-600" onClick={() => setActiveTab("jobs")} />
-                  <AnalyticsCard label="Closed Jobs" value={overviewKpis.closedJobs} color="text-gray-500" onClick={() => setActiveTab("jobs")} />
+                  <AnalyticsCard label="Closed / Expiry Jobs" value={`${overviewKpis.closedJobs} / ${overviewKpis.expiredJobs}`} color="text-gray-500" onClick={() => setActiveTab("jobs")} />
                   <AnalyticsCard label="Total Candidates" value={overviewKpis.totalCandidates} color="text-[#3A1F1F]" onClick={() => setActiveTab("applications")} />
                   <AnalyticsCard label="Applications Today" value={overviewKpis.applicationsToday} color="text-blue-600" onClick={() => setActiveTab("applications")} />
                   <AnalyticsCard label="Interviews Scheduled" value={overviewKpis.interviewsScheduled} color="text-yellow-600" onClick={() => setActiveTab("applications")} />
@@ -1921,7 +1932,7 @@ export default function OrgAdminPanel() {
                 >
                   <option value="all">All statuses</option>
                   {["Applied", "Under Review", "Shortlisted", "Interview Scheduled",
-                    "Offered", "Joined", "Hired", "Rejected", "On Hold"].map(s => (
+                    "Offered", "Joined", "Rejected", "On Hold"].map(s => (
                       <option key={s} value={s}>{s}</option>
                     ))}
                 </select>
@@ -2847,7 +2858,7 @@ function AnalyticsCard({
   label, value, color, onClick,
 }: {
   label: string;
-  value: number;
+  value: number | string;
   color: string;
   onClick?: () => void;
 }) {

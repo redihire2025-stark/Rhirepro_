@@ -53,6 +53,7 @@ import {
 } from "lucide-react";
 import { DeleteAccountCard } from "../components/DeleteAccountCard";
 import { SupportTicketDialog } from "../components/SupportTicketDialog";
+import { toast } from "sonner";
 import { Button } from "../components/ui/button";
 import {
   Pagination,
@@ -89,6 +90,7 @@ import DeclineReasonModal from "../components/DeclineReasonModal";
 import ResumePreviewDialog, { getStorageObjectFromUrl, buildPreviewUrl, getResumePreviewKind } from "../components/ResumePreviewDialog";
 import JobShareButton from "../components/JobShareButton";
 import ApplicantProfilePage from "./ApplicantProfilePage";
+import RecruiterDirectMessageModal from "../components/RecruiterDirectMessageModal";
 
 const DEPARTMENT_OPTIONS = [
   "Engineering",
@@ -5384,6 +5386,7 @@ function SearchCandidatesPage() {
   const [shortlisted, setShortlisted] = useState<Set<string>>(new Set());
   const [interviewInvited, setInterviewInvited] = useState<Set<string>>(new Set());
   const [messagedCandidates, setMessagedCandidates] = useState<Set<string>>(new Set());
+  const [messagingCandidate, setMessagingCandidate] = useState<DBCandidate | null>(null);
   const [searchPage, setSearchPage] = useState<number>(1);
 
   const countriesList = useMemo(() => getAllCountriesList(), []);
@@ -5504,27 +5507,7 @@ function SearchCandidatesPage() {
 
   const handleMessageCandidate = (candidate: DBCandidate) => {
     if (!candidate) return;
-
-    if (candidate.email) {
-      window.location.href = `mailto:${candidate.email}`;
-    }
-
-    if (candidate.id) {
-      setMessagedCandidates(prev => new Set(prev).add(candidate.id));
-    }
-
-    const recruiterId = recruiterProfile?.id;
-    if (recruiterId && candidate.id) {
-      void supabase.from("notifications").insert({
-        user_id: candidate.id,
-        user_type: "jobseeker",
-        title: "Message from Recruiter",
-        message: `${recruiterProfile?.company_name || recruiterProfile?.recruiter_name || "A recruiter"} sent you a message regarding job opportunities.`,
-        type: "message",
-        related_id: recruiterId,
-        is_read: false,
-      });
-    }
+    setMessagingCandidate(candidate);
   };
 
   // ── Helpers ───────────────────────────────────────────────
@@ -5931,7 +5914,7 @@ function SearchCandidatesPage() {
             const { data: hydratedData } = await supabase
               .from("profiles")
               .select(`
-                id, first_name, last_name, avatar_url, headline, current_title, current_company, location, experience_type, total_experience, skills, about, created_at, updated_at, last_active_at,
+                id, first_name, last_name, avatar_url, headline, current_title, current_company, location, experience_type, total_experience, skills, about, email, phone, created_at, updated_at, last_active_at,
                 work_experience(id, company, title, start_date, end_date, description, is_current),
                 education(id, institution, degree, field, start_month, start_year, end_month, end_year)
               `)
@@ -5956,7 +5939,7 @@ function SearchCandidatesPage() {
         let q = supabase
           .from("profiles")
           .select(`
-            id, first_name, last_name, avatar_url, headline, current_title, current_company, location, experience_type, total_experience, skills, about, created_at, updated_at, last_active_at, preferred_location, desired_job_title, job_type_pref, work_auth, willing_to_relocate, preferred_interview_mode,
+            id, first_name, last_name, avatar_url, headline, current_title, current_company, location, experience_type, total_experience, skills, about, email, phone, created_at, updated_at, last_active_at, preferred_location, desired_job_title, job_type_pref, work_auth, willing_to_relocate, preferred_interview_mode,
             work_experience(id, company, title, start_date, end_date, description, is_current),
             education(id, institution, degree, field, start_month, start_year, end_month, end_year)
           `);
@@ -6017,7 +6000,7 @@ function SearchCandidatesPage() {
             const { data: skillMatches } = await supabase
               .from("profiles")
               .select(`
-                id, first_name, last_name, avatar_url, headline, current_title, current_company, location, experience_type, total_experience, skills, about, created_at, updated_at, last_active_at,
+                id, first_name, last_name, avatar_url, headline, current_title, current_company, location, experience_type, total_experience, skills, about, email, phone, created_at, updated_at, last_active_at,
                 work_experience(id, company, title, start_date, end_date, description, is_current),
                 education(id, institution, degree, field, start_month, start_year, end_month, end_year)
               `)
@@ -6033,7 +6016,7 @@ function SearchCandidatesPage() {
           let broadSkillQuery = supabase
             .from("profiles")
             .select(`
-              id, first_name, last_name, avatar_url, headline, current_title, current_company, location, experience_type, total_experience, skills, about, created_at, updated_at, last_active_at, preferred_location, desired_job_title, job_type_pref, work_auth, willing_to_relocate, preferred_interview_mode,
+              id, first_name, last_name, avatar_url, headline, current_title, current_company, location, experience_type, total_experience, skills, about, email, phone, created_at, updated_at, last_active_at, preferred_location, desired_job_title, job_type_pref, work_auth, willing_to_relocate, preferred_interview_mode,
               work_experience(id, company, title, start_date, end_date, description, is_current),
               education(id, institution, degree, field, start_month, start_year, end_month, end_year)
             `);
@@ -7055,6 +7038,23 @@ function SearchCandidatesPage() {
           )}
         </div>
       </div>
+
+      <RecruiterDirectMessageModal
+        open={!!messagingCandidate}
+        onOpenChange={(open) => { if (!open) setMessagingCandidate(null); }}
+        candidate={messagingCandidate ? {
+          id: messagingCandidate.id,
+          name: getCandidateDisplayName(messagingCandidate),
+          email: messagingCandidate.email,
+          headline: messagingCandidate.headline || messagingCandidate.current_title,
+          avatar_url: messagingCandidate.avatar_url,
+        } : null}
+        onSuccess={() => {
+          if (messagingCandidate?.id) {
+            setMessagedCandidates(prev => new Set(prev).add(messagingCandidate.id));
+          }
+        }}
+      />
     </div>
   );
 }
@@ -8751,6 +8751,7 @@ function ApplicantsPage() {
   const [interviewModalData, setInterviewModalData] = useState<{ applicant: AppWithProfile; initialRound?: "L1" | "L2" | "L3" | "HR Round" } | null>(null);
   const [feedbackModalApplicant, setFeedbackModalApplicant] = useState<AppWithProfile | null>(null);
   const [offerModalApplicant, setOfferModalApplicant] = useState<AppWithProfile | null>(null);
+  const [messagingApplicant, setMessagingApplicant] = useState<AppWithProfile | null>(null);
   // Declines route through a dialog so the recruiter records why.
   const [declineRequest, setDeclineRequest] = useState<
     { applicant: AppWithProfile; outcome: "Not Shortlisted" | "Rejected" | "Interview Rejected" } | null
@@ -9463,7 +9464,43 @@ function ApplicantsPage() {
     const hireDisabledClass = isHireActive ? "disabled:opacity-100" : "disabled:opacity-40";
     const rejectDisabledClass = isRejectActive ? "disabled:opacity-100" : "disabled:opacity-40";
     const onHoldDisabledClass = isOnHoldActive ? "disabled:opacity-100" : "disabled:opacity-40";
-    const openMail = () => { if (applicant.profile?.email) window.location.href = `mailto:${applicant.profile.email}`; };
+    const openMail = () => {
+      const email =
+        applicant.profile?.email ||
+        applicant.profiles?.email ||
+        applicant.candidate?.email ||
+        applicant.applicant_email ||
+        (applicant as any).email;
+      if (!email) {
+        toast.error("Candidate email address is not available on this profile.");
+        return;
+      }
+
+      // 1. Copy email to clipboard so it is immediately accessible
+      try {
+        navigator.clipboard.writeText(email);
+      } catch {
+        // ignore
+      }
+
+      // 2. Trigger mailto directly (same as live applicants panel, avoids popup blocker)
+      window.location.href = `mailto:${email}`;
+
+      // 3. Inform the user and provide a 1-click webmail option (works reliably on local and production)
+      toast.success(`Candidate: ${email} (copied to clipboard!)`, {
+        description: "Click below if your local mail client didn't open:",
+        action: {
+          label: "Open in Gmail",
+          onClick: () => {
+            window.open(
+              `https://mail.google.com/mail/?view=cm&fs=1&to=${encodeURIComponent(email)}`,
+              "_blank"
+            );
+          },
+        },
+        duration: 7000,
+      });
+    };
 
     const canHire = stage === "Offered" || stage === "Joined";
     const canReject = stage !== "Joined" && stage !== "Rejected";
@@ -9477,7 +9514,7 @@ function ApplicantsPage() {
             <User className="h-3 w-3 mr-1" /> View Profile
           </a>
         </Button>
-        <Button size="sm" variant="outline" className="border-2 border-gray-400 bg-gray-50 text-[#3A1F1F] hover:bg-gray-100 rounded-full text-xs h-7" onClick={openMail}>
+        <Button size="sm" variant="outline" className="border-2 border-gray-400 bg-gray-50 text-[#3A1F1F] hover:bg-gray-100 rounded-full text-xs h-7" onClick={() => setMessagingApplicant(applicant)}>
           <Mail className="h-3.5 w-3.5 mr-1" /> Message
         </Button>
         {(stage === "Interview Scheduled" || stage === "Interview Completed" || stage === "Interview Selected" || stage === "Interview Rejected") && (
@@ -10192,6 +10229,17 @@ function ApplicantsPage() {
         submitting={isSavingDecline}
       />
       <ResumePreviewDialog resume={resumePreview} onClose={() => setResumePreview(null)} />
+      <RecruiterDirectMessageModal
+        open={!!messagingApplicant}
+        onOpenChange={(open) => { if (!open) setMessagingApplicant(null); }}
+        candidate={messagingApplicant ? {
+          id: messagingApplicant.profile_id || messagingApplicant.profile?.id || messagingApplicant.profiles?.id,
+          name: messagingApplicant.applicant_name || getCandidateDisplayName(messagingApplicant.profile || messagingApplicant.profiles || messagingApplicant.candidate),
+          email: messagingApplicant.applicant_email || messagingApplicant.profile?.email || messagingApplicant.profiles?.email || messagingApplicant.candidate?.email,
+          headline: messagingApplicant.profile?.headline || messagingApplicant.profile?.current_title,
+          avatar_url: messagingApplicant.profile?.avatar_url,
+        } : null}
+      />
     </div>
   );
 }
@@ -10557,6 +10605,12 @@ function AnalyticsPage() {
     void loadAnalyticsMetrics();
   }, [recruiterProfile?.id, timePeriod]);
 
+  useEffect(() => {
+    if (recruiterProfile?.id) {
+      setReportUrl(`${window.location.origin}/reports/${recruiterProfile.id}`);
+    }
+  }, [recruiterProfile?.id]);
+
   const generateAndShareReport = async () => {
     if (!recruiterProfile?.id) return;
     setReportLoading(true);
@@ -10597,12 +10651,13 @@ function AnalyticsPage() {
           contentType: "text/html;charset=utf-8",
         });
 
-      if (uploadErr) throw new Error(uploadErr.message);
+      if (uploadErr) {
+        console.warn("Storage upload note:", uploadErr.message);
+      }
 
-      const { data: urlData } = supabase.storage.from("reports").getPublicUrl(fileName);
-      const url = urlData.publicUrl;
-      setReportUrl(url);
-      await navigator.clipboard.writeText(url);
+      const reportPageUrl = `${window.location.origin}/reports/${recruiterProfile.id}`;
+      setReportUrl(reportPageUrl);
+      await navigator.clipboard.writeText(reportPageUrl);
       setReportCopied(true);
       setTimeout(() => setReportCopied(false), 4000);
     } catch (err) {
