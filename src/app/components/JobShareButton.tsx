@@ -7,9 +7,12 @@ type JobShareButtonProps = {
   jobId: string;
   title: string;
   className?: string;
+  disabled?: boolean;
 };
 
-export default function JobShareButton({ jobId, title, className = "" }: JobShareButtonProps) {
+export default function JobShareButton({ jobId, title, className = "", disabled = false }: JobShareButtonProps) {
+  if (disabled) return null;
+
   const [open, setOpen] = useState(false);
   const [copied, setCopied] = useState(false);
   const containerRef = useRef<HTMLDivElement | null>(null);

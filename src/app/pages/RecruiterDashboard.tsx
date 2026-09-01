@@ -4306,7 +4306,9 @@ function ManageJobsPage() {
                     </div>
                   </div>
                   <div className="flex gap-2">
-                    <JobShareButton jobId={job.id} title={job.title} className="relative" />
+                    {effectiveStatus === "Active" && (
+                      <JobShareButton jobId={job.id} title={job.title} className="relative" />
+                    )}
                     {effectiveStatus === "Expired" ? (
                       <Button variant="outline" size="icon" className="border-gray-200 rounded-full" onClick={() => refreshJob(job)} disabled={refreshingJobId === job.id} title={`Refresh for ${JOB_EXPIRY_DAYS} days`}>
                         <RefreshCw className={`h-4 w-4 text-green-500 ${refreshingJobId === job.id ? "animate-spin" : ""}`} />
