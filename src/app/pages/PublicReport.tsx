@@ -37,6 +37,7 @@ interface AppRecord {
 
 export default function PublicReport() {
   const { recruiterId } = useParams<{ recruiterId: string }>();
+  const [htmlReport, setHtmlReport] = useState<string | null>(null);
   const [company, setCompany] = useState<Company | null>(null);
   const [jobs, setJobs] = useState<Job[]>([]);
   const [apps, setApps] = useState<AppRecord[]>([]);
@@ -48,6 +49,30 @@ export default function PublicReport() {
     if (!recruiterId) return;
     const load = async () => {
       setLoading(true);
+      setError("");
+
+      // 1. Try to fetch the generated HTML snapshot from Supabase Storage first
+      try {
+        const { data: urlData } = supabase.storage
+          .from("reports")
+          .getPublicUrl(`${recruiterId}.html`);
+
+        if (urlData?.publicUrl) {
+          const res = await fetch(urlData.publicUrl);
+          if (res.ok) {
+            const text = await res.text();
+            if (text && (text.includes("<!DOCTYPE") || text.includes("<html") || text.includes("<head"))) {
+              setHtmlReport(text);
+              setLoading(false);
+              return;
+            }
+          }
+        }
+      } catch (storageErr) {
+        console.warn("Storage snapshot fetch error, falling back to database:", storageErr);
+      }
+
+      // 2. Fallback: query database directly if storage snapshot doesn't exist yet
       try {
         const [compRes, jobsRes, appsRes] = await Promise.all([
           supabase
@@ -67,7 +92,7 @@ export default function PublicReport() {
 
         if (compRes.error || !compRes.data) {
           setError(
-            "This report is not publicly accessible. The recruiter may need to enable public access in their Supabase settings."
+            "This report is not publicly accessible or has not been generated yet."
           );
           return;
         }
@@ -97,6 +122,26 @@ export default function PublicReport() {
           <p className="text-[#5A5A5A]">Loading report…</p>
         </div>
       </div>
+    );
+  }
+
+  // If we have the pre-rendered HTML snapshot, render it directly as a full-page view
+  if (htmlReport) {
+    return (
+      <iframe
+        title="Public Hiring Report"
+        srcDoc={htmlReport}
+        className="w-full h-full border-none"
+        style={{
+          position: "fixed",
+          top: 0,
+          left: 0,
+          width: "100vw",
+          height: "100vh",
+          border: "none",
+          zIndex: 9999,
+        }}
+      />
     );
   }
 
@@ -167,7 +212,7 @@ export default function PublicReport() {
       <div className="bg-white border-b border-gray-200 px-4 py-3 print:hidden sticky top-0 z-10 shadow-sm">
         <div className="max-w-5xl mx-auto flex items-center justify-between gap-3 flex-wrap">
           <Link to="/" className="text-xl font-bold text-[#3A1F1F] select-none">
-            Red<span className="text-[#FF2B2B]">Hire</span>
+            Rhire<span className="text-[#FF2B2B]">Pro</span>
             <span className="text-xs font-normal text-[#8A8A8A] ml-2 hidden sm:inline">· Public Hiring Report</span>
           </Link>
           <div className="flex gap-2">

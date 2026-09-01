@@ -32,6 +32,7 @@ import PrivacyPolicyPage from "./pages/PrivacyPolicyPage";
 import TermsOfServicePage from "./pages/TermsOfServicePage";
 import RefundPolicyPage from "./pages/RefundPolicyPage";
 import ContactUsPage from "./pages/ContactUsPage";
+import PublicReport from "./pages/PublicReport";
 import OrgAdminPanel from "./pages/OrgAdminPanel";
 import RecruiterInviteAccept from "./pages/RecruiterInviteAccept";
 import SuperAdminLoginPage from "./pages/super-admin/SuperAdminLoginPage";
@@ -256,6 +257,16 @@ export const router = createBrowserRouter([
   {
     path: "/contact",
     Component: ContactUsPage,
+    errorElement: <ErrorPage />,
+  },
+  {
+    path: "/reports/:recruiterId",
+    Component: PublicReport,
+    errorElement: <ErrorPage />,
+  },
+  {
+    path: "/report/:recruiterId",
+    Component: PublicReport,
     errorElement: <ErrorPage />,
   },
   {

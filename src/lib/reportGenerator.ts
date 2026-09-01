@@ -199,7 +199,7 @@ tr:hover td{background:#FAFAFA}
     <span class="topbar-meta">&middot; Public Hiring Report</span>
   </div>
   <div class="topbar-actions">
-    <button class="btn btn-red" onclick="var b=this;navigator.clipboard.writeText(location.href).then(function(){b.textContent='Copied!';setTimeout(function(){b.innerHTML='${iconLink} Copy Link'},2000)})">${iconLink} Copy Link</button>
+    <button class="btn btn-red" onclick="var b=this;var shareUrl=(window.parent&&window.parent.location&&window.parent.location.href&&window.parent.location.href.indexOf('about:')===-1)?window.parent.location.href:location.href;navigator.clipboard.writeText(shareUrl).then(function(){b.textContent='Copied!';setTimeout(function(){b.innerHTML='${iconLink} Copy Link'},2000)})">${iconLink} Copy Link</button>
     <button class="btn" onclick="window.print()">${iconPrint} Print / PDF</button>
   </div>
 </div>
