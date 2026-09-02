@@ -162,6 +162,14 @@ describe('generateReportHTML — funnel bar percentages', () => {
     // All stages except Applied would be 0 → clamped to 4%
     expect(html).toContain('width:4%');
   });
+
+  it('calculates stage percentage consistently from total Applied and shows 0% for 0-count stages', () => {
+    const apps2: ReportApp[] = [{ job_id: 'j1', status: 'New' }];
+    const html = generateReportHTML(company, jobs, apps2);
+    // Stages with 0 count must display 0%, not 4%
+    expect(html).toContain('>0%</div>');
+    expect(html).not.toContain('>4%</div>');
+  });
 });
 
 // ── Applications by Status section ───────────────────────────────────────────

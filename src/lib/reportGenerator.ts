@@ -63,7 +63,8 @@ export function generateReportHTML(
     { label: "Joined",              count: (sc["Joined"] || 0) + (sc["Hired"] || 0), color: "#10B981" },
   ].map(s => ({
     ...s,
-    pct: totalApps > 0 ? Math.max(4, Math.round((s.count / totalApps) * 100)) : 4,
+    pct: totalApps > 0 ? Math.round((s.count / totalApps) * 100) : 0,
+    barWidth: totalApps > 0 ? Math.max(4, Math.round((s.count / totalApps) * 100)) : 4,
   }));
 
   const statusBadge: Record<string, string> = {
@@ -199,7 +200,7 @@ tr:hover td{background:#FAFAFA}
     <span class="topbar-meta">&middot; Public Hiring Report</span>
   </div>
   <div class="topbar-actions">
-    <button class="btn btn-red" onclick="var b=this;var shareUrl=(window.parent&&window.parent.location&&window.parent.location.href&&window.parent.location.href.indexOf('about:')===-1)?window.parent.location.href:location.href;navigator.clipboard.writeText(shareUrl).then(function(){b.textContent='Copied!';setTimeout(function(){b.innerHTML='${iconLink} Copy Link'},2000)})">${iconLink} Copy Link</button>
+    <button class="btn btn-red" onclick="var b=this;if(!b.getAttribute('data-orig'))b.setAttribute('data-orig',b.innerHTML);var u=(window.parent&amp;&amp;window.parent.location&amp;&amp;window.parent.location.href&amp;&amp;window.parent.location.href.indexOf('about:')===-1)?window.parent.location.href:location.href;try{if(window.parent&amp;&amp;window.parent!==window)window.parent.postMessage({type:'RHIRE_COPY_REPORT_LINK',url:u},'*')}catch(e){}var done=function(){b.textContent='Copied!';setTimeout(function(){b.innerHTML=b.getAttribute('data-orig')},2000)};var fallback=function(){var t=document.createElement('textarea');t.value=u;t.style.position='fixed';t.style.left='-9999px';document.body.appendChild(t);t.select();try{document.execCommand('copy');done()}catch(e){}document.body.removeChild(t)};if(navigator.clipboard&amp;&amp;navigator.clipboard.writeText){navigator.clipboard.writeText(u).then(done).catch(fallback)}else{fallback()}">${iconLink} Copy Link</button>
     <button class="btn" onclick="window.print()">${iconPrint} Print / PDF</button>
   </div>
 </div>
@@ -258,7 +259,7 @@ tr:hover td{background:#FAFAFA}
       <div class="funnel-row">
         <div class="funnel-label"><span>${esc(s.label)}</span><span>${s.count}</span></div>
         <div class="funnel-track">
-          <div class="funnel-bar" style="width:${s.pct}%;background:${s.color}">${s.pct}%</div>
+          <div class="funnel-bar" style="width:${s.barWidth}%;background:${s.color}">${s.pct}%</div>
         </div>
       </div>`).join("")}
     </div>

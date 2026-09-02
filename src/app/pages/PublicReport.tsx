@@ -35,6 +35,30 @@ interface AppRecord {
   job_id: string;
 }
 
+function repairReportHtml(rawHtml: string): string {
+  let html = rawHtml;
+  // If the raw HTML has the broken button pattern from previously saved snapshots
+  if (
+    html.includes("b.innerHTML='<svg") ||
+    html.includes("Copy Link!},2000)}}/>") ||
+    html.includes("Copy Link'},2000)")
+  ) {
+    const cleanButton = `<button class="btn btn-red" onclick="var b=this;if(!b.getAttribute('data-orig'))b.setAttribute('data-orig',b.innerHTML);var u=(window.parent&amp;&amp;window.parent.location&amp;&amp;window.parent.location.href&amp;&amp;window.parent.location.href.indexOf('about:')===-1)?window.parent.location.href:location.href;try{if(window.parent&amp;&amp;window.parent!==window)window.parent.postMessage({type:'RHIRE_COPY_REPORT_LINK',url:u},'*')}catch(e){}var done=function(){b.textContent='Copied!';setTimeout(function(){b.innerHTML=b.getAttribute('data-orig')},2000)};var fallback=function(){var t=document.createElement('textarea');t.value=u;t.style.position='fixed';t.style.left='-9999px';document.body.appendChild(t);t.select();try{document.execCommand('copy');done()}catch(e){}document.body.removeChild(t)};if(navigator.clipboard&amp;&amp;navigator.clipboard.writeText){navigator.clipboard.writeText(u).then(done).catch(fallback)}else{fallback()}"><svg width="14" height="14" fill="none" stroke="currentColor" stroke-width="2" viewBox="0 0 24 24"><path d="M10 13a5 5 0 0 0 7.54.54l3-3a5 5 0 0 0-7.07-7.07l-1.72 1.71"/><path d="M14 11a5 5 0 0 0-7.54-.54l-3 3a5 5 0 0 0 7.07 7.07l1.71-1.71"/></svg> Copy Link</button>`;
+    html = html.replace(
+      /<button class="btn btn-red" onclick="var b=this;[\s\S]*?<\/button>/,
+      cleanButton
+    );
+  }
+
+  // Also fix any 0-count funnel stages that showed 4% in legacy cached snapshots
+  html = html.replace(
+    /(<span>0<\/span>\s*<\/div>\s*<div class="funnel-track">\s*<div class="funnel-bar"[^>]*>)4%/g,
+    "$10%"
+  );
+
+  return html;
+}
+
 export default function PublicReport() {
   const { recruiterId } = useParams<{ recruiterId: string }>();
   const [htmlReport, setHtmlReport] = useState<string | null>(null);
@@ -44,6 +68,20 @@ export default function PublicReport() {
   const [loading, setLoading] = useState(true);
   const [error, setError] = useState("");
   const [copied, setCopied] = useState(false);
+
+  useEffect(() => {
+    const handleMessage = (event: MessageEvent) => {
+      if (event.data?.type === "RHIRE_COPY_REPORT_LINK") {
+        try {
+          navigator.clipboard.writeText(event.data.url || window.location.href);
+        } catch {
+          // ignore
+        }
+      }
+    };
+    window.addEventListener("message", handleMessage);
+    return () => window.removeEventListener("message", handleMessage);
+  }, []);
 
   useEffect(() => {
     if (!recruiterId) return;
@@ -62,7 +100,7 @@ export default function PublicReport() {
           if (res.ok) {
             const text = await res.text();
             if (text && (text.includes("<!DOCTYPE") || text.includes("<html") || text.includes("<head"))) {
-              setHtmlReport(text);
+              setHtmlReport(repairReportHtml(text));
               setLoading(false);
               return;
             }
@@ -132,6 +170,7 @@ export default function PublicReport() {
         title="Public Hiring Report"
         srcDoc={htmlReport}
         className="w-full h-full border-none"
+        allow="clipboard-write"
         style={{
           position: "fixed",
           top: 0,
