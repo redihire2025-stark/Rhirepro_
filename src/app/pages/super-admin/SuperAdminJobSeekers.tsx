@@ -35,6 +35,14 @@ interface JobSeekerRow {
   applications: { count: number }[] | null;
 }
 
+interface JobSeekerApplicationRow {
+  id: string;
+  status: string;
+  applied_at: string;
+  jobs: { title: string } | null;
+  recruiter_profiles: { company_name: string | null } | null;
+}
+
 const PAGE_SIZE = 15;
 
 export default function SuperAdminJobSeekers() {
@@ -50,6 +58,8 @@ export default function SuperAdminJobSeekers() {
   const [deleteTarget, setDeleteTarget] = useState<JobSeekerRow | null>(null);
   const [deleteConfirmText, setDeleteConfirmText] = useState("");
   const [deleting, setDeleting] = useState(false);
+  const [selectedApplications, setSelectedApplications] = useState<JobSeekerApplicationRow[]>([]);
+  const [applicationsLoading, setApplicationsLoading] = useState(false);
 
   const fetchRows = useCallback(async () => {
     setLoading(true);
@@ -84,6 +94,23 @@ export default function SuperAdminJobSeekers() {
   useEffect(() => {
     setPage(1);
   }, [search, statusFilter]);
+
+  useEffect(() => {
+    if (!selected) {
+      setSelectedApplications([]);
+      return;
+    }
+    setApplicationsLoading(true);
+    supabase
+      .from("applications")
+      .select("id,status,applied_at,jobs(title),recruiter_profiles(company_name)")
+      .eq("profile_id", selected.id)
+      .order("applied_at", { ascending: false })
+      .then(({ data }) => {
+        setSelectedApplications((data as unknown as JobSeekerApplicationRow[]) ?? []);
+        setApplicationsLoading(false);
+      });
+  }, [selected]);
 
   const toggleDisabled = async (row: JobSeekerRow) => {
     const { error } = await supabase
@@ -291,16 +318,42 @@ export default function SuperAdminJobSeekers() {
                   <span>{selected.experience_type || "—"}</span>
                 </div>
                 <div className="flex justify-between">
-                  <span className="text-muted-foreground">Applications</span>
-                  <span>{selected.applications?.[0]?.count ?? 0}</span>
-                </div>
-                <div className="flex justify-between">
                   <span className="text-muted-foreground">Status</span>
                   <span>{selected.is_disabled ? "Disabled" : "Active"}</span>
                 </div>
                 <div className="flex justify-between">
                   <span className="text-muted-foreground">Joined</span>
                   <span>{new Date(selected.created_at).toLocaleString()}</span>
+                </div>
+                <div>
+                  <p className="text-muted-foreground mb-2">
+                    Applications ({selected.applications?.[0]?.count ?? selectedApplications.length})
+                  </p>
+                  <div className="space-y-2">
+                    {applicationsLoading ? (
+                      <p className="text-xs text-muted-foreground">Loading…</p>
+                    ) : selectedApplications.length === 0 ? (
+                      <p className="text-xs text-muted-foreground">No applications yet.</p>
+                    ) : (
+                      selectedApplications.map((app) => (
+                        <div
+                          key={app.id}
+                          className="flex items-center justify-between gap-2 border-b border-border/60 pb-1.5 text-xs"
+                        >
+                          <div className="min-w-0">
+                            <p className="font-medium truncate">{app.jobs?.title || "—"}</p>
+                            <p className="text-muted-foreground truncate">
+                              {app.recruiter_profiles?.company_name || "—"} ·{" "}
+                              {new Date(app.applied_at).toLocaleDateString()}
+                            </p>
+                          </div>
+                          <Badge variant="outline" className="shrink-0">
+                            {app.status}
+                          </Badge>
+                        </div>
+                      ))
+                    )}
+                  </div>
                 </div>
               </div>
             </>
