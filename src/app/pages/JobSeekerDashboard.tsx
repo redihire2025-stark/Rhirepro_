@@ -6735,7 +6735,9 @@ function AnalyticsPage() {
                             <span>{job.applicant_count} applied</span>
                           </div>
                         )}
-                        <JobShareButton jobId={targetId} title={job.title} className="shrink-0 -mr-1 -mt-1" />
+                        {isJobVisibleToSeekers(job) && (
+                          <JobShareButton jobId={targetId} title={job.title} className="shrink-0 -mr-1 -mt-1" />
+                        )}
                         <button
                           type="button"
                           onClick={() => setSelectedSavedJob(null)}
