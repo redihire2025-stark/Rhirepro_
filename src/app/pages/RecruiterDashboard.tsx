@@ -1980,7 +1980,29 @@ export default function RecruiterDashboard() {
 
 function DashboardOverview() {
   const navigate = useNavigate();
-  const { recruiterProfile } = useAuth();
+  const { recruiterProfile, isOrgAdmin } = useAuth();
+  const isTeamMember = Boolean(recruiterProfile?.org_admin_id) && !isOrgAdmin;
+  const [orgCompanyProfile, setOrgCompanyProfile] = useState<Record<string, unknown> | null>(null);
+
+  useEffect(() => {
+    if (!isTeamMember || !recruiterProfile?.org_admin_id) {
+      setOrgCompanyProfile(null);
+      return;
+    }
+    let cancelled = false;
+    supabase
+      .from("recruiter_profiles")
+      .select("company_name, industry, company_size, company_type, founded, company_description, website, location, linkedin_url, cin, tagline, logo_url, cover_image_url")
+      .eq("id", recruiterProfile.org_admin_id)
+      .maybeSingle()
+      .then(({ data }) => {
+        if (!cancelled && data) {
+          setOrgCompanyProfile(data);
+        }
+      });
+    return () => { cancelled = true; };
+  }, [isTeamMember, recruiterProfile?.org_admin_id]);
+
   const [dbJobs, setDbJobs] = useState<Job[]>([]);
   const [dbApplications, setDbApplications] = useState<Array<Pick<Application, "id" | "job_id" | "status" | "applied_at">>>([]);
   const [totalApplicantsCount, setTotalApplicantsCount] = useState<number>(0);
@@ -2006,25 +2028,42 @@ function DashboardOverview() {
     id: string;
     name: string;
     role: string;
-    time: string;
+    time?: string;
     type: string;
     avatarUrl?: string | null;
   }>>([]);
 
+  const effectiveProfile = useMemo(() => {
+    if (!recruiterProfile) return null;
+    if (isTeamMember && orgCompanyProfile) {
+      return {
+        ...recruiterProfile,
+        company_name: (orgCompanyProfile.company_name as string) || recruiterProfile.company_name,
+        industry: (orgCompanyProfile.industry as string) || recruiterProfile.industry,
+        company_size: (orgCompanyProfile.company_size as string) || recruiterProfile.company_size,
+        company_type: (orgCompanyProfile.company_type as string) || recruiterProfile.company_type,
+        company_description: (orgCompanyProfile.company_description as string) || recruiterProfile.company_description,
+        location: (orgCompanyProfile.location as string) || recruiterProfile.location,
+        website: (orgCompanyProfile.website as string) || recruiterProfile.website,
+      };
+    }
+    return recruiterProfile;
+  }, [recruiterProfile, isTeamMember, orgCompanyProfile]);
+
   const recruiterCompletion = useMemo(() => {
-    if (!recruiterProfile) return 0;
+    if (!effectiveProfile) return 0;
     let score = 0;
-    if (recruiterProfile.recruiter_name) score += 10;
-    if (recruiterProfile.company_name) score += 15;
-    if (recruiterProfile.phone) score += 5;
-    if (recruiterProfile.industry) score += 15;
-    if (recruiterProfile.company_size) score += 10;
-    if (recruiterProfile.company_type) score += 5;
-    if ((recruiterProfile.company_description || "").trim().length > 20) score += 20;
-    if (recruiterProfile.location) score += 10;
-    if (recruiterProfile.website) score += 10;
+    if (effectiveProfile.recruiter_name) score += 10;
+    if (effectiveProfile.company_name) score += 15;
+    if (effectiveProfile.phone) score += 5;
+    if (effectiveProfile.industry) score += 15;
+    if (effectiveProfile.company_size) score += 10;
+    if (effectiveProfile.company_type) score += 5;
+    if ((effectiveProfile.company_description || "").trim().length > 20) score += 20;
+    if (effectiveProfile.location) score += 10;
+    if (effectiveProfile.website) score += 10;
     return Math.min(100, score);
-  }, [recruiterProfile]);
+  }, [effectiveProfile]);
 
   useEffect(() => {
     if (!recruiterProfile?.id) return;
@@ -2182,14 +2221,10 @@ function DashboardOverview() {
         const meetingUrl = app.interview_details?.meeting_url;
         const type = meetingUrl ? "Video Call" : "In-Person";
 
-        const dateObj = app.interview_details?.updated_at ? new Date(app.interview_details.updated_at) : new Date(app.applied_at);
-        const time = dateObj.toLocaleDateString("en-IN", { day: "numeric", month: "short" }) + ", " + dateObj.toLocaleTimeString("en-IN", { hour: "numeric", minute: "2-digit" });
-
         return {
           id: app.id,
           name: fullName,
           role,
-          time,
           type,
           avatarUrl: app.profile?.avatar_url || null
         };
@@ -2294,7 +2329,7 @@ function DashboardOverview() {
       </div>
 
       {/* Company Profile Completion Banner */}
-      {recruiterCompletion < 100 && (
+      {(!isTeamMember || orgCompanyProfile !== null) && recruiterCompletion < 100 && (
         <div className="bg-white rounded-2xl p-4 shadow-sm border border-orange-100">
           <div className="flex items-center justify-between mb-2">
             <div className="flex items-center gap-3">
@@ -2329,15 +2364,15 @@ function DashboardOverview() {
           </div>
           {(() => {
             const missing = [
-              { label: "HR Contact Name", done: !!recruiterProfile?.recruiter_name },
-              { label: "Company Name", done: !!recruiterProfile?.company_name },
-              { label: "Phone", done: !!recruiterProfile?.phone },
-              { label: "Industry", done: !!recruiterProfile?.industry },
-              { label: "Company Size", done: !!recruiterProfile?.company_size },
-              { label: "Company Type", done: !!recruiterProfile?.company_type },
-              { label: "Company Bio", done: (recruiterProfile?.company_description || "").trim().length > 20 },
-              { label: "Location", done: !!recruiterProfile?.location },
-              { label: "Website", done: !!recruiterProfile?.website },
+              { label: "HR Contact Name", done: !!effectiveProfile?.recruiter_name },
+              { label: "Company Name", done: !!effectiveProfile?.company_name },
+              { label: "Phone", done: !!effectiveProfile?.phone },
+              { label: "Industry", done: !!effectiveProfile?.industry },
+              { label: "Company Size", done: !!effectiveProfile?.company_size },
+              { label: "Company Type", done: !!effectiveProfile?.company_type },
+              { label: "Company Bio", done: (effectiveProfile?.company_description || "").trim().length > 20 },
+              { label: "Location", done: !!effectiveProfile?.location },
+              { label: "Website", done: !!effectiveProfile?.website },
             ].filter(item => !item.done);
             return missing.length > 0 ? (
               <div className="mt-2 flex flex-wrap gap-1.5">
@@ -2452,8 +2487,8 @@ function DashboardOverview() {
             ) : (
               upcomingInterviews.map((iv, i) => (
                 <div
-                  key={i}
-                  onClick={() => navigate(`/recruiter/dashboard/applicants/${iv.id}/profile`)}
+                  key={iv.id || i}
+                  onClick={() => navigate(`/recruiter/dashboard/applicants?status=Interview Scheduled&search=${encodeURIComponent(iv.name)}&applicantId=${iv.id}`)}
                   className="flex items-center gap-3 p-3 bg-[#F6F6F6] hover:bg-gray-100/80 transition-colors rounded-xl cursor-pointer"
                 >
                   <div className="w-10 h-10 rounded-full overflow-hidden flex items-center justify-center flex-shrink-0">
@@ -2465,13 +2500,12 @@ function DashboardOverview() {
                       </div>
                     )}
                   </div>
-                  <div className="flex-1">
-                    <p className="text-sm font-medium text-[#3A1F1F]">{iv.name}</p>
-                    <p className="text-xs text-[#8A8A8A]">{iv.role}</p>
+                  <div className="flex-1 min-w-0">
+                    <p className="text-sm font-medium text-[#3A1F1F] truncate">{iv.name}</p>
+                    <p className="text-xs text-[#8A8A8A] truncate">{iv.role}</p>
                   </div>
-                  <div className="text-right">
-                    <p className="text-xs font-medium text-[#3A1F1F]">{iv.time}</p>
-                    <Badge className="bg-purple-100 text-purple-700 text-xs mt-0.5">{iv.type}</Badge>
+                  <div className="text-right flex-shrink-0">
+                    <Badge className="bg-purple-100 text-purple-700 text-xs">{iv.type}</Badge>
                   </div>
                 </div>
               ))
@@ -5951,27 +5985,38 @@ function SearchCandidatesPage() {
           const searchTokens = rawTokens.length > 0 ? rawTokens : [activeKeywords.trim()];
           const isOrQuery = booleanSearchEnabled ? rawIsOr : true;
 
-          if (isOrQuery) {
-            // OR mode: combine all token clauses
-            const clauses = searchTokens.flatMap(term => [
+          const buildClausesForTerm = (term: string) => {
+            const list = [
               `first_name.ilike.%${term}%`,
               `last_name.ilike.%${term}%`,
+              `email.ilike.%${term}%`,
               `headline.ilike.%${term}%`,
               `current_title.ilike.%${term}%`,
               `current_company.ilike.%${term}%`,
-              `about.ilike.%${term}%`
-            ]);
+              `about.ilike.%${term}%`,
+            ];
+            const cleanDigits = term.replace(/[\s\-\+\(\)]/g, "");
+            if (cleanDigits.length >= 3) {
+              list.push(`phone.ilike.%${cleanDigits}%`);
+              if (cleanDigits.length >= 7) {
+                const enc = encryptPhone(cleanDigits);
+                if (enc) list.push(`phone.eq.${enc}`);
+              }
+            }
+            return list;
+          };
+
+          if (isOrQuery) {
+            // OR mode: combine all token clauses
+            const clauses = searchTokens.flatMap(buildClausesForTerm);
             if (clauses.length > 0) {
               q = q.or(clauses.join(","));
             }
           } else {
             // AND mode: each token must match at least one field
             searchTokens.forEach(token => {
-              q = q.or(
-                `first_name.ilike.%${token}%,last_name.ilike.%${token}%,` +
-                `headline.ilike.%${token}%,current_title.ilike.%${token}%,` +
-                `current_company.ilike.%${token}%,about.ilike.%${token}%`
-              );
+              const clauses = buildClausesForTerm(token);
+              q = q.or(clauses.join(","));
             });
           }
         }
@@ -6046,9 +6091,15 @@ function SearchCandidatesPage() {
           const isOrFilter = booleanSearchEnabled ? rawIsOrFilter : false;
 
           raw = raw.filter(candidate => {
+            const decryptedPhone = candidate.phone ? decryptPhone(candidate.phone) : "";
+            const cleanCandidateDigits = decryptedPhone.replace(/\D/g, "");
             const searchableText = [
               candidate.first_name,
               candidate.last_name,
+              candidate.email,
+              candidate.phone,
+              decryptedPhone,
+              cleanCandidateDigits,
               candidate.headline,
               candidate.current_title,
               candidate.current_company,
@@ -6061,6 +6112,17 @@ function SearchCandidatesPage() {
 
               // 1. Direct text inclusion
               if (searchableText.includes(t)) return true;
+
+              // 1b. Email match (exact or substring)
+              if (candidate.email && candidate.email.toLowerCase().includes(t)) return true;
+
+              // 1c. Phone number match
+              const cleanTokenDigits = t.replace(/[\s\-\+\(\)]/g, "");
+              if (cleanTokenDigits.length >= 3) {
+                if (cleanCandidateDigits.includes(cleanTokenDigits)) return true;
+                if (decryptedPhone.includes(cleanTokenDigits)) return true;
+                if (candidate.phone && candidate.phone.includes(cleanTokenDigits)) return true;
+              }
 
               // 2. Skill matches (exact, keyword expanded if enabled, or fuzzy)
               if ((candidate.skills || []).some(skill =>
@@ -7850,25 +7912,36 @@ Best regards,
           const searchTokens = rawTokens.length > 0 ? rawTokens : [activeKeywords.trim()];
           const isOrQuery = booleanSearchEnabled ? rawIsOr : true;
 
-          if (isOrQuery) {
-            const clauses = searchTokens.flatMap(term => [
+          const buildClausesForTerm = (term: string) => {
+            const list = [
               `first_name.ilike.%${term}%`,
               `last_name.ilike.%${term}%`,
+              `email.ilike.%${term}%`,
               `headline.ilike.%${term}%`,
               `current_title.ilike.%${term}%`,
               `current_company.ilike.%${term}%`,
-              `about.ilike.%${term}%`
-            ]);
+              `about.ilike.%${term}%`,
+            ];
+            const cleanDigits = term.replace(/[\s\-\+\(\)]/g, "");
+            if (cleanDigits.length >= 3) {
+              list.push(`phone.ilike.%${cleanDigits}%`);
+              if (cleanDigits.length >= 7) {
+                const enc = encryptPhone(cleanDigits);
+                if (enc) list.push(`phone.eq.${enc}`);
+              }
+            }
+            return list;
+          };
+
+          if (isOrQuery) {
+            const clauses = searchTokens.flatMap(buildClausesForTerm);
             if (clauses.length > 0) {
               q = q.or(clauses.join(","));
             }
           } else {
             searchTokens.forEach(token => {
-              q = q.or(
-                `first_name.ilike.%${token}%,last_name.ilike.%${token}%,` +
-                `headline.ilike.%${token}%,current_title.ilike.%${token}%,` +
-                `current_company.ilike.%${token}%,about.ilike.%${token}%`
-              );
+              const clauses = buildClausesForTerm(token);
+              q = q.or(clauses.join(","));
             });
           }
         }
@@ -8723,7 +8796,10 @@ function ApplicantsPage() {
     const queryJob = new URLSearchParams(window.location.search).get("job");
     return queryJob || "All";
   });
-  const [searchTerm, setSearchTerm] = useState<string>("");
+  const [searchTerm, setSearchTerm] = useState<string>(() => {
+    const querySearch = new URLSearchParams(window.location.search).get("search");
+    return querySearch || "";
+  });
   const [sortBy, setSortBy] = useState<string>("recent");
   const [expandedCareer, setExpandedCareer] = useState<string | null>(null);
   const [profileModal, setProfileModal] = useState<AppWithProfile | null>(null);
@@ -8837,6 +8913,27 @@ function ApplicantsPage() {
     const queryJob = new URLSearchParams(location.search).get("job") || "All";
     setJobFilter(queryJob);
   }, [location.search]);
+
+  useEffect(() => {
+    const querySearch = new URLSearchParams(location.search).get("search");
+    if (querySearch !== null) setSearchTerm(querySearch);
+  }, [location.search]);
+
+  const targetApplicantId = useMemo(() => {
+    return new URLSearchParams(location.search).get("applicantId");
+  }, [location.search]);
+
+  useEffect(() => {
+    if (targetApplicantId && !loading && applicants.length > 0) {
+      const timer = setTimeout(() => {
+        const el = document.getElementById(`applicant-${targetApplicantId}`);
+        if (el) {
+          el.scrollIntoView({ behavior: "smooth", block: "center" });
+        }
+      }, 150);
+      return () => clearTimeout(timer);
+    }
+  }, [targetApplicantId, loading, applicants]);
 
   useEffect(() => {
     if (!skillDropdownOpen) return;
@@ -9840,7 +9937,11 @@ function ApplicantsPage() {
                 const workExp = p?.work_experience || [];
                 const edu = p?.education || [];
                 return (
-                  <div key={applicant.id} className="bg-white rounded-2xl shadow-sm border border-gray-200 overflow-hidden">
+                  <div
+                    key={applicant.id}
+                    id={`applicant-${applicant.id}`}
+                    className={`bg-white rounded-2xl shadow-sm border ${targetApplicantId === applicant.id ? "border-purple-400 ring-2 ring-purple-300 shadow-md" : "border-gray-200"} overflow-hidden transition-all`}
+                  >
                     <div className="p-5">
                       <div className="flex items-start gap-4">
                         {/* Avatar */}
@@ -10251,6 +10352,21 @@ function ApplicantsPage() {
 function AnalyticsPage() {
   const { recruiterProfile } = useAuth();
   const navigate = useNavigate();
+  const location = useLocation();
+  const [articleBannerMessage, setArticleBannerMessage] = useState<string | null>(null);
+
+  useEffect(() => {
+    if (location.state?.articlePublished) {
+      const msg = location.state.isEdit
+        ? "Article updated successfully!"
+        : "Article published successfully!";
+      setArticleBannerMessage(msg);
+      window.history.replaceState({}, document.title);
+      const timer = setTimeout(() => setArticleBannerMessage(null), 5000);
+      return () => clearTimeout(timer);
+    }
+  }, [location.state]);
+
   const [reportLoading, setReportLoading] = useState(false);
   const [reportCopied, setReportCopied] = useState(false);
   const [reportUrl, setReportUrl] = useState("");
@@ -10681,19 +10797,21 @@ function AnalyticsPage() {
     const { error } = await supabase.from("recruiter_articles").delete().eq("id", articleId);
     if (error) {
       setArticleError(error.message);
+      toast.error(`Failed to delete article: ${error.message}`);
       return;
     }
 
     setArticleError("");
     setPublishedArticles((articles) => articles.filter((article) => article.id !== articleId));
     setArticleSaved(true);
+    toast.success("Article deleted successfully.");
     setTimeout(() => setArticleSaved(false), 3500);
   };
 
   const metrics = [
-    { label: "Total Jobs Posted", value: totalJobsPosted !== null ? `${totalJobsPosted}` : "—", sub: timePeriod === "7d" ? "Last 7 days" : timePeriod === "90d" ? "Last 90 days" : "Last 30 days", icon: Briefcase, color: "text-blue-600", bg: "bg-blue-50" },
+    { label: "Total Jobs Posted", value: totalJobsPosted !== null ? `${totalJobsPosted}` : "—", sub: timePeriod === "7d" ? "Last 7 days" : timePeriod === "90d" ? "Last 90 days" : "Last 30 days", icon: Briefcase, color: "text-blue-600", bg: "bg-blue-50", onClick: () => navigate("/recruiter/dashboard/manage-jobs") },
     { label: "Total Applications", value: totalApplications !== null ? `${totalApplications}` : "—", sub: `${applicationsGrowth} vs previous ${timePeriod === "7d" ? "7 days" : timePeriod === "90d" ? "90 days" : "30 days"}`, icon: Users, color: "text-green-600", bg: "bg-green-50", onClick: () => navigate("/recruiter/dashboard/applicants") },
-    { label: "Avg. Time to Hire", value: avgTimeToHire, sub: avgTimeToHireSub, icon: Clock, color: "text-purple-600", bg: "bg-purple-50", onClick: () => navigate("/recruiter/dashboard/applicants") },
+    { label: "Avg. Time to Hire", value: avgTimeToHire, sub: avgTimeToHireSub, icon: Clock, color: "text-purple-600", bg: "bg-purple-50" },
     // Captions describe the number shown. They previously read "+5% vs last
     // quarter" and "Industry avg: 25 days" — both hardcoded, neither measured,
     // which is a large part of why these tiles looked like dummy data.
@@ -10718,6 +10836,20 @@ function AnalyticsPage() {
 
   return (
     <div className="container mx-auto px-4 py-8">
+      {articleBannerMessage && (
+        <div className="mb-6 rounded-xl border border-emerald-200 bg-emerald-50 px-4 py-3 text-sm font-medium text-emerald-800 flex items-center justify-between shadow-sm animate-in fade-in slide-in-from-top-2">
+          <div className="flex items-center gap-2">
+            <CheckCircle className="h-5 w-5 text-emerald-600 flex-shrink-0" />
+            <span>{articleBannerMessage}</span>
+          </div>
+          <button
+            onClick={() => setArticleBannerMessage(null)}
+            className="text-emerald-700 hover:text-emerald-900 ml-4 p-1 rounded-lg hover:bg-emerald-100/60"
+          >
+            <X className="h-4 w-4" />
+          </button>
+        </div>
+      )}
       <div className="flex justify-between items-center mb-6">
         <h1 className="text-3xl font-bold text-[#3A1F1F]">Analytics</h1>
         <div className="flex gap-2">
@@ -11154,6 +11286,7 @@ function ArticleEditorPage() {
 
       if (res.error) {
         setArticleError(res.error.message);
+        toast.error(`Failed to publish article: ${res.error.message}`);
         return;
       }
     } else {
@@ -11177,11 +11310,17 @@ function ArticleEditorPage() {
 
       if (error) {
         setArticleError(error.message);
+        toast.error(`Failed to publish article: ${error.message}`);
         return;
       }
     }
 
-    navigate("/recruiter/dashboard/analytics");
+    const successMsg = isEditing ? "Article updated successfully!" : "Article published successfully!";
+    toast.success(successMsg);
+
+    navigate("/recruiter/dashboard/analytics", {
+      state: { articlePublished: true, isEdit: isEditing }
+    });
   };
 
   if (articleLoading) {
