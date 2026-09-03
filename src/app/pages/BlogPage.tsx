@@ -1,8 +1,10 @@
 import { useEffect, useMemo, useState, useRef } from "react";
-import { Menu, ChevronRight, Facebook, Instagram, Twitter, Bell, Star, ArrowRight, MapPin, BookOpen } from "lucide-react";
+import { Menu, ChevronRight, Facebook, Instagram, Twitter, Bell, Star, ArrowRight, MapPin, BookOpen, Home, Info, Briefcase, Mail } from "lucide-react";
 import { Button } from "../components/ui/button";
 import { Input } from "../components/ui/input";
-import { Sheet, SheetContent, SheetTrigger, SheetTitle, SheetDescription } from "../components/ui/sheet";
+import { Sheet, SheetTrigger } from "../components/ui/sheet";
+import MobileNavPanel from "../components/MobileNavPanel";
+import MobileSignInToggle from "../components/MobileSignInToggle";
 import { useNavigate, useSearchParams } from "react-router";
 import logoImage from "../../logo/logo.png";
 import { supabase, RecruiterArticle, PREDEFINED_SEED_TITLES } from "../../lib/supabase";
@@ -171,27 +173,21 @@ export default function BlogPage({ source = "blogs" }: { source?: "blogs" | "art
                 <Menu className="h-6 w-6 text-[#3A1F1F]" />
               </button>
             </SheetTrigger>
-            <SheetContent side="right" className="w-80 bg-white">
-              <SheetTitle className="sr-only">Navigation Menu</SheetTitle>
-              <SheetDescription className="sr-only">
-                Sign in options for job seekers and recruiters
-              </SheetDescription>
-              <div className="flex flex-col gap-6 mt-8">
-                <h3 className="text-xl font-semibold text-[#3A1F1F]">Welcome to RhirePro</h3>
-                <Button 
-                  className="w-full bg-[#FF2B2B] hover:bg-[#e02525] text-white rounded-full"
-                  onClick={() => navigate('/signin')}
-                >
-                  Job Seeker Sign In
-                </Button>
-                <Button 
-                  className="w-full bg-[#FF2B2B] hover:bg-[#e02525] text-white rounded-full"
-                  onClick={() => navigate('/signin')}
-                >
-                  Recruiter Sign In
-                </Button>
-              </div>
-            </SheetContent>
+            <MobileNavPanel
+              tagline="Insights and career resources"
+              links={[
+                { label: "Home", icon: Home, onClick: () => { setIsMenuOpen(false); navigate('/'); } },
+                { label: "About Us", icon: Info, onClick: () => { setIsMenuOpen(false); navigate('/'); } },
+                { label: "Jobs", icon: Briefcase, onClick: () => { setIsMenuOpen(false); navigate('/jobs'); } },
+                { label: isArticles ? "Blogs" : "Articles", icon: BookOpen, onClick: () => { setIsMenuOpen(false); navigate(isArticles ? "/blog" : "/articles"); } },
+                { label: "Contact Us", icon: Mail, onClick: () => { setIsMenuOpen(false); navigate('/'); } },
+              ]}
+            >
+              <MobileSignInToggle
+                onJobSeeker={() => { setIsMenuOpen(false); navigate('/signin'); }}
+                onRecruiter={() => { setIsMenuOpen(false); navigate('/signin'); }}
+              />
+            </MobileNavPanel>
           </Sheet>
         </div>
       </header>

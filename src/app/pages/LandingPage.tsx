@@ -22,6 +22,9 @@ import {
   Quote,
   Lock,
   Sparkles,
+  Home,
+  Info,
+  Mail,
 } from "lucide-react";
 import { Button } from "../components/ui/button";
 import { Input } from "../components/ui/input";
@@ -32,13 +35,9 @@ import {
   AccordionItem,
   AccordionTrigger,
 } from "../components/ui/accordion";
-import {
-  Sheet,
-  SheetContent,
-  SheetTrigger,
-  SheetTitle,
-  SheetDescription,
-} from "../components/ui/sheet";
+import { Sheet, SheetTrigger } from "../components/ui/sheet";
+import MobileNavPanel from "../components/MobileNavPanel";
+import MobileSignInToggle from "../components/MobileSignInToggle";
 import {
   Carousel,
   CarouselContent,
@@ -817,95 +816,21 @@ export default function LandingPage() {
                 <Menu className="h-6 w-6 text-[#3A1F1F]" />
               </button>
             </SheetTrigger>
-            <SheetContent
-              side="right"
-              className="w-80 bg-white"
+            <MobileNavPanel
+              tagline="Welcome! Explore opportunities"
+              links={[
+                { label: "Home", icon: Home, active: activeSection === "home", onClick: () => { setIsMenuOpen(false); scrollToSection("home"); } },
+                { label: "About Us", icon: Info, active: activeSection === "about", onClick: () => { setIsMenuOpen(false); scrollToSection("about"); } },
+                { label: "Browse Jobs", icon: Briefcase, active: activeSection === "jobs", onClick: () => { setIsMenuOpen(false); scrollToSection("jobs"); } },
+                { label: "Our Services", icon: Sparkles, active: activeSection === "services", onClick: () => { setIsMenuOpen(false); scrollToSection("services"); } },
+                { label: "Contact Us", icon: Mail, active: activeSection === "contact", onClick: () => { setIsMenuOpen(false); scrollToSection("contact"); } },
+              ]}
             >
-              <SheetTitle className="sr-only">
-                Navigation Menu
-              </SheetTitle>
-              <SheetDescription className="sr-only">
-                Sign in options for job seekers and recruiters
-              </SheetDescription>
-              <div className="flex flex-col gap-6 mt-8">
-                <div className="flex items-center gap-3 mb-4">
-                  <img
-                    src={logoImage}
-                    alt="RhirePro Logo"
-                    className="w-12 h-12"
-                  />
-                  <h3 className="text-2xl font-bold text-[#3A1F1F]">
-                    Rhire
-                    <span className="text-[#FF2B2B]">Pro</span>
-                  </h3>
-                </div>
-                <p className="text-[#8A8A8A] text-sm">
-                  Welcome! Sign in to access your dashboard and
-                  explore opportunities.
-                </p>
-                <Button
-                  className="w-full bg-[#FF2B2B] hover:bg-[#e02525] text-white rounded-full"
-                  onClick={() => {
-                    setIsMenuOpen(false);
-                    navigate("/jobseeker/signin");
-                  }}
-                >
-                  Job Seeker Sign In
-                </Button>
-                <Button
-                  className="w-full bg-[#3A1F1F] hover:bg-[#2A1010] text-white rounded-full"
-                  onClick={() => {
-                    setIsMenuOpen(false);
-                    navigate("/recruiter/signin");
-                  }}
-                >
-                  Recruiter Sign In
-                </Button>
-                <div className="border-t border-gray-200 mt-4 pt-4">
-                  <p className="text-sm text-[#8A8A8A] mb-3">
-                    Quick Links
-                  </p>
-                  <div className="space-y-2">
-                    <button
-                      className="w-full text-left px-4 py-2 rounded-lg hover:bg-[#ECECF4] text-[#3A1F1F]"
-                      onClick={() => {
-                        setIsMenuOpen(false);
-                        scrollToSection("home");
-                      }}
-                    >
-                      Home
-                    </button>
-                    <button
-                      className="w-full text-left px-4 py-2 rounded-lg hover:bg-[#ECECF4] text-[#3A1F1F]"
-                      onClick={() => {
-                        setIsMenuOpen(false);
-                        scrollToSection("about");
-                      }}
-                    >
-                      About Us
-                    </button>
-                    <button
-                      className="w-full text-left px-4 py-2 rounded-lg hover:bg-[#ECECF4] text-[#3A1F1F]"
-                      onClick={() => {
-                        setIsMenuOpen(false);
-                        navigate("/jobs");
-                      }}
-                    >
-                      Browse Jobs
-                    </button>
-                    <button
-                      className="w-full text-left px-4 py-2 rounded-lg hover:bg-[#ECECF4] text-[#3A1F1F]"
-                      onClick={() => {
-                        setIsMenuOpen(false);
-                        navigate("/services");
-                      }}
-                    >
-                      Our Services
-                    </button>
-                  </div>
-                </div>
-              </div>
-            </SheetContent>
+              <MobileSignInToggle
+                onJobSeeker={() => { setIsMenuOpen(false); navigate("/jobseeker/signin"); }}
+                onRecruiter={() => { setIsMenuOpen(false); navigate("/recruiter/signin"); }}
+              />
+            </MobileNavPanel>
           </Sheet>
         </div>
       </header>

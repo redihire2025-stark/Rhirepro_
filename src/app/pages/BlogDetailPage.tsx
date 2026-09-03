@@ -1,8 +1,9 @@
 import { useEffect, useMemo, useState, useRef } from "react";
-import { Menu, ChevronRight, Facebook, Instagram, Twitter, Bell, Star, ArrowRight, MapPin, Clock, User } from "lucide-react";
+import { Menu, ChevronRight, Facebook, Instagram, Twitter, Bell, Star, ArrowRight, MapPin, Clock, User, Home, Briefcase, BookOpen, LogIn } from "lucide-react";
 import { Button } from "../components/ui/button";
 import { Input } from "../components/ui/input";
-import { Sheet, SheetContent, SheetTrigger, SheetTitle, SheetDescription } from "../components/ui/sheet";
+import { Sheet, SheetTrigger } from "../components/ui/sheet";
+import MobileNavPanel from "../components/MobileNavPanel";
 import { useNavigate, useParams } from "react-router";
 import logoImage from "../../logo/logo.png";
 import { supabase, type RecruiterArticle } from "../../lib/supabase";
@@ -466,30 +467,21 @@ export default function BlogDetailPage({ source = "blogs" }: { source?: "blogs" 
                 <Menu className="h-6 w-6 text-[#3A1F1F]" />
               </button>
             </SheetTrigger>
-            <SheetContent side="right" className="w-80 bg-white">
-              <SheetTitle className="sr-only">Navigation Menu</SheetTitle>
-              <SheetDescription className="sr-only">Navigation links</SheetDescription>
-              <div className="flex flex-col gap-4 mt-8">
-                <div className="flex items-center gap-3 mb-4">
-                  <img src={logoImage} alt="RhirePro Logo" className="w-10 h-10" />
-                  <h3 className="text-xl font-bold text-[#3A1F1F]">Rhire<span className="text-[#FF2B2B]">Pro</span></h3>
-                </div>
-                {[
-                  { label: "Home", path: "/" },
-                  { label: "Jobs", path: "/jobs" },
-                  { label: pageLabelPlural, path: listBase },
-                  { label: "Sign In", path: "/signin" },
-                ].map(({ label, path }) => (
-                  <button
-                    key={label}
-                    className="w-full text-left px-4 py-2 rounded-lg hover:bg-[#ECECF4] text-[#3A1F1F]"
-                    onClick={() => { setIsMenuOpen(false); navigate(path); }}
-                  >
-                    {label}
-                  </button>
-                ))}
-              </div>
-            </SheetContent>
+            <MobileNavPanel
+              tagline="Insights and career resources"
+              links={[
+                { label: "Home", icon: Home, onClick: () => { setIsMenuOpen(false); navigate("/"); } },
+                { label: "Jobs", icon: Briefcase, onClick: () => { setIsMenuOpen(false); navigate("/jobs"); } },
+                { label: pageLabelPlural, icon: BookOpen, active: true, onClick: () => { setIsMenuOpen(false); navigate(listBase); } },
+              ]}
+            >
+              <Button
+                className="w-full bg-[#FF2B2B] hover:bg-[#e02525] text-white rounded-full flex items-center justify-center gap-2"
+                onClick={() => { setIsMenuOpen(false); navigate("/signin"); }}
+              >
+                <LogIn className="h-4 w-4" /> Sign In
+              </Button>
+            </MobileNavPanel>
           </Sheet>
         </div>
       </header>
