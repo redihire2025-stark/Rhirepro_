@@ -1,7 +1,9 @@
 import { useState } from "react";
-import { Menu } from "lucide-react";
+import { Menu, Home, Info, Briefcase, Sparkles, Mail } from "lucide-react";
 import { Button } from "./ui/button";
-import { Sheet, SheetContent, SheetTrigger, SheetTitle, SheetDescription } from "./ui/sheet";
+import { Sheet, SheetTrigger } from "./ui/sheet";
+import MobileNavPanel from "./MobileNavPanel";
+import MobileSignInToggle from "./MobileSignInToggle";
 import { useNavigate, useLocation, Link } from "react-router";
 import logoImage from "../../logo/logo.png";
 
@@ -60,60 +62,21 @@ export default function PublicHeader() {
               <Menu className="h-6 w-6 text-[#3A1F1F]" />
             </button>
           </SheetTrigger>
-          <SheetContent side="right" className="w-80 bg-white">
-            <SheetTitle className="sr-only">Navigation Menu</SheetTitle>
-            <SheetDescription className="sr-only">
-              Navigation links and sign in options
-            </SheetDescription>
-            <div className="flex flex-col gap-6 mt-8">
-              <div className="flex items-center gap-3 mb-2">
-                <img src={logoImage} alt="RhirePro Logo" className="w-10 h-10" />
-                <h3 className="text-xl font-bold text-[#3A1F1F]">
-                  Rhire<span className="text-[#FF2B2B]">Pro</span>
-                </h3>
-              </div>
-              <Button
-                className="w-full bg-[#FF2B2B] hover:bg-[#e02525] text-white rounded-full"
-                onClick={() => { setIsMenuOpen(false); navigate("/jobseeker/signin"); }}
-              >
-                Job Seeker Sign In
-              </Button>
-              <Button
-                className="w-full bg-[#3A1F1F] hover:bg-[#2A1010] text-white rounded-full"
-                onClick={() => { setIsMenuOpen(false); navigate("/recruiter/signin"); }}
-              >
-                Recruiter Sign In
-              </Button>
-              <div className="border-t border-gray-200 mt-2 pt-4">
-                <p className="text-sm text-[#8A8A8A] mb-3">Quick Links</p>
-                <div className="space-y-2">
-                  {[
-                    { label: "Home", href: "/" },
-                    { label: "About Us", href: "/#about" },
-                    { label: "Services", href: "/services" },
-                    { label: "Jobs", href: "/jobs" },
-                    { label: "Contact Us", href: "/#contact" },
-                  ].map(({ label, href }) => {
-                    const isActive = label === "Services" && isServicesActive;
-                    return (
-                      <Link
-                        key={label}
-                        to={href}
-                        className={`block px-4 py-2 rounded-lg transition-colors ${
-                          isActive
-                            ? "bg-[#FF2B2B] text-white font-medium"
-                            : "hover:bg-[#ECECF4] text-[#3A1F1F]"
-                        }`}
-                        onClick={() => setIsMenuOpen(false)}
-                      >
-                        {label}
-                      </Link>
-                    );
-                  })}
-                </div>
-              </div>
-            </div>
-          </SheetContent>
+          <MobileNavPanel
+            tagline="Find your next opportunity"
+            links={[
+              { label: "Home", icon: Home, onClick: () => { setIsMenuOpen(false); navigate("/"); } },
+              { label: "About Us", icon: Info, onClick: () => { setIsMenuOpen(false); navigate("/#about"); } },
+              { label: "Services", icon: Sparkles, active: isServicesActive, onClick: () => { setIsMenuOpen(false); navigate("/services"); } },
+              { label: "Jobs", icon: Briefcase, onClick: () => { setIsMenuOpen(false); navigate("/jobs"); } },
+              { label: "Contact Us", icon: Mail, onClick: () => { setIsMenuOpen(false); navigate("/#contact"); } },
+            ]}
+          >
+            <MobileSignInToggle
+              onJobSeeker={() => { setIsMenuOpen(false); navigate("/jobseeker/signin"); }}
+              onRecruiter={() => { setIsMenuOpen(false); navigate("/recruiter/signin"); }}
+            />
+          </MobileNavPanel>
         </Sheet>
       </div>
     </header>
