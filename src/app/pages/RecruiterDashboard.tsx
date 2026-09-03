@@ -20,6 +20,8 @@ import { sanitizePhoneInput } from "../../lib/inputSanitizers";
 import { formatMonthYear } from "../../lib/monthYear";
 import {
   INDIA_CITY_OPTIONS,
+  TOP_HIRING_HUBS,
+  searchLocations,
   getAllCountriesList,
   getStatesList,
   getCitiesList,
@@ -53,6 +55,12 @@ import {
 } from "lucide-react";
 import { DeleteAccountCard } from "../components/DeleteAccountCard";
 import { SupportTicketDialog } from "../components/SupportTicketDialog";
+import RecruiterProfileCompletionGate from "../components/RecruiterProfileCompletionGate";
+import {
+  useRecruiterProfileCompletion,
+  calculateRecruiterCompletion,
+  RECRUITER_MIN_COMPLETION_THRESHOLD,
+} from "../../lib/recruiterProfileCompletion";
 import { toast } from "sonner";
 import { Button } from "../components/ui/button";
 import {
@@ -222,6 +230,8 @@ function LocationAutocomplete({
   onEnter,
   clearOnSelect = false,
   existingLocations = [],
+  showAddButton,
+  onRemoveLocation,
 }: {
   value: string;
   onChange: (value: string) => void;
@@ -232,17 +242,24 @@ function LocationAutocomplete({
   onEnter?: () => void;
   clearOnSelect?: boolean;
   existingLocations?: string[];
+  showAddButton?: boolean;
+  onRemoveLocation?: (loc: string) => void;
 }) {
   const [open, setOpen] = useState(false);
   const [search, setSearch] = useState(value);
+  const [highlightedIndex, setHighlightedIndex] = useState(-1);
   const wrapperRef = useRef<HTMLDivElement>(null);
+  const inputRef = useRef<HTMLInputElement>(null);
 
   useEffect(() => {
     setSearch(value);
   }, [value]);
 
   useEffect(() => {
-    if (!open) return;
+    if (!open) {
+      setHighlightedIndex(-1);
+      return;
+    }
     const handleClickOutside = (event: MouseEvent) => {
       if (!wrapperRef.current?.contains(event.target as Node)) {
         setOpen(false);
@@ -253,21 +270,7 @@ function LocationAutocomplete({
   }, [open]);
 
   const filteredCities = useMemo(() => {
-    const query = search.replace(/,/g, "").trim();
-    const existingLower = existingLocations.map(l => l.toLowerCase().trim());
-    const matches: string[] = [];
-
-    for (let i = 0; i < INDIA_CITY_OPTIONS.length; i++) {
-      const city = INDIA_CITY_OPTIONS[i];
-      const cityLower = city.toLowerCase();
-      if (existingLower.includes(cityLower)) continue;
-
-      if (!query || cityLower.includes(query.toLowerCase()) || fuzzyMatch(query, city)) {
-        matches.push(city);
-        if (matches.length >= 50) break;
-      }
-    }
-    return matches;
+    return searchLocations(search, existingLocations, 45);
   }, [search, existingLocations]);
 
   const selectCity = (city: string, submit = false) => {
@@ -289,6 +292,7 @@ function LocationAutocomplete({
       setSearch(cleaned);
     }
     setOpen(false);
+    setHighlightedIndex(-1);
     if (submit && onEnter) onEnter();
   };
 
@@ -310,72 +314,169 @@ function LocationAutocomplete({
     setOpen(true);
   };
 
+  const shouldShowAdd = showAddButton ?? clearOnSelect;
+  const cleanedSearch = search.replace(/,/g, "").trim();
+  const hasCustomInput =
+    Boolean(cleanedSearch) &&
+    !filteredCities.some(c => c.toLowerCase() === cleanedSearch.toLowerCase()) &&
+    !existingLocations.some(l => l.toLowerCase() === cleanedSearch.toLowerCase());
+
+  const handleKeyDown = (e: React.KeyboardEvent<HTMLInputElement>) => {
+    if (e.key === "ArrowDown") {
+      e.preventDefault();
+      if (!open) {
+        setOpen(true);
+        setHighlightedIndex(0);
+      } else {
+        setHighlightedIndex(prev => (prev < filteredCities.length - 1 ? prev + 1 : prev));
+      }
+      return;
+    }
+    if (e.key === "ArrowUp") {
+      e.preventDefault();
+      setHighlightedIndex(prev => (prev > 0 ? prev - 1 : 0));
+      return;
+    }
+    if (e.key === "Enter") {
+      e.preventDefault();
+      if (highlightedIndex >= 0 && filteredCities[highlightedIndex]) {
+        selectCity(filteredCities[highlightedIndex], true);
+      } else if (cleanedSearch) {
+        const exactOrFirst = filteredCities.find(c => c.toLowerCase() === cleanedSearch.toLowerCase()) || filteredCities[0] || cleanedSearch;
+        selectCity(exactOrFirst, true);
+      }
+      return;
+    }
+    if (e.key === ",") {
+      e.preventDefault();
+      if (cleanedSearch) {
+        selectCity(cleanedSearch);
+      } else {
+        setSearch("");
+      }
+      return;
+    }
+    if (e.key === "Escape") {
+      setOpen(false);
+      setHighlightedIndex(-1);
+    }
+  };
+
   return (
     <div className={`relative ${className}`} ref={wrapperRef}>
-      <div className="relative">
-        <MapPin className={`absolute left-3 top-1/2 h-4 w-4 -translate-y-1/2 transition-colors ${open ? "text-[#FF2B2B]" : "text-[#8A8A8A]"}`} />
-        <Input
-          value={search}
-          required={required}
-          onFocus={() => setOpen(true)}
-          onChange={(e) => handleTextChange(e.target.value)}
-          onKeyDown={(e) => {
-            if (e.key === "Enter") {
-              e.preventDefault();
-              selectCity(filteredCities[0] || search, true);
-            }
-            if (e.key === ",") {
-              e.preventDefault();
-              const firstPart = search.replace(/,/g, "").trim();
-              if (firstPart) {
-                selectCity(firstPart);
-              } else {
-                setSearch("");
+      <div className="flex gap-2">
+        <div className="relative flex-1">
+          <MapPin className={`absolute left-3 top-1/2 h-4 w-4 -translate-y-1/2 transition-colors ${open ? "text-[#FF2B2B]" : "text-[#8A8A8A]"}`} />
+          <Input
+            ref={inputRef}
+            value={search}
+            required={required}
+            onFocus={() => setOpen(true)}
+            onChange={(e) => handleTextChange(e.target.value)}
+            onKeyDown={handleKeyDown}
+            className={`bg-[#F6F6F6] border-gray-200 focus:border-[#FF2B2B] focus:ring-1 focus:ring-[#FF2B2B] focus-visible:ring-[#FF2B2B] focus-visible:border-[#FF2B2B] rounded-xl pl-9 pr-14 text-[#3A1F1F] placeholder:text-[#8A8A8A] h-11 ${inputClassName}`}
+            placeholder={placeholder}
+          />
+          <div className="absolute right-3 top-1/2 -translate-y-1/2 flex items-center gap-1">
+            {search ? (
+              <button
+                type="button"
+                onClick={() => {
+                  setSearch("");
+                  if (!clearOnSelect) onChange("");
+                  inputRef.current?.focus();
+                }}
+                className="text-[#8A8A8A] hover:text-[#FF2B2B] p-0.5 rounded-full transition-colors"
+                title="Clear input"
+              >
+                <X className="h-3.5 w-3.5" />
+              </button>
+            ) : null}
+            <button
+              type="button"
+              onClick={() => setOpen(current => !current)}
+              className={`text-[#8A8A8A] hover:text-[#FF2B2B] p-0.5 transition-transform ${open ? "rotate-180 text-[#FF2B2B]" : ""}`}
+            >
+              <ChevronDown className="h-4 w-4" />
+            </button>
+          </div>
+        </div>
+        {shouldShowAdd && (
+          <Button
+            type="button"
+            onClick={() => {
+              if (cleanedSearch) {
+                const targetCity = filteredCities.find(c => c.toLowerCase() === cleanedSearch.toLowerCase()) || filteredCities[0] || cleanedSearch;
+                selectCity(targetCity, false);
               }
-            }
-            if (e.key === "Escape") setOpen(false);
-          }}
-          className={`bg-[#F6F6F6] border-gray-200 focus:border-[#FF2B2B] focus:ring-1 focus:ring-[#FF2B2B] focus-visible:ring-[#FF2B2B] focus-visible:border-[#FF2B2B] rounded-xl pl-9 pr-10 text-[#3A1F1F] placeholder:text-[#8A8A8A] ${inputClassName}`}
-          placeholder={placeholder}
-        />
-        <button
-          type="button"
-          onClick={() => setOpen(current => !current)}
-          className={`absolute right-3 top-1/2 -translate-y-1/2 transition-all ${open ? "text-[#FF2B2B] rotate-180" : "text-[#8A8A8A] hover:text-[#FF2B2B]"}`}
-        >
-          <ChevronDown className="h-4 w-4" />
-        </button>
+            }}
+            disabled={!cleanedSearch}
+            className="bg-[#FF2B2B] hover:bg-[#e02525] text-white rounded-xl px-4 text-xs font-semibold h-11 shrink-0 flex items-center gap-1.5 transition-all disabled:opacity-40 disabled:cursor-not-allowed shadow-xs"
+          >
+            <Plus className="h-3.5 w-3.5" /> Add
+          </Button>
+        )}
       </div>
+
       {open && (
         <div className="absolute left-0 right-0 top-full z-[80] mt-2 overflow-hidden rounded-xl border border-gray-200 bg-white shadow-xl">
-          <div className="max-h-72 overflow-y-auto p-1">
-            {filteredCities.length === 0 ? (
-              search.replace(/,/g, "").trim() ? (
-                <button
-                  type="button"
-                  onClick={() => selectCity(search)}
-                  className="flex w-full items-center gap-2 rounded-lg px-3 py-2 text-left text-sm text-[#3A1F1F] hover:bg-[#FFF0F0] hover:text-[#FF2B2B] transition-colors"
-                >
-                  <Plus className="h-4 w-4 text-[#FF2B2B]" />
-                  <span>Add "{search.replace(/,/g, "").trim()}"</span>
-                </button>
-              ) : (
-                <div className="px-3 py-2 text-xs text-[#8A8A8A] italic text-center">
-                  All matching cities added
-                </div>
-              )
+          <div className="max-h-72 overflow-y-auto p-1.5 space-y-0.5">
+            {/* Custom Location button if user typed something not matching */}
+            {hasCustomInput && (
+              <button
+                type="button"
+                onClick={() => selectCity(cleanedSearch)}
+                className="flex w-full items-center gap-2 rounded-lg px-3 py-2 text-left text-sm font-medium text-[#FF2B2B] bg-[#FFF0F0] hover:bg-[#FFE5E5] transition-colors mb-1 border border-[#FF2B2B]/20"
+              >
+                <Plus className="h-4 w-4 shrink-0 text-[#FF2B2B]" />
+                <span className="truncate">Add: "<strong>{cleanedSearch}</strong>"</span>
+              </button>
+            )}
+
+            {/* Header label */}
+            <div className="px-3 py-1.5 text-[11px] font-semibold text-[#8A8A8A] uppercase tracking-wider bg-gray-50/80 rounded-md flex items-center justify-between">
+              <span>{cleanedSearch ? `Matching Locations (${filteredCities.length})` : "Popular Hiring Hubs"}</span>
+              <span className="text-[10px] font-normal lowercase text-[#8A8A8A]">
+                {clearOnSelect ? "click to add" : "select location"}
+              </span>
+            </div>
+
+            {filteredCities.length === 0 && !hasCustomInput ? (
+              <div className="px-3 py-4 text-xs text-[#8A8A8A] italic text-center">
+                {cleanedSearch ? "No matching locations found" : "All major hiring hubs already selected"}
+              </div>
             ) : (
-              filteredCities.map((city) => {
-                const selected = value.toLowerCase().trim() === city.toLowerCase().trim() || existingLocations.some(l => l.toLowerCase().trim() === city.toLowerCase().trim());
+              filteredCities.map((city, index) => {
+                const isExisting = existingLocations.some(l => l.toLowerCase().trim() === city.toLowerCase().trim());
+                const isHighlighted = highlightedIndex === index;
                 return (
                   <button
                     key={city}
                     type="button"
-                    onClick={() => selectCity(city)}
-                    className="flex w-full items-center gap-2 rounded-lg px-3 py-2 text-left text-sm text-[#3A1F1F] hover:bg-[#FFF0F0] hover:text-[#FF2B2B] transition-colors"
+                    onClick={() => {
+                      if (isExisting && onRemoveLocation) {
+                        onRemoveLocation(city);
+                      } else {
+                        selectCity(city);
+                      }
+                    }}
+                    className={`flex w-full items-center justify-between rounded-lg px-3 py-2 text-left text-sm transition-colors ${
+                      isHighlighted ? "bg-[#FFF0F0] text-[#FF2B2B]" : "text-[#3A1F1F] hover:bg-[#FFF0F0] hover:text-[#FF2B2B]"
+                    } ${isExisting ? "bg-gray-50/70 text-gray-500" : ""}`}
                   >
-                    <Check className={`h-4 w-4 ${selected ? "text-[#FF2B2B] opacity-100" : "opacity-0"}`} />
-                    <span>{city}</span>
+                    <div className="flex items-center gap-2.5 min-w-0">
+                      <MapPin className={`h-3.5 w-3.5 shrink-0 ${isExisting ? "text-[#FF2B2B]" : "text-gray-400"}`} />
+                      <span className="truncate font-medium">{city}</span>
+                    </div>
+                    {isExisting ? (
+                      <span className="text-xs font-semibold text-[#FF2B2B] bg-[#FF2B2B]/10 px-2 py-0.5 rounded-full flex items-center gap-1 shrink-0">
+                        <Check className="h-3 w-3" /> Added
+                      </span>
+                    ) : (
+                      <span className="text-xs text-gray-400 opacity-0 group-hover:opacity-100 flex items-center gap-0.5">
+                        <Plus className="h-3 w-3" /> Add
+                      </span>
+                    )}
                   </button>
                 );
               })
@@ -1618,18 +1719,14 @@ export default function RecruiterDashboard() {
 
     if (!isRootPath) { setCheckingCompletion(false); return; }
     try {
-      const rp = recruiterProfile;
-      let score = 0;
-      if (rp.recruiter_name) score += 10;
-      if (rp.company_name) score += 15;
-      if (rp.phone) score += 5;
-      if (rp.industry) score += 15;
-      if (rp.company_size) score += 10;
-      if (rp.company_type) score += 5;
-      if ((rp.company_description || "").trim().length > 20) score += 20;
-      if (rp.location) score += 10;
-      if (rp.website) score += 10;
-      if (score < 100) navigate("/recruiter/dashboard/company-profile", { replace: true });
+      const isMember = Boolean(recruiterProfile.org_admin_id) && !isOrgAdmin;
+      // Team members don't manage company profiles, do not redirect them away from dashboard.
+      if (!isMember) {
+        const { score } = calculateRecruiterCompletion(recruiterProfile, null, false);
+        if (score < RECRUITER_MIN_COMPLETION_THRESHOLD) {
+          navigate("/recruiter/dashboard/company-profile", { replace: true });
+        }
+      }
     } catch (err) {
       console.error("Error during recruiter profile completion check:", err);
     } finally {
@@ -2050,20 +2147,10 @@ function DashboardOverview() {
     return recruiterProfile;
   }, [recruiterProfile, isTeamMember, orgCompanyProfile]);
 
-  const recruiterCompletion = useMemo(() => {
-    if (!effectiveProfile) return 0;
-    let score = 0;
-    if (effectiveProfile.recruiter_name) score += 10;
-    if (effectiveProfile.company_name) score += 15;
-    if (effectiveProfile.phone) score += 5;
-    if (effectiveProfile.industry) score += 15;
-    if (effectiveProfile.company_size) score += 10;
-    if (effectiveProfile.company_type) score += 5;
-    if ((effectiveProfile.company_description || "").trim().length > 20) score += 20;
-    if (effectiveProfile.location) score += 10;
-    if (effectiveProfile.website) score += 10;
-    return Math.min(100, score);
-  }, [effectiveProfile]);
+  const completionResult = useMemo(() => {
+    return calculateRecruiterCompletion(recruiterProfile, orgCompanyProfile, isTeamMember);
+  }, [recruiterProfile, orgCompanyProfile, isTeamMember]);
+  const recruiterCompletion = completionResult.score;
 
   useEffect(() => {
     if (!recruiterProfile?.id) return;
@@ -2337,10 +2424,14 @@ function DashboardOverview() {
                 <Building2 className="h-4 w-4 text-orange-500" />
               </div>
               <div>
-                <p className="text-sm font-semibold text-[#3A1F1F]">Complete your company profile</p>
+                <p className="text-sm font-semibold text-[#3A1F1F]">
+                  {recruiterCompletion < 60
+                    ? "Complete your company profile (60% Required to Post)"
+                    : "Complete your company profile"}
+                </p>
                 <p className="text-xs text-[#8A8A8A]">
-                  {recruiterCompletion < 50
-                    ? "A complete profile builds trust with job seekers."
+                  {recruiterCompletion < 60
+                    ? "Reach at least 60% profile completion to unlock posting jobs, articles, and blogs."
                     : "Almost there! Finish your company details to attract better candidates."}
                 </p>
               </div>
@@ -2362,28 +2453,15 @@ function DashboardOverview() {
               style={{ width: `${recruiterCompletion}%` }}
             />
           </div>
-          {(() => {
-            const missing = [
-              { label: "HR Contact Name", done: !!effectiveProfile?.recruiter_name },
-              { label: "Company Name", done: !!effectiveProfile?.company_name },
-              { label: "Phone", done: !!effectiveProfile?.phone },
-              { label: "Industry", done: !!effectiveProfile?.industry },
-              { label: "Company Size", done: !!effectiveProfile?.company_size },
-              { label: "Company Type", done: !!effectiveProfile?.company_type },
-              { label: "Company Bio", done: (effectiveProfile?.company_description || "").trim().length > 20 },
-              { label: "Location", done: !!effectiveProfile?.location },
-              { label: "Website", done: !!effectiveProfile?.website },
-            ].filter(item => !item.done);
-            return missing.length > 0 ? (
-              <div className="mt-2 flex flex-wrap gap-1.5">
-                {missing.map(({ label }) => (
-                  <span key={label} className="px-2 py-0.5 rounded-full text-xs bg-orange-50 text-orange-600 border border-orange-100">
-                    ○ {label}
-                  </span>
-                ))}
-              </div>
-            ) : null;
-          })()}
+          {completionResult.missingItems.length > 0 && (
+            <div className="mt-2 flex flex-wrap gap-1.5">
+              {completionResult.missingItems.map(({ label, key }) => (
+                <span key={key} className="px-2 py-0.5 rounded-full text-xs bg-orange-50 text-orange-600 border border-orange-100">
+                  ○ {label}
+                </span>
+              ))}
+            </div>
+          )}
         </div>
       )}
 
@@ -2600,7 +2678,9 @@ function DashboardOverview() {
 // ─── Post Job Page ────────────────────────────────────────────────────────────
 
 function PostJobPage() {
-  const { recruiterProfile } = useAuth();
+  const { recruiterProfile, isOrgAdmin } = useAuth();
+  const { score: completionScore, isEligible: canPostJob, loading: completionLoading } = useRecruiterProfileCompletion(recruiterProfile, isOrgAdmin);
+  const isTeamMember = Boolean(recruiterProfile?.org_admin_id) && !isOrgAdmin;
   const navigate = useNavigate();
   const [posting, setPosting] = useState(false);
   const [postError, setPostError] = useState("");
@@ -2906,6 +2986,12 @@ function PostJobPage() {
     if (e) e.preventDefault();
     setPostError("");
     if (!recruiterProfile?.id) { setPostError("Please sign in as a recruiter."); return; }
+    if (!canPostJob) {
+      const msg = `Profile completion is currently at ${completionScore}%. A minimum of 60% completion is required to post jobs.`;
+      setPostError(msg);
+      toast.error(msg);
+      return;
+    }
     if (isLimitReached) {
       setPostError(
         activeSub
@@ -2952,7 +3038,12 @@ function PostJobPage() {
       setPostError("Please select at least one industry.");
       return;
     }
-    if (formData.locations.length === 0 && !formData.locationInput.trim()) {
+    const pendingLocation = formData.locationInput.replace(/,/g, "").trim();
+    const effectiveLocations = [...formData.locations];
+    if (pendingLocation && !effectiveLocations.some(l => l.toLowerCase() === pendingLocation.toLowerCase())) {
+      effectiveLocations.push(pendingLocation);
+    }
+    if (effectiveLocations.length === 0) {
       setPostError("Please add at least one job location.");
       return;
     }
@@ -2965,8 +3056,8 @@ function PostJobPage() {
     try {
       const deadline = buildJobExpiryTimestamp();
       const skillsArr = formData.skills.split(",").map(s => s.trim()).filter(Boolean);
-      const resolvedLocation = formData.locations.length > 0 ? formData.locations.join(", ") : formData.locationInput;
-      const resolvedLocations = formData.locations.length > 0 ? formData.locations : (formData.locationInput ? [formData.locationInput.trim()] : []);
+      const resolvedLocation = effectiveLocations.join(", ");
+      const resolvedLocations = effectiveLocations;
       const resolvedIndustry = formData.industries.join(", ");
       const resolvedInterviewMode = formData.interviewModes.length > 0 ? formData.interviewModes.join(", ") : formData.interviewMode;
       const resolvedEducation = formData.specialization ? `${formData.education} - ${formData.specialization}` : formData.education;
@@ -3167,6 +3258,24 @@ function PostJobPage() {
     );
   }
 
+  if (completionLoading) {
+    return (
+      <div className="flex justify-center items-center py-24">
+        <Loader2 className="h-8 w-8 animate-spin text-[#FF2B2B]" />
+      </div>
+    );
+  }
+
+  if (!canPostJob) {
+    return (
+      <RecruiterProfileCompletionGate
+        score={completionScore}
+        isTeamMember={isTeamMember}
+        featureName="post jobs"
+      />
+    );
+  }
+
   return (
     <div className="container mx-auto px-4 py-8 max-w-4xl">
       <h1 className="text-3xl font-bold text-[#3A1F1F] mb-4">Post a New Job</h1>
@@ -3274,6 +3383,16 @@ function PostJobPage() {
           }
           if (isExperienceRangeInvalid) {
             setPostError("Maximum experience must be greater than or equal to minimum experience.");
+            return;
+          }
+          const pendingLoc = formData.locationInput.replace(/,/g, "").trim();
+          let effectiveLocations = [...formData.locations];
+          if (pendingLoc && !effectiveLocations.some(l => l.toLowerCase() === pendingLoc.toLowerCase())) {
+            effectiveLocations.push(pendingLoc);
+            setFormData(prev => ({ ...prev, locations: effectiveLocations, locationInput: "" }));
+          }
+          if (effectiveLocations.length === 0) {
+            setPostError("Please add at least one job location.");
             return;
           }
           setPostError("");
@@ -3402,32 +3521,93 @@ function PostJobPage() {
           {/* Location & Openings */}
           <div className="border-b pb-6">
             <h2 className="text-lg font-semibold text-[#3A1F1F] mb-4">Location & Openings</h2>
-            <div className="grid md:grid-cols-2 gap-4 items-start">
+            <div className="grid md:grid-cols-2 gap-6 items-start">
               <div>
-                <label className="block mb-1.5 text-sm font-medium text-[#3A1F1F]">Job Location(s) *</label>
+                <div className="flex items-center justify-between mb-1.5">
+                  <label className="text-sm font-medium text-[#3A1F1F]">Job Location(s) *</label>
+                  {formData.locations.length > 0 && (
+                    <span className="text-xs text-[#8A8A8A]">
+                      {formData.locations.length} {formData.locations.length === 1 ? "location" : "locations"} added
+                    </span>
+                  )}
+                </div>
                 <LocationAutocomplete
                   value={formData.locationInput}
                   onChange={loc => {
                     if (loc) addLocation(loc);
                   }}
+                  onRemoveLocation={loc => removeLocation(loc)}
                   clearOnSelect={true}
                   existingLocations={formData.locations}
+                  showAddButton={true}
                   placeholder="Search city to add multiple locations"
                 />
+
+                {/* Quick Add Popular Locations */}
+                <div className="mt-2.5 flex items-center flex-wrap gap-1.5">
+                  <span className="text-[11px] font-semibold text-[#8A8A8A] uppercase tracking-wider mr-1">Quick add:</span>
+                  {["Remote", "Bengaluru", "Hyderabad", "Pune", "Mumbai", "Delhi", "Noida", "Gurugram", "Chennai"].map(quickCity => {
+                    const isAdded = formData.locations.some(l => l.toLowerCase() === quickCity.toLowerCase());
+                    return (
+                      <button
+                        key={quickCity}
+                        type="button"
+                        onClick={() => (isAdded ? removeLocation(quickCity) : addLocation(quickCity))}
+                        className={`px-2.5 py-1 rounded-full text-xs font-medium border transition-all flex items-center gap-1 ${
+                          isAdded
+                            ? "bg-[#FF2B2B] text-white border-[#FF2B2B] shadow-xs"
+                            : "bg-white text-[#5A5A5A] border-gray-200 hover:border-[#FF2B2B] hover:text-[#FF2B2B]"
+                        }`}
+                      >
+                        {isAdded ? <Check className="h-3 w-3" /> : <Plus className="h-3 w-3" />}
+                        <span>{quickCity}</span>
+                      </button>
+                    );
+                  })}
+                </div>
+
+                {/* Selected Locations Pills & Clear All */}
                 {formData.locations.length > 0 && (
-                  <div className="flex flex-wrap gap-2 mt-2">
-                    {formData.locations.map(loc => (
-                      <span key={loc} className="flex items-center gap-1.5 bg-[#FF2B2B]/10 text-[#FF2B2B] border border-[#FF2B2B]/20 px-3 py-1.5 rounded-full text-xs font-semibold">
-                        <MapPin className="h-3 w-3" />
-                        {loc}
-                        <button type="button" onClick={() => removeLocation(loc)} className="hover:text-red-800 ml-1">
-                          <XCircle className="h-3.5 w-3.5" />
+                  <div className="mt-3.5 p-3.5 bg-[#FAFAFC] rounded-2xl border border-gray-200/90 shadow-xs">
+                    <div className="flex items-center justify-between mb-2">
+                      <div className="flex items-center gap-2 text-xs font-semibold text-[#3A1F1F]">
+                        <span>Selected Locations</span>
+                        <span className="bg-[#FF2B2B] text-white text-[11px] font-bold px-2 py-0.5 rounded-full leading-none">
+                          {formData.locations.length}
+                        </span>
+                      </div>
+                      {formData.locations.length > 1 && (
+                        <button
+                          type="button"
+                          onClick={() => setFormData(prev => ({ ...prev, locations: [] }))}
+                          className="text-xs text-[#FF2B2B] hover:underline font-medium flex items-center gap-1 transition-colors"
+                        >
+                          <Trash2 className="h-3 w-3" /> Clear all
                         </button>
-                      </span>
-                    ))}
+                      )}
+                    </div>
+                    <div className="flex flex-wrap gap-2">
+                      {formData.locations.map(loc => (
+                        <span
+                          key={loc}
+                          className="inline-flex items-center gap-1.5 bg-white text-[#3A1F1F] border border-[#FF2B2B]/30 px-3 py-1.5 rounded-full text-xs font-semibold shadow-xs hover:border-[#FF2B2B] transition-all"
+                        >
+                          <MapPin className="h-3.5 w-3.5 text-[#FF2B2B] shrink-0" />
+                          <span>{loc}</span>
+                          <button
+                            type="button"
+                            onClick={() => removeLocation(loc)}
+                            className="text-[#8A8A8A] hover:text-[#FF2B2B] hover:bg-red-50 p-0.5 rounded-full transition-colors ml-0.5"
+                            title={`Remove ${loc}`}
+                          >
+                            <X className="h-3.5 w-3.5" />
+                          </button>
+                        </span>
+                      ))}
+                    </div>
                   </div>
                 )}
-                <p className="text-xs text-[#8A8A8A] mt-1.5">Select multiple cities where candidates can be located</p>
+                <p className="text-xs text-[#8A8A8A] mt-2">Add all cities or work modes (e.g. Remote) where candidates can be located</p>
               </div>
               <div>
                 <label className="block mb-1.5 text-sm font-medium text-[#3A1F1F]">Number of Openings</label>
@@ -3437,7 +3617,7 @@ function PostJobPage() {
                   value={formData.openings}
                   onKeyDown={handleOpeningsKeyDown}
                   onChange={e => handleOpeningsChange(e.target.value)}
-                  className="bg-[#F6F6F6] border-gray-200 rounded-xl"
+                  className="bg-[#F6F6F6] border-gray-200 rounded-xl h-11"
                 />
               </div>
             </div>
@@ -3524,6 +3704,19 @@ function PostJobPage() {
               </div>
               <p className="text-xs text-[#8A8A8A] mt-1.5">Select all interview formats allowed for this role</p>
             </div>
+          </div>
+
+          {/* Job Details */}
+          <div className="border-b pb-6">
+            <h2 className="text-lg font-semibold text-[#3A1F1F] mb-4">Job Details *</h2>
+            <UnifiedJobDetailsEditor
+              description={formData.jobDescription}
+              onChangeDescription={val => setFormData(prev => ({ ...prev, jobDescription: val }))}
+              rolesResponsibilities={formData.rolesResponsibilities}
+              onChangeRolesResponsibilities={val => setFormData(prev => ({ ...prev, rolesResponsibilities: val }))}
+              requirements={formData.requirements}
+              onChangeRequirements={val => setFormData(prev => ({ ...prev, requirements: val }))}
+            />
           </div>
 
           {/* Skills */}
@@ -3646,19 +3839,6 @@ function PostJobPage() {
             )}
             <p className="text-xs text-[#8A8A8A] mt-1">Mark at least 3 skills as mandatory; they will be treated as hiring blockers for checklist alignment.</p>
             <input type="hidden" value={formData.skills} required />
-          </div>
-
-          {/* Job Details */}
-          <div className="border-b pb-6">
-            <h2 className="text-lg font-semibold text-[#3A1F1F] mb-4">Job Details *</h2>
-            <UnifiedJobDetailsEditor
-              description={formData.jobDescription}
-              onChangeDescription={val => setFormData(prev => ({ ...prev, jobDescription: val }))}
-              rolesResponsibilities={formData.rolesResponsibilities}
-              onChangeRolesResponsibilities={val => setFormData(prev => ({ ...prev, rolesResponsibilities: val }))}
-              requirements={formData.requirements}
-              onChangeRequirements={val => setFormData(prev => ({ ...prev, requirements: val }))}
-            />
           </div>
 
           {/* Perks */}
@@ -4567,7 +4747,18 @@ function ManageJobsPage() {
 
             {/* Multi-Location */}
             <div>
-              <label className="block text-sm font-medium text-[#3A1F1F] mb-1">Job Location(s)</label>
+              <div className="flex items-center justify-between mb-1">
+                <label className="block text-sm font-medium text-[#3A1F1F]">Job Location(s)</label>
+                {editForm.locations.length > 1 && (
+                  <button
+                    type="button"
+                    onClick={() => setEditForm(f => ({ ...f, locations: [] }))}
+                    className="text-xs text-[#FF2B2B] hover:underline font-medium flex items-center gap-1"
+                  >
+                    <Trash2 className="h-3 w-3" /> Clear all
+                  </button>
+                )}
+              </div>
               <LocationAutocomplete
                 value={editForm.locationInput}
                 onChange={loc => {
@@ -4578,18 +4769,20 @@ function ManageJobsPage() {
                     }
                   }
                 }}
+                onRemoveLocation={loc => setEditForm(f => ({ ...f, locations: f.locations.filter(l => l !== loc) }))}
                 clearOnSelect={true}
                 existingLocations={editForm.locations}
+                showAddButton={true}
                 placeholder="Search city to add"
               />
               {editForm.locations.length > 0 && (
-                <div className="flex flex-wrap gap-1.5 mt-1.5">
+                <div className="flex flex-wrap gap-1.5 mt-2">
                   {editForm.locations.map(loc => (
-                    <span key={loc} className="flex items-center gap-1 bg-[#FF2B2B]/10 text-[#FF2B2B] border border-[#FF2B2B]/20 px-2.5 py-1 rounded-full text-xs font-medium">
-                      <MapPin className="h-3 w-3" />
+                    <span key={loc} className="inline-flex items-center gap-1.5 bg-white text-[#3A1F1F] border border-[#FF2B2B]/30 px-2.5 py-1 rounded-full text-xs font-medium shadow-xs">
+                      <MapPin className="h-3 w-3 text-[#FF2B2B]" />
                       {loc}
-                      <button type="button" onClick={() => setEditForm(f => ({ ...f, locations: f.locations.filter(l => l !== loc) }))} className="hover:text-red-800 ml-1">
-                        <XCircle className="h-3.5 w-3.5" />
+                      <button type="button" onClick={() => setEditForm(f => ({ ...f, locations: f.locations.filter(l => l !== loc) }))} className="text-[#8A8A8A] hover:text-[#FF2B2B] ml-0.5" title={`Remove ${loc}`}>
+                        <X className="h-3 w-3" />
                       </button>
                     </span>
                   ))}
@@ -5389,6 +5582,7 @@ function SearchCandidatesPage() {
   // ── Search state ──────────────────────────────────────────
   const [keywords, setKeywords] = useState("");
   const [location, setLocation] = useState("");
+  const [locations, setLocations] = useState<string[]>([]);
   const [keywordSearchEnabled, setKeywordSearchEnabled] = useState(true);
   const [booleanSearchEnabled, setBooleanSearchEnabled] = useState(false);
   const [highlightedIndex, setHighlightedIndex] = useState(-1);
@@ -5880,8 +6074,26 @@ function SearchCandidatesPage() {
     return score;
   };
 
-  // ── Main search ───────────────────────────────────────────
-  const handleSearch = async (overrideKeywords?: any) => {
+  const handleSearch = async (overrideKeywords?: any, overrideFilters?: {
+    expMin?: string;
+    expMax?: string;
+    curSalMin?: string;
+    curSalMax?: string;
+    expSalMax?: string;
+    noticePeriod?: string;
+    education?: string;
+    industry?: string;
+    currentCompany?: string;
+    expType?: string;
+    activeIn?: string;
+    locations?: string[];
+    location?: string;
+    selectedCountry?: string;
+    selectedState?: string;
+    selectedCity?: string;
+    locationRadius?: string;
+    skillTags?: string[];
+  }) => {
     if (booleanSearchError) {
       setSearched(false);
       setResults([]);
@@ -5891,7 +6103,41 @@ function SearchCandidatesPage() {
     }
     const activeKeywords = typeof overrideKeywords === "string" ? overrideKeywords : keywords;
     const trimmedKw = activeKeywords.trim();
-    const hasSearchCriteria = Boolean(trimmedKw);
+
+    const fLocations = overrideFilters?.locations !== undefined ? overrideFilters.locations : locations;
+    const fLocation = overrideFilters?.location !== undefined ? overrideFilters.location : location;
+    const fCurrentCompany = overrideFilters?.currentCompany !== undefined ? overrideFilters.currentCompany : currentCompany;
+    const fSkillTags = overrideFilters?.skillTags !== undefined ? overrideFilters.skillTags : skillTags;
+    const fExpMin = overrideFilters?.expMin !== undefined ? overrideFilters.expMin : expMin;
+    const fExpMax = overrideFilters?.expMax !== undefined ? overrideFilters.expMax : expMax;
+    const fCurSalMin = overrideFilters?.curSalMin !== undefined ? overrideFilters.curSalMin : curSalMin;
+    const fCurSalMax = overrideFilters?.curSalMax !== undefined ? overrideFilters.curSalMax : curSalMax;
+    const fExpSalMax = overrideFilters?.expSalMax !== undefined ? overrideFilters.expSalMax : expSalMax;
+    const fNoticePeriod = overrideFilters?.noticePeriod !== undefined ? overrideFilters.noticePeriod : noticePeriod;
+    const fEducation = overrideFilters?.education !== undefined ? overrideFilters.education : education;
+    const fIndustry = overrideFilters?.industry !== undefined ? overrideFilters.industry : industry;
+    const fExpType = overrideFilters?.expType !== undefined ? overrideFilters.expType : expType;
+    const fActiveIn = overrideFilters?.activeIn !== undefined ? overrideFilters.activeIn : activeIn;
+    const fSelectedCountry = overrideFilters?.selectedCountry !== undefined ? overrideFilters.selectedCountry : selectedCountry;
+    const fSelectedState = overrideFilters?.selectedState !== undefined ? overrideFilters.selectedState : selectedState;
+    const fSelectedCity = overrideFilters?.selectedCity !== undefined ? overrideFilters.selectedCity : selectedCity;
+    const fLocationRadius = overrideFilters?.locationRadius !== undefined ? overrideFilters.locationRadius : locationRadius;
+
+    const effectiveLocations = [...fLocations];
+    if (fLocation.trim() && !effectiveLocations.some(l => l.toLowerCase() === fLocation.trim().toLowerCase())) {
+      effectiveLocations.push(fLocation.trim());
+    }
+    const hasSearchCriteria = Boolean(
+      trimmedKw ||
+      effectiveLocations.length > 0 ||
+      fCurrentCompany.trim() ||
+      fSkillTags.length > 0 ||
+      fExpMin ||
+      fExpMax ||
+      fCurSalMin ||
+      fCurSalMax ||
+      fExpSalMax
+    );
 
     if (!hasSearchCriteria) {
       setSearching(false);
@@ -5905,12 +6151,6 @@ function SearchCandidatesPage() {
     setSearched(true);
     setSkillSuggestionsOpen(false);
 
-    // Track and store keywords used. This used to fall back to writing into
-    // localStorage on failure, but nothing ever read that back except the
-    // same browser/device — an org admin reviewing this from their own
-    // session could never see it, so it just masked real failures (a
-    // missing GRANT on recruiter_search_keywords, since fixed) as silent
-    // per-device data loss instead of a visible one.
     if (activeKeywords.trim() && recruiterProfile?.id) {
       const BOOLEAN_OPERATORS = new Set(["and", "or", "not"]);
       const tokens = activeKeywords.trim().toLowerCase().split(/\s+/)
@@ -5929,18 +6169,16 @@ function SearchCandidatesPage() {
 
       try {
         const apiUrl = getSearchApiUrl();
-        // No reachable search service — go straight to the Supabase fallback
-        // rather than making a request the browser will block.
         if (!apiUrl) throw new Error("search service not configured");
         const esUrl = `${apiUrl}/candidates/search?q=${encodeURIComponent(activeKeywords)}` +
           `&boolean_mode=${booleanSearchEnabled}` +
           `&fuzzy=true` +
-          `&location=${encodeURIComponent(location)}` +
-          `&current_company=${encodeURIComponent(currentCompany)}` +
-          `&skills=${encodeURIComponent(skillTags.join(","))}` +
-          `&experience_type=${encodeURIComponent(expType)}` +
-          `&experience_min=${encodeURIComponent(expMin)}` +
-          `&experience_max=${encodeURIComponent(expMax)}`;
+          `&location=${encodeURIComponent(effectiveLocations.join(","))}` +
+          `&current_company=${encodeURIComponent(fCurrentCompany)}` +
+          `&skills=${encodeURIComponent(fSkillTags.join(","))}` +
+          `&experience_type=${encodeURIComponent(fExpType)}` +
+          `&experience_min=${encodeURIComponent(fExpMin)}` +
+          `&experience_max=${encodeURIComponent(fExpMax)}`;
         const esRes = await fetch(esUrl);
         if (esRes.ok) {
           const data = await esRes.json();
@@ -5956,19 +6194,18 @@ function SearchCandidatesPage() {
               `)
               .in("id", matchedIds);
 
-            if (hydratedData && hydratedData.length > 0) {
-              const idToCandidateMap = new Map(hydratedData.map((c: any) => [c.id, c]));
-              raw = matchedIds
-                .map((id: string) => idToCandidateMap.get(id))
-                .filter(Boolean) as DBCandidate[];
-              if (raw.length > 0) {
-                esSuccess = true;
-              }
+            if (hydratedData) {
+              const idToCandidate = new Map((hydratedData as unknown as DBCandidate[]).map(c => [c.id, c]));
+              raw = matchedIds.map((id: string) => idToCandidate.get(id)).filter(Boolean) as DBCandidate[];
+              esSuccess = true;
             }
+          } else {
+            raw = [];
+            esSuccess = true;
           }
         }
       } catch (err) {
-        console.error("Elasticsearch candidate query failed, falling back to local database search:", err);
+        console.warn("Elasticsearch search failed, falling back to Supabase:", err);
       }
 
       if (!esSuccess) {
@@ -5981,18 +6218,12 @@ function SearchCandidatesPage() {
           `);
 
         if (activeKeywords.trim()) {
-          const { tokens: rawTokens, isOr: rawIsOr } = parseSearchTokens(activeKeywords);
-          const searchTokens = rawTokens.length > 0 ? rawTokens : [activeKeywords.trim()];
-          const isOrQuery = booleanSearchEnabled ? rawIsOr : true;
+          const { tokens: searchTokens, isOr: isOrQuery } = parseSearchTokens(activeKeywords.toLowerCase());
 
           const buildClausesForTerm = (term: string) => {
             const list = [
-              `first_name.ilike.%${term}%`,
-              `last_name.ilike.%${term}%`,
-              `email.ilike.%${term}%`,
               `headline.ilike.%${term}%`,
               `current_title.ilike.%${term}%`,
-              `current_company.ilike.%${term}%`,
               `about.ilike.%${term}%`,
             ];
             const cleanDigits = term.replace(/[\s\-\+\(\)]/g, "");
@@ -6007,13 +6238,9 @@ function SearchCandidatesPage() {
           };
 
           if (isOrQuery) {
-            // OR mode: combine all token clauses
             const clauses = searchTokens.flatMap(buildClausesForTerm);
-            if (clauses.length > 0) {
-              q = q.or(clauses.join(","));
-            }
+            if (clauses.length > 0) q = q.or(clauses.join(","));
           } else {
-            // AND mode: each token must match at least one field
             searchTokens.forEach(token => {
               const clauses = buildClausesForTerm(token);
               q = q.or(clauses.join(","));
@@ -6021,22 +6248,26 @@ function SearchCandidatesPage() {
           }
         }
 
-        // Dedicated Location Filter with city variations (e.g., Bangalore <-> Bengaluru, Gurgaon <-> Gurugram)
-        if (location.trim()) {
-          const locLower = location.trim().toLowerCase();
-          const locVars = [locLower];
-          if (locLower === "bangalore") locVars.push("bengaluru");
-          if (locLower === "bengaluru") locVars.push("bangalore");
-          if (locLower === "gurgaon") locVars.push("gurugram");
-          if (locLower === "gurugram") locVars.push("gurgaon");
-          if (locLower === "mumbai") locVars.push("bombay");
-          if (locLower === "delhi") locVars.push("ncr");
+        if (effectiveLocations.length > 0) {
+          const locClauses: string[] = [];
+          for (const locItem of effectiveLocations) {
+            const locLower = locItem.trim().toLowerCase();
+            const locVars = [locLower];
+            if (locLower === "bangalore") locVars.push("bengaluru");
+            if (locLower === "bengaluru") locVars.push("bangalore");
+            if (locLower === "gurgaon") locVars.push("gurugram");
+            if (locLower === "gurugram") locVars.push("gurgaon");
+            if (locLower === "mumbai") locVars.push("bombay");
+            if (locLower === "delhi") locVars.push("ncr");
 
-          const locClauses = locVars.map(v => `location.ilike.%${v}%`);
-          q = q.or(locClauses.join(","));
+            locVars.forEach(v => locClauses.push(`location.ilike.%${v}%`));
+          }
+          if (locClauses.length > 0) {
+            q = q.or(locClauses.join(","));
+          }
         }
 
-        if (currentCompany.trim()) q = q.ilike("current_company", `%${currentCompany.trim()}%`);
+        if (fCurrentCompany.trim()) q = q.ilike("current_company", `%${fCurrentCompany.trim()}%`);
         const { data } = await q.limit(200);
         raw = (data as unknown as DBCandidate[]) || [];
 
@@ -6067,8 +6298,11 @@ function SearchCandidatesPage() {
               work_experience(id, company, title, start_date, end_date, description, is_current),
               education(id, institution, degree, field, start_month, start_year, end_month, end_year)
             `);
-          if (location.trim()) broadSkillQuery = broadSkillQuery.ilike("location", `%${location.trim()}%`);
-          if (currentCompany.trim()) broadSkillQuery = broadSkillQuery.ilike("current_company", `%${currentCompany.trim()}%`);
+          if (effectiveLocations.length > 0) {
+            const locOr = effectiveLocations.map(l => `location.ilike.%${l.trim()}%`).join(",");
+            broadSkillQuery = broadSkillQuery.or(locOr);
+          }
+          if (fCurrentCompany.trim()) broadSkillQuery = broadSkillQuery.ilike("current_company", `%${fCurrentCompany.trim()}%`);
 
           const { data: broadSkillCandidates } = await broadSkillQuery.limit(1000);
           if (broadSkillCandidates) {
@@ -6086,130 +6320,92 @@ function SearchCandidatesPage() {
               }
             });
           }
+        }
+      }
 
-          const { tokens: filterTokens, isOr: rawIsOrFilter, notTokens } = parseSearchTokens(activeKeywords);
-          const isOrFilter = booleanSearchEnabled ? rawIsOrFilter : false;
+      if (activeKeywords.trim()) {
+        const { tokens: filterTokens, isOr, notTokens } = parseSearchTokens(activeKeywords.toLowerCase());
 
+        if (filterTokens.length > 0 || notTokens.length > 0) {
           raw = raw.filter(candidate => {
-            const decryptedPhone = candidate.phone ? decryptPhone(candidate.phone) : "";
-            const cleanCandidateDigits = decryptedPhone.replace(/\D/g, "");
-            const searchableText = [
-              candidate.first_name,
-              candidate.last_name,
-              candidate.email,
-              candidate.phone,
-              decryptedPhone,
-              cleanCandidateDigits,
-              candidate.headline,
-              candidate.current_title,
-              candidate.current_company,
-              candidate.about,
-            ].filter(Boolean).join(" ").toLowerCase();
-
             const matchToken = (token: string) => {
               const t = token.toLowerCase().trim();
               if (!t) return false;
+              const cSkills = (candidate.skills || []).map(s => s.toLowerCase());
+              if (cSkills.some(s => skillsMatch(s, t) || fuzzyMatch(t, s))) return true;
+              const fullText = [
+                candidate.headline,
+                candidate.current_title,
+                candidate.current_company,
+                candidate.about,
+                ...(candidate.skills || []),
+                ...(candidate.work_experience || []).map(we => `${we.company} ${we.title} ${we.description}`),
+              ].filter(Boolean).join(" ").toLowerCase();
 
-              // 1. Direct text inclusion
-              if (searchableText.includes(t)) return true;
-
-              // 1b. Email match (exact or substring)
-              if (candidate.email && candidate.email.toLowerCase().includes(t)) return true;
-
-              // 1c. Phone number match
-              const cleanTokenDigits = t.replace(/[\s\-\+\(\)]/g, "");
-              if (cleanTokenDigits.length >= 3) {
-                if (cleanCandidateDigits.includes(cleanTokenDigits)) return true;
-                if (decryptedPhone.includes(cleanTokenDigits)) return true;
-                if (candidate.phone && candidate.phone.includes(cleanTokenDigits)) return true;
-              }
-
-              // 2. Skill matches (exact, keyword expanded if enabled, or fuzzy)
-              if ((candidate.skills || []).some(skill =>
-                (keywordSearchEnabled && skillsMatch(skill, t)) ||
-                skill.toLowerCase().includes(t) ||
-                fuzzyMatch(t, skill)
-              )) return true;
-
-              // 3. Work experience title/description match
+              const escaped = t.replace(/[.*+?^${}()|[\]\\]/g, "\\$&");
+              const boundaryRegex = new RegExp(`\\b${escaped}\\b`, "i");
+              if (boundaryRegex.test(fullText)) return true;
               if ((candidate.work_experience || []).some(we =>
                 (we.title && (we.title.toLowerCase().includes(t) || fuzzyMatch(t, we.title))) ||
                 (we.description && we.description.toLowerCase().includes(t))
               )) return true;
-
-              // 4. Fuzzy text match for current title / headline / company
               if (candidate.current_title && fuzzyMatch(t, candidate.current_title)) return true;
               if (candidate.headline && fuzzyMatch(t, candidate.headline)) return true;
-
               return false;
             };
 
-            // If Boolean Search is ON and NOT tokens exist, exclude candidates matching any NOT token
             if (booleanSearchEnabled && notTokens.length > 0) {
               if (notTokens.some(nt => matchToken(nt))) return false;
             }
-
             if (filterTokens.length === 0) return true;
-            // Strict ALL-skills matching: candidate MUST possess ALL requested skills (e.g. both Python AND React)
             return filterTokens.every(t => matchToken(t));
           });
         }
       }
 
-      // Experience type (client-side so null values aren't excluded)
-      if (expType) {
+      if (fExpType) {
         raw = raw.filter(c => {
           const yrs = parseExp(c);
-          if (expType === "fresher") {
-            return yrs <= 1;
-          } else {
-            return yrs > 1 || c.experience_type === "experienced";
-          }
+          if (fExpType === "fresher") return yrs <= 1;
+          else return yrs > 1 || c.experience_type === "experienced";
         });
       }
-      // Experience years
       raw = raw.filter(c => {
         const exp = parseExp(c);
-        if (expMin && exp < parseInt(expMin)) return false;
-        if (expMax && exp > parseInt(expMax)) return false;
+        if (fExpMin && exp < parseInt(fExpMin)) return false;
+        if (fExpMax && fExpMax !== "99" && exp > parseInt(fExpMax)) return false;
         return true;
       });
-      // Current salary
       raw = raw.filter(c => {
         const sal = parseSal(c.current_salary);
-        if (curSalMin && sal < parseFloat(curSalMin)) return false;
-        if (curSalMax && sal > parseFloat(curSalMax)) return false;
+        if (fCurSalMin && sal < parseFloat(fCurSalMin)) return false;
+        if (fCurSalMax && sal > parseFloat(fCurSalMax)) return false;
         return true;
       });
-      // Expected salary
       raw = raw.filter(c => {
-        if (!expSalMax) return true;
-        return parseSal(c.expected_salary) <= parseFloat(expSalMax);
+        if (!fExpSalMax) return true;
+        return parseSal(c.expected_salary) <= parseFloat(fExpSalMax);
       });
-      // Notice period — convert notice period to days for comparison
       raw = raw.filter(c => {
-        if (!noticePeriod) return true;
+        if (!fNoticePeriod) return true;
         const np = parseNotice(c.notice_period);
-        if (noticePeriod === "immediate") return np === 0;
-        return np <= parseInt(noticePeriod);
+        if (fNoticePeriod === "immediate") return np === 0;
+        return np <= parseInt(fNoticePeriod);
       });
-      // Education
       raw = raw.filter(c => {
-        if (!education) return true;
+        if (!fEducation) return true;
         const eduList = (c.education || []) as EduType[];
         return eduList.some(e =>
-          `${e.degree} ${e.field}`.toLowerCase().includes(education.toLowerCase())
+          `${e.degree} ${e.field}`.toLowerCase().includes(fEducation.toLowerCase())
         );
       });
-      // Skill tags (all must match)
       raw = raw.filter(c => {
-        if (skillTags.length === 0) return true;
+        if (fSkillTags.length === 0) return true;
         const cSkills = c.skills || [];
-        return skillTags.every(tag => cSkills.some(s => skillsMatch(s, tag)));
+        return fSkillTags.every(tag => cSkills.some(s => skillsMatch(s, tag)));
       });
-      // Active In filter
-      if (activeIn && activeIn !== "any") {
-        const maxActiveDays = getActiveInDays(activeIn);
+      if (fActiveIn && fActiveIn !== "any") {
+        const maxActiveDays = getActiveInDays(fActiveIn);
         if (maxActiveDays !== null) {
           const activeCutoff = Date.now() - maxActiveDays * 24 * 60 * 60 * 1000;
           raw = raw.filter(c => {
@@ -6219,84 +6415,57 @@ function SearchCandidatesPage() {
           });
         }
       }
-
-      // Multi-level location filter (Country, State, City)
-      if (selectedCountry || selectedState || selectedCity) {
-        const countryObj = countriesList.find(cnt => cnt.isoCode === selectedCountry);
-        const stateObj = statesList.find(st => st.isoCode === selectedState);
-        const countryName = countryObj ? countryObj.name : selectedCountry;
-        const stateName = stateObj ? stateObj.name : selectedState;
+      if (fSelectedCountry || fSelectedState || fSelectedCity) {
+        const countryObj = countriesList.find(cnt => cnt.isoCode === fSelectedCountry);
+        const stateObj = statesList.find(st => st.isoCode === fSelectedState);
+        const countryName = countryObj ? countryObj.name : fSelectedCountry;
+        const stateName = stateObj ? stateObj.name : fSelectedState;
         raw = raw.filter(c => {
           const locs = [
             c.location,
-            ...(Array.isArray((c as any).preferred_location)
-              ? (c as any).preferred_location
-              : typeof (c as any).preferred_location === "string"
-              ? (c as any).preferred_location.split(",").map((s: string) => s.trim())
-              : [(c as any).preferred_location])
+            ...(Array.isArray((c as any).preferred_location) ? (c as any).preferred_location : typeof (c as any).preferred_location === "string" ? (c as any).preferred_location.split(",").map((s: string) => s.trim()) : [(c as any).preferred_location])
           ].filter(Boolean) as string[];
-          return matchesMultiLevelLocation(locs, { country: countryName, state: stateName, city: selectedCity });
+          return matchesMultiLevelLocation(locs, { country: countryName, state: stateName, city: fSelectedCity });
         });
       }
-
-      // Radius-based location filter
-      if (locationRadius && (location.trim() || selectedCity || selectedState)) {
-        const targetCenter = selectedCity || location.trim() || selectedState;
-        const radiusNum = parseFloat(locationRadius);
+      if (fLocationRadius && (effectiveLocations.length > 0 || fSelectedCity || fSelectedState)) {
+        const targetCenter = fSelectedCity || effectiveLocations[0] || fSelectedState;
+        const radiusNum = parseFloat(fLocationRadius);
         if (targetCenter && !isNaN(radiusNum)) {
           raw = raw.filter(c => {
             const locs = [
               c.location,
-              ...(Array.isArray((c as any).preferred_location)
-                ? (c as any).preferred_location
-                : typeof (c as any).preferred_location === "string"
-                ? (c as any).preferred_location.split(",").map((s: string) => s.trim())
-                : [(c as any).preferred_location])
+              ...(Array.isArray((c as any).preferred_location) ? (c as any).preferred_location : typeof (c as any).preferred_location === "string" ? (c as any).preferred_location.split(",").map((s: string) => s.trim()) : [(c as any).preferred_location])
             ].filter(Boolean) as string[];
             return isLocationWithinRadius(locs, targetCenter, radiusNum);
           });
         }
       }
-
-      // Industry filter (IT / Non-IT)
       raw = raw.filter(c => {
-        if (!industry) return true;
-        const indLower = industry.toLowerCase();
+        if (!fIndustry) return true;
+        const indLower = fIndustry.toLowerCase();
         const cText = [
           c.headline,
           c.current_title,
-          c.about,
           ...(c.skills || []),
-          ...(c.work_experience || []).flatMap(w => [w.title, w.company, w.description])
+          ...(c.work_experience || []).map(w => `${w.title} ${w.description}`),
         ].filter(Boolean).join(" ").toLowerCase();
-
         const itKeywords = [
           "software", "developer", "engineer", "react", "node", "python", "java", "javascript",
           "typescript", "tech", "technology", "it", "code", "frontend", "backend", "fullstack",
           "cloud", "aws", "devops", "data", "ai", "ml", "system", "web", "mobile", "qa", "tester"
         ];
-
         const isItCandidate = itKeywords.some(kw => cText.includes(kw));
         if (indLower === "it") return isItCandidate;
         if (indLower === "non-it" || indLower === "no-it") return !isItCandidate;
         return cText.includes(indLower);
       });
 
-      // Sort
       if (sortBy === "exp_desc") raw.sort((a, b) => parseExp(b) - parseExp(a));
       else if (sortBy === "exp_asc") raw.sort((a, b) => parseExp(a) - parseExp(b));
       else if (sortBy === "salary_asc") raw.sort((a, b) => parseSal(a.expected_salary) - parseSal(b.expected_salary));
       else if (sortBy === "recent") raw.sort((a, b) => new Date(b.created_at).getTime() - new Date(a.created_at).getTime());
       else raw.sort((a, b) => computeCandidateRelevanceScore(b, activeKeywords) - computeCandidateRelevanceScore(a, activeKeywords));
-
-      if (raw.length > 0) {
-        const candidateIds = raw.map(c => c.id).filter(Boolean);
-        if (candidateIds.length > 0) {
-          void supabase.rpc("increment_recruiter_searches", { target_profile_ids: candidateIds }).then(({ error }) => {
-            if (error) console.warn("Failed to increment recruiter searches (migration might not be run):", error.message);
-          });
-        }
-      }
 
       setSearchPage(1);
       setResults(raw);
@@ -6305,7 +6474,6 @@ function SearchCandidatesPage() {
     }
   };
 
-  // Dynamically update candidate search results on mount and when filters/keywords change
   useEffect(() => {
     if (booleanSearchError) {
       setSearched(false);
@@ -6313,13 +6481,13 @@ function SearchCandidatesPage() {
       setSearching(false);
       return;
     }
-
     const timer = setTimeout(() => {
       handleSearch(keywords);
     }, 250);
     return () => clearTimeout(timer);
   }, [
     location,
+    locations,
     currentCompany,
     skillTags,
     expMin,
@@ -6342,14 +6510,50 @@ function SearchCandidatesPage() {
   ]);
 
   const clearAllFilters = () => {
-    setExpMin(""); setExpMax(""); setCurSalMin(""); setCurSalMax("");
-    setExpSalMax(""); setNoticePeriod(""); setEducation("");
-    setIndustry(""); setCurrentCompany(""); setExpType(""); setActiveIn("any"); setSkillTags([]);
-    setSelectedCountry(""); setSelectedState(""); setSelectedCity(""); setLocationRadius("");
+    setExpMin("");
+    setExpMax("");
+    setCurSalMin("");
+    setCurSalMax("");
+    setExpSalMax("");
+    setNoticePeriod("");
+    setEducation("");
+    setIndustry("");
+    setCurrentCompany("");
+    setExpType("");
+    setActiveIn("any");
+    setSkillTags([]);
+    setSkillInput("");
+    setLocations([]);
+    setLocation("");
+    setSelectedCountry("");
+    setSelectedState("");
+    setSelectedCity("");
+    setLocationRadius("");
     setSearchPage(1);
     if (!keywords.trim()) {
       setSearched(false);
       setResults([]);
+    } else {
+      handleSearch(keywords.trim(), {
+        expMin: "",
+        expMax: "",
+        curSalMin: "",
+        curSalMax: "",
+        expSalMax: "",
+        noticePeriod: "",
+        education: "",
+        industry: "",
+        currentCompany: "",
+        expType: "",
+        activeIn: "any",
+        locations: [],
+        location: "",
+        selectedCountry: "",
+        selectedState: "",
+        selectedCity: "",
+        locationRadius: "",
+        skillTags: [],
+      });
     }
   };
 
@@ -6373,11 +6577,20 @@ function SearchCandidatesPage() {
     window.scrollTo({ top: 0, behavior: "smooth" });
   }, [searchPage]);
 
-  const activeFilterCount = [
-    expMin, expMax, curSalMin, curSalMax, expSalMax, noticePeriod, education, industry, currentCompany, expType,
-    activeIn && activeIn !== "any" ? "activeIn" : "",
-    selectedCountry, selectedState, selectedCity, locationRadius
-  ].filter(Boolean).length + skillTags.length;
+  // Count active filters by distinct category so 1-3 yrs counts as 1 filter
+  const activeFilterCount = (
+    (expMin || expMax || expType ? 1 : 0) +
+    (curSalMin || curSalMax ? 1 : 0) +
+    (expSalMax ? 1 : 0) +
+    (noticePeriod ? 1 : 0) +
+    (education ? 1 : 0) +
+    (industry ? 1 : 0) +
+    (currentCompany ? 1 : 0) +
+    (activeIn && activeIn !== "any" ? 1 : 0) +
+    (selectedCountry || selectedState || selectedCity || locationRadius ? 1 : 0) +
+    skillTags.length +
+    locations.length
+  );
 
   // ── Render ────────────────────────────────────────────────
   return (
@@ -6526,26 +6739,88 @@ function SearchCandidatesPage() {
           </div>
           <LocationAutocomplete
             value={location}
-            onChange={setLocation}
-            onEnter={handleSearch}
-            placeholder="Location"
-            className="min-w-[160px]"
+            onChange={loc => {
+              if (loc) {
+                const cleaned = loc.replace(/,/g, "").trim();
+                if (cleaned && !locations.some(l => l.toLowerCase() === cleaned.toLowerCase())) {
+                  setLocations(prev => [...prev, cleaned]);
+                  setLocation("");
+                }
+              }
+            }}
+            onRemoveLocation={loc => setLocations(prev => prev.filter(l => l !== loc))}
+            clearOnSelect={true}
+            existingLocations={locations}
+            onEnter={() => handleSearch()}
+            placeholder="Add location(s)"
+            className="min-w-[170px]"
+            showAddButton={true}
           />
           <Button onClick={handleSearch} disabled={searching || !!booleanSearchError} className="bg-[#FF2B2B] hover:bg-[#e02525] text-white rounded-xl px-6 disabled:opacity-50">
             <Search className="h-4 w-4 mr-2" /> {searching ? "Searching..." : "Search"}
           </Button>
         </div>
 
+        {/* Selected Locations Chips for Candidate Search */}
+        {locations.length > 0 && (
+          <div className="flex flex-wrap items-center gap-1.5 mt-2.5">
+            <span className="text-xs text-[#8A8A8A] font-medium mr-1">Locations ({locations.length}):</span>
+            {locations.map(loc => (
+              <span
+                key={loc}
+                className="inline-flex items-center gap-1 bg-[#FFF0F0] text-[#3A1F1F] border border-[#FF2B2B]/30 px-2.5 py-1 rounded-full text-xs font-medium shadow-2xs"
+              >
+                <MapPin className="h-3 w-3 text-[#FF2B2B]" />
+                <span>{loc}</span>
+                <button
+                  type="button"
+                  onClick={() => setLocations(prev => prev.filter(l => l !== loc))}
+                  className="text-[#8A8A8A] hover:text-[#FF2B2B] ml-0.5 p-0.5 rounded-full"
+                  title={`Remove ${loc}`}
+                >
+                  <X className="h-3 w-3" />
+                </button>
+              </span>
+            ))}
+            {locations.length > 1 && (
+              <button
+                type="button"
+                onClick={() => setLocations([])}
+                className="text-xs text-[#FF2B2B] hover:underline font-medium ml-1"
+              >
+                Clear all
+              </button>
+            )}
+          </div>
+        )}
+
         {/* Quick experience chips */}
         <div className="flex gap-2 mt-3 flex-wrap items-center">
           <span className="text-xs text-[#8A8A8A] font-medium">Quick:</span>
-          {[["Fresher", "", "1"], ["1-3 yrs", "1", "3"], ["3-5 yrs", "3", "5"], ["5-8 yrs", "5", "8"], ["8-12 yrs", "8", "12"], ["12+ yrs", "12", "99"]].map(([label, min, max]) => (
-            <button key={label}
-              onClick={() => { setExpMin(min); setExpMax(max === "1" ? "1" : max); if (min === "") setExpType("fresher"); else setExpType("experienced"); }}
-              className={`px-3 py-1 rounded-full text-xs border transition-colors ${expMin === min && expMax === max ? "bg-[#FF2B2B] text-white border-[#FF2B2B]" : "border-gray-200 text-[#5A5A5A] hover:border-[#FF2B2B]"}`}>
-              {label}
-            </button>
-          ))}
+          {[["Fresher", "", "1"], ["1-3 yrs", "1", "3"], ["3-5 yrs", "3", "5"], ["5-8 yrs", "5", "8"], ["8-12 yrs", "8", "12"], ["12+ yrs", "12", "99"]].map(([label, min, max]) => {
+            const isSelected = expMin === min && expMax === max;
+            return (
+              <button
+                key={label}
+                type="button"
+                onClick={() => {
+                  if (isSelected) {
+                    setExpMin("");
+                    setExpMax("");
+                    setExpType("");
+                  } else {
+                    setExpMin(min);
+                    setExpMax(max);
+                    if (min === "") setExpType("fresher");
+                    else setExpType("experienced");
+                  }
+                }}
+                className={`px-3 py-1 rounded-full text-xs border transition-colors ${isSelected ? "bg-[#FF2B2B] text-white border-[#FF2B2B]" : "border-gray-200 text-[#5A5A5A] hover:border-[#FF2B2B]"}`}
+              >
+                {label}
+              </button>
+            );
+          })}
         </div>
 
         {/* Toggle Switch: Boolean Search */}
@@ -6621,7 +6896,7 @@ function SearchCandidatesPage() {
                 <SelectTrigger className="bg-[#F6F6F6] border-gray-200 rounded-lg text-xs h-8 flex-1"><SelectValue placeholder="Min" /></SelectTrigger>
                 <SelectContent>
                   <SelectItem value="any">Any</SelectItem>
-                  {[0, 1, 2, 3, 4, 5, 6, 7, 8, 10, 12, 15]
+                  {[0, 1, 2, 3, 4, 5, 6, 7, 8, 9, 10, 11, 12, 15, 20, 25]
                     .filter(y => !expMax || y <= Number(expMax))
                     .map(y => <SelectItem key={y} value={String(y)}>{y} yr</SelectItem>)}
                 </SelectContent>
@@ -6639,9 +6914,9 @@ function SearchCandidatesPage() {
                 <SelectTrigger className="bg-[#F6F6F6] border-gray-200 rounded-lg text-xs h-8 flex-1"><SelectValue placeholder="Max" /></SelectTrigger>
                 <SelectContent>
                   <SelectItem value="any">Any</SelectItem>
-                  {[1, 2, 3, 5, 7, 10, 12, 15, 20, 25]
+                  {[1, 2, 3, 4, 5, 6, 7, 8, 9, 10, 11, 12, 15, 20, 25, 30, 99]
                     .filter(y => !expMin || y >= Number(expMin))
-                    .map(y => <SelectItem key={y} value={String(y)}>{y} yr</SelectItem>)}
+                    .map(y => <SelectItem key={y} value={String(y)}>{y === 99 ? "12+ yr" : `${y} yr`}</SelectItem>)}
                 </SelectContent>
               </Select>
             </div>
@@ -7132,6 +7407,7 @@ function EmailingPage() {
   // ── Search State (Matches Search Candidates 100%) ──
   const [keywords, setKeywords] = useState("");
   const [location, setLocation] = useState("");
+  const [locations, setLocations] = useState<string[]>([]);
   const [keywordSearchEnabled, setKeywordSearchEnabled] = useState(true);
   const [booleanSearchEnabled, setBooleanSearchEnabled] = useState(false);
   const [highlightedIndex, setHighlightedIndex] = useState(-1);
@@ -7230,6 +7506,24 @@ function EmailingPage() {
       if (m) return parseFloat(m[1]);
     }
     return parseExp(c) * 3;
+  };
+
+  const parseCurrentSal = (c: DBCandidate) => {
+    const s = (c as any).current_salary || (c as any).current_ctc || (c as any).salary || "";
+    if (s) {
+      const m = String(s).match(/(\d+\.?\d*)/);
+      if (m) return parseFloat(m[1]);
+    }
+    return 0;
+  };
+
+  const parseExpectedSal = (c: DBCandidate) => {
+    const s = (c as any).expected_salary || (c as any).expected_ctc || "";
+    if (s) {
+      const m = String(s).match(/(\d+\.?\d*)/);
+      if (m) return parseFloat(m[1]);
+    }
+    return 0;
   };
 
   const parseNotice = (s: string | null) => {
@@ -7406,22 +7700,36 @@ function EmailingPage() {
 
   const activeFilterCount = useMemo(() => {
     let count = 0;
-    if (expMin) count++;
-    if (expMax) count++;
-    if (curSalMin) count++;
-    if (curSalMax) count++;
+    if (expMin || expMax || expType) count++;
+    if (curSalMin || curSalMax) count++;
     if (expSalMax) count++;
     if (noticePeriod) count++;
     if (education) count++;
     if (currentCompany) count++;
-    if (expType) count++;
     if (skillTags.length > 0) count += skillTags.length;
+    if (locations.length > 0) count += locations.length;
     return count;
-  }, [expMin, expMax, curSalMin, curSalMax, expSalMax, noticePeriod, education, currentCompany, expType, skillTags]);
+  }, [expMin, expMax, expType, curSalMin, curSalMax, expSalMax, noticePeriod, education, currentCompany, skillTags, locations]);
 
   const clearAllFilters = () => {
-    setExpMin(""); setExpMax(""); setCurSalMin(""); setCurSalMax(""); setExpSalMax("");
-    setNoticePeriod(""); setEducation(""); setCurrentCompany(""); setExpType(""); setSkillTags([]);
+    setExpMin("");
+    setExpMax("");
+    setCurSalMin("");
+    setCurSalMax("");
+    setExpSalMax("");
+    setNoticePeriod("");
+    setEducation("");
+    setCurrentCompany("");
+    setExpType("");
+    setSkillTags([]);
+    setSkillInput("");
+    setLocations([]);
+    setLocation("");
+    setSelectedCandidateIds(new Set());
+    if (!keywords.trim()) {
+      setSearched(false);
+      setResults([]);
+    }
   };
 
   const calculateMatchScore = (candidate: DBCandidate): number => {
@@ -7450,8 +7758,12 @@ function EmailingPage() {
       }
     }
 
-    if (location.trim()) {
-      if (candidate.location && candidate.location.toLowerCase().includes(location.trim().toLowerCase())) score += 10;
+    const allLocs = [...locations];
+    if (location.trim() && !allLocs.some(l => l.toLowerCase() === location.trim().toLowerCase())) {
+      allLocs.push(location.trim());
+    }
+    if (allLocs.length > 0) {
+      if (candidate.location && allLocs.some(loc => candidate.location.toLowerCase().includes(loc.toLowerCase()))) score += 10;
     }
     return score;
   };
@@ -7473,8 +7785,26 @@ function EmailingPage() {
       list = list.filter(c => {
         const yrs = parseExp(c);
         if (expMin && yrs < parseInt(expMin)) return false;
-        if (expMax && yrs > parseInt(expMax)) return false;
+        if (expMax && expMax !== "99" && yrs > parseInt(expMax)) return false;
         return true;
+      });
+    }
+
+    // Apply current salary filter (Current CTC LPA)
+    if (curSalMin || curSalMax) {
+      list = list.filter(c => {
+        const sal = parseCurrentSal(c);
+        if (curSalMin && sal < parseFloat(curSalMin)) return false;
+        if (curSalMax && sal > parseFloat(curSalMax)) return false;
+        return true;
+      });
+    }
+
+    // Apply expected salary filter (Expected CTC LPA)
+    if (expSalMax) {
+      list = list.filter(c => {
+        const sal = parseExpectedSal(c);
+        return sal <= parseFloat(expSalMax);
       });
     }
 
@@ -7482,7 +7812,9 @@ function EmailingPage() {
     if (noticePeriod) {
       list = list.filter(c => {
         if (!c.notice_period) return false;
-        return c.notice_period.toLowerCase().includes(noticePeriod.toLowerCase());
+        const np = parseNotice(c.notice_period);
+        if (noticePeriod === "immediate") return np === 0;
+        return np <= parseInt(noticePeriod);
       });
     }
 
@@ -7502,6 +7834,16 @@ function EmailingPage() {
       });
     }
 
+    // Apply education filter
+    if (education) {
+      list = list.filter(c => {
+        const eduList = (c.education || []) as any[];
+        return eduList.some(e =>
+          `${e.degree || ""} ${e.field || ""}`.toLowerCase().includes(education.toLowerCase())
+        );
+      });
+    }
+
     if (sortBy === "exp") {
       list.sort((a, b) => parseExp(b) - parseExp(a));
     } else if (sortBy === "salary") {
@@ -7510,7 +7852,7 @@ function EmailingPage() {
       list.sort((a, b) => calculateMatchScore(b) - calculateMatchScore(a));
     }
     return list;
-  }, [results, sortBy, keywords, location, booleanSearchEnabled, expMin, expMax, expType, noticePeriod, currentCompany, skillTags]);
+  }, [results, sortBy, keywords, location, locations, booleanSearchEnabled, expMin, expMax, expType, curSalMin, curSalMax, expSalMax, noticePeriod, education, currentCompany, skillTags]);
 
   // Predefined Templates (RhirePro styled)
   const EMAIL_TEMPLATES: Record<string, { name: string; subject: string; body: string }> = {
@@ -7844,7 +8186,11 @@ Best regards,
       return;
     }
     const activeKeywords = keywords.trim();
-    if (!activeKeywords && !location && !currentCompany && skillTags.length === 0) {
+    const effectiveLocations = [...locations];
+    if (location.trim() && !effectiveLocations.some(l => l.toLowerCase() === location.trim().toLowerCase())) {
+      effectiveLocations.push(location.trim());
+    }
+    if (!activeKeywords && effectiveLocations.length === 0 && !currentCompany && skillTags.length === 0) {
       setSearching(false);
       setSearched(false);
       setResults([]);
@@ -7867,7 +8213,7 @@ Best regards,
         if (!apiUrl) throw new Error("search service not configured");
         const esUrl = `${apiUrl}/candidates/search?q=${encodeURIComponent(activeKeywords)}` +
           `&boolean_mode=${booleanSearchEnabled}` +
-          `&location=${encodeURIComponent(location)}` +
+          `&location=${encodeURIComponent(effectiveLocations.join(","))}` +
           `&current_company=${encodeURIComponent(currentCompany)}` +
           `&skills=${encodeURIComponent(skillTags.join(","))}` +
           `&experience_min=${encodeURIComponent(expMin)}` +
@@ -7946,18 +8292,23 @@ Best regards,
           }
         }
 
-        if (location.trim()) {
-          const locLower = location.trim().toLowerCase();
-          const locVars = [locLower];
-          if (locLower === "bangalore") locVars.push("bengaluru");
-          if (locLower === "bengaluru") locVars.push("bangalore");
-          if (locLower === "gurgaon") locVars.push("gurugram");
-          if (locLower === "gurugram") locVars.push("gurgaon");
-          if (locLower === "mumbai") locVars.push("bombay");
-          if (locLower === "delhi") locVars.push("ncr");
+        if (effectiveLocations.length > 0) {
+          const locClauses: string[] = [];
+          for (const locItem of effectiveLocations) {
+            const locLower = locItem.trim().toLowerCase();
+            const locVars = [locLower];
+            if (locLower === "bangalore") locVars.push("bengaluru");
+            if (locLower === "bengaluru") locVars.push("bangalore");
+            if (locLower === "gurgaon") locVars.push("gurugram");
+            if (locLower === "gurugram") locVars.push("gurgaon");
+            if (locLower === "mumbai") locVars.push("bombay");
+            if (locLower === "delhi") locVars.push("ncr");
 
-          const locClauses = locVars.map(v => `location.ilike.%${v}%`);
-          q = q.or(locClauses.join(","));
+            locVars.forEach(v => locClauses.push(`location.ilike.%${v}%`));
+          }
+          if (locClauses.length > 0) {
+            q = q.or(locClauses.join(","));
+          }
         }
 
         if (currentCompany.trim()) q = q.ilike("current_company", `%${currentCompany.trim()}%`);
@@ -8219,10 +8570,22 @@ Best regards,
 
           <LocationAutocomplete
             value={location}
-            onChange={setLocation}
-            onEnter={handleSearch}
-            placeholder="Location"
+            onChange={loc => {
+              if (loc) {
+                const cleaned = loc.replace(/,/g, "").trim();
+                if (cleaned && !locations.some(l => l.toLowerCase() === cleaned.toLowerCase())) {
+                  setLocations(prev => [...prev, cleaned]);
+                  setLocation("");
+                }
+              }
+            }}
+            onRemoveLocation={loc => setLocations(prev => prev.filter(l => l !== loc))}
+            clearOnSelect={true}
+            existingLocations={locations}
+            onEnter={() => handleSearch()}
+            placeholder="Add location(s)"
             className="min-w-[170px]"
+            showAddButton={true}
           />
 
           <Button
@@ -8235,24 +8598,66 @@ Best regards,
           </Button>
         </div>
 
+        {/* Selected Locations Chips for Emailing */}
+        {locations.length > 0 && (
+          <div className="flex flex-wrap items-center gap-1.5 mt-2.5">
+            <span className="text-xs text-[#8A8A8A] font-medium mr-1">Locations ({locations.length}):</span>
+            {locations.map(loc => (
+              <span
+                key={loc}
+                className="inline-flex items-center gap-1 bg-[#FFF0F0] text-[#3A1F1F] border border-[#FF2B2B]/30 px-2.5 py-1 rounded-full text-xs font-medium shadow-2xs"
+              >
+                <MapPin className="h-3 w-3 text-[#FF2B2B]" />
+                <span>{loc}</span>
+                <button
+                  type="button"
+                  onClick={() => setLocations(prev => prev.filter(l => l !== loc))}
+                  className="text-[#8A8A8A] hover:text-[#FF2B2B] ml-0.5 p-0.5 rounded-full"
+                  title={`Remove ${loc}`}
+                >
+                  <X className="h-3 w-3" />
+                </button>
+              </span>
+            ))}
+            {locations.length > 1 && (
+              <button
+                type="button"
+                onClick={() => setLocations([])}
+                className="text-xs text-[#FF2B2B] hover:underline font-medium ml-1"
+              >
+                Clear all
+              </button>
+            )}
+          </div>
+        )}
+
         {/* Quick experience chips */}
         <div className="flex gap-2 mt-3 flex-wrap items-center">
           <span className="text-xs text-[#8A8A8A] font-medium">Quick:</span>
-          {[["Fresher", "", "1"], ["1-3 yrs", "1", "3"], ["3-5 yrs", "3", "5"], ["5-8 yrs", "5", "8"], ["8-12 yrs", "8", "12"], ["12+ yrs", "12", "99"]].map(([label, min, max]) => (
-            <button
-              key={label}
-              type="button"
-              onClick={() => {
-                setExpMin(min);
-                setExpMax(max === "1" ? "1" : max);
-                if (min === "") setExpType("fresher"); else setExpType("experienced");
-              }}
-              className={`px-3 py-1 rounded-full text-xs border transition-colors ${expMin === min && expMax === max ? "bg-[#FF2B2B] text-white border-[#FF2B2B]" : "border-gray-200 text-[#5A5A5A] hover:border-[#FF2B2B]"
-                }`}
-            >
-              {label}
-            </button>
-          ))}
+          {[["Fresher", "", "1"], ["1-3 yrs", "1", "3"], ["3-5 yrs", "3", "5"], ["5-8 yrs", "5", "8"], ["8-12 yrs", "8", "12"], ["12+ yrs", "12", "99"]].map(([label, min, max]) => {
+            const isSelected = expMin === min && expMax === max;
+            return (
+              <button
+                key={label}
+                type="button"
+                onClick={() => {
+                  if (isSelected) {
+                    setExpMin("");
+                    setExpMax("");
+                    setExpType("");
+                  } else {
+                    setExpMin(min);
+                    setExpMax(max);
+                    if (min === "") setExpType("fresher");
+                    else setExpType("experienced");
+                  }
+                }}
+                className={`px-3 py-1 rounded-full text-xs border transition-colors ${isSelected ? "bg-[#FF2B2B] text-white border-[#FF2B2B]" : "border-gray-200 text-[#5A5A5A] hover:border-[#FF2B2B]"}`}
+              >
+                {label}
+              </button>
+            );
+          })}
         </div>
 
         {/* Boolean Toggle */}
@@ -8303,7 +8708,7 @@ Best regards,
                 <SelectTrigger className="bg-[#F6F6F6] border-gray-200 rounded-lg text-xs h-8 flex-1"><SelectValue placeholder="Min" /></SelectTrigger>
                 <SelectContent>
                   <SelectItem value="any">Any</SelectItem>
-                  {[0, 1, 2, 3, 4, 5, 6, 7, 8, 10, 12, 15]
+                  {[0, 1, 2, 3, 4, 5, 6, 7, 8, 9, 10, 11, 12, 15, 20, 25]
                     .filter(y => !expMax || y <= Number(expMax))
                     .map(y => <SelectItem key={y} value={String(y)}>{y} yr</SelectItem>)}
                 </SelectContent>
@@ -8321,12 +8726,34 @@ Best regards,
                 <SelectTrigger className="bg-[#F6F6F6] border-gray-200 rounded-lg text-xs h-8 flex-1"><SelectValue placeholder="Max" /></SelectTrigger>
                 <SelectContent>
                   <SelectItem value="any">Any</SelectItem>
-                  {[1, 2, 3, 5, 7, 10, 12, 15, 20, 25]
+                  {[1, 2, 3, 4, 5, 6, 7, 8, 9, 10, 11, 12, 15, 20, 25, 30, 99]
                     .filter(y => !expMin || y >= Number(expMin))
-                    .map(y => <SelectItem key={y} value={String(y)}>{y} yr</SelectItem>)}
+                    .map(y => <SelectItem key={y} value={String(y)}>{y === 99 ? "12+ yr" : `${y} yr`}</SelectItem>)}
                 </SelectContent>
               </Select>
             </div>
+          </div>
+
+          {/* Current Salary (LPA) */}
+          <div className="px-4 py-3 border-b border-gray-100">
+            <p className="text-xs font-semibold text-[#3A1F1F] mb-2 uppercase tracking-wide">Current CTC (LPA)</p>
+            <div className="flex gap-2 items-center">
+              <Input value={curSalMin} onChange={e => setCurSalMin(e.target.value)} type="number" min="0" className="bg-[#F6F6F6] border-gray-200 rounded-lg text-xs h-8 flex-1" placeholder="Min" />
+              <span className="text-[#8A8A8A] text-xs">–</span>
+              <Input value={curSalMax} onChange={e => setCurSalMax(e.target.value)} type="number" min="0" className="bg-[#F6F6F6] border-gray-200 rounded-lg text-xs h-8 flex-1" placeholder="Max" />
+            </div>
+          </div>
+
+          {/* Expected Salary (up to LPA) */}
+          <div className="px-4 py-3 border-b border-gray-100">
+            <p className="text-xs font-semibold text-[#3A1F1F] mb-2 uppercase tracking-wide">Expected CTC (up to LPA)</p>
+            <Select value={expSalMax || "any"} onValueChange={v => setExpSalMax(v === "any" ? "" : v)}>
+              <SelectTrigger className="bg-[#F6F6F6] border-gray-200 rounded-lg text-xs h-8"><SelectValue placeholder="Any" /></SelectTrigger>
+              <SelectContent>
+                <SelectItem value="any">Any</SelectItem>
+                {[5, 8, 10, 12, 15, 20, 25, 30, 40, 50].map(v => <SelectItem key={v} value={String(v)}>{v} LPA</SelectItem>)}
+              </SelectContent>
+            </Select>
           </div>
 
           <div className="px-4 py-3 border-b border-gray-100">
@@ -8346,6 +8773,11 @@ Best regards,
                 <SelectItem value="60">≤ 60 days</SelectItem>
               </SelectContent>
             </Select>
+          </div>
+
+          <div className="px-4 py-3 border-b border-gray-100">
+            <p className="text-xs font-semibold text-[#3A1F1F] mb-2 uppercase tracking-wide">Education</p>
+            <Input value={education} onChange={e => setEducation(e.target.value)} className="bg-[#F6F6F6] border-gray-200 rounded-lg text-xs h-8" placeholder="e.g. B.Tech, MCA" />
           </div>
         </div>
 
@@ -8809,6 +9241,7 @@ function ApplicantsPage() {
   const [expMin, setExpMin] = useState<string>("");
   const [expMax, setExpMax] = useState<string>("");
   const [locationFilter, setLocationFilter] = useState<string>("");
+  const [locationsFilter, setLocationsFilter] = useState<string[]>([]);
   const [salaryFilter, setSalaryFilter] = useState<string>("");
   const [noticePeriodFilter, setNoticePeriodFilter] = useState<string>("");
   const [skillTags, setSkillTags] = useState<string[]>([]);
@@ -8969,7 +9402,12 @@ function ApplicantsPage() {
     return m ? parseInt(m[1]) : 0;
   };
 
-  const activeFilterCount = [expMin, expMax, locationFilter, salaryFilter, noticePeriodFilter].filter(Boolean).length + skillTags.length;
+  const allLocationFilters = [...locationsFilter];
+  if (locationFilter.trim() && !allLocationFilters.some(l => l.toLowerCase() === locationFilter.trim().toLowerCase())) {
+    allLocationFilters.push(locationFilter.trim());
+  }
+
+  const activeFilterCount = [expMin, expMax, allLocationFilters.length > 0 ? "loc" : "", salaryFilter, noticePeriodFilter].filter(Boolean).length + skillTags.length;
 
   const filtered = applicants
     .filter(a => statusFilter === "All" || getEffectiveApplicationStage(a) === statusFilter)
@@ -8989,8 +9427,9 @@ function ApplicantsPage() {
       return true;
     })
     .filter(a => {
-      if (!locationFilter) return true;
-      return (a.profile?.location || "").toLowerCase().includes(locationFilter.toLowerCase());
+      if (allLocationFilters.length === 0) return true;
+      const appLoc = (a.profile?.location || "").toLowerCase();
+      return allLocationFilters.some(loc => appLoc.includes(loc.toLowerCase()));
     })
     .filter(a => {
       if (!salaryFilter) return true;
@@ -9030,7 +9469,7 @@ function ApplicantsPage() {
 
   useEffect(() => {
     setCurrentPage(1);
-  }, [statusFilter, jobFilter, searchTerm, expMin, expMax, locationFilter, salaryFilter, noticePeriodFilter, skillTags, sortBy]);
+  }, [statusFilter, jobFilter, searchTerm, expMin, expMax, locationFilter, locationsFilter, salaryFilter, noticePeriodFilter, skillTags, sortBy]);
 
   // Scroll to top of window when page changes
   useEffect(() => {
@@ -9766,7 +10205,7 @@ function ApplicantsPage() {
           <div className="flex items-center justify-between px-4 py-3 border-b border-gray-100">
             <h3 className="text-sm font-bold text-[#3A1F1F]">Refine Results</h3>
             {activeFilterCount > 0 && (
-              <button onClick={() => { setExpMin(""); setExpMax(""); setLocationFilter(""); setSalaryFilter(""); setNoticePeriodFilter(""); setSkillTags([]); setSkillInput(""); }}
+              <button onClick={() => { setExpMin(""); setExpMax(""); setLocationFilter(""); setLocationsFilter([]); setSalaryFilter(""); setNoticePeriodFilter(""); setSkillTags([]); setSkillInput(""); }}
                 className="text-xs text-[#FF2B2B] hover:underline">Clear all ({activeFilterCount})</button>
             )}
           </div>
@@ -9815,13 +10254,57 @@ function ApplicantsPage() {
 
           {/* Location */}
           <div className="px-4 py-3 border-b border-gray-100">
-            <p className="text-xs font-semibold text-[#3A1F1F] mb-2 uppercase tracking-wide">Location</p>
+            <div className="flex items-center justify-between mb-2">
+              <p className="text-xs font-semibold text-[#3A1F1F] uppercase tracking-wide">Location</p>
+              {locationsFilter.length > 1 && (
+                <button
+                  type="button"
+                  onClick={() => setLocationsFilter([])}
+                  className="text-[11px] text-[#FF2B2B] hover:underline font-medium"
+                >
+                  Clear all
+                </button>
+              )}
+            </div>
             <LocationAutocomplete
               value={locationFilter}
-              onChange={setLocationFilter}
-              placeholder="Enter location"
+              onChange={loc => {
+                if (loc) {
+                  const cleaned = loc.replace(/,/g, "").trim();
+                  if (cleaned && !locationsFilter.some(l => l.toLowerCase() === cleaned.toLowerCase())) {
+                    setLocationsFilter(prev => [...prev, cleaned]);
+                    setLocationFilter("");
+                  }
+                }
+              }}
+              onRemoveLocation={loc => setLocationsFilter(prev => prev.filter(l => l !== loc))}
+              clearOnSelect={true}
+              existingLocations={locationsFilter}
+              placeholder="Search city to add"
+              showAddButton={true}
               inputClassName="text-xs h-8 bg-[#F6F6F6] border-gray-200 rounded-lg"
             />
+            {locationsFilter.length > 0 && (
+              <div className="flex flex-wrap gap-1 mt-2">
+                {locationsFilter.map(loc => (
+                  <span
+                    key={loc}
+                    className="inline-flex items-center gap-1 bg-white text-[#3A1F1F] border border-[#FF2B2B]/30 px-2 py-0.5 rounded-full text-xs shadow-2xs font-medium"
+                  >
+                    <MapPin className="h-3 w-3 text-[#FF2B2B]" />
+                    <span>{loc}</span>
+                    <button
+                      type="button"
+                      onClick={() => setLocationsFilter(prev => prev.filter(l => l !== loc))}
+                      className="text-[#8A8A8A] hover:text-[#FF2B2B] p-0.5 rounded-full"
+                      title={`Remove ${loc}`}
+                    >
+                      <X className="h-2.5 w-2.5" />
+                    </button>
+                  </span>
+                ))}
+              </div>
+            )}
           </div>
 
           {/* Expected Salary */}
@@ -10350,7 +10833,8 @@ function ApplicantsPage() {
 // ─── Analytics Page ───────────────────────────────────────────────────────────
 
 function AnalyticsPage() {
-  const { recruiterProfile } = useAuth();
+  const { recruiterProfile, isOrgAdmin } = useAuth();
+  const { score: completionScore, isEligible: canPostArticle } = useRecruiterProfileCompletion(recruiterProfile, isOrgAdmin);
   const navigate = useNavigate();
   const location = useLocation();
   const [articleBannerMessage, setArticleBannerMessage] = useState<string | null>(null);
@@ -10786,6 +11270,9 @@ function AnalyticsPage() {
   };
 
   const openCreateArticleDialog = () => {
+    if (!canPostArticle) {
+      toast.error(`Profile completion must be at least 60% to write articles and blogs (currently ${completionScore}%).`);
+    }
     navigate("/recruiter/dashboard/articles/new");
   };
 
@@ -11119,7 +11606,9 @@ function AnalyticsPage() {
 // ─── Company Profile Page ─────────────────────────────────────────────────────
 
 function ArticleEditorPage() {
-  const { recruiterProfile } = useAuth();
+  const { recruiterProfile, isOrgAdmin } = useAuth();
+  const { score: completionScore, isEligible: canPostArticle, loading: completionLoading } = useRecruiterProfileCompletion(recruiterProfile, isOrgAdmin);
+  const isTeamMember = Boolean(recruiterProfile?.org_admin_id) && !isOrgAdmin;
   const navigate = useNavigate();
   const { articleId } = useParams();
   const isEditing = Boolean(articleId);
@@ -11175,11 +11664,30 @@ function ArticleEditorPage() {
 
     setArticleDraft((draft) => ({ ...draft, imageName: file.name }));
     const reader = new FileReader();
-    reader.onload = () => {
-      setArticleImagePreview(typeof reader.result === "string" ? reader.result : "");
+    reader.onload = (e) => {
+      setArticleImagePreview((e.target?.result as string) || "");
     };
     reader.readAsDataURL(file);
     event.currentTarget.value = "";
+  };
+
+  const handleArticleImagePaste = (event: React.ClipboardEvent) => {
+    const items = event.clipboardData?.items;
+    if (!items) return;
+    for (let i = 0; i < items.length; i++) {
+      if (items[i].type.startsWith("image/")) {
+        const file = items[i].getAsFile();
+        if (file) {
+          setArticleDraft((draft) => ({ ...draft, imageName: file.name || "pasted-image.png" }));
+          const reader = new FileReader();
+          reader.onload = (e) => {
+            setArticleImagePreview((e.target?.result as string) || "");
+          };
+          reader.readAsDataURL(file);
+          break;
+        }
+      }
+    }
   };
 
   const articleDraftHasContent =
@@ -11231,6 +11739,12 @@ function ArticleEditorPage() {
 
   const publishArticleDraft = async () => {
     if (!recruiterProfile?.id) return;
+    if (!canPostArticle) {
+      const msg = `Profile completion is currently at ${completionScore}%. A minimum of 60% completion is required to publish articles and blogs.`;
+      setArticleError(msg);
+      toast.error(msg);
+      return;
+    }
     setArticleError("");
 
     const title = articleDraft.title.trim();
@@ -11342,6 +11856,26 @@ function ArticleEditorPage() {
             Back to Analytics
           </Button>
         </div>
+      </div>
+    );
+  }
+
+  if (completionLoading) {
+    return (
+      <div className="min-h-[calc(100vh-76px)] bg-[#F6F6F6] flex items-center justify-center">
+        <Loader2 className="h-8 w-8 animate-spin text-[#FF2B2B]" />
+      </div>
+    );
+  }
+
+  if (!canPostArticle) {
+    return (
+      <div className="min-h-[calc(100vh-76px)] bg-[#F6F6F6] py-6">
+        <RecruiterProfileCompletionGate
+          score={completionScore}
+          isTeamMember={isTeamMember}
+          featureName="publish articles and blogs"
+        />
       </div>
     );
   }

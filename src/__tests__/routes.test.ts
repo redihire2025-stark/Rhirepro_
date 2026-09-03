@@ -117,12 +117,12 @@ describe('Router — route definitions', () => {
     expect(paths).toContain('/terms-of-service');
   });
 
-  it('has 38 child routes total', () => {
+  it('has 43 child routes total', () => {
     // /, /signin, /signup, /jobs, /job/:id, /services, /blog, /blog/:id,
     // /articles, /articles/:id, /jobseeker/signin, /jobseeker/signup,
     // /recruiter/signin, /recruiter/signup, /jobseeker/dashboard/*,
-    // /recruiter/dashboard/*, /refund-policy, /contact, *
-    expect(getChildPaths().length).toBe(38);
+    // /recruiter/dashboard/*, /refund-policy, /contact, *, etc.
+    expect(getChildPaths().length).toBe(43);
   });
 
   it('each child route has a Component', () => {

@@ -22,13 +22,95 @@ function normalizeLocationName(value: string): string {
 
 const indianStates = State.getStatesOfCountry(INDIA_COUNTRY_CODE);
 
-export const INDIA_CITY_OPTIONS = Array.from(
+export const TOP_HIRING_HUBS = [
+  "Remote",
+  "Bengaluru",
+  "Hyderabad",
+  "Pune",
+  "Mumbai",
+  "Delhi",
+  "New Delhi",
+  "Noida",
+  "Gurugram",
+  "Chennai",
+  "Kolkata",
+  "Ahmedabad",
+  "Jaipur",
+  "Chandigarh",
+  "Kochi",
+  "Indore",
+  "Coimbatore",
+  "Lucknow",
+  "Bhopal",
+  "Nagpur",
+  "Visakhapatnam",
+  "Surat",
+  "Vadodara",
+  "Bhubaneswar",
+  "Patna",
+  "Thiruvananthapuram",
+  "Mysuru",
+  "Mangaluru",
+  "Goa",
+  "Dehradun",
+  "Ranchi",
+  "Raipur",
+  "Guwahati",
+  "Nashik",
+  "Vijayawada",
+];
+
+// Map colloquial/legacy search terms to their single proper keyword
+const SEARCH_SYNONYM_MAP: Record<string, string> = {
+  "bangalore": "Bengaluru",
+  "gurgaon": "Gurugram",
+  "bombay": "Mumbai",
+  "calcutta": "Kolkata",
+  "madras": "Chennai",
+  "cochin": "Kochi",
+  "ernakulam": "Kochi",
+  "trivandrum": "Thiruvananthapuram",
+  "vizag": "Visakhapatnam",
+  "baroda": "Vadodara",
+  "mysore": "Mysuru",
+  "mangalore": "Mangaluru",
+  "pondicherry": "Puducherry",
+  "trichy": "Tiruchirappalli",
+  "wfh": "Remote",
+  "work from home": "Remote",
+};
+
+// Filter out redundant duplicates/old names from raw dataset so user only sees proper names
+const RAW_CITIES = Array.from(
   new Set(
     indianStates.flatMap((state) =>
       City.getCitiesOfState(INDIA_COUNTRY_CODE, state.isoCode).map((city) => city.name)
     )
   )
-).sort((left, right) => left.localeCompare(right));
+);
+
+const EXCLUDED_DUPLICATE_NAMES = new Set([
+  "bangalore",
+  "bangalore urban",
+  "bangalore rural",
+  "gurgaon",
+  "bombay",
+  "calcutta",
+  "madras",
+  "cochin",
+  "trivandrum",
+  "baroda",
+  "mysore",
+  "mangalore",
+]);
+
+export const INDIA_CITY_OPTIONS = Array.from(
+  new Set([
+    "Remote",
+    ...TOP_HIRING_HUBS,
+    ...RAW_CITIES.filter(c => !EXCLUDED_DUPLICATE_NAMES.has(c.toLowerCase())),
+  ])
+);
 
 export const INDIA_LOCATION_NAMES = Array.from(
   new Set(
@@ -45,6 +127,92 @@ export function isIndianLocation(location: string | null): boolean {
 
   const normalizedLocation = normalizeLocationName(location);
   return INDIA_LOCATION_NAMES.some((locationName) => normalizedLocation.includes(locationName));
+}
+
+/**
+ * Clean location search:
+ * - Single proper keyword per location (no duplicates)
+ * - "Remote" included at top
+ * - Querying old names (e.g. "bangalore") resolves directly to proper name ("Bengaluru")
+ * - Starts-with and exact matches prioritized
+ */
+export function searchLocations(
+  query: string,
+  existingLocations: string[] = [],
+  limit = 35
+): string[] {
+  const cleanQuery = query.replace(/,/g, "").trim().toLowerCase();
+  const existingSet = new Set(existingLocations.map(l => l.trim().toLowerCase()));
+
+  // If query is empty, return top standard hubs
+  if (!cleanQuery) {
+    return TOP_HIRING_HUBS
+      .filter(hub => !existingSet.has(hub.toLowerCase()))
+      .slice(0, limit);
+  }
+
+  const results = new Set<string>();
+
+  // 1. Direct synonym redirect (e.g. "bangalore" -> "Bengaluru", "wfh" -> "Remote")
+  const directTarget = SEARCH_SYNONYM_MAP[cleanQuery];
+  if (directTarget && !existingSet.has(directTarget.toLowerCase())) {
+    results.add(directTarget);
+  }
+
+  // Check prefix on synonyms if query >= 3 chars (e.g. "bang" -> "Bengaluru", "gurg" -> "Gurugram")
+  if (cleanQuery.length >= 3) {
+    for (const [synonym, canonical] of Object.entries(SEARCH_SYNONYM_MAP)) {
+      if (synonym.startsWith(cleanQuery) && !existingSet.has(canonical.toLowerCase())) {
+        results.add(canonical);
+      }
+    }
+  }
+
+  // 2. Exact match from proper city options
+  for (const city of INDIA_CITY_OPTIONS) {
+    const cityLower = city.toLowerCase();
+    if (existingSet.has(cityLower)) continue;
+    if (cityLower === cleanQuery) {
+      results.add(city);
+    }
+  }
+
+  // 3. Starts with query (prioritize top hubs first, then others)
+  for (const city of TOP_HIRING_HUBS) {
+    const cityLower = city.toLowerCase();
+    if (existingSet.has(cityLower)) continue;
+    if (cityLower.startsWith(cleanQuery)) {
+      results.add(city);
+    }
+  }
+  for (const city of INDIA_CITY_OPTIONS) {
+    if (results.size >= limit) break;
+    const cityLower = city.toLowerCase();
+    if (existingSet.has(cityLower)) continue;
+    if (cityLower.startsWith(cleanQuery)) {
+      results.add(city);
+    }
+  }
+
+  // 4. Substring includes (e.g. "Delhi" in "New Delhi")
+  for (const city of TOP_HIRING_HUBS) {
+    if (results.size >= limit) break;
+    const cityLower = city.toLowerCase();
+    if (existingSet.has(cityLower)) continue;
+    if (cityLower.includes(cleanQuery)) {
+      results.add(city);
+    }
+  }
+  for (const city of INDIA_CITY_OPTIONS) {
+    if (results.size >= limit) break;
+    const cityLower = city.toLowerCase();
+    if (existingSet.has(cityLower)) continue;
+    if (cityLower.includes(cleanQuery)) {
+      results.add(city);
+    }
+  }
+
+  return Array.from(results).slice(0, limit);
 }
 
 // ── Multi-Level Location & Radius Search Utilities ───────────────────────────
