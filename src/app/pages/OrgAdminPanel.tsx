@@ -11,8 +11,12 @@ import {
   Clock, ArrowLeft, LogOut, Shield, RefreshCw, Send,
   LayoutGrid, TrendingUp, CreditCard, Download, ArrowRight,
   BookOpen, Edit3, Trash2, Eye, EyeOff, Tag, Image as ImageIcon,
-  Search, Filter, ExternalLink, FileText, Upload,
+  Search, Filter, ExternalLink, FileText, Upload, ShieldAlert,
 } from "lucide-react";
+import {
+  calculateRecruiterCompletion,
+  RECRUITER_MIN_COMPLETION_THRESHOLD,
+} from "../../lib/recruiterProfileCompletion";
 import { Button } from "../components/ui/button";
 import { Input } from "../components/ui/input";
 import { Badge } from "../components/ui/badge";
@@ -178,8 +182,13 @@ export default function OrgAdminPanel() {
   const navigate = useNavigate();
   const { memberId, jobId } = useParams<{ memberId: string; jobId: string }>();
   const { user, recruiterProfile, isOrgAdmin, loading: authLoading, signOut } = useAuth();
-
   const initialMountRef = useRef(true);
+
+  const profileCompletion = useMemo(() => {
+    return calculateRecruiterCompletion(recruiterProfile, null, false);
+  }, [recruiterProfile]);
+  const canPostBlog = profileCompletion.isEligible;
+  const blogCompletionScore = profileCompletion.score;
 
   const [activeTab, setActiveTab] = useState("overview");
   const [members, setMembers] = useState<OrgMember[]>(orgCache?.members || []);
@@ -579,6 +588,11 @@ export default function OrgAdminPanel() {
   // ── Blog Actions ───────────────────────────────────────────
 
   const handleOpenCreateBlog = () => {
+    if (!canPostBlog) {
+      toast.error(`Profile completion is currently at ${blogCompletionScore}%. A minimum of 60% completion is required to create and publish blogs.`);
+      navigate("/recruiter/dashboard/company-profile");
+      return;
+    }
     setEditingBlog(null);
     setBlogTitle("");
     setBlogCategory(DEFAULT_BLOG_CATEGORY);
@@ -657,6 +671,12 @@ export default function OrgAdminPanel() {
   };
 
   const handleSaveBlog = useCallback(async () => {
+    if (!canPostBlog) {
+      const msg = `Profile completion is currently at ${blogCompletionScore}%. A minimum of 60% completion is required to publish blogs.`;
+      setBlogError(msg);
+      toast.error(msg);
+      return;
+    }
     if (!blogTitle.trim()) {
       setBlogError("Blog title is required.");
       return;
@@ -741,10 +761,14 @@ export default function OrgAdminPanel() {
     } finally {
       setBlogSaving(false);
     }
-  }, [blogTitle, blogContent, blogTags, blogCategory, blogSummary, blogCoverUrl, blogStatus, user?.id, recruiterProfile?.recruiter_name, recruiterProfile?.company_name, editingBlog, loadData]);
+  }, [canPostBlog, blogCompletionScore, blogTitle, blogContent, blogTags, blogCategory, blogSummary, blogCoverUrl, blogStatus, user?.id, recruiterProfile?.recruiter_name, recruiterProfile?.company_name, editingBlog, loadData]);
 
   const handleTogglePublishStatus = useCallback(async (blog: RecruiterArticle) => {
     const newStatus = blog.status === "Published" ? "Draft" : "Published";
+    if (newStatus === "Published" && !canPostBlog) {
+      toast.error(`Profile completion is currently at ${blogCompletionScore}%. A minimum of 60% completion is required to publish blogs.`);
+      return;
+    }
     try {
       await supabase
         .from("blogs")
@@ -759,7 +783,7 @@ export default function OrgAdminPanel() {
     } catch (err) {
       console.error("Failed to toggle status", err);
     }
-  }, [loadData]);
+  }, [canPostBlog, blogCompletionScore, loadData]);
 
   const handleDeleteBlog = useCallback(async (blogId: string) => {
     try {
@@ -2276,6 +2300,28 @@ export default function OrgAdminPanel() {
 
           {/* ── Blogs Tab ── */}
           <TabsContent value="blogs">
+            {!canPostBlog && (
+              <div className="bg-[#FFF8F8] border border-red-100 rounded-2xl p-4 mb-6 flex flex-col sm:flex-row sm:items-center justify-between gap-4">
+                <div className="flex items-center gap-3">
+                  <div className="w-10 h-10 bg-red-50 text-[#FF2B2B] rounded-xl flex items-center justify-center flex-shrink-0">
+                    <ShieldAlert className="w-5 h-5" />
+                  </div>
+                  <div>
+                    <p className="text-sm font-bold text-[#3A1F1F]">Company Profile Incomplete ({blogCompletionScore}% / 60% Required)</p>
+                    <p className="text-xs text-[#5A5A5A]">
+                      You must reach at least 60% profile completion to create and publish organization blogs and articles.
+                    </p>
+                  </div>
+                </div>
+                <Button
+                  onClick={() => navigate("/recruiter/dashboard/company-profile")}
+                  className="bg-[#FF2B2B] hover:bg-[#e02525] text-white rounded-full text-xs self-start sm:self-auto flex-shrink-0"
+                >
+                  Complete Company Profile
+                </Button>
+              </div>
+            )}
+
             <div className="bg-white rounded-2xl p-6 mb-6 shadow-sm flex flex-col md:flex-row md:items-center justify-between gap-4">
               <div>
                 <h3 className="font-semibold text-lg text-[#3A1F1F]">Organization Blogs & Articles</h3>
@@ -2478,6 +2524,26 @@ export default function OrgAdminPanel() {
           </DialogHeader>
 
           <div className="space-y-4 pt-2">
+            {!canPostBlog && (
+              <div className="bg-[#FFF0F0] border border-red-200 rounded-2xl p-4 flex flex-col sm:flex-row sm:items-center justify-between gap-3 text-xs text-[#5A5A5A]">
+                <div className="flex items-center gap-3">
+                  <ShieldAlert className="w-5 h-5 text-[#FF2B2B] flex-shrink-0" />
+                  <div>
+                    <p className="font-bold text-[#3A1F1F]">Profile Incomplete ({blogCompletionScore}% / 60% Required)</p>
+                    <p>You must reach at least 60% company profile completion before publishing blogs.</p>
+                  </div>
+                </div>
+                <Button
+                  type="button"
+                  size="sm"
+                  onClick={() => navigate("/recruiter/dashboard/company-profile")}
+                  className="bg-[#FF2B2B] hover:bg-[#e02525] text-white rounded-xl text-xs flex-shrink-0 self-start sm:self-auto"
+                >
+                  Complete Profile
+                </Button>
+              </div>
+            )}
+
             {blogError && (
               <div className="bg-red-50 text-red-600 text-xs p-3 rounded-xl border border-red-100">
                 {blogError}
@@ -2627,9 +2693,9 @@ export default function OrgAdminPanel() {
                 Cancel
               </Button>
               <Button
-                className="flex-1 bg-[#FF2B2B] hover:bg-[#e02525] rounded-full"
+                className="flex-1 bg-[#FF2B2B] hover:bg-[#e02525] rounded-full disabled:opacity-50 disabled:cursor-not-allowed"
                 onClick={handleSaveBlog}
-                disabled={blogSaving}
+                disabled={blogSaving || (!canPostBlog && blogStatus === "Published")}
               >
                 {blogSaving ? (
                   <><Loader2 className="h-4 w-4 mr-2 animate-spin" /> Saving…</>
