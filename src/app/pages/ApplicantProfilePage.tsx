@@ -8,11 +8,13 @@ import { formatMonthYear, formatYearMonthString } from "../../lib/monthYear";
 import {
   User, MapPin, Phone, Mail, Globe, Star, Briefcase, GraduationCap,
   Award, FileText, Download, Loader2, ArrowLeft, ShieldAlert,
-  Calendar, Clock, Check, Building2, Eye, ExternalLink, Linkedin, Minimize2
+  Calendar, Clock, Check, Building2, Eye, ExternalLink, Linkedin, Minimize2,
+  ThumbsUp, ThumbsDown, Pause
 } from "lucide-react";
 import { Button } from "../components/ui/button";
 import { Badge } from "../components/ui/badge";
 import { SafeHtml } from "../components/ui/safe-html";
+import { toast } from "sonner";
 import { getStorageObjectFromUrl, buildPreviewUrl, getResumePreviewKind } from "../components/ResumePreviewDialog";
 
 // Singleton promise for loading pdfjs — prevents race conditions when multiple instances load simultaneously
@@ -146,6 +148,170 @@ const profileCache: Record<string, {
   resolvedResumeUrl: string | null;
   resumePreviewUrl: string | null;
 }> = {};
+
+function CareerTimeline({ experiences, education }: { experiences: WorkExp[]; education: Education[] }) {
+  const parseAnyDateToVal = (val: string | number | null | undefined, fallbackMonth = 1): number | null => {
+    if (!val) return null;
+    const str = String(val).trim();
+    if (!str) return null;
+    const mn = ["jan", "feb", "mar", "apr", "may", "jun", "jul", "aug", "sep", "oct", "nov", "dec"];
+    const parts = str.toLowerCase().split(/[\s\-\/]+/);
+    let year = 0, month = fallbackMonth;
+    for (const p of parts) {
+      const n = parseInt(p);
+      if (!isNaN(n) && n > 1900) year = n;
+      else if (!isNaN(n) && n >= 1 && n <= 12) month = n;
+      else {
+        const mi = mn.indexOf(p.slice(0, 3));
+        if (mi >= 0) month = mi + 1;
+      }
+    }
+    return year ? year * 12 + month : null;
+  };
+
+  const fmtLabel = (val: number, isCurrent = false) => {
+    if (isCurrent) return "Present";
+    const year = Math.floor(val / 12);
+    const month = val % 12 || 12;
+    const m = ["Jan", "Feb", "Mar", "Apr", "May", "Jun", "Jul", "Aug", "Sep", "Oct", "Nov", "Dec"][month - 1];
+    return month === 1 ? `${year}` : `${m} '${String(year).slice(2)}`;
+  };
+
+  type TSpan = { startVal: number; endVal: number; type: 'work' | 'edu'; tooltip: string };
+  const spans: TSpan[] = [];
+  const nowVal = new Date().getFullYear() * 12 + new Date().getMonth() + 1;
+
+  education.forEach(e => {
+    const s = parseAnyDateToVal(e.startYear ? `${e.startMonth || 'Jan'} ${e.startYear}` : e.startYear, 1);
+    const en = parseAnyDateToVal(e.endYear ? `${e.endMonth || 'Jun'} ${e.endYear}` : e.endYear, 6);
+    if (s && en && en > s) {
+      spans.push({ startVal: s, endVal: en, type: 'edu', tooltip: `Education: ${e.degree}${e.field ? " in " + e.field : ""} · ${e.college}` });
+    }
+  });
+
+  experiences.forEach(exp => {
+    const s = parseAnyDateToVal(exp.startYear ? `${exp.startMonth || 'Jan'} ${exp.startYear}` : exp.startMonth, 1);
+    const en = exp.current ? nowVal : parseAnyDateToVal(exp.endYear ? `${exp.endMonth || 'Dec'} ${exp.endYear}` : exp.endMonth, 12);
+    if (s && en && en > s) {
+      spans.push({ startVal: s, endVal: en, type: 'work', tooltip: `${exp.title} at ${exp.company}` });
+    }
+  });
+
+  if (spans.length === 0) {
+    return (
+      <div className="bg-white rounded-2xl p-6 shadow-md">
+        <h3 className="text-lg font-bold text-[#3A1F1F] mb-2 flex items-center gap-2">
+          <Clock className="h-5 w-5 text-[#FF2B2B]" /> Career & Education Timeline
+        </h3>
+        <p className="text-sm text-[#8A8A8A] italic">No work experience or education timeline records provided.</p>
+      </div>
+    );
+  }
+
+  const valSet = new Set<number>();
+  spans.forEach(s => { valSet.add(s.startVal); valSet.add(s.endVal); });
+  const sortedVals = Array.from(valSet).sort((a, b) => a - b);
+  if (sortedVals.length < 2) return null;
+
+  const minVal = sortedVals[0];
+  const maxVal = sortedVals[sortedVals.length - 1];
+  const range = maxVal - minVal || 1;
+  const toPct = (v: number) => Math.max(0, Math.min(100, ((v - minVal) / range) * 100));
+
+  type TEvt = { val: number; pct: number; label: string; type: 'work' | 'edu'; tooltips: string[] };
+  const evtMap = new Map<number, TEvt>();
+  sortedVals.forEach(v => {
+    const isCurrent = v === nowVal && experiences.some(e => e.current);
+    const associated = spans.filter(s => s.startVal === v || s.endVal === v);
+    const type = associated.some(s => s.type === 'work') ? 'work' : 'edu';
+    evtMap.set(v, { val: v, pct: toPct(v), label: fmtLabel(v, isCurrent), type, tooltips: associated.map(s => s.tooltip) });
+  });
+  const evts = Array.from(evtMap.values());
+
+  const MIN_GAP_PCT = 7;
+  const lastPctBySide: Record<"above" | "below", number> = { above: -999, below: -999 };
+  const lastRowBySide: Record<"above" | "below", number> = { above: 0, below: 0 };
+  const placed = evts.map((ev) => {
+    const side: "above" | "below" = spans.some(sp => sp.endVal === ev.val) ? "above" : "below";
+    const row = ev.pct - lastPctBySide[side] < MIN_GAP_PCT ? (lastRowBySide[side] === 0 ? 1 : 0) : 0;
+    lastPctBySide[side] = ev.pct;
+    lastRowBySide[side] = row;
+    return { ...ev, side, row };
+  });
+
+  const AXIS_TOP = 46;
+  const labelTop = (side: "above" | "below", row: number) =>
+    side === "above" ? (row === 0 ? 22 : 6) : (row === 0 ? 56 : 72);
+
+  const segments = evts.slice(0, -1).map((ev, i) => {
+    const next = evts[i + 1];
+    const mid = (ev.val + next.val) / 2;
+    const covering = spans.filter(s => s.startVal <= mid && s.endVal >= mid);
+    const hasWork = covering.some(s => s.type === 'work');
+    const hasEdu = covering.some(s => s.type === 'edu');
+    let color = '#D1D5DB';
+    if (hasWork && hasEdu) color = 'linear-gradient(to right,#60A5FA,#A78BFA)';
+    else if (hasWork) color = '#A78BFA';
+    else if (hasEdu) color = '#60A5FA';
+    return { leftPct: ev.pct, widthPct: next.pct - ev.pct, color, isGap: !hasWork && !hasEdu };
+  });
+
+  return (
+    <div className="bg-white rounded-2xl p-6 shadow-md">
+      <div className="flex items-center justify-between mb-4 flex-wrap gap-2">
+        <h3 className="text-lg font-bold text-[#3A1F1F] flex items-center gap-2">
+          <Clock className="h-5 w-5 text-[#FF2B2B]" /> Career & Education Timeline
+        </h3>
+        <div className="flex items-center gap-3 text-xs text-[#8A8A8A]">
+          <span className="flex items-center gap-1"><span className="w-2.5 h-2.5 rounded-full bg-[#A78BFA]" /> Experience</span>
+          <span className="flex items-center gap-1"><span className="w-2.5 h-2.5 rounded-full bg-[#60A5FA]" /> Education</span>
+          <span className="flex items-center gap-1"><span className="w-2.5 h-2.5 rounded-full bg-gray-300" /> Gap</span>
+        </div>
+      </div>
+      <div className="relative pt-2" style={{ height: 96 }}>
+        {segments.map((seg, i) => (
+          <div key={i} className="absolute h-1 rounded-full" style={{ left: `${seg.leftPct}%`, width: `${seg.widthPct}%`, top: AXIS_TOP, background: seg.color }} />
+        ))}
+        {segments.filter(s => s.isGap).map((seg, i) => (
+          <div key={i} className="absolute flex flex-col items-center" style={{ left: `${seg.leftPct + seg.widthPct / 2}%`, transform: "translateX(-50%)", top: AXIS_TOP - 9 }}>
+            <span className="text-[9px] text-gray-500 bg-white px-1.5 py-0.5 rounded-full whitespace-nowrap border border-gray-200 shadow-2xs">gap</span>
+          </div>
+        ))}
+        {placed.map((ev, i) => {
+          const Icon = ev.type === "edu" ? GraduationCap : Briefcase;
+          const color = ev.type === "edu" ? "#60A5FA" : "#A78BFA";
+          return (
+            <div key={i} className="absolute group/tip cursor-default" style={{ left: `${ev.pct}%`, transform: "translateX(-50%)", top: 0, height: 96 }}>
+              <div className="absolute left-1/2 -translate-x-1/2 hidden group-hover/tip:flex flex-col gap-0.5 bg-[#1C1C1C] text-white rounded-lg px-2.5 py-1.5 z-30 shadow-xl pointer-events-none min-w-max max-w-[240px]" style={{ bottom: 96 - AXIS_TOP + 14 }}>
+                {ev.tooltips.map((t, ti) => (
+                  <span key={ti} className="text-[11px] leading-snug">{t}</span>
+                ))}
+                <div className="absolute top-full left-1/2 -translate-x-1/2 border-4 border-transparent border-t-[#1C1C1C]" />
+              </div>
+              <div className="absolute left-1/2 -translate-x-1/2 w-3 h-3 bg-white border-2 rotate-45 z-10 shadow-xs" style={{ top: AXIS_TOP - 4, borderColor: color }} />
+              <div
+                className="absolute left-1/2 -translate-x-1/2 border-l border-dashed border-gray-200"
+                style={
+                  ev.side === "above"
+                    ? { top: labelTop(ev.side, ev.row) + 14, height: Math.max(0, AXIS_TOP - labelTop(ev.side, ev.row) - 18) }
+                    : { top: AXIS_TOP + 8, height: Math.max(0, labelTop(ev.side, ev.row) - AXIS_TOP - 8) }
+                }
+              />
+              <div
+                className="absolute left-1/2 -translate-x-1/2 flex items-center gap-1 bg-white px-1 z-10"
+                style={{ top: labelTop(ev.side, ev.row) }}
+              >
+                <Icon style={{ color, width: 12, height: 12, flexShrink: 0 }} />
+                <span className="text-[10px] font-medium text-[#5A5A5A] whitespace-nowrap leading-tight">{ev.label}</span>
+              </div>
+            </div>
+          );
+        })}
+      </div>
+    </div>
+  );
+}
+
 export default function ApplicantProfilePage() {
   const { applicantId, candidateId } = useParams();
   const id = applicantId || candidateId;
@@ -158,6 +324,28 @@ export default function ApplicantProfilePage() {
   const [error, setError] = useState<string | null>(null);
   const [application, setApplication] = useState<Application | null>(cachedData?.application || null);
   const [profile, setProfile] = useState<ApplicantProfile | null>(cachedData?.profile || null);
+  const [updatingStatus, setUpdatingStatus] = useState(false);
+
+  const handleStatusChange = async (newStatus: "Shortlisted" | "On Hold" | "Rejected") => {
+    if (!application?.id) return;
+    setUpdatingStatus(true);
+    try {
+      const { error } = await supabase
+        .from("applications")
+        .update({ status: newStatus, updated_at: new Date().toISOString() })
+        .eq("id", application.id);
+
+      if (error) throw error;
+
+      setApplication(prev => prev ? { ...prev, status: newStatus } : null);
+      toast.success(`Candidate marked as "${newStatus}"`);
+    } catch (err: any) {
+      console.error("Failed to update status:", err);
+      toast.error(err.message || "Failed to update status");
+    } finally {
+      setUpdatingStatus(false);
+    }
+  };
 
   const [experiences, setExperiences] = useState<WorkExp[]>(cachedData?.experiences || []);
   const [education, setEducation] = useState<Education[]>(cachedData?.education || []);
@@ -721,13 +909,61 @@ export default function ApplicantProfilePage() {
       {/* Main Grid Content */}
       <main className="flex-1 w-full px-4 py-6 lg:px-8">
         {/* Inner page navigation bar */}
-        <div className="flex justify-between items-center mb-6 bg-white rounded-2xl p-4 shadow-sm">
+        <div className="flex justify-between items-center mb-6 bg-white rounded-2xl p-4 shadow-sm flex-wrap gap-3">
           <div className="flex items-center gap-3">
             <Button variant="ghost" size="sm" className="rounded-full hover:bg-gray-100" onClick={() => navigate(application ? "/recruiter/dashboard/applicants" : "/recruiter/dashboard/search-candidates")}>
               <ArrowLeft className="h-4 w-4 mr-1" /> Back to {application ? "Applicants" : "Candidate Search"}
             </Button>
             <span className="text-xs font-semibold px-2.5 py-1 bg-red-50 text-[#FF2B2B] border border-red-100 rounded-full">Profile Review Mode</span>
           </div>
+
+          {/* Quick Screening Decision Actions */}
+          {application && (
+            <div className="flex items-center gap-2">
+              <Button
+                size="sm"
+                variant={application.status === "Shortlisted" ? "default" : "outline"}
+                disabled={updatingStatus}
+                onClick={() => handleStatusChange("Shortlisted")}
+                className={`rounded-full text-xs font-semibold h-8 px-3.5 transition-all ${
+                  application.status === "Shortlisted"
+                    ? "bg-emerald-600 hover:bg-emerald-700 text-white shadow-sm ring-2 ring-emerald-300"
+                    : "border-emerald-500 text-emerald-700 bg-emerald-50 hover:bg-emerald-100"
+                }`}
+              >
+                <ThumbsUp className="h-3.5 w-3.5 mr-1.5" /> Shortlist
+              </Button>
+
+              <Button
+                size="sm"
+                variant={application.status === "On Hold" ? "default" : "outline"}
+                disabled={updatingStatus}
+                onClick={() => handleStatusChange("On Hold")}
+                className={`rounded-full text-xs font-semibold h-8 px-3.5 transition-all ${
+                  application.status === "On Hold"
+                    ? "bg-amber-600 hover:bg-amber-700 text-white shadow-sm ring-2 ring-amber-300"
+                    : "border-amber-500 text-amber-700 bg-amber-50 hover:bg-amber-100"
+                }`}
+              >
+                <Pause className="h-3.5 w-3.5 mr-1.5" /> Hold
+              </Button>
+
+              <Button
+                size="sm"
+                variant={application.status === "Rejected" ? "default" : "outline"}
+                disabled={updatingStatus}
+                onClick={() => handleStatusChange("Rejected")}
+                className={`rounded-full text-xs font-semibold h-8 px-3.5 transition-all ${
+                  application.status === "Rejected"
+                    ? "bg-red-600 hover:bg-red-700 text-white shadow-sm ring-2 ring-red-300"
+                    : "border-red-500 text-red-600 bg-red-50 hover:bg-red-100"
+                }`}
+              >
+                <ThumbsDown className="h-3.5 w-3.5 mr-1.5" /> Reject
+              </Button>
+            </div>
+          )}
+
           <Button variant="outline" size="sm" className="rounded-full text-xs" onClick={() => window.close()}>
             Close Tab
           </Button>
@@ -828,6 +1064,9 @@ export default function ApplicantProfilePage() {
                 )}
               </div>
             </div>
+
+            {/* Career Timeline */}
+            <CareerTimeline experiences={experiences} education={education} />
 
             {/* Work Experience */}
             <div className="bg-white rounded-2xl p-6 shadow-md">

@@ -29,6 +29,7 @@ import {
   matchesMultiLevelLocation,
 } from "../../lib/locationData";
 import { SEARCH_SUGGESTION_DATASET, SKILL_OPTIONS, getSkillSearchTerms, skillsMatch, fuzzyMatch } from "../../lib/skillKeywords";
+import { getDatabaseSkillSuggestions, getSuggestionsSync, type SkillSuggestion } from "../services/masterSearchService";
 import { extractTextFromHtml, validateJobTextField, validateBooleanSearch } from "../../lib/recruiterJobHelpers";
 import { useAuth } from "../../lib/auth-context";
 import { sendRecruiterCandidateEmail } from "../../lib/email";
@@ -51,7 +52,7 @@ import {
   MessageSquare, Video, Award, BookOpen, Globe, Linkedin, Share2,
   ArrowRight, Target, Zap, RefreshCw, MoreVertical, ThumbsUp, ThumbsDown, ExternalLink, Loader2,
   CreditCard, Tag, ShieldCheck, Crown, Check, Minimize2, ShieldAlert,
-  Menu, X, Send, LifeBuoy,
+  Menu, X, Send, LifeBuoy, AlertTriangle, MoreHorizontal,
 } from "lucide-react";
 import { DeleteAccountCard } from "../components/DeleteAccountCard";
 import { SupportTicketDialog } from "../components/SupportTicketDialog";
@@ -99,6 +100,15 @@ import ResumePreviewDialog, { getStorageObjectFromUrl, buildPreviewUrl, getResum
 import JobShareButton from "../components/JobShareButton";
 import ApplicantProfilePage from "./ApplicantProfilePage";
 import RecruiterDirectMessageModal from "../components/RecruiterDirectMessageModal";
+import {
+  ResponsiveContainer,
+  LineChart,
+  Line,
+  XAxis,
+  YAxis,
+  CartesianGrid,
+  Tooltip as RechartsTooltip,
+} from "recharts";
 
 const DEPARTMENT_OPTIONS = [
   "Engineering",
@@ -2101,7 +2111,8 @@ function DashboardOverview() {
   }, [isTeamMember, recruiterProfile?.org_admin_id]);
 
   const [dbJobs, setDbJobs] = useState<Job[]>([]);
-  const [dbApplications, setDbApplications] = useState<Array<Pick<Application, "id" | "job_id" | "status" | "applied_at">>>([]);
+  const [dbApplications, setDbApplications] = useState<Array<Pick<Application, "id" | "job_id" | "status" | "applied_at"> & { status_updated_at?: string | null; match_score?: number | null }>>([]);
+  const [dashboardDateRange, setDashboardDateRange] = useState<"7d" | "30d" | "90d" | "all">("30d");
   const [totalApplicantsCount, setTotalApplicantsCount] = useState<number>(0);
   const [interviewsScheduledCount, setInterviewsScheduledCount] = useState<number>(0);
   const [positionsFilledCount, setPositionsFilledCount] = useState<number>(0);
@@ -2111,6 +2122,7 @@ function DashboardOverview() {
     name: string;
     currentCompany: string;
     currentTitle: string;
+    headline?: string;
     status: Application["status"];
     appliedDate: string;
     // Ids rather than a score: the badge reads whatever ai_match_scores has
@@ -2128,7 +2140,10 @@ function DashboardOverview() {
     time?: string;
     type: string;
     avatarUrl?: string | null;
+    meetingUrl?: string | null;
+    round?: string;
   }>>([]);
+  const [teamWorkload, setTeamWorkload] = useState<Array<{ id: string; name: string; initials: string; openReqs: number }>>([]);
 
   const effectiveProfile = useMemo(() => {
     if (!recruiterProfile) return null;
@@ -2177,29 +2192,33 @@ function DashboardOverview() {
 
       const { data: recruiterScopedApps, error: recruiterScopedAppsError } = await supabase
         .from("applications")
-        .select("id, job_id, status, applied_at")
+        .select("id, job_id, status, applied_at, status_updated_at, match_score")
         .eq("recruiter_id", recruiterProfile.id)
-        .order("applied_at", { ascending: false });
+        .order("applied_at", { ascending: false })
+        .then(res => res.error ? supabase.from("applications").select("id, job_id, status, applied_at, status_updated_at").eq("recruiter_id", recruiterProfile.id).order("applied_at", { ascending: false }) : res)
+        .then(res => res.error ? supabase.from("applications").select("id, job_id, status, applied_at").eq("recruiter_id", recruiterProfile.id).order("applied_at", { ascending: false }) : res);
 
       if (recruiterScopedAppsError) {
         setPipelineError(recruiterScopedAppsError.message || "Failed to load pipeline data");
       }
 
-      const recruiterScoped = (recruiterScopedApps as Array<Pick<Application, "id" | "job_id" | "status" | "applied_at">>) || [];
-      let jobScoped: Array<Pick<Application, "id" | "job_id" | "status" | "applied_at">> = [];
+      const recruiterScoped = (recruiterScopedApps as Array<Pick<Application, "id" | "job_id" | "status" | "applied_at"> & { status_updated_at?: string | null; match_score?: number | null }>) || [];
+      let jobScoped: Array<Pick<Application, "id" | "job_id" | "status" | "applied_at"> & { status_updated_at?: string | null; match_score?: number | null }> = [];
 
       // Include legacy rows where recruiter_id may be null but job_id belongs to this recruiter.
       if (recruiterJobs.length > 0) {
         const jobIds = recruiterJobs.map(job => job.id);
         const { data: jobScopedApps } = await supabase
           .from("applications")
-          .select("id, job_id, status, applied_at")
+          .select("id, job_id, status, applied_at, status_updated_at, match_score")
           .in("job_id", jobIds)
-          .order("applied_at", { ascending: false });
-        jobScoped = (jobScopedApps as Array<Pick<Application, "id" | "job_id" | "status" | "applied_at">>) || [];
+          .order("applied_at", { ascending: false })
+          .then(res => res.error ? supabase.from("applications").select("id, job_id, status, applied_at, status_updated_at").in("job_id", jobIds).order("applied_at", { ascending: false }) : res)
+          .then(res => res.error ? supabase.from("applications").select("id, job_id, status, applied_at").in("job_id", jobIds).order("applied_at", { ascending: false }) : res);
+        jobScoped = (jobScopedApps as Array<Pick<Application, "id" | "job_id" | "status" | "applied_at"> & { status_updated_at?: string | null; match_score?: number | null }>) || [];
       }
 
-      const merged = new Map<string, Pick<Application, "id" | "job_id" | "status" | "applied_at">>();
+      const merged = new Map<string, Pick<Application, "id" | "job_id" | "status" | "applied_at"> & { status_updated_at?: string | null; match_score?: number | null }>();
       for (const app of [...recruiterScoped, ...jobScoped]) {
         if (app?.id) merged.set(app.id, app);
       }
@@ -2210,23 +2229,24 @@ function DashboardOverview() {
         const jobIds = recruiterJobs.map(job => job.id);
         const { data: recentApps } = await supabase
           .from("applications")
-          .select("id, status, applied_at, profile:profiles(first_name, last_name, current_company, current_title, avatar_url)")
+          .select("id, status, applied_at, profile_id, job_id, profile:profiles(id, first_name, last_name, current_company, current_title, avatar_url)")
           .in("job_id", jobIds)
           .order("applied_at", { ascending: false })
-          .limit(3);
+          .limit(20);
 
-        const formattedRecentApplicants = ((recentApps || []) as Array<{
-          id: string;
-          status: Application["status"];
-          applied_at: string;
-          profile?: {
-            first_name?: string | null;
-            last_name?: string | null;
-            current_company?: string | null;
-            current_title?: string | null;
-            avatar_url?: string | null;
-          } | null;
-        }>).map((app) => {
+        // Deduplicate applicants by candidate profile so the same person does not appear multiple times
+        const seenProfileIds = new Set<string>();
+        const uniqueRecentApps: typeof recentApps = [];
+        for (const app of (recentApps || [])) {
+          const profileKey = (app as any).profile_id || (app.profile ? `${(app.profile as any).first_name}_${(app.profile as any).last_name}` : app.id);
+          if (profileKey && !seenProfileIds.has(profileKey)) {
+            seenProfileIds.add(profileKey);
+            uniqueRecentApps.push(app);
+            if (uniqueRecentApps.length >= 3) break;
+          }
+        }
+
+        const formattedRecentApplicants = uniqueRecentApps.map((app) => {
           const firstName = app.profile?.first_name?.trim() || "";
           const lastName = app.profile?.last_name?.trim() || "";
           const fullName = `${firstName} ${lastName}`.trim() || "Applicant";
@@ -2238,18 +2258,30 @@ function DashboardOverview() {
             .toUpperCase()
             .slice(0, 2) || "AP";
 
+          const rawTitle = app.profile?.current_title?.trim() || "";
+          const rawCompany = app.profile?.current_company?.trim() || "";
+          let headline = "Not provided";
+          if (rawTitle && rawCompany) {
+            headline = `${rawTitle} at ${rawCompany}`;
+          } else if (rawTitle) {
+            headline = rawTitle;
+          } else if (rawCompany) {
+            headline = rawCompany;
+          }
+
           return {
             id: app.id,
             initials,
             name: fullName,
-            currentCompany: app.profile?.current_company?.trim() || "Current company not provided",
-            currentTitle: app.profile?.current_title?.trim() || "Current title not provided",
+            headline,
+            currentCompany: rawCompany || "Not provided",
+            currentTitle: rawTitle || "Not provided",
             status: app.status,
             appliedDate: app.applied_at ? new Date(app.applied_at).toLocaleDateString("en-IN", { day: "numeric", month: "short", year: "numeric" }) : "N/A",
             // No placeholder score here: the Overview list has no job context
             // loaded and inventing one is what this whole change removes.
-            profileId: app.profile_id,
-            jobId: app.job_id,
+            profileId: (app as any).profile_id,
+            jobId: (app as any).job_id,
             avatarUrl: app.profile?.avatar_url || null,
           };
         });
@@ -2313,10 +2345,41 @@ function DashboardOverview() {
           name: fullName,
           role,
           type,
-          avatarUrl: app.profile?.avatar_url || null
+          avatarUrl: app.profile?.avatar_url || null,
+          meetingUrl: meetingUrl || null,
+          round: (app.interview_details as any)?.round || "Round 1",
         };
       });
       setUpcomingInterviews(formatted);
+
+      // Load team workload (Developer Spec Section 4.10)
+      const adminId = recruiterProfile.org_admin_id || (isOrgAdmin ? recruiterProfile.id : null);
+      if (adminId) {
+        try {
+          const { data: teamData } = await supabase
+            .from("recruiter_profiles")
+            .select("id, recruiter_name, email")
+            .or(`id.eq.${adminId},org_admin_id.eq.${adminId}`);
+
+          if (teamData && teamData.length > 0) {
+            const list = teamData.map(r => {
+              const name = r.recruiter_name?.trim() || r.email?.split("@")[0] || "Recruiter";
+              const initials = name
+                .split(" ")
+                .filter(Boolean)
+                .map((n: string) => n[0])
+                .join("")
+                .toUpperCase()
+                .slice(0, 2) || "RC";
+              const openReqs = recruiterJobs.filter(j => (j as any).recruiter_id === r.id && j.status === "Active").length;
+              return { id: r.id, name, initials, openReqs };
+            }).sort((a, b) => b.openReqs - a.openReqs);
+            setTeamWorkload(list);
+          }
+        } catch {
+          // ignore team fetch errors
+        }
+      }
 
       const mergedApps = Array.from(merged.values());
       const totalApps = mergedApps.length;
@@ -2338,6 +2401,27 @@ function DashboardOverview() {
   }, [recruiterProfile?.id]);
 
   const activeJobs = dbJobs.filter(j => j.status === "Active").length;
+
+  const displayedWorkload = useMemo(() => {
+    if (teamWorkload.length > 0) return teamWorkload;
+    const name = recruiterProfile?.recruiter_name?.trim() || "You";
+    const initials = name
+      .split(" ")
+      .filter(Boolean)
+      .map((n: string) => n[0])
+      .join("")
+      .toUpperCase()
+      .slice(0, 2) || "ME";
+    return [
+      {
+        id: recruiterProfile?.id || "current",
+        name,
+        initials,
+        openReqs: activeJobs,
+      }
+    ];
+  }, [teamWorkload, recruiterProfile, activeJobs]);
+
   const totalApplicants = dbApplications.length;
   const pipelineByJob = useMemo(() => {
     const initial = () => ({
@@ -2395,25 +2479,222 @@ function DashboardOverview() {
     return "Good evening";
   })();
 
-  const stats = [
-    { label: "Active Jobs", value: String(activeJobs), change: "Live postings", icon: Briefcase, color: "text-blue-600", bg: "bg-blue-50", path: "/recruiter/dashboard/manage-jobs" },
-    { label: "Total Applicants", value: String(totalApplicantsCount), change: "Across all jobs", icon: Users, color: "text-green-600", bg: "bg-green-50", path: "/recruiter/dashboard/applicants" },
-    { label: "Interviews Scheduled", value: String(interviewsScheduledCount), change: "", icon: Calendar, color: "text-purple-600", bg: "bg-purple-50", path: "/recruiter/dashboard/applicants?status=Interview Scheduled" },
-    { label: "Positions Filled", value: String(positionsFilledCount), change: "This month", icon: CheckCircle, color: "text-[#FF2B2B]", bg: "bg-red-50", path: "/recruiter/dashboard/applicants?status=Joined" },
-  ];
+  const STALE_DAYS_THRESHOLD = 5;
+  const staleApplicationsData = useMemo(() => {
+    const now = Date.now();
+    const thresholdMs = STALE_DAYS_THRESHOLD * 24 * 60 * 60 * 1000;
+
+    const staleApps = dbApplications.filter(app => {
+      const stage = mapApplicationStatusToPipelineStage(app.status);
+      if (stage !== "Under Review") return false;
+      const ts = app.status_updated_at || app.applied_at;
+      if (!ts) return false;
+      const appTime = new Date(ts).getTime();
+      if (isNaN(appTime)) return false;
+      return (now - appTime) >= thresholdMs;
+    });
+
+    const uniqueJobIds = new Set(staleApps.map(a => a.job_id).filter(Boolean));
+    return {
+      count: staleApps.length,
+      rolesCount: uniqueJobIds.size,
+    };
+  }, [dbApplications]);
+
+  // Filter applications based on selected date range (Section 4.2)
+  const filteredApplications = useMemo(() => {
+    if (dashboardDateRange === "all") return dbApplications;
+    const now = Date.now();
+    const days = dashboardDateRange === "7d" ? 7 : dashboardDateRange === "30d" ? 30 : 90;
+    const cutoff = now - days * 24 * 60 * 60 * 1000;
+    return dbApplications.filter(app => {
+      const ts = app.applied_at;
+      if (!ts) return false;
+      const t = new Date(ts).getTime();
+      return !isNaN(t) && t >= cutoff;
+    });
+  }, [dbApplications, dashboardDateRange]);
+
+  const kpiApplicantsCount = filteredApplications.length;
+
+  // Average match score (Section 4.3)
+  const kpiAvgMatchScore = useMemo(() => {
+    const scores = filteredApplications
+      .map(a => (a as any).match_score ?? (a as any).cv_match_score)
+      .filter((s): s is number => typeof s === "number" && !isNaN(s) && s > 0);
+    if (scores.length === 0) return "—";
+    const sum = scores.reduce((acc, s) => acc + s, 0);
+    const avg = Math.round(sum / scores.length);
+    return `${avg}%`;
+  }, [filteredApplications]);
+
+  // Median time to shortlist in days (Section 4.4)
+  const kpiTimeToShortlist = useMemo(() => {
+    const durations: number[] = [];
+    for (const app of filteredApplications) {
+      const stage = mapApplicationStatusToPipelineStage(app.status);
+      const isShortlistedOrBeyond = [
+        "Shortlisted",
+        "Interview Scheduled",
+        "Interview Completed",
+        "Interview Selected",
+        "Interview Rejected",
+        "Offered",
+        "Joined",
+      ].includes(stage);
+
+      if (isShortlistedOrBeyond && app.applied_at) {
+        const start = new Date(app.applied_at).getTime();
+        const end = app.status_updated_at ? new Date(app.status_updated_at).getTime() : null;
+        if (!isNaN(start) && end && !isNaN(end) && end >= start) {
+          const days = (end - start) / (24 * 60 * 60 * 1000);
+          durations.push(days);
+        }
+      }
+    }
+
+    if (durations.length === 0) return "—";
+
+    durations.sort((a, b) => a - b);
+    const mid = Math.floor(durations.length / 2);
+    const median = durations.length % 2 !== 0 ? durations[mid] : (durations[mid - 1] + durations[mid]) / 2;
+    return `${median.toFixed(1)}d`;
+  }, [filteredApplications]);
+
+  // 8-Week Applications Trend (Developer Spec Section 4.7)
+  const applicationsTrendData = useMemo(() => {
+    const now = new Date();
+    const currentDay = now.getDay(); // 0 = Sun, 1 = Mon...
+    const diffToMonday = now.getDate() - currentDay + (currentDay === 0 ? -6 : 1);
+    const currentMonday = new Date(now.getFullYear(), now.getMonth(), diffToMonday, 0, 0, 0, 0);
+
+    const weeks: Array<{
+      week: string;
+      weekNum: number;
+      applications: number;
+      dateRange: string;
+      startTime: number;
+      endTime: number;
+    }> = [];
+
+    // Build 8 consecutive weeks: Wk 1 (7 weeks ago) to Wk 8 (current week)
+    for (let i = 0; i < 8; i++) {
+      const weekStart = new Date(currentMonday);
+      weekStart.setDate(currentMonday.getDate() - (7 - i) * 7);
+      const weekEnd = new Date(weekStart);
+      weekEnd.setDate(weekStart.getDate() + 7);
+
+      const startMs = weekStart.getTime();
+      const endMs = weekEnd.getTime();
+
+      const startLabel = weekStart.toLocaleDateString("en-US", { month: "short", day: "numeric" });
+      const lastDayOfWeek = new Date(endMs - 1);
+      const endLabel = lastDayOfWeek.toLocaleDateString("en-US", { month: "short", day: "numeric" });
+
+      weeks.push({
+        week: `Wk ${i + 1}`,
+        weekNum: i + 1,
+        applications: 0,
+        dateRange: `${startLabel} – ${endLabel}`,
+        startTime: startMs,
+        endTime: endMs,
+      });
+    }
+
+    // Bucket all recruiter applications across the 8-week window
+    // Explicit 0 points are preserved if a week has zero applications per Section 4.7
+    for (const app of dbApplications) {
+      if (!app.applied_at) continue;
+      const appTime = new Date(app.applied_at).getTime();
+      if (isNaN(appTime)) continue;
+
+      for (const bucket of weeks) {
+        if (appTime >= bucket.startTime && appTime < bucket.endTime) {
+          bucket.applications += 1;
+          break;
+        }
+      }
+    }
+
+    return weeks;
+  }, [dbApplications]);
 
   return (
     <div className="container mx-auto px-4 py-6 space-y-6">
-      {/* Welcome Bar */}
-      <div className="bg-gradient-to-r from-[#3A1F1F] to-[#6B3A3A] rounded-2xl p-6 text-white flex items-center justify-between">
+      {/* Hiring Dashboard Header Bar */}
+      <div className="flex flex-col sm:flex-row sm:items-center justify-between gap-4">
         <div>
-          <h1 className="text-2xl font-bold">{greeting}, {recruiterProfile?.recruiter_name || "Recruiter"}! 👋</h1>
-          <p className="text-red-200 text-sm mt-1">You have <span className="text-white font-semibold">{dbApplications.filter(a => a.status === "New").length || 0} new applications</span> awaiting review</p>
+          <h1 className="text-2xl lg:text-3xl font-bold text-[#1C1C1C] dark:text-white tracking-tight">
+            Hiring dashboard
+          </h1>
+          <p className="text-xs text-[#8A8A8A] mt-0.5">
+            {greeting}, {recruiterProfile?.recruiter_name || "Recruiter"}! Overview of your pipeline and hiring activity
+          </p>
         </div>
-        <Button onClick={() => navigate("/recruiter/dashboard/post-job")} className="bg-[#FF2B2B] hover:bg-[#e02525] text-white rounded-full">
-          <Plus className="mr-2 h-4 w-4" /> Post New Job
-        </Button>
+
+        <div className="flex items-center gap-2.5 flex-wrap">
+          {/* Date Range Selector */}
+          <Select value={dashboardDateRange} onValueChange={(val: "7d" | "30d" | "90d" | "all") => setDashboardDateRange(val)}>
+            <SelectTrigger className="w-[140px] h-9 rounded-lg border-gray-300 dark:border-gray-700 bg-white dark:bg-[#1E2028] text-xs font-semibold text-[#1C1C1C] dark:text-white shadow-2xs">
+              <SelectValue placeholder="Date range" />
+            </SelectTrigger>
+            <SelectContent>
+              <SelectItem value="7d">Last 7 days</SelectItem>
+              <SelectItem value="30d">Last 30 days</SelectItem>
+              <SelectItem value="90d">Last 90 days</SelectItem>
+              <SelectItem value="all">All time</SelectItem>
+            </SelectContent>
+          </Select>
+
+          {/* Post New Job CTA */}
+          <Button
+            onClick={() => navigate("/recruiter/dashboard/post-job")}
+            className="bg-[#1C1C1C] hover:bg-[#333] text-white dark:bg-white dark:text-[#1C1C1C] dark:hover:bg-gray-100 font-semibold rounded-lg h-9 px-4 text-xs shadow-2xs transition-all flex items-center gap-1.5"
+          >
+            <Plus className="h-3.5 w-3.5" /> Post new job
+          </Button>
+
+          {/* More actions menu */}
+          <DropdownMenu>
+            <DropdownMenuTrigger asChild>
+              <Button variant="outline" size="icon" className="h-9 w-9 rounded-lg border-gray-300 dark:border-gray-700 bg-white dark:bg-[#1E2028]">
+                <MoreHorizontal className="h-4 w-4 text-[#5A5A5A]" />
+              </Button>
+            </DropdownMenuTrigger>
+            <DropdownMenuContent align="end" className="w-48">
+              <DropdownMenuItem onClick={() => navigate("/recruiter/dashboard/manage-jobs")}>
+                Manage Jobs
+              </DropdownMenuItem>
+              <DropdownMenuItem onClick={() => navigate("/recruiter/dashboard/applicants")}>
+                View All Applicants
+              </DropdownMenuItem>
+              <DropdownMenuItem onClick={() => navigate("/recruiter/dashboard/analytics")}>
+                Recruitment Analytics
+              </DropdownMenuItem>
+            </DropdownMenuContent>
+          </DropdownMenu>
+        </div>
       </div>
+
+      {/* Stale Applications Attention Banner (Conditional per Developer Spec Section 4.8) */}
+      {staleApplicationsData.count > 0 && (
+        <div className="bg-[#2B1B0A] border border-[#78440C] text-[#F9D79B] rounded-xl px-4 py-3 shadow-sm flex items-center justify-between gap-4 flex-wrap animate-in fade-in duration-300">
+          <div className="flex items-center gap-2.5 text-sm font-medium">
+            <AlertTriangle className="h-4 w-4 text-amber-400 flex-shrink-0" />
+            <span>
+              <strong className="font-semibold text-white">{staleApplicationsData.count} candidate{staleApplicationsData.count === 1 ? "" : "s"}</strong> {staleApplicationsData.count === 1 ? "has" : "have"} been in review for over 5 days across <strong className="font-semibold text-white">{staleApplicationsData.rolesCount} role{staleApplicationsData.rolesCount === 1 ? "" : "s"}</strong>
+            </span>
+          </div>
+          <Button
+            variant="outline"
+            size="sm"
+            onClick={() => navigate("/recruiter/dashboard/applicants?status=Under Review")}
+            className="h-7 px-3.5 text-xs font-semibold rounded-lg bg-black/30 hover:bg-black/50 text-[#F9D79B] border-amber-600/50 hover:border-amber-500 shadow-2xs"
+          >
+            View
+          </Button>
+        </div>
+      )}
 
       {/* Company Profile Completion Banner */}
       {(!isTeamMember || orgCompanyProfile !== null) && recruiterCompletion < 100 && (
@@ -2465,22 +2746,117 @@ function DashboardOverview() {
         </div>
       )}
 
-      {/* Stats */}
-      <div className="grid grid-cols-2 md:grid-cols-4 gap-4">
-        {stats.map((s, i) => (
-          <div
-            key={i}
-            onClick={() => s.path && navigate(s.path)}
-            className="bg-white rounded-2xl p-5 shadow-sm cursor-pointer hover:shadow-md transition-all duration-200"
-          >
-            <div className={`w-10 h-10 ${s.bg} rounded-xl flex items-center justify-center mb-3`}>
-              <s.icon className={`h-5 w-5 ${s.color}`} />
-            </div>
-            <div className="text-2xl font-bold text-[#3A1F1F]">{s.value}</div>
-            <div className="text-sm font-medium text-[#3A1F1F]">{s.label}</div>
-            <div className="text-xs text-[#8A8A8A] mt-0.5">{s.change}</div>
+      {/* 4 Top KPI Cards (Developer Spec Section 4 & Mockup Reference) */}
+      <div className="grid grid-cols-2 md:grid-cols-4 gap-4 sm:gap-6">
+        <div
+          onClick={() => navigate("/recruiter/dashboard/manage-jobs")}
+          className="bg-white dark:bg-[#1E2028] rounded-2xl p-5 sm:p-6 border border-gray-100 dark:border-gray-800 shadow-xs cursor-pointer hover:border-gray-300 dark:hover:border-gray-700 hover:shadow-sm transition-all"
+        >
+          <p className="text-xs sm:text-sm font-semibold text-[#8A8A8A] dark:text-[#9A9A9A]">Active jobs</p>
+          <p className="text-3xl sm:text-4xl font-bold text-[#1C1C1C] dark:text-white tracking-tight mt-1.5">{activeJobs}</p>
+        </div>
+
+        <div
+          onClick={() => navigate("/recruiter/dashboard/applicants")}
+          className="bg-white dark:bg-[#1E2028] rounded-2xl p-5 sm:p-6 border border-gray-100 dark:border-gray-800 shadow-xs cursor-pointer hover:border-gray-300 dark:hover:border-gray-700 hover:shadow-sm transition-all"
+        >
+          <p className="text-xs sm:text-sm font-semibold text-[#8A8A8A] dark:text-[#9A9A9A]">Applicants</p>
+          <p className="text-3xl sm:text-4xl font-bold text-[#1C1C1C] dark:text-white tracking-tight mt-1.5">{kpiApplicantsCount}</p>
+        </div>
+
+        <div
+          onClick={() => navigate("/recruiter/dashboard/applicants")}
+          className="bg-white dark:bg-[#1E2028] rounded-2xl p-5 sm:p-6 border border-gray-100 dark:border-gray-800 shadow-xs cursor-pointer hover:border-gray-300 dark:hover:border-gray-700 hover:shadow-sm transition-all"
+        >
+          <p className="text-xs sm:text-sm font-semibold text-[#8A8A8A] dark:text-[#9A9A9A]">Avg match score</p>
+          <p className="text-3xl sm:text-4xl font-bold text-[#1C1C1C] dark:text-white tracking-tight mt-1.5">{kpiAvgMatchScore}</p>
+        </div>
+
+        <div
+          onClick={() => navigate("/recruiter/dashboard/applicants")}
+          className="bg-white dark:bg-[#1E2028] rounded-2xl p-5 sm:p-6 border border-gray-100 dark:border-gray-800 shadow-xs cursor-pointer hover:border-gray-300 dark:hover:border-gray-700 hover:shadow-sm transition-all"
+        >
+          <p className="text-xs sm:text-sm font-semibold text-[#8A8A8A] dark:text-[#9A9A9A]">Time to shortlist</p>
+          <p className="text-3xl sm:text-4xl font-bold text-[#1C1C1C] dark:text-white tracking-tight mt-1.5">{kpiTimeToShortlist}</p>
+        </div>
+      </div>
+
+      {/* 8-Week Applications Trend Chart (Developer Spec Section 4.7) */}
+      <div className="bg-white dark:bg-[#1E2028] rounded-2xl p-5 sm:p-6 border border-gray-100 dark:border-gray-800 shadow-xs">
+        <div className="flex items-center justify-between mb-4">
+          <div>
+            <h2 className="text-base sm:text-lg font-bold text-[#1C1C1C] dark:text-white tracking-tight">
+              Applications trend, last 8 weeks
+            </h2>
+            <p className="text-xs text-[#8A8A8A] dark:text-[#9A9A9A] mt-0.5">
+              Weekly candidate volume across all your active and closed roles
+            </p>
           </div>
-        ))}
+          <div className="text-right">
+            <span className="text-xs font-medium text-[#8A8A8A] dark:text-[#9A9A9A]">Total (8 wks): </span>
+            <span className="text-sm font-bold text-[#1C1C1C] dark:text-white">
+              {applicationsTrendData.reduce((sum, w) => sum + w.applications, 0)}
+            </span>
+          </div>
+        </div>
+
+        <div className="w-full h-64 sm:h-72 mt-2">
+          <ResponsiveContainer width="100%" height="100%">
+            <LineChart
+              data={applicationsTrendData}
+              margin={{ top: 12, right: 15, left: -20, bottom: 5 }}
+            >
+              <CartesianGrid
+                vertical={false}
+                stroke="#E5E7EB"
+                className="dark:stroke-gray-800"
+                strokeDasharray="0"
+              />
+              <XAxis
+                dataKey="week"
+                stroke="#8A8A8A"
+                tick={{ fontSize: 12, fill: "#8A8A8A" }}
+                tickLine={false}
+                axisLine={{ stroke: "#E5E7EB" }}
+              />
+              <YAxis
+                stroke="#8A8A8A"
+                tick={{ fontSize: 12, fill: "#8A8A8A" }}
+                tickLine={false}
+                axisLine={false}
+                allowDecimals={false}
+                domain={[0, (dataMax: number) => Math.max(10, Math.ceil(dataMax * 1.25))]}
+              />
+              <RechartsTooltip
+                content={({ active, payload }) => {
+                  if (active && payload && payload.length) {
+                    const item = payload[0].payload;
+                    return (
+                      <div className="bg-[#1C1C1C] text-white dark:bg-[#121318] border border-gray-800 p-3 rounded-xl shadow-xl text-xs">
+                        <p className="font-semibold text-sm text-white">{item.week}</p>
+                        <p className="text-[11px] text-gray-400 mt-0.5">{item.dateRange}</p>
+                        <div className="mt-2 flex items-center gap-2 pt-1.5 border-t border-gray-800">
+                          <span className="w-2 h-2 rounded-full bg-[#4F6BFF]" />
+                          <span className="text-sm font-bold text-white">{item.applications}</span>
+                          <span className="text-gray-400 text-xs">{item.applications === 1 ? "applicant" : "applicants"}</span>
+                        </div>
+                      </div>
+                    );
+                  }
+                  return null;
+                }}
+              />
+              <Line
+                type="monotone"
+                dataKey="applications"
+                stroke="#4F6BFF"
+                strokeWidth={3}
+                dot={{ r: 4.5, fill: "#4F6BFF", stroke: "#FFFFFF", strokeWidth: 2 }}
+                activeDot={{ r: 7, fill: "#4F6BFF", stroke: "#FFFFFF", strokeWidth: 2.5 }}
+              />
+            </LineChart>
+          </ResponsiveContainer>
+        </div>
       </div>
 
       <div className="grid md:grid-cols-2 gap-6">
@@ -2514,20 +2890,18 @@ function DashboardOverview() {
                 Rejected: 0,
                 "On Hold": 0,
               };
-              const total = Object.values(counts).reduce((a, b) => a + b, 0);
-              const pct = (value: number) => (total > 0 ? (value / total) * 100 : 0);
+              const totalApplications = Object.values(counts).reduce((a, b) => a + b, 0);
+              const interviewCount = counts["Interview Scheduled"] + counts["Interview Completed"] + counts["Interview Selected"];
+              // Exclude terminal/rejection states from progression bar
               const actionStages = [
-                { label: "Applied", value: counts.Applied, color: "bg-gray-300", title: `Applied: ${counts.Applied}` },
+                { label: "Applied", value: counts.Applied, color: "bg-gray-400", title: `Applied: ${counts.Applied}` },
                 { label: "Under Review", value: counts["Under Review"], color: "bg-blue-400", title: `Under Review: ${counts["Under Review"]}` },
                 { label: "Shortlisted", value: counts.Shortlisted, color: "bg-pink-400", title: `Shortlisted: ${counts.Shortlisted}` },
-                { label: "Interview", value: counts["Interview Scheduled"] + counts["Interview Completed"], color: "bg-purple-400", title: `Interview: ${counts["Interview Scheduled"] + counts["Interview Completed"]}` },
-                { label: "Selected", value: counts["Interview Selected"], color: "bg-teal-400", title: `Selected: ${counts["Interview Selected"]}` },
-                { label: "Interview Rejected", value: counts["Interview Rejected"], color: "bg-red-300", title: `Interview Rejected: ${counts["Interview Rejected"]}` },
+                { label: "Interview", value: interviewCount, color: "bg-purple-400", title: `Interview: ${interviewCount}` },
                 { label: "Offered", value: counts.Offered, color: "bg-orange-400", title: `Offered: ${counts.Offered}` },
                 { label: "Joined", value: counts.Joined, color: "bg-emerald-500", title: `Joined: ${counts.Joined}` },
-                { label: "Rejected", value: counts.Rejected, color: "bg-red-400", title: `Rejected: ${counts.Rejected}` },
-                { label: "On Hold", value: counts["On Hold"], color: "bg-amber-400", title: `On Hold: ${counts["On Hold"]}` },
               ];
+              const pct = (value: number) => (totalApplications > 0 ? (value / totalApplications) * 100 : 0);
               const visibleActionLabels = actionStages.filter(stage => (
                 ["Applied", "Under Review", "Shortlisted", "Interview"].includes(stage.label) || stage.value > 0
               ));
@@ -2537,53 +2911,62 @@ function DashboardOverview() {
                     <span className="text-sm font-medium text-[#3A1F1F]">{job.title}</span>
                     <Badge className={job.status === "Active" ? "bg-green-100 text-green-700" : "bg-gray-100 text-gray-600"} >{job.status}</Badge>
                   </div>
-                  <div className="flex gap-1 h-2 rounded-full overflow-hidden">
-                    {actionStages.map(stage => (
-                      <div key={`${job.id}-${stage.label}`} className={stage.color} style={{ width: `${pct(stage.value)}%` }} title={stage.title} />
-                    ))}
-                  </div>
-                  <div className="flex gap-3 mt-1.5 text-xs text-[#8A8A8A]">
-                    {visibleActionLabels.map(stage => (
-                      <span key={`${job.id}-${stage.label}-label`}>{stage.label}: {stage.value}</span>
-                    ))}
-                  </div>
+                  {totalApplications === 0 ? (
+                    <p className="text-xs text-[#8A8A8A] py-1">No applications yet</p>
+                  ) : (
+                    <>
+                      <div className="flex gap-1 h-2 rounded-full overflow-hidden bg-gray-100 w-full" title="Current-state snapshot of candidate pipeline (excludes rejected)">
+                        {actionStages.map(stage => (
+                          <div key={`${job.id}-${stage.label}`} className={stage.color} style={{ width: `${pct(stage.value)}%` }} title={stage.title} />
+                        ))}
+                      </div>
+                      <div className="flex gap-3 mt-1.5 text-xs text-[#8A8A8A] flex-wrap">
+                        {visibleActionLabels.map(stage => (
+                          <span key={`${job.id}-${stage.label}-label`}>{stage.label}: {stage.value}</span>
+                        ))}
+                      </div>
+                    </>
+                  )}
                 </div>
               );
             })}
           </div>
         </div>
 
-        {/* Upcoming Interviews */}
-        <div className="bg-white rounded-2xl p-5 shadow-sm">
+        {/* Recent Applicants (Retained next to pipeline summary until Step 4) */}
+        <div className="bg-white dark:bg-[#1E2028] rounded-2xl p-5 sm:p-6 border border-gray-100 dark:border-gray-800 shadow-xs">
           <div className="flex items-center justify-between mb-4">
-            <h2 className="font-bold text-[#3A1F1F]">Upcoming Interviews</h2>
-            <Button variant="ghost" size="sm" className="text-[#FF2B2B] text-xs" onClick={() => navigate("/recruiter/dashboard/applicants?status=Interview Scheduled")}>View All</Button>
+            <h2 className="text-base sm:text-lg font-bold text-[#1C1C1C] dark:text-white tracking-tight">Recent Applicants</h2>
+            <Link to="/recruiter/dashboard/applicants">
+              <Button variant="ghost" size="sm" className="text-xs font-semibold text-[#4F6BFF] hover:text-[#3853db] p-0 h-auto">View all</Button>
+            </Link>
           </div>
           <div className="space-y-3">
-            {upcomingInterviews.length === 0 ? (
-              <p className="text-sm text-[#8A8A8A] text-center py-4">No upcoming interviews scheduled</p>
+            {recentApplicants.length === 0 ? (
+              <p className="text-xs text-[#8A8A8A] dark:text-[#9A9A9A] text-center py-6">No recent applicants</p>
             ) : (
-              upcomingInterviews.map((iv, i) => (
+              recentApplicants.map(applicant => (
                 <div
-                  key={iv.id || i}
-                  onClick={() => navigate(`/recruiter/dashboard/applicants?status=Interview Scheduled&search=${encodeURIComponent(iv.name)}&applicantId=${iv.id}`)}
-                  className="flex items-center gap-3 p-3 bg-[#F6F6F6] hover:bg-gray-100/80 transition-colors rounded-xl cursor-pointer"
+                  key={applicant.id}
+                  onClick={() => navigate(`/recruiter/dashboard/applicants/${applicant.id}/profile`)}
+                  className="flex items-center gap-3 p-3 rounded-xl border border-gray-100 dark:border-gray-800/80 hover:bg-gray-50 dark:hover:bg-gray-800/50 transition-colors cursor-pointer"
                 >
-                  <div className="w-10 h-10 rounded-full overflow-hidden flex items-center justify-center flex-shrink-0">
-                    {iv.avatarUrl ? (
-                      <img src={iv.avatarUrl} alt={iv.name} className="w-full h-full object-cover" />
+                  <div className="w-9 h-9 rounded-full overflow-hidden flex items-center justify-center flex-shrink-0">
+                    {applicant.avatarUrl ? (
+                      <img src={applicant.avatarUrl} alt={applicant.name} className="w-full h-full object-cover" />
                     ) : (
-                      <div className="w-full h-full bg-[#FF2B2B] flex items-center justify-center text-white text-xs font-bold">
-                        {iv.name.split(" ").filter(Boolean).map(n => n[0]).join("")}
+                      <div className="w-full h-full bg-[#1C1C1C] dark:bg-gray-700 flex items-center justify-center text-white text-xs font-bold">
+                        {applicant.initials}
                       </div>
                     )}
                   </div>
                   <div className="flex-1 min-w-0">
-                    <p className="text-sm font-medium text-[#3A1F1F] truncate">{iv.name}</p>
-                    <p className="text-xs text-[#8A8A8A] truncate">{iv.role}</p>
+                    <p className="text-sm font-semibold text-[#1C1C1C] dark:text-white truncate">{applicant.name}</p>
+                    <p className="text-xs text-[#8A8A8A] dark:text-[#9A9A9A] truncate">{applicant.headline || (applicant.currentTitle && applicant.currentCompany && applicant.currentTitle !== "Not provided" && applicant.currentCompany !== "Not provided" ? `${applicant.currentTitle} at ${applicant.currentCompany}` : applicant.currentTitle !== "Not provided" ? applicant.currentTitle : applicant.currentCompany !== "Not provided" ? applicant.currentCompany : "Not provided")}</p>
                   </div>
                   <div className="text-right flex-shrink-0">
-                    <Badge className="bg-purple-100 text-purple-700 text-xs">{iv.type}</Badge>
+                    <Badge className={`text-xs ${statusColor(applicant.status)}`}>{applicant.status}</Badge>
+                    <p className="text-[11px] text-[#8A8A8A] dark:text-[#9A9A9A] mt-0.5">{applicant.appliedDate}</p>
                   </div>
                 </div>
               ))
@@ -2592,39 +2975,63 @@ function DashboardOverview() {
         </div>
       </div>
 
+      {/* Step 5 Lower Rows: Today's Interviews & Recruiter Workload (Developer Spec Section 4.9 & 4.10) */}
       <div className="grid md:grid-cols-2 gap-6">
-        {/* Recent Applicants */}
-        <div className="bg-white rounded-2xl p-5 shadow-sm">
+        {/* Today's Interviews */}
+        <div className="bg-white dark:bg-[#1E2028] rounded-2xl p-5 sm:p-6 border border-gray-100 dark:border-gray-800 shadow-xs">
           <div className="flex items-center justify-between mb-4">
-            <h2 className="font-bold text-[#3A1F1F]">Recent Applicants</h2>
-            <Link to="/recruiter/dashboard/applicants"><Button variant="ghost" size="sm" className="text-[#FF2B2B] text-xs">View All</Button></Link>
+            <h2 className="text-base sm:text-lg font-bold text-[#1C1C1C] dark:text-white tracking-tight">
+              Today's interviews
+            </h2>
+            <Button
+              variant="ghost"
+              size="sm"
+              className="text-xs font-semibold text-[#4F6BFF] hover:text-[#3853db] p-0 h-auto"
+              onClick={() => navigate("/recruiter/dashboard/applicants?status=Interview Scheduled")}
+            >
+              View all
+            </Button>
           </div>
           <div className="space-y-3">
-            {recentApplicants.length === 0 ? (
-              <p className="text-sm text-[#8A8A8A] text-center py-4">No recent applicants</p>
+            {upcomingInterviews.length === 0 ? (
+              <p className="text-xs text-[#8A8A8A] dark:text-[#9A9A9A] text-center py-6">
+                No interviews scheduled for today
+              </p>
             ) : (
-              recentApplicants.map(applicant => (
+              upcomingInterviews.map((iv, i) => (
                 <div
-                  key={applicant.id}
-                  onClick={() => navigate(`/recruiter/dashboard/applicants/${applicant.id}/profile`)}
-                  className="flex items-center gap-3 p-3 border border-gray-100 rounded-xl hover:bg-[#F6F6F6] transition-colors cursor-pointer"
+                  key={iv.id || i}
+                  onClick={() => navigate(`/recruiter/dashboard/applicants?status=Interview Scheduled&search=${encodeURIComponent(iv.name)}&applicantId=${iv.id}`)}
+                  className="flex items-center justify-between gap-3 p-3.5 rounded-xl border border-gray-100 dark:border-gray-800/80 hover:bg-gray-50 dark:hover:bg-gray-800/50 transition-colors cursor-pointer"
                 >
-                  <div className="w-10 h-10 rounded-full overflow-hidden flex items-center justify-center flex-shrink-0">
-                    {applicant.avatarUrl ? (
-                      <img src={applicant.avatarUrl} alt={applicant.name} className="w-full h-full object-cover" />
-                    ) : (
-                      <div className="w-full h-full bg-[#FF2B2B] flex items-center justify-center text-white text-sm font-bold">
-                        {applicant.initials}
-                      </div>
+                  <div className="flex items-center gap-3 min-w-0">
+                    <div className="w-9 h-9 rounded-full overflow-hidden flex items-center justify-center flex-shrink-0 bg-[#4F6BFF]/10 text-[#4F6BFF] font-semibold text-xs border border-[#4F6BFF]/20">
+                      {iv.avatarUrl ? (
+                        <img src={iv.avatarUrl} alt={iv.name} className="w-full h-full object-cover" />
+                      ) : (
+                        iv.name.split(" ").filter(Boolean).map(n => n[0]).join("").slice(0, 2)
+                      )}
+                    </div>
+                    <div className="min-w-0">
+                      <p className="text-sm font-semibold text-[#1C1C1C] dark:text-white truncate">{iv.name}</p>
+                      <p className="text-xs text-[#8A8A8A] dark:text-[#9A9A9A] truncate">{iv.role}</p>
+                    </div>
+                  </div>
+                  <div className="flex items-center gap-2 flex-shrink-0">
+                    <span className="text-xs font-semibold px-2.5 py-1 bg-blue-50 text-blue-600 dark:bg-blue-950/60 dark:text-blue-400 border border-blue-100 dark:border-blue-900/50 rounded-full">
+                      {iv.round || "Round 1"}
+                    </span>
+                    {iv.meetingUrl && (
+                      <a
+                        href={iv.meetingUrl}
+                        target="_blank"
+                        rel="noreferrer"
+                        onClick={(e) => e.stopPropagation()}
+                        className="text-xs font-medium text-white bg-[#4F6BFF] hover:bg-[#3d59e8] px-2.5 py-1 rounded-lg transition-colors flex items-center gap-1"
+                      >
+                        <Video className="w-3 h-3" /> Join
+                      </a>
                     )}
-                  </div>
-                  <div className="flex-1 min-w-0">
-                    <p className="text-sm font-medium text-[#3A1F1F]">{applicant.name}</p>
-                    <p className="text-xs text-[#8A8A8A] truncate">{applicant.currentTitle} at {applicant.currentCompany}</p>
-                  </div>
-                  <div className="text-right flex-shrink-0">
-                    <Badge className={`text-xs ${statusColor(applicant.status)}`}>{applicant.status}</Badge>
-                    <p className="text-xs text-[#8A8A8A] mt-0.5">{applicant.appliedDate}</p>
                   </div>
                 </div>
               ))
@@ -2632,43 +3039,106 @@ function DashboardOverview() {
           </div>
         </div>
 
-        {/* Recently Posted Jobs */}
-        <div className="bg-white rounded-2xl p-5 shadow-sm">
+        {/* Recruiter Workload */}
+        <div className="bg-white dark:bg-[#1E2028] rounded-2xl p-5 sm:p-6 border border-gray-100 dark:border-gray-800 shadow-xs">
           <div className="flex items-center justify-between mb-4">
-            <h2 className="font-bold text-[#3A1F1F]">Recently Posted Jobs</h2>
-            <Link to="/recruiter/dashboard/manage-jobs"><Button variant="ghost" size="sm" className="text-[#FF2B2B] text-xs">View All</Button></Link>
+            <h2 className="text-base sm:text-lg font-bold text-[#1C1C1C] dark:text-white tracking-tight">
+              Recruiter workload
+            </h2>
           </div>
           <div className="space-y-3">
-            {dbJobs.length === 0 ? (
-              <p className="text-sm text-[#8A8A8A] text-center py-4">No jobs posted yet</p>
-            ) : (
-              dbJobs.slice(0, 3).map(job => (
+            {displayedWorkload.map((recruiter, i) => {
+              const bgColors = ["bg-blue-600", "bg-indigo-600", "bg-purple-600", "bg-emerald-600", "bg-rose-600"];
+              const avatarBg = bgColors[i % bgColors.length];
+              return (
                 <div
-                  key={job.id}
-                  onClick={() => navigate("/recruiter/dashboard/manage-jobs", { state: { openJobId: job.id } })}
-                  className="flex items-center gap-3 p-3 border border-gray-100 rounded-xl hover:bg-[#F6F6F6] transition-colors cursor-pointer"
+                  key={recruiter.id || i}
+                  className="flex items-center justify-between gap-3 p-3.5 rounded-xl border border-gray-100 dark:border-gray-800/80 hover:bg-gray-50 dark:hover:bg-gray-800/50 transition-colors"
                 >
-                  <div className="w-10 h-10 rounded-full overflow-hidden flex items-center justify-center flex-shrink-0 border border-gray-200 bg-[#F6F6F6]">
-                    {recruiterProfile?.logo_url ? (
-                      <img src={recruiterProfile.logo_url} alt="" className="w-full h-full object-cover" />
-                    ) : (
-                      <div className="w-full h-full bg-[#3A1F1F] flex items-center justify-center text-white text-sm font-bold">
-                        {(recruiterProfile?.company_name || "C")[0].toUpperCase()}
-                      </div>
-                    )}
+                  <div className="flex items-center gap-3 min-w-0">
+                    <div className={`w-9 h-9 rounded-full ${avatarBg} text-white flex items-center justify-center text-xs font-bold flex-shrink-0 shadow-2xs`}>
+                      {recruiter.initials}
+                    </div>
+                    <p className="text-sm font-semibold text-[#1C1C1C] dark:text-white truncate">
+                      {recruiter.name}
+                    </p>
                   </div>
-                  <div className="flex-1 min-w-0">
-                    <p className="text-sm font-medium text-[#3A1F1F] truncate">{job.title}</p>
-                    <p className="text-xs text-[#8A8A8A] truncate">{job.location || "Location not provided"} • {job.work_mode || "Full-time"}</p>
+                  <span className="text-sm font-bold text-[#1C1C1C] dark:text-white flex-shrink-0">
+                    {recruiter.openReqs} open req{recruiter.openReqs === 1 ? "" : "s"}
+                  </span>
+                </div>
+              );
+            })}
+          </div>
+        </div>
+      </div>
+
+      {/* Recently Posted Jobs (Developer Spec Section 4.11 & Mockup Reference) */}
+      <div className="bg-white dark:bg-[#1E2028] rounded-2xl p-5 sm:p-6 border border-gray-100 dark:border-gray-800 shadow-xs">
+        <div className="flex items-center justify-between mb-4">
+          <div>
+            <h2 className="text-base sm:text-lg font-bold text-[#1C1C1C] dark:text-white tracking-tight">
+              Recently posted
+            </h2>
+            <p className="text-xs text-[#8A8A8A] dark:text-[#9A9A9A] mt-0.5">
+              Latest job openings published across your organization
+            </p>
+          </div>
+          <Button
+            variant="ghost"
+            size="sm"
+            className="text-xs font-semibold text-[#4F6BFF] hover:text-[#3853db] p-0 h-auto"
+            onClick={() => navigate("/recruiter/dashboard/manage-jobs")}
+          >
+            View all
+          </Button>
+        </div>
+        <div className="space-y-3">
+          {dbJobs.length === 0 ? (
+            <div className="text-center py-6 text-xs text-[#8A8A8A] dark:text-[#9A9A9A]">
+              No jobs posted yet.{" "}
+              <button
+                onClick={() => navigate("/recruiter/dashboard/post-job")}
+                className="text-[#4F6BFF] hover:underline font-semibold ml-1"
+              >
+                Post a job
+              </button>
+            </div>
+          ) : (
+            dbJobs.slice(0, 5).map(job => (
+              <div
+                key={job.id}
+                onClick={() => navigate("/recruiter/dashboard/manage-jobs", { state: { openJobId: job.id } })}
+                className="flex items-center justify-between gap-3 p-3.5 border border-gray-100 dark:border-gray-800/80 rounded-xl hover:bg-gray-50 dark:hover:bg-gray-800/50 transition-colors cursor-pointer"
+              >
+                <div className="flex items-center gap-3.5 min-w-0">
+                  <div className="w-10 h-10 rounded-xl bg-gray-100 dark:bg-gray-800 flex items-center justify-center flex-shrink-0 text-gray-600 dark:text-gray-300">
+                    <Briefcase className="w-5 h-5" />
                   </div>
-                  <div className="text-right flex-shrink-0">
-                    <Badge className={job.status === "Active" ? "bg-green-100 text-green-700 text-xs" : "bg-gray-100 text-gray-600 text-xs"}>{job.status}</Badge>
-                    <p className="text-xs text-[#8A8A8A] mt-0.5">{new Date(job.created_at).toLocaleDateString("en-US", { day: 'numeric', month: 'short', year: 'numeric' })}</p>
+                  <div className="min-w-0">
+                    <p className="text-sm font-semibold text-[#1C1C1C] dark:text-white truncate hover:text-[#4F6BFF] transition-colors">
+                      {job.title}
+                    </p>
+                    <p className="text-xs text-[#8A8A8A] dark:text-[#9A9A9A] truncate mt-0.5">
+                      {job.location || "Location not provided"} · {job.work_mode || "Full-time"}
+                    </p>
                   </div>
                 </div>
-              ))
-            )}
-          </div>
+                <div className="flex items-center gap-3 flex-shrink-0">
+                  <span
+                    className={`text-xs font-semibold px-2.5 py-1 rounded-full border ${
+                      job.status === "Active"
+                        ? "bg-green-50 text-green-700 dark:bg-green-950/50 dark:text-green-400 border-green-200 dark:border-green-900/50"
+                        : "bg-gray-100 text-gray-600 dark:bg-gray-800 dark:text-gray-400 border-gray-200 dark:border-gray-700"
+                    }`}
+                  >
+                    {job.status}
+                  </span>
+                  <ChevronRight className="w-4 h-4 text-gray-400 hidden sm:block" />
+                </div>
+              </div>
+            ))
+          )}
         </div>
       </div>
     </div>
@@ -5923,6 +6393,32 @@ function SearchCandidatesPage() {
     }
   };
 
+  const [dbSuggestions, setDbSuggestions] = useState<SkillSuggestion[]>([]);
+
+  useEffect(() => {
+    const { token } = getCurrentSearchToken(keywords);
+    const query = token.trim();
+    if (!query) {
+      setDbSuggestions([]);
+      return;
+    }
+
+    let isMounted = true;
+    const normalizedInputKeywords = keywords
+      .toLowerCase()
+      .split(/,|\b(?:and|or|not)\b/i)
+      .map(k => k.trim())
+      .filter(Boolean);
+
+    getDatabaseSkillSuggestions(query, { exclude: normalizedInputKeywords, limit: 16 })
+      .then(res => {
+        if (isMounted) setDbSuggestions(res);
+      })
+      .catch(() => {});
+
+    return () => { isMounted = false; };
+  }, [keywords]);
+
   const filteredSuggestions = useMemo(() => {
     const { token } = getCurrentSearchToken(keywords);
     const query = token.trim();
@@ -5934,54 +6430,27 @@ function SearchCandidatesPage() {
       .map(k => k.trim())
       .filter(Boolean);
 
-    const isAlreadyPresent = (item: string) => {
-      return normalizedInputKeywords.includes(item.toLowerCase());
-    };
+    const sourceList = dbSuggestions.length > 0
+      ? dbSuggestions
+      : getSuggestionsSync(query, { exclude: normalizedInputKeywords, limit: 16 });
 
-    const qLower = query.toLowerCase();
     const matchedSkills: string[] = [];
-
-    // Phase 1: Fast direct prefix / inclusion match (sub-millisecond execution)
-    for (let i = 0; i < ALL_SKILL_OPTIONS.length; i++) {
-      const skill = ALL_SKILL_OPTIONS[i];
-      if (isAlreadyPresent(skill)) continue;
-      const sLower = skill.toLowerCase();
-      if (sLower.startsWith(qLower) || sLower.includes(qLower)) {
-        matchedSkills.push(skill);
-        if (matchedSkills.length >= 8) break;
-      }
-    }
-
-    // Phase 2: Fallback to fuzzy match only if direct matches are fewer than 8
-    if (matchedSkills.length < 8) {
-      const searchExpansionTerms = getSkillSearchTerms(query);
-      for (let i = 0; i < ALL_SKILL_OPTIONS.length; i++) {
-        const skill = ALL_SKILL_OPTIONS[i];
-        if (isAlreadyPresent(skill) || matchedSkills.includes(skill)) continue;
-        const sLower = skill.toLowerCase();
-        if (fuzzyMatch(query, skill) || searchExpansionTerms.some(term => sLower.includes(term))) {
-          matchedSkills.push(skill);
-          if (matchedSkills.length >= 8) break;
-        }
-      }
-    }
-
     const matchedDesignations: string[] = [];
-    for (let i = 0; i < ALL_ROLE_AND_DEPT_OPTIONS.length; i++) {
-      const role = ALL_ROLE_AND_DEPT_OPTIONS[i];
-      if (isAlreadyPresent(role)) continue;
-      const rLower = role.toLowerCase();
-      if (rLower.startsWith(qLower) || rLower.includes(qLower) || fuzzyMatch(query, role)) {
-        matchedDesignations.push(role);
-        if (matchedDesignations.length >= 5) break;
+
+    sourceList.forEach(item => {
+      if (normalizedInputKeywords.includes(item.value.toLowerCase())) return;
+      if (item.type === "skill") {
+        matchedSkills.push(item.value);
+      } else if (item.type === "designation") {
+        matchedDesignations.push(item.value);
       }
-    }
+    });
 
     return {
       skills: matchedSkills,
       designations: matchedDesignations,
     };
-  }, [keywords]);
+  }, [keywords, dbSuggestions]);
 
   const flatSuggestionsList = useMemo(() => {
     const list: Array<{ value: string; type: "skill" | "designation" }> = [];
@@ -6222,8 +6691,12 @@ function SearchCandidatesPage() {
 
           const buildClausesForTerm = (term: string) => {
             const list = [
+              `first_name.ilike.%${term}%`,
+              `last_name.ilike.%${term}%`,
+              `email.ilike.%${term}%`,
               `headline.ilike.%${term}%`,
               `current_title.ilike.%${term}%`,
+              `current_company.ilike.%${term}%`,
               `about.ilike.%${term}%`,
             ];
             const cleanDigits = term.replace(/[\s\-\+\(\)]/g, "");
@@ -6331,9 +6804,32 @@ function SearchCandidatesPage() {
             const matchToken = (token: string) => {
               const t = token.toLowerCase().trim();
               if (!t) return false;
+
+              // 1. Candidate Name (first_name, last_name, full name)
+              if (candidate.first_name && (candidate.first_name.toLowerCase().includes(t) || fuzzyMatch(t, candidate.first_name))) return true;
+              if (candidate.last_name && (candidate.last_name.toLowerCase().includes(t) || fuzzyMatch(t, candidate.last_name))) return true;
+              const fullName = `${candidate.first_name || ""} ${candidate.last_name || ""}`.trim().toLowerCase();
+              if (fullName && (fullName.includes(t) || fuzzyMatch(t, fullName))) return true;
+
+              // 2. Candidate Email (e.g. Gmail / corporate email)
+              if (candidate.email && candidate.email.toLowerCase().includes(t)) return true;
+
+              // 3. Decrypted Phone search
+              const cleanDigits = t.replace(/[\s\-\+\(\)]/g, "");
+              if (cleanDigits.length >= 3) {
+                const decPhone = decryptPhone(candidate.phone).replace(/[\s\-\+\(\)]/g, "");
+                if (decPhone && decPhone.includes(cleanDigits)) return true;
+              }
+
+              // 4. Skills match
               const cSkills = (candidate.skills || []).map(s => s.toLowerCase());
               if (cSkills.some(s => skillsMatch(s, t) || fuzzyMatch(t, s))) return true;
+
+              // 5. Full text & headline / title / experience match
               const fullText = [
+                candidate.first_name,
+                candidate.last_name,
+                candidate.email,
                 candidate.headline,
                 candidate.current_title,
                 candidate.current_company,
@@ -7595,8 +8091,31 @@ function EmailingPage() {
     }
   };
 
-  const ALL_SKILL_OPTIONS = useMemo(() => SKILL_OPTIONS, []);
-  const ALL_ROLE_AND_DEPT_OPTIONS = useMemo(() => SEARCH_SUGGESTION_DATASET, []);
+  const [dbSuggestions, setDbSuggestions] = useState<SkillSuggestion[]>([]);
+
+  useEffect(() => {
+    const { token } = getCurrentSearchToken(keywords);
+    const query = token.trim();
+    if (!query) {
+      setDbSuggestions([]);
+      return;
+    }
+
+    let isMounted = true;
+    const normalizedInputKeywords = keywords
+      .toLowerCase()
+      .split(/,|\b(?:and|or|not)\b/i)
+      .map(k => k.trim())
+      .filter(Boolean);
+
+    getDatabaseSkillSuggestions(query, { exclude: normalizedInputKeywords, limit: 16 })
+      .then(res => {
+        if (isMounted) setDbSuggestions(res);
+      })
+      .catch(() => {});
+
+    return () => { isMounted = false; };
+  }, [keywords]);
 
   const filteredSuggestions = useMemo(() => {
     const { token } = getCurrentSearchToken(keywords);
@@ -7609,46 +8128,24 @@ function EmailingPage() {
       .map(k => k.trim())
       .filter(Boolean);
 
-    const isAlreadyPresent = (item: string) => normalizedInputKeywords.includes(item.toLowerCase());
-    const qLower = query.toLowerCase();
+    const sourceList = dbSuggestions.length > 0
+      ? dbSuggestions
+      : getSuggestionsSync(query, { exclude: normalizedInputKeywords, limit: 16 });
+
     const matchedSkills: string[] = [];
-
-    for (let i = 0; i < ALL_SKILL_OPTIONS.length; i++) {
-      const skill = ALL_SKILL_OPTIONS[i];
-      if (isAlreadyPresent(skill)) continue;
-      const sLower = skill.toLowerCase();
-      if (sLower.startsWith(qLower) || sLower.includes(qLower)) {
-        matchedSkills.push(skill);
-        if (matchedSkills.length >= 8) break;
-      }
-    }
-
-    if (matchedSkills.length < 8) {
-      const searchExpansionTerms = getSkillSearchTerms(query);
-      for (let i = 0; i < ALL_SKILL_OPTIONS.length; i++) {
-        const skill = ALL_SKILL_OPTIONS[i];
-        if (isAlreadyPresent(skill) || matchedSkills.includes(skill)) continue;
-        const sLower = skill.toLowerCase();
-        if (fuzzyMatch(query, skill) || searchExpansionTerms.some(term => sLower.includes(term))) {
-          matchedSkills.push(skill);
-          if (matchedSkills.length >= 8) break;
-        }
-      }
-    }
-
     const matchedDesignations: string[] = [];
-    for (let i = 0; i < ALL_ROLE_AND_DEPT_OPTIONS.length; i++) {
-      const role = ALL_ROLE_AND_DEPT_OPTIONS[i];
-      if (isAlreadyPresent(role)) continue;
-      const rLower = role.toLowerCase();
-      if (rLower.startsWith(qLower) || rLower.includes(qLower) || fuzzyMatch(query, role)) {
-        matchedDesignations.push(role);
-        if (matchedDesignations.length >= 5) break;
+
+    sourceList.forEach(item => {
+      if (normalizedInputKeywords.includes(item.value.toLowerCase())) return;
+      if (item.type === "skill") {
+        matchedSkills.push(item.value);
+      } else if (item.type === "designation") {
+        matchedDesignations.push(item.value);
       }
-    }
+    });
 
     return { skills: matchedSkills, designations: matchedDesignations };
-  }, [keywords, ALL_SKILL_OPTIONS, ALL_ROLE_AND_DEPT_OPTIONS]);
+  }, [keywords, dbSuggestions]);
 
   const flatSuggestionsList = useMemo(() => {
     const list: Array<{ value: string; type: "skill" | "designation" }> = [];
@@ -10438,7 +10935,14 @@ function ApplicantsPage() {
                           {/* Name + Match */}
                           <div className="flex items-start justify-between flex-wrap gap-2">
                             <div>
-                              <h3 className="text-base font-semibold text-[#3A1F1F]">{name}</h3>
+                              <a
+                                href={`/recruiter/applicant/${applicant.id}/profile`}
+                                target="_blank"
+                                rel="noopener noreferrer"
+                                className="text-base font-semibold text-[#3A1F1F] hover:text-[#FF2B2B] hover:underline transition-colors inline-block cursor-pointer"
+                              >
+                                {name}
+                              </a>
                               <p className="text-sm text-[#5A5A5A] mt-0.5">{p?.current_title}{p?.current_company ? <span> at <span className="text-[#FF2B2B] font-medium">{p.current_company}</span></span> : ""}</p>
                             </div>
                           </div>
@@ -10537,154 +11041,6 @@ function ApplicantsPage() {
                         </div>
                       </div>
                     </div>
-
-                    {/* Career Timeline — Naukri horizontal style with gap detection + tooltips */}
-                    {(workExp.length > 0 || edu.length > 0) && (() => {
-                      const parseDateToVal = (d: string | null | undefined): number | null => {
-                        if (!d) return null;
-                        const mn = ["jan", "feb", "mar", "apr", "may", "jun", "jul", "aug", "sep", "oct", "nov", "dec"];
-                        const parts = d.toLowerCase().split(/[\s\-\/]+/);
-                        let year = 0, month = 1;
-                        for (const p of parts) {
-                          const n = parseInt(p);
-                          if (!isNaN(n) && n > 1900) year = n;
-                          else if (!isNaN(n) && n >= 1 && n <= 12) month = n;
-                          else { const mi = mn.indexOf(p.slice(0, 3)); if (mi >= 0) month = mi + 1; }
-                        }
-                        return year ? year * 12 + month : null;
-                      };
-                      const fmtLabel = (val: number, isCurrent = false) => {
-                        if (isCurrent) return "till date";
-                        const year = Math.floor(val / 12);
-                        const month = val % 12 || 12;
-                        const m = ["Jan", "Feb", "Mar", "Apr", "May", "Jun", "Jul", "Aug", "Sep", "Oct", "Nov", "Dec"][month - 1];
-                        return month === 1 ? `${year}` : `${m} '${String(year).slice(2)}`;
-                      };
-                      type TSpan = { startVal: number; endVal: number; type: 'work' | 'edu'; tooltip: string };
-                      const spans: TSpan[] = [];
-                      const nowVal = new Date().getFullYear() * 12 + new Date().getMonth() + 1;
-                      const monthAbbr = ["jan", "feb", "mar", "apr", "may", "jun", "jul", "aug", "sep", "oct", "nov", "dec"];
-                      edu.forEach(e => {
-                        const startYear = e.start_year ? Number(e.start_year) : null;
-                        const endYear = e.end_year ? Number(e.end_year) : null;
-                        // Real months when the record has them; otherwise fall back to the
-                        // same Jan-start/June-end guess used before months were tracked.
-                        const startMonthIdx = e.start_month ? monthAbbr.indexOf(String(e.start_month).toLowerCase().slice(0, 3)) : -1;
-                        const endMonthIdx = e.end_month ? monthAbbr.indexOf(String(e.end_month).toLowerCase().slice(0, 3)) : -1;
-                        const s = startYear ? startYear * 12 + (startMonthIdx >= 0 ? startMonthIdx + 1 : 1) : null;
-                        const en = endYear ? endYear * 12 + (endMonthIdx >= 0 ? endMonthIdx + 1 : 6) : null;
-                        if (s && en && en > s) spans.push({ startVal: s, endVal: en, type: 'edu', tooltip: `Education: ${e.degree}${e.field ? " in " + e.field : ""} · ${e.institution}` });
-                      });
-                      workExp.forEach(exp => {
-                        const s = parseDateToVal(exp.start_date);
-                        const en = exp.is_current ? nowVal : parseDateToVal(exp.end_date);
-                        if (s && en && en > s) spans.push({ startVal: s, endVal: en, type: 'work', tooltip: `${exp.title} at ${exp.company}` });
-                      });
-                      if (spans.length === 0) return null;
-                      // Collect all unique breakpoints
-                      const valSet = new Set<number>();
-                      spans.forEach(s => { valSet.add(s.startVal); valSet.add(s.endVal); });
-                      const sortedVals = Array.from(valSet).sort((a, b) => a - b);
-                      if (sortedVals.length < 2) return null;
-                      const minVal = sortedVals[0];
-                      const maxVal = sortedVals[sortedVals.length - 1];
-                      const range = maxVal - minVal || 1;
-                      const toPct = (v: number) => Math.max(0, Math.min(100, ((v - minVal) / range) * 100));
-                      // Build event points with tooltip info
-                      type TEvt = { val: number; pct: number; label: string; type: 'work' | 'edu'; tooltips: string[] };
-                      const evtMap = new Map<number, TEvt>();
-                      sortedVals.forEach(v => {
-                        const isCurrent = v === nowVal && workExp.some(e => e.is_current);
-                        const associated = spans.filter(s => s.startVal === v || s.endVal === v);
-                        const type = associated.some(s => s.type === 'work') ? 'work' : 'edu';
-                        evtMap.set(v, { val: v, pct: toPct(v), label: fmtLabel(v, isCurrent), type, tooltips: associated.map(s => s.tooltip) });
-                      });
-                      const evts = Array.from(evtMap.values());
-                      /*
-                       * Every label used to sit in one row under the axis, so
-                       * back-to-back dates printed on top of each other. Ends go
-                       * above the line and starts below it, which splits most
-                       * collisions apart on its own; where two labels land on the
-                       * same side and are still too close, the second drops to an
-                       * outer row.
-                       */
-                      const MIN_GAP_PCT = 7;
-                      const lastPctBySide: Record<"above" | "below", number> = { above: -999, below: -999 };
-                      const lastRowBySide: Record<"above" | "below", number> = { above: 0, below: 0 };
-                      const placed = evts.map((ev) => {
-                        const side: "above" | "below" = spans.some(sp => sp.endVal === ev.val) ? "above" : "below";
-                        const row = ev.pct - lastPctBySide[side] < MIN_GAP_PCT ? (lastRowBySide[side] === 0 ? 1 : 0) : 0;
-                        lastPctBySide[side] = ev.pct;
-                        lastRowBySide[side] = row;
-                        return { ...ev, side, row };
-                      });
-                      const AXIS_TOP = 46;
-                      const labelTop = (side: "above" | "below", row: number) =>
-                        side === "above" ? (row === 0 ? 22 : 6) : (row === 0 ? 56 : 72);
-                      // Segments: determine color per gap
-                      const segments = evts.slice(0, -1).map((ev, i) => {
-                        const next = evts[i + 1];
-                        const mid = (ev.val + next.val) / 2;
-                        const covering = spans.filter(s => s.startVal <= mid && s.endVal >= mid);
-                        const hasWork = covering.some(s => s.type === 'work');
-                        const hasEdu = covering.some(s => s.type === 'edu');
-                        let color = '#D1D5DB';
-                        if (hasWork && hasEdu) color = 'linear-gradient(to right,#60A5FA,#A78BFA)';
-                        else if (hasWork) color = '#A78BFA';
-                        else if (hasEdu) color = '#60A5FA';
-                        return { leftPct: ev.pct, widthPct: next.pct - ev.pct, color, isGap: !hasWork && !hasEdu };
-                      });
-                      return (
-                        <div className="border-t border-gray-100 px-5 pt-3 pb-3">
-                          <div className="relative" style={{ height: 92 }}>
-                            {/* Segments (colored + grey gaps) */}
-                            {segments.map((seg, i) => (
-                              <div key={i} className="absolute h-0.5" style={{ left: `${seg.leftPct}%`, width: `${seg.widthPct}%`, top: AXIS_TOP, background: seg.color }} />
-                            ))}
-                            {/* Gap labels */}
-                            {segments.filter(s => s.isGap).map((seg, i) => (
-                              <div key={i} className="absolute flex flex-col items-center" style={{ left: `${seg.leftPct + seg.widthPct / 2}%`, transform: "translateX(-50%)", top: AXIS_TOP - 7 }}>
-                                <span className="text-[8px] text-gray-400 bg-white px-1 rounded whitespace-nowrap border border-gray-200">gap</span>
-                              </div>
-                            ))}
-                            {/* Event markers with hover tooltips */}
-                            {placed.map((ev, i) => {
-                              const Icon = ev.type === "edu" ? GraduationCap : Briefcase;
-                              const color = ev.type === "edu" ? "#60A5FA" : "#A78BFA";
-                              return (
-                                <div key={i} className="absolute group/tip cursor-default" style={{ left: `${ev.pct}%`, transform: "translateX(-50%)", top: 0, height: 92 }}>
-                                  {/* Tooltip — always above the marker, clear of both label rows */}
-                                  <div className="absolute left-1/2 -translate-x-1/2 hidden group-hover/tip:flex flex-col gap-0.5 bg-[#1C1C1C] text-white rounded-lg px-2.5 py-1.5 z-30 shadow-xl pointer-events-none min-w-max max-w-[220px]" style={{ bottom: 92 - AXIS_TOP + 14 }}>
-                                    {ev.tooltips.map((t, ti) => (
-                                      <span key={ti} className="text-[10px] leading-snug">{t}</span>
-                                    ))}
-                                    <div className="absolute top-full left-1/2 -translate-x-1/2 border-4 border-transparent border-t-[#1C1C1C]" />
-                                  </div>
-                                  {/* Marker sits on the axis; the label is offset above or below it */}
-                                  <div className="absolute left-1/2 -translate-x-1/2 w-2.5 h-2.5 bg-white border-2 rotate-45 z-10" style={{ top: AXIS_TOP - 5, borderColor: color }} />
-                                  {/* Leader line from label to the axis, so a staggered label still reads as belonging to its marker */}
-                                  <div
-                                    className="absolute left-1/2 -translate-x-1/2 border-l border-dashed border-gray-200"
-                                    style={
-                                      ev.side === "above"
-                                        ? { top: labelTop(ev.side, ev.row) + 12, height: Math.max(0, AXIS_TOP - labelTop(ev.side, ev.row) - 16) }
-                                        : { top: AXIS_TOP + 6, height: Math.max(0, labelTop(ev.side, ev.row) - AXIS_TOP - 6) }
-                                    }
-                                  />
-                                  <div
-                                    className="absolute left-1/2 -translate-x-1/2 flex items-center gap-0.5 bg-white px-0.5 z-10"
-                                    style={{ top: labelTop(ev.side, ev.row) }}
-                                  >
-                                    <Icon style={{ color, width: 11, height: 11, flexShrink: 0 }} />
-                                    <span className="text-[9px] text-[#8A8A8A] whitespace-nowrap leading-tight">{ev.label}</span>
-                                  </div>
-                                </div>
-                              );
-                            })}
-                          </div>
-                        </div>
-                      );
-                    })()}
                   </div>
                 );
               })}
