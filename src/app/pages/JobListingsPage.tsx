@@ -335,11 +335,15 @@ export default function JobListingsPage() {
     }
     
     return jobs.filter((job) => {
+      const dbSkills = (job.dbJob?.skills || []).map((s: string) => s.toLowerCase());
+      const hasSkillMatch = dbSkills.some((s: string) => s.includes(term) || term.includes(s));
       const matchesSearch =
         !term ||
         job.title.toLowerCase().includes(term) ||
         job.company.toLowerCase().includes(term) ||
-        job.location.toLowerCase().includes(term);
+        job.location.toLowerCase().includes(term) ||
+        hasSkillMatch ||
+        (job.description && job.description.toLowerCase().includes(term));
       const matchesCategory =
         selectedCategory === "ALL"
           ? visibleCategories.length === 0 || (job.category !== null && visibleCategories.includes(job.category))
@@ -536,7 +540,7 @@ export default function JobListingsPage() {
                   if (e.key === "Enter") handleSearchSubmit();
                 }}
                 className="bg-transparent border-0 text-[#3A1F1F] placeholder:text-gray-400 flex-1 focus-visible:ring-0"
-                placeholder="Search jobs by title or company..."
+                placeholder="Search jobs by title, skill, or company..."
               />
               <Button className="bg-[#FF2B2B] hover:bg-[#e02525] text-white rounded-full px-8" onClick={handleSearchSubmit}>
                 <Search className="h-5 w-5" />
