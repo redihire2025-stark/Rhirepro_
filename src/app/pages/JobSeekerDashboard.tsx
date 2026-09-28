@@ -1788,18 +1788,19 @@ function FindJobPage() {
   };
 
   const filteredSuggestions = useMemo(() => {
-    const { token } = getCurrentSearchToken(inputValue);
+    const { token, prefix } = getCurrentSearchToken(inputValue);
     const query = token.trim();
     if (!query) return { skills: [], locations: [], designations: [] };
 
-    const normalizedInputKeywords = inputValue
+    // Only exclude previously completed tokens in the prefix, NEVER the active query being typed
+    const completedKeywords = prefix
       .toLowerCase()
       .split(/,|\b(?:and|or|not)\b/i)
       .map(k => k.trim())
       .filter(Boolean);
 
     const isAlreadyPresent = (item: string) => {
-      return normalizedInputKeywords.includes(item.toLowerCase());
+      return completedKeywords.includes(item.toLowerCase());
     };
 
     const matchedSkills = ALL_SKILL_OPTIONS

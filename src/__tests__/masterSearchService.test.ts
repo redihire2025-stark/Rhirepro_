@@ -99,5 +99,22 @@ describe("masterSearchService", () => {
       const values = results.map(r => r.value.toLowerCase());
       expect(values.some(v => v.includes("devops"))).toBe(true);
     });
+
+    it("prioritizes primary prefix 'DevOps' over secondary words and eliminates 0-score noise like 'Node.js' for query 'de'", async () => {
+      const results = await getDatabaseSkillSuggestions("de");
+      const values = results.map(r => r.value.toLowerCase());
+
+      // DevOps must be present as a skill
+      const devopsItem = results.find(r => r.value.toLowerCase() === "devops");
+      expect(devopsItem).toBeDefined();
+      expect(devopsItem?.type).toBe("skill");
+
+      // Mid-word substring noise like 'Node.js' must NOT appear for 2-letter query 'de'
+      expect(values).not.toContain("node.js");
+
+      // First skill match should start directly with 'de' (DevOps or Deep Learning)
+      const firstSkill = results.find(r => r.type === "skill");
+      expect(firstSkill?.value.toLowerCase().startsWith("de")).toBe(true);
+    });
   });
 });

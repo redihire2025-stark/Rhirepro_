@@ -1,4 +1,5 @@
 import { City, State, Country } from "country-state-city";
+import { expandLocationAliases } from "./booleanSearchEvaluator";
 
 const INDIA_COUNTRY_CODE = "IN";
 
@@ -321,21 +322,9 @@ export function matchesMultiLevelLocation(
 
   if (candLocList.length === 0) return false;
 
-  const getAliases = (term: string): string[] => {
-    const t = normalizeLocationName(term);
-    const aliases = [t];
-    if (t === "bangalore") aliases.push("bengaluru");
-    if (t === "bengaluru") aliases.push("bangalore");
-    if (t === "gurgaon") aliases.push("gurugram");
-    if (t === "gurugram") aliases.push("gurgaon");
-    if (t === "mumbai") aliases.push("bombay");
-    if (t === "delhi") aliases.push("ncr", "new delhi");
-    return aliases;
-  };
-
   const matchTerm = (term?: string) => {
     if (!term || !term.trim()) return true;
-    const aliases = getAliases(term);
+    const aliases = expandLocationAliases(term);
     return candLocList.some(cLoc => aliases.some(alias => cLoc.includes(alias)));
   };
 

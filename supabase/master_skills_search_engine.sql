@@ -195,9 +195,11 @@ VALUES
   ('Tableau', 'skill', 'IT & Software Development', 'Data Science & AI', ARRAY['Tableau Desktop']),
 
   -- Cloud, DevOps & Security Skills
+  ('DevOps', 'skill', 'IT & Software Development', 'Cloud, DevOps & Security', ARRAY['DevOps Practices', 'DevOps Tools', 'CI/CD']),
   ('AWS', 'skill', 'IT & Software Development', 'Cloud, DevOps & Security', ARRAY['Amazon Web Services', 'EC2', 'S3']),
   ('Azure', 'skill', 'IT & Software Development', 'Cloud, DevOps & Security', ARRAY['Microsoft Azure']),
   ('Google Cloud', 'skill', 'IT & Software Development', 'Cloud, DevOps & Security', ARRAY['GCP', 'Google Cloud Platform']),
+  ('Cloud Architecture', 'skill', 'IT & Software Development', 'Cloud, DevOps & Security', ARRAY['Cloud Computing', 'Cloud Platforms']),
   ('Docker', 'skill', 'IT & Software Development', 'Cloud, DevOps & Security', ARRAY['Containers', 'Docker Compose']),
   ('Kubernetes', 'skill', 'IT & Software Development', 'Cloud, DevOps & Security', ARRAY['K8s']),
   ('CI/CD', 'skill', 'IT & Software Development', 'Cloud, DevOps & Security', ARRAY['Continuous Integration', 'Pipelines']),
@@ -206,7 +208,13 @@ VALUES
   ('Linux', 'skill', 'IT & Software Development', 'Cloud, DevOps & Security', ARRAY['Ubuntu', 'RedHat', 'CentOS']),
   ('Cyber Security', 'skill', 'IT & Software Development', 'Cloud, DevOps & Security', ARRAY['Information Security', 'InfoSec', 'Cybersecurity']),
 
+  -- Design & Product
+  ('UI/UX', 'skill', 'Design', 'Product Design', ARRAY['UI', 'UX', 'UI Design', 'UX Design', 'User Interface', 'User Experience']),
+  ('Product Management', 'skill', 'Management', 'Product', ARRAY['Product Strategy', 'Roadmapping', 'PRD']),
+  ('Project Management', 'skill', 'Management', 'Project', ARRAY['Agile', 'Scrum', 'Sprint Planning']),
+
   -- Testing & Mobile
+  ('QA Testing', 'skill', 'IT & Software Development', 'QA Testing', ARRAY['QA', 'Quality Assurance', 'Software Testing']),
   ('Selenium', 'skill', 'IT & Software Development', 'QA Testing', ARRAY['Selenium WebDriver']),
   ('Cypress', 'skill', 'IT & Software Development', 'QA Testing', ARRAY['Cypress.io']),
   ('Playwright', 'skill', 'IT & Software Development', 'QA Testing', ARRAY['Playwright Testing']),
@@ -216,6 +224,12 @@ VALUES
   ('React Native', 'skill', 'IT & Software Development', 'Mobile Development', ARRAY['RN']),
   ('Android Development', 'skill', 'IT & Software Development', 'Mobile Development', ARRAY['Android', 'Kotlin', 'Android SDK']),
   ('iOS Development', 'skill', 'IT & Software Development', 'Mobile Development', ARRAY['iOS', 'Swift', 'Xcode']),
+
+  -- Data & AI Skills Additions
+  ('Data Science', 'skill', 'IT & Software Development', 'Data Science & AI', ARRAY['Data Science Tools']),
+  ('Data Analysis', 'skill', 'IT & Software Development', 'Data Science & AI', ARRAY['Data Analytics', 'Business Intelligence']),
+  ('Data Engineering', 'skill', 'IT & Software Development', 'Data Science & AI', ARRAY['ETL Pipelines', 'Data Pipelines']),
+  ('Artificial Intelligence', 'skill', 'IT & Software Development', 'Data Science & AI', ARRAY['AI', 'Machine Intelligence']),
 
   -- HR & Business
   ('Talent Acquisition', 'skill', 'Human Resources', 'Recruitment', ARRAY['Recruitment', 'Hiring', 'Staffing']),

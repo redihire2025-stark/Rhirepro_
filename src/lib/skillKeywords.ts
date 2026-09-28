@@ -22,7 +22,7 @@ const TECH_DATA = [
   "SQL", "MySQL", "PostgreSQL", "MongoDB", "Redis", "Oracle", "Database Administration", "Data Analysis",
   "Advanced Excel", "Power BI", "Tableau", "Looker", "Python Pandas", "NumPy", "Statistics", "Machine Learning",
   "Deep Learning", "TensorFlow", "PyTorch", "NLP", "Computer Vision", "Generative AI", "Prompt Engineering",
-  "Data Engineering", "ETL", "Apache Spark", "Hadoop", "Kafka", "Airflow", "Snowflake", "BigQuery",
+  "Data Engineering", "ETL", "Apache Spark", "Hadoop", "Kafka", "Airflow", "Snowflake", "BigQuery", "R",
 ];
 const TECH_INFRA = [
   "AWS", "Azure", "Google Cloud", "DevOps", "Docker", "Kubernetes", "Jenkins", "CI/CD", "Terraform", "Ansible",
@@ -38,9 +38,9 @@ const CATEGORY_SEEDS: Array<{
   {
     categoryName: "IT & Software Development",
     subcategories: [
-      { name: "Frontend", skills: TECH_FRONTEND, aliases: { "JavaScript": ["JS", "ECMAScript"], "TypeScript": ["TS"], "Web Accessibility": ["WCAG", "a11y"], "Responsive Design": ["mobile responsive", "adaptive design"] } },
-      { name: "Backend", skills: TECH_BACKEND, aliases: { ".NET": ["dotnet", "asp.net"], "REST API": ["RESTful API", "API development"] } },
-      { name: "Data Science & AI", skills: TECH_DATA, aliases: { "Machine Learning": ["ML"], "Artificial Intelligence": ["AI"], "NLP": ["natural language processing"] } },
+      { name: "Frontend", skills: TECH_FRONTEND, aliases: { "JavaScript": ["JS", "ECMAScript"], "TypeScript": ["TS"], "React": ["React.js", "ReactJS", "React JS"], "Angular": ["AngularJS", "Angular.js"], "Vue.js": ["Vue", "VueJS", "Vue JS"], "Web Accessibility": ["WCAG", "a11y"], "Responsive Design": ["mobile responsive", "adaptive design"] } },
+      { name: "Backend", skills: TECH_BACKEND, aliases: { "Node.js": ["Node", "NodeJS", "Node JS"], "Python": ["Python3", "Py"], "Go": ["Golang", "Go Lang"], ".NET": ["dotnet", "asp.net"], "REST API": ["RESTful API", "API development"], "C#": ["csharp", "c sharp"] } },
+      { name: "Data Science & AI", skills: TECH_DATA, aliases: { "Machine Learning": ["ML"], "Artificial Intelligence": ["AI"], "NLP": ["natural language processing"], "R": ["R Programming", "R Language"] } },
       { name: "Cloud, DevOps & Security", skills: TECH_INFRA, aliases: { "Google Cloud": ["GCP", "Google Cloud Platform"], "Cyber Security": ["cybersecurity"], "System Administration": ["sysadmin"] } },
       { name: "QA Testing", skills: ["Manual Testing", "Automation Testing", "Selenium", "Cypress", "Playwright", "Jest", "Postman", "API Testing", "Performance Testing", "Security Testing", "UAT", "Test Case Design"] },
       { name: "Mobile Development", skills: ["Android Development", "iOS Development", "React Native", "Flutter", "Kotlin", "Swift", "Objective-C", "Mobile UI Testing", "App Store Deployment", "Firebase"] },
@@ -401,26 +401,39 @@ export function normalizeSkillKeyword(value: string): string {
 }
 
 const SKILL_EXPANSION_DICTIONARY: Record<string, string[]> = {
-  "python": ["django", "flask", "fastapi", "pandas", "numpy", "pytorch", "tensorflow", "data science"],
-  "react": ["reactjs", "react.js", "next.js", "redux", "frontend", "javascript", "typescript"],
-  "javascript": ["js", "ecmascript", "react", "node.js", "typescript", "frontend"],
-  "typescript": ["ts", "javascript", "angular", "react", "node.js"],
-  "java": ["spring boot", "hibernate", "j2ee", "microservices", "core java"],
-  "node.js": ["nodejs", "express.js", "nestjs", "backend", "javascript", "typescript"],
-  "node": ["nodejs", "node.js", "express.js", "backend"],
-  "hr": ["recruitment", "recruiter", "human resources", "talent acquisition", "hiring"],
-  "human resources": ["hr", "recruitment", "recruiter", "talent acquisition", "hris"],
-  "recruiter": ["recruitment", "hr", "talent acquisition", "sourcing", "boolean search"],
-  "qa": ["quality assurance", "selenium", "manual testing", "automation testing", "cypress", "testing"],
-  "quality assurance": ["qa", "selenium", "automation testing", "manual testing", "testing"],
-  "data science": ["machine learning", "python", "deep learning", "pandas", "ai", "statistics"],
-  "machine learning": ["ml", "data science", "deep learning", "python", "pytorch", "tensorflow", "ai"],
-  "ml": ["machine learning", "data science", "deep learning", "python", "ai"],
-  "ai": ["artificial intelligence", "generative ai", "machine learning", "deep learning", "ml"],
-  "devops": ["aws", "docker", "kubernetes", "ci/cd", "jenkins", "terraform", "cloud"],
-  "aws": ["amazon web services", "cloud", "devops", "ec2", "s3", "lambda", "docker"],
-  "sql": ["postgresql", "mysql", "database", "pl/sql", "tsql", "oracle", "rdbms"],
-  "design": ["ui/ux", "figma", "graphic design", "user experience", "user interface", "photoshop"]
+  "python": ["python3", "py"],
+  "react": ["reactjs", "react.js", "react js"],
+  "javascript": ["js", "ecmascript", "vanilla js"],
+  "typescript": ["ts"],
+  "java": ["core java", "j2ee"],
+  "node.js": ["nodejs", "node", "node js"],
+  "node": ["nodejs", "node.js", "node js"],
+  "angular": ["angularjs", "angular.js"],
+  "vue": ["vuejs", "vue.js", "vue js"],
+  "vue.js": ["vue", "vuejs", "vue js"],
+  "go": ["golang", "go lang"],
+  "golang": ["go", "go lang"],
+  "c#": ["csharp", "c sharp", "dotnet", ".net"],
+  ".net": ["dotnet", "c#", "csharp", "asp.net"],
+  "hr": ["human resources"],
+  "human resources": ["hr"],
+  "recruiter": ["recruitment", "talent acquisition", "sourcer"],
+  "qa": ["quality assurance", "qa engineer", "software tester"],
+  "quality assurance": ["qa", "qa engineer"],
+  "data science": ["data scientist"],
+  "machine learning": ["ml"],
+  "ml": ["machine learning"],
+  "ai": ["artificial intelligence", "genai", "generative ai"],
+  "artificial intelligence": ["ai", "generative ai"],
+  "devops": ["dev ops", "site reliability engineering", "sre"],
+  "aws": ["amazon web services"],
+  "gcp": ["google cloud", "google cloud platform"],
+  "sql": ["structured query language", "rdbms"],
+  "design": ["ui/ux", "user interface", "user experience"],
+  "r": ["r programming", "r language"],
+  "r programming": ["r", "r language"],
+  "c": ["c programming", "c language"],
+  "c programming": ["c", "c language"],
 };
 
 export function getSkillSearchTerms(value: string): string[] {
@@ -444,6 +457,42 @@ export function getSkillSearchTerms(value: string): string[] {
 
   SEARCH_TERMS_CACHE.set(cacheKey, terms);
   return terms;
+}
+
+/**
+ * Expands search skill tokens into multi-cased variations (lowercase, title case, uppercase, canonical)
+ * specifically for database queries (e.g. Supabase .overlaps("skills", ...)).
+ *
+ * PostgreSQL's array overlap operator (&&) is strictly case-sensitive. If candidate skills
+ * in the database are stored as "Java" or "JavaScript", querying with only lowercase "java"
+ * returns 0 matches. This helper ensures all common casing variants are provided.
+ */
+export function getDatabaseSkillOverlapTerms(tokens: string[]): string[] {
+  const toTitleCase = (s: string) => s.replace(/\b\w+/g, txt => txt.charAt(0).toUpperCase() + txt.substring(1).toLowerCase());
+  const variants = new Set<string>();
+
+  for (const token of tokens) {
+    if (!token) continue;
+    const rawTokens = [token, ...getSkillSearchTerms(token)];
+    for (const t of rawTokens) {
+      const clean = t.trim();
+      if (!clean) continue;
+      variants.add(clean);
+      variants.add(clean.toLowerCase());
+      variants.add(toTitleCase(clean));
+      variants.add(clean.toUpperCase());
+
+      // Canonical database record names
+      const key = compact(clean);
+      const matched = TERM_RECORD_LOOKUP.get(key);
+      if (matched) {
+        variants.add(matched.skillName);
+        matched.alternativeNames.forEach(alt => variants.add(alt));
+      }
+    }
+  }
+
+  return Array.from(variants).filter(term => term.length > 0).slice(0, 60);
 }
 
 export function skillsMatch(candidateSkill: string, searchTerm: string): boolean {
