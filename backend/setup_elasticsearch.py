@@ -33,7 +33,7 @@ SETTINGS = {
             },
             "synonym_filter": {
                 "type": "synonym",
-                "synonyms": [
+                "synonyms": [                                                                                                                                                                                               
                     "javascript, js, ecmascript",
                     "typescript, ts",
                     "react, reactjs",

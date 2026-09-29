@@ -721,14 +721,25 @@ def search_candidates(
         })
     
     if location and location.strip():
-      must_queries.append({
-        "match": {
-          "location": {
-            "query": location,
-            "fuzziness": "AUTO"
+      loc_parts = [l.strip() for l in location.split(",") if l.strip()]
+      if len(loc_parts) == 1:
+        must_queries.append({
+          "match": {
+            "location": {
+              "query": loc_parts[0],
+              "fuzziness": "AUTO"
+            }
           }
-        }
-      })
+        })
+      elif len(loc_parts) > 1:
+        must_queries.append({
+          "bool": {
+            "should": [
+              {"match": {"location": {"query": lp, "fuzziness": "AUTO"}}} for lp in loc_parts
+            ],
+            "minimum_should_match": 1
+          }
+        })
       
     if current_company and current_company.strip():
       must_queries.append({
