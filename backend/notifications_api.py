@@ -596,6 +596,17 @@ def search_jobs(
     )
 
 
+SENSITIVE_PROFILE_FIELDS = {
+  "otp_code", "otp_expires_at", "password", "password_hash",
+  "token", "reset_token"
+}
+
+def sanitize_candidate_profile(source: dict) -> dict:
+  if not isinstance(source, dict):
+    return source
+  return {k: v for k, v in source.items() if k not in SENSITIVE_PROFILE_FIELDS}
+
+
 def parse_total_experience(val) -> int:
   if not val:
     return 0
@@ -604,7 +615,13 @@ def parse_total_experience(val) -> int:
   except ValueError:
     pass
   import re
-  match = re.search(r'\b(\d+)\b', str(val))
+  s = str(val).lower()
+  year_match = re.search(r'(\d+)\s*(?:yr|year)', s)
+  if year_match:
+    return int(year_match.group(1))
+  if 'month' in s and 'year' not in s:
+    return 0
+  match = re.search(r'\b(\d+)\b', s)
   if match:
     return int(match.group(1))
   return 0
@@ -636,6 +653,8 @@ def handle_supabase_webhook(payload: dict):
     elif table == "profiles":
       if event_type in ("INSERT", "UPDATE"):
         if record and record.get("id"):
+          for field in SENSITIVE_PROFILE_FIELDS:
+            record.pop(field, None)
           record["total_experience_val"] = parse_total_experience(record.get("total_experience"))
           es.index(index="candidate_profiles", id=record["id"], document=record)
           return {"status": "success", "action": f"indexed profile {record['id']}"}
@@ -663,7 +682,7 @@ def search_candidates(
   experience_max: str = Query(None),
   sort: str = Query("relevant"),
   page: int = Query(1, ge=1),
-  size: int = Query(20, ge=1, le=100)
+  size: int = Query(500, ge=1, le=1000)
 ):
   es = get_elasticsearch_client()
   try:
@@ -734,7 +753,12 @@ def search_candidates(
         })
       
     if experience_type:
-      filter_queries.append({"term": {"experience_type": experience_type}})
+      exp_clean = experience_type.strip().lower()
+      filter_queries.append({
+        "terms": {
+          "experience_type": [exp_clean, exp_clean.capitalize(), experience_type.strip()]
+        }
+      })
       
     def _int_c(v):
       try: return int(v) if v and v.strip() else None
@@ -823,7 +847,7 @@ def search_candidates(
 
     hits = res.get("hits", {}).get("hits", [])
     total = res.get("hits", {}).get("total", {}).get("value", 0)
-    candidates = [hit["_source"] for hit in hits]
+    candidates = [sanitize_candidate_profile(hit["_source"]) for hit in hits]
     return {"candidates": candidates, "total": total, "page": page, "size": size}
   except Exception as e:
     raise HTTPException(status_code=500, detail=f"Candidate search query failed: {str(e)}")

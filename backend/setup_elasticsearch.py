@@ -218,6 +218,11 @@ PROFILES_MAPPING = {
     }
 }
 
+SENSITIVE_PROFILE_FIELDS = {
+    "otp_code", "otp_expires_at", "password", "password_hash",
+    "token", "reset_token"
+}
+
 def parse_total_experience(val) -> int:
     if not val:
         return 0
@@ -226,7 +231,13 @@ def parse_total_experience(val) -> int:
     except ValueError:
         pass
     import re
-    match = re.search(r'\b(\d+)\b', str(val))
+    s = str(val).lower()
+    year_match = re.search(r'(\d+)\s*(?:yr|year)', s)
+    if year_match:
+        return int(year_match.group(1))
+    if 'month' in s and 'year' not in s:
+        return 0
+    match = re.search(r'\b(\d+)\b', s)
     if match:
         return int(match.group(1))
     return 0
@@ -273,6 +284,8 @@ def sync_data():
     # Index Profiles
     if profiles:
         for profile in profiles:
+            for field in SENSITIVE_PROFILE_FIELDS:
+                profile.pop(field, None)
             profile["total_experience_val"] = parse_total_experience(profile.get("total_experience"))
         actions = [
             {

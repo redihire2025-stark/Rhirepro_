@@ -1034,6 +1034,9 @@ export default function ApplicantProfilePage() {
               </div>
             </div>
 
+            {/* Career Timeline */}
+            <CareerTimeline experiences={experiences} education={education} />
+
             {/* Professional Summary */}
             <div className="bg-white rounded-2xl p-6 shadow-md">
               <h3 className="text-lg font-bold text-[#3A1F1F] mb-3">Professional Summary</h3>
@@ -1065,8 +1068,6 @@ export default function ApplicantProfilePage() {
               </div>
             </div>
 
-            {/* Career Timeline */}
-            <CareerTimeline experiences={experiences} education={education} />
 
             {/* Work Experience */}
             <div className="bg-white rounded-2xl p-6 shadow-md">
@@ -1174,6 +1175,11 @@ export default function ApplicantProfilePage() {
               </div>
             </div>
 
+
+          </div>
+
+          {/* Right Column: Embedded Resume Preview & Download */}
+          <div className="flex flex-col space-y-6">
             {/* Preferred Job Settings */}
             <div className="bg-white rounded-2xl p-6 shadow-md">
               <h3 className="text-lg font-bold text-[#3A1F1F] mb-4 flex items-center gap-2"><Briefcase className="h-5 w-5 text-[#FF2B2B]" /> Preferred Job Settings</h3>
@@ -1257,10 +1263,6 @@ export default function ApplicantProfilePage() {
               </div>
             </div>
 
-          </div>
-
-          {/* Right Column: Embedded Resume Preview & Download */}
-          <div className="flex flex-col">
             <div ref={fullscreenResumeRef} className="bg-white rounded-2xl p-6 shadow-md border border-gray-100 flex flex-col flex-1 overflow-hidden relative">
 
               {/* Floating controls in Fullscreen Mode */}

@@ -77,16 +77,55 @@ export const FALLBACK_DESIGNATIONS: string[] = [
 ];
 
 export const FALLBACK_SKILLS: string[] = Array.from(
-  new Set([...SEARCH_SUGGESTION_DATASET, ...SKILL_OPTIONS])
+  new Set([
+    ...SEARCH_SUGGESTION_DATASET,
+    ...SKILL_OPTIONS,
+    "DevOps",
+    "UI/UX",
+    "UI/UX Design",
+    "QA Testing",
+    "Cloud Architecture",
+    "Cloud Computing",
+    "Data Science",
+    "Data Analysis",
+    "Data Engineering",
+    "Product Management",
+    "Project Management",
+    "Artificial Intelligence",
+  ])
 ).sort((a, b) => a.localeCompare(b));
 
-// In-memory cache for ultra-fast keystroke responsiveness (<5ms)
-const suggestionCache = new Map<string, SkillSuggestion[]>();
+// BUG-8 FIX: TTL-based cache (5 min expiry, max 200 entries) to prevent memory
+// leaks in long sessions and stale results when skills are added mid-session.
+const CACHE_TTL_MS = 5 * 60 * 1000; // 5 minutes
+const CACHE_MAX_SIZE = 200;
+const suggestionCache = new Map<string, { data: SkillSuggestion[]; timestamp: number }>();
 let isDatabaseAvailable: boolean | null = null;
+
+function getCached(key: string): SkillSuggestion[] | null {
+  const entry = suggestionCache.get(key);
+  if (!entry) return null;
+  if (Date.now() - entry.timestamp > CACHE_TTL_MS) {
+    suggestionCache.delete(key);
+    return null;
+  }
+  return entry.data;
+}
+
+function setCache(key: string, data: SkillSuggestion[]): void {
+  // Evict oldest entries if over max size
+  if (suggestionCache.size >= CACHE_MAX_SIZE) {
+    const firstKey = suggestionCache.keys().next().value;
+    if (firstKey !== undefined) suggestionCache.delete(firstKey);
+  }
+  suggestionCache.set(key, { data, timestamp: Date.now() });
+}
 
 /**
  * Scores a candidate suggestion against the query.
- * Prefix matches are prioritized heavily. Mid-word substring matches are only allowed for queries >= 3 chars.
+ * 1. Primary prefix matches (e.g. "DevOps" for "de") get top priority (800+).
+ * 2. Secondary word prefix matches (e.g. "iOS Development" for "de") get lower priority (450+).
+ * 3. Substring & fuzzy matches are ONLY allowed for queries >= 3 characters to eliminate single/two-letter noise (e.g. "Node.js" for "de").
  */
 export function scoreSuggestionMatch(candidate: string, query: string): number {
   const c = candidate.toLowerCase().trim();
@@ -96,19 +135,19 @@ export function scoreSuggestionMatch(candidate: string, query: string): number {
   // 1. Exact match (highest priority)
   if (c === q) return 1000;
 
-  // 2. Starts with query (e.g. "Java", "JavaScript" for "j")
+  // 2. Starts with query directly (e.g. "Java" for "j", "DevOps" for "de")
   if (c.startsWith(q)) return 800 - c.length;
 
-  // 3. Word in the phrase starts with query (e.g. "Core Java" for "j")
-  const words = c.split(/\s+/);
-  if (words.some(w => w.startsWith(q))) return 600 - c.length;
+  // 3. Word in the phrase starts with query (e.g. "Core Java" for "j", "iOS Development" for "de")
+  const words = c.split(/[\s/._-]+/).filter(Boolean);
+  if (words.slice(1).some(w => w.startsWith(q))) return 450 - c.length;
 
   // 4. Substring match (ONLY if query is at least 3 characters!)
-  // Avoids noise like "Express.js" or "Django" showing for a single letter "j"
-  if (q.length >= 3 && c.includes(q)) return 400 - c.length;
+  // Avoids noise like "Express.js" showing for "j", or "Node.js" showing for "de"
+  if (q.length >= 3 && c.includes(q)) return 250 - c.length;
 
   // 5. Fuzzy match (ONLY if query is at least 3 characters)
-  if (q.length >= 3 && fuzzyMatch(q, candidate)) return 200 - c.length;
+  if (q.length >= 3 && fuzzyMatch(q, candidate)) return 100 - c.length;
 
   return 0;
 }
@@ -133,8 +172,8 @@ export async function getDatabaseSkillSuggestions(
   const excludeList = new Set((options.exclude || []).map(e => e.toLowerCase()));
   const cacheKey = `${typeFilter}::${clean.toLowerCase()}::${limit}`;
 
-  if (suggestionCache.has(cacheKey)) {
-    const cached = suggestionCache.get(cacheKey)!;
+  const cached = getCached(cacheKey);
+  if (cached) {
     return cached.filter(item => !excludeList.has(item.value.toLowerCase()));
   }
 
@@ -145,18 +184,51 @@ export async function getDatabaseSkillSuggestions(
       const { data: rpcData, error: rpcErr } = await supabase.rpc("search_master_skills", {
         p_query: clean,
         p_type: typeFilter,
-        p_limit: limit,
+        p_limit: limit * 2,
       });
 
       if (!rpcErr && Array.isArray(rpcData) && rpcData.length > 0) {
         isDatabaseAvailable = true;
-        const results: SkillSuggestion[] = rpcData.map((item: any) => ({
+        const rawResults: SkillSuggestion[] = rpcData.map((item: any) => ({
           value: item.name,
           type: item.type === "designation" ? "designation" : "skill",
           category: item.category,
         }));
-        results.sort((a, b) => scoreSuggestionMatch(b.value, clean) - scoreSuggestionMatch(a.value, clean));
-        suggestionCache.set(cacheKey, results);
+
+        // Filter out zero-score items so loose DB substring matches (like Node.js for 'de') are discarded
+        let scored = rawResults
+          .map(item => ({ item, score: scoreSuggestionMatch(item.value, clean) }))
+          .filter(entry => entry.score > 0);
+
+        // Ensure high-confidence primary prefix matches (score >= 750, e.g. 'DevOps' for 'de') from fallback
+        // are included even if the remote DB has not yet seeded that specific row
+        const topFallback = getFallbackSuggestions(clean, typeFilter, 5);
+        for (const fb of topFallback) {
+          const sc = scoreSuggestionMatch(fb.value, clean);
+          if (sc >= 750 && !scored.some(s => s.item.value.toLowerCase() === fb.value.toLowerCase())) {
+            scored.push({ item: fb, score: sc });
+          }
+        }
+
+        scored.sort((a, b) => {
+          if (b.score !== a.score) return b.score - a.score;
+          if (a.item.value.length !== b.item.value.length) return a.item.value.length - b.item.value.length;
+          return a.item.value.localeCompare(b.item.value);
+        });
+
+        // Deduplicate
+        const seen = new Set<string>();
+        const results: SkillSuggestion[] = [];
+        for (const entry of scored) {
+          const valLower = entry.item.value.toLowerCase();
+          if (!seen.has(valLower)) {
+            seen.add(valLower);
+            results.push(entry.item);
+            if (results.length >= limit) break;
+          }
+        }
+
+        setCache(cacheKey, results);
         return results.filter(item => !excludeList.has(item.value.toLowerCase()));
       }
 
@@ -181,15 +253,43 @@ export async function getDatabaseSkillSuggestions(
 
       if (!tableErr && Array.isArray(tableData) && tableData.length > 0) {
         isDatabaseAvailable = true;
-        const results: SkillSuggestion[] = tableData.map((item: any) => ({
+        const rawResults: SkillSuggestion[] = tableData.map((item: any) => ({
           value: item.name,
           type: item.type === "designation" ? "designation" : "skill",
           category: item.category,
         }));
-        results.sort((a, b) => scoreSuggestionMatch(b.value, clean) - scoreSuggestionMatch(a.value, clean));
-        const finalResults = results.slice(0, limit);
-        suggestionCache.set(cacheKey, finalResults);
-        return finalResults.filter(item => !excludeList.has(item.value.toLowerCase()));
+
+        let scored = rawResults
+          .map(item => ({ item, score: scoreSuggestionMatch(item.value, clean) }))
+          .filter(entry => entry.score > 0);
+
+        const topFallback = getFallbackSuggestions(clean, typeFilter, 5);
+        for (const fb of topFallback) {
+          const sc = scoreSuggestionMatch(fb.value, clean);
+          if (sc >= 750 && !scored.some(s => s.item.value.toLowerCase() === fb.value.toLowerCase())) {
+            scored.push({ item: fb, score: sc });
+          }
+        }
+
+        scored.sort((a, b) => {
+          if (b.score !== a.score) return b.score - a.score;
+          if (a.item.value.length !== b.item.value.length) return a.item.value.length - b.item.value.length;
+          return a.item.value.localeCompare(b.item.value);
+        });
+
+        const seen = new Set<string>();
+        const results: SkillSuggestion[] = [];
+        for (const entry of scored) {
+          const valLower = entry.item.value.toLowerCase();
+          if (!seen.has(valLower)) {
+            seen.add(valLower);
+            results.push(entry.item);
+            if (results.length >= limit) break;
+          }
+        }
+
+        setCache(cacheKey, results);
+        return results.filter(item => !excludeList.has(item.value.toLowerCase()));
       }
     } catch (err) {
       console.warn("Database skill suggestion failed, using cached fallback:", err);
@@ -199,7 +299,7 @@ export async function getDatabaseSkillSuggestions(
 
   // 2. High-speed Fallback Search (Guarantees zero downtime and instant UI responsiveness)
   const results = getFallbackSuggestions(clean, typeFilter, limit);
-  suggestionCache.set(cacheKey, results);
+  setCache(cacheKey, results);
   return results.filter(item => !excludeList.has(item.value.toLowerCase()));
 }
 
@@ -222,12 +322,13 @@ export function getSuggestionsSync(
   const excludeList = new Set((options.exclude || []).map(e => e.toLowerCase()));
   const cacheKey = `${typeFilter}::${clean.toLowerCase()}::${limit}`;
 
-  if (suggestionCache.has(cacheKey)) {
-    return suggestionCache.get(cacheKey)!.filter(item => !excludeList.has(item.value.toLowerCase()));
+  const cached = getCached(cacheKey);
+  if (cached) {
+    return cached.filter(item => !excludeList.has(item.value.toLowerCase()));
   }
 
   const results = getFallbackSuggestions(clean, typeFilter, limit);
-  suggestionCache.set(cacheKey, results);
+  setCache(cacheKey, results);
   return results.filter(item => !excludeList.has(item.value.toLowerCase()));
 }
 

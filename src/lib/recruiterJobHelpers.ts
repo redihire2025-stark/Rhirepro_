@@ -162,7 +162,7 @@ export function validateBooleanSearch(keywords: string, booleanEnabled: boolean)
   if (!trimmed) return null;
 
   if (!booleanEnabled) {
-    if (/\b(?:and|or|not)\b/i.test(trimmed)) {
+    if (/\b(AND|OR|NOT)\b|[()]/.test(trimmed)) {
       return "Boolean operators (AND, OR, NOT) are not allowed in Standard mode. Please turn ON Boolean Search to use boolean operators.";
     }
     return null;
@@ -170,6 +170,11 @@ export function validateBooleanSearch(keywords: string, booleanEnabled: boolean)
 
   if (trimmed.includes(",")) {
     return "In Boolean Search mode, commas are not allowed. Please use AND, OR, or NOT operators between skills (e.g., Python AND React).";
+  }
+
+  const quoteCount = (trimmed.match(/"/g) || []).length;
+  if (quoteCount % 2 !== 0) {
+    return "Unclosed quotation mark. Please ensure all quoted phrases have matching opening and closing quotes.";
   }
 
   const openParen = (trimmed.match(/\(/g) || []).length;
@@ -186,9 +191,14 @@ export function validateBooleanSearch(keywords: string, booleanEnabled: boolean)
     return "Query ends with an incomplete boolean operator (e.g. 'AND'). Add a search term after it.";
   }
 
-  // Ignore brackets when deciding whether an operator is present, so
-  // "(React OR Node)" is not mistaken for two bare words.
-  const words = trimmed.replace(/[()]/g, " ").split(/\s+/).filter(Boolean);
+  // Treat double-quoted phrases as a single term and ignore grouping parentheses
+  // so expressions like '"Product Manager"' or '(React OR Node)' are not mistaken for bare words.
+  // Note: apostrophes in words like O'Brien or Master's are preserved as word characters.
+  const normalizedForWordCheck = trimmed
+    .replace(/"[^"]*"/g, " __PHRASE__ ")
+    .replace(/[()]/g, " ");
+
+  const words = normalizedForWordCheck.split(/\s+/).filter(Boolean);
   if (words.length > 1 && !words.some((w) => /^(and|or|not)$/i.test(w))) {
     return "In Boolean Search mode, please use AND, OR, or NOT operators between skills (e.g., Python AND React).";
   }

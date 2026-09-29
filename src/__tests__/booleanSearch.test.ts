@@ -8,11 +8,20 @@ import { validateBooleanSearch } from "../lib/recruiterJobHelpers";
  * again.
  */
 describe("validateBooleanSearch — standard mode", () => {
-  it("rejects boolean operators when the toggle is off", () => {
-    // Broadcast previously accepted this and searched it as literal text.
+  it("rejects uppercase boolean operators and parentheses when the toggle is off", () => {
+    // Uppercase operators indicate an intentional Boolean query entered while toggle is OFF
     expect(validateBooleanSearch("React AND Node", false)).toBeTruthy();
-    expect(validateBooleanSearch("java or python", false)).toBeTruthy();
+    expect(validateBooleanSearch("Java OR Python", false)).toBeTruthy();
     expect(validateBooleanSearch("React NOT Angular", false)).toBeTruthy();
+    expect(validateBooleanSearch("(React OR Node)", false)).toBeTruthy();
+  });
+
+  it("accepts ordinary English phrases containing lowercase and/or/not in standard mode", () => {
+    // Normal English titles and phrases must never be blocked in Standard mode
+    expect(validateBooleanSearch("Research and Development", false)).toBeNull();
+    expect(validateBooleanSearch("Sales and Marketing Manager", false)).toBeNull();
+    expect(validateBooleanSearch("Not for Profit Coordinator", false)).toBeNull();
+    expect(validateBooleanSearch("Frontend or Backend Developer", false)).toBeNull();
   });
 
   it("accepts ordinary comma-separated keywords", () => {
@@ -54,6 +63,43 @@ describe("validateBooleanSearch — boolean mode", () => {
 
   it("does not mistake a bracketed query for bare words", () => {
     expect(validateBooleanSearch("(React OR Node)", true)).toBeNull();
+  });
+
+  it("accepts single and combined quoted multi-word phrases in boolean mode", () => {
+    // Quoted multi-word phrase like "Product Manager" is a single term
+    expect(validateBooleanSearch('"Product Manager"', true)).toBeNull();
+    expect(validateBooleanSearch('"Senior Software Engineer"', true)).toBeNull();
+    expect(validateBooleanSearch('"Product Manager" AND "Agile"', true)).toBeNull();
+    expect(validateBooleanSearch('("Product Manager" OR "Program Manager") AND "Scrum"', true)).toBeNull();
+  });
+
+  it("rejects unclosed quotes and bare quoted phrases without operators", () => {
+    expect(validateBooleanSearch('"Product Manager', true)).toContain("Unclosed");
+    expect(validateBooleanSearch('"Product Manager" "Agile"', true)).toBeTruthy();
+  });
+
+  it("accepts queries with apostrophes in words like O'Brien or Master's", () => {
+    expect(validateBooleanSearch("O'Brien AND React", true)).toBeNull();
+    expect(validateBooleanSearch("Master's Degree AND Python", true)).toBeNull();
+    expect(validateBooleanSearch("Bachelor's in Computer Science OR Master's in IT", true)).toBeNull();
+  });
+});
+
+describe("matchesMultiLevelLocation — bidirectional aliases", () => {
+  it("matches Delhi and New Delhi bidirectionally", async () => {
+    const { matchesMultiLevelLocation } = await import("../lib/locationData");
+    // Candidate profile says "Delhi", recruiter filters by City = "New Delhi"
+    expect(matchesMultiLevelLocation("Delhi", { city: "New Delhi" })).toBe(true);
+    // Candidate profile says "New Delhi", recruiter filters by City = "Delhi"
+    expect(matchesMultiLevelLocation("New Delhi", { city: "Delhi" })).toBe(true);
+    // Candidate profile says "NCR", recruiter filters by City = "New Delhi"
+    expect(matchesMultiLevelLocation("NCR", { city: "New Delhi" })).toBe(true);
+  });
+
+  it("matches Bangalore and Bengaluru bidirectionally", async () => {
+    const { matchesMultiLevelLocation } = await import("../lib/locationData");
+    expect(matchesMultiLevelLocation("Bengaluru", { city: "Bangalore" })).toBe(true);
+    expect(matchesMultiLevelLocation("Bangalore", { city: "Bengaluru" })).toBe(true);
   });
 });
 
