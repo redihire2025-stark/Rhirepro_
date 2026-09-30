@@ -90,7 +90,7 @@ import {
   DropdownMenuTrigger,
   DropdownMenuSeparator,
 } from "../components/ui/dropdown-menu";
-import { Dialog, DialogContent, DialogHeader, DialogTitle } from "../components/ui/dialog";
+import { Dialog, DialogContent, DialogDescription, DialogHeader, DialogTitle } from "../components/ui/dialog";
 import { Tabs, TabsContent, TabsList, TabsTrigger } from "../components/ui/tabs";
 import FeedbackPopup from "../components/FeedbackPopup";
 import InterviewDetailsModal from "../components/InterviewDetailsModal";
@@ -4842,6 +4842,24 @@ function ManageJobsPage() {
     setJobs(prev => prev.map(j => j.id === id ? { ...j, status: "Closed" } : j));
   };
 
+  const deleteJobPermanently = async (id: string) => {
+    if (!confirm("Permanently delete this job? All associated applications and data for this job will be removed. This cannot be undone.")) return;
+    let query = supabase.from("jobs").delete().eq("id", id);
+    if (recruiterProfile?.id) {
+      query = query.eq("recruiter_id", recruiterProfile.id);
+    }
+    const { error } = await query;
+
+    if (error) {
+      console.error("Failed to permanently delete job:", error.message);
+      alert(`Unable to delete job: ${error.message}`);
+      return;
+    }
+
+    setJobs(prev => prev.filter(j => j.id !== id));
+    toast.success("Job permanently deleted.");
+  };
+
   return (
     <div className="container mx-auto px-4 py-8">
       {/* Header and Controls */}
@@ -5086,7 +5104,27 @@ function ManageJobsPage() {
                       <Users className="h-4 w-4 text-[#FF2B2B]" />
                     </Button>
                     <Button variant="outline" size="icon" className="border-gray-200 rounded-full" onClick={() => openEdit(job)} title="Edit Job"><Edit className="h-4 w-4 text-[#3A1F1F]" /></Button>
-                    <Button variant="outline" size="icon" className="border-gray-200 rounded-full" onClick={() => closeJob(job.id)} title="Close Job"><Trash2 className="h-4 w-4 text-[#FF2B2B]" /></Button>
+                    {effectiveStatus === "Closed" ? (
+                      <Button
+                        variant="outline"
+                        size="icon"
+                        className="border-red-200 bg-red-50 hover:bg-red-100 rounded-full"
+                        onClick={() => deleteJobPermanently(job.id)}
+                        title="Permanently Delete Job"
+                      >
+                        <Trash2 className="h-4 w-4 text-[#FF2B2B]" />
+                      </Button>
+                    ) : (
+                      <Button
+                        variant="outline"
+                        size="icon"
+                        className="border-gray-200 rounded-full"
+                        onClick={() => closeJob(job.id)}
+                        title="Close Job"
+                      >
+                        <Trash2 className="h-4 w-4 text-[#FF2B2B]" />
+                      </Button>
+                    )}
                   </div>
                 </div>
                 <div className="grid grid-cols-3 gap-4 mt-4 pt-4 border-t border-gray-100">
@@ -6119,6 +6157,195 @@ type RecruiterAppliedJdSearchApplication = {
   job: Job | null;
 };
 
+interface SearchCandidateInterviewModalProps {
+  candidate: DBCandidate | null;
+  jobs: Array<{ id: string; title: string }>;
+  selectedJobId: string;
+  onSelectJobId: (id: string) => void;
+  open: boolean;
+  onOpenChange: (open: boolean) => void;
+  onSubmit: (message: string, meetingUrl: string, round: "L1" | "L2" | "L3" | "HR Round") => Promise<void>;
+  submitting?: boolean;
+}
+
+function SearchCandidateInterviewModal({
+  candidate,
+  jobs,
+  selectedJobId,
+  onSelectJobId,
+  open,
+  onOpenChange,
+  onSubmit,
+  submitting = false,
+}: SearchCandidateInterviewModalProps) {
+  const [message, setMessage] = useState("");
+  const [meetingUrl, setMeetingUrl] = useState("");
+  const [round, setRound] = useState<"L1" | "L2" | "L3" | "HR Round">("L1");
+  const [validationError, setValidationError] = useState("");
+
+  const candidateName = candidate ? getCandidateDisplayName(candidate) : "Candidate";
+
+  useEffect(() => {
+    if (!open) {
+      setMessage("");
+      setMeetingUrl("");
+      setRound("L1");
+      setValidationError("");
+    }
+  }, [open]);
+
+  const normalizeMeetingUrl = (value: string): string | null => {
+    const trimmed = value.trim();
+    if (!trimmed) return null;
+    const withProtocol = /^https?:\/\//i.test(trimmed) ? trimmed : `https://${trimmed}`;
+    try {
+      const url = new URL(withProtocol);
+      if (url.protocol !== "http:" && url.protocol !== "https:") return null;
+      return url.toString();
+    } catch {
+      return null;
+    }
+  };
+
+  const handleSend = async () => {
+    setValidationError("");
+    if (!selectedJobId) {
+      setValidationError("Please select an active job position for this interview.");
+      return;
+    }
+    const normalizedUrl = normalizeMeetingUrl(meetingUrl);
+    if (!normalizedUrl) {
+      setValidationError("Please enter a valid meeting URL (e.g., https://meet.google.com/xyz or https://zoom.us/j/xyz).");
+      return;
+    }
+    await onSubmit(message.trim(), normalizedUrl, round);
+  };
+
+  return (
+    <Dialog open={open} onOpenChange={onOpenChange}>
+      <DialogContent className="max-w-2xl overflow-hidden rounded-2xl bg-white p-0 shadow-2xl sm:max-w-2xl">
+        <div className="bg-gradient-to-r from-[#3A1F1F] to-[#FF2B2B] rounded-t-2xl px-6 py-5">
+          <DialogHeader>
+            <DialogTitle className="text-xl font-bold text-white flex items-center gap-2">
+              <Calendar className="h-5 w-5" /> Schedule Interview with {candidateName}
+            </DialogTitle>
+            <DialogDescription className="text-white/80">
+              Select an active job opening and share interview meeting details directly without leaving search results.
+            </DialogDescription>
+          </DialogHeader>
+        </div>
+
+        <div className="space-y-4 px-6 pb-6 pt-5">
+          {validationError && (
+            <div className="rounded-xl border border-red-200 bg-red-50 p-3 text-xs text-red-700 font-medium">
+              {validationError}
+            </div>
+          )}
+
+          <div>
+            <label className="mb-2 block text-sm font-semibold text-[#3A1F1F]">
+              Job Position <span className="text-red-500">*</span>
+            </label>
+            {jobs.length === 0 ? (
+              <div className="rounded-xl border border-amber-200 bg-amber-50 p-3 text-xs text-amber-800">
+                No active jobs found. Please post an active job to schedule an interview with this candidate.
+              </div>
+            ) : (
+              <Select value={selectedJobId} onValueChange={onSelectJobId}>
+                <SelectTrigger className="rounded-xl border-gray-200 bg-[#F6F6F6] text-[#3A1F1F] focus:ring-[#FF2B2B]">
+                  <SelectValue placeholder="Select active job" />
+                </SelectTrigger>
+                <SelectContent>
+                  {jobs.map(j => (
+                    <SelectItem key={j.id} value={j.id}>
+                      {j.title}
+                    </SelectItem>
+                  ))}
+                </SelectContent>
+              </Select>
+            )}
+          </div>
+
+          <div>
+            <label htmlFor="search-interview-round" className="mb-2 block text-sm font-semibold text-[#3A1F1F]">
+              Interview Round
+            </label>
+            <Select value={round} onValueChange={(val) => setRound(val as "L1" | "L2" | "L3" | "HR Round")}>
+              <SelectTrigger id="search-interview-round" className="rounded-xl border-gray-200 bg-[#F6F6F6] text-[#3A1F1F] focus:ring-[#FF2B2B]">
+                <SelectValue placeholder="Select round" />
+              </SelectTrigger>
+              <SelectContent>
+                <SelectItem value="L1">L1 - Technical Round 1</SelectItem>
+                <SelectItem value="L2">L2 - Technical Round 2</SelectItem>
+                <SelectItem value="L3">L3 - Leadership / System Design</SelectItem>
+                <SelectItem value="HR Round">HR Round</SelectItem>
+              </SelectContent>
+            </Select>
+          </div>
+
+          <div>
+            <label htmlFor="search-meeting-url" className="mb-2 block text-sm font-semibold text-[#3A1F1F]">
+              Meeting URL <span className="text-red-500">*</span>
+            </label>
+            <Input
+              id="search-meeting-url"
+              placeholder="https://meet.google.com/xyz or https://zoom.us/j/xyz"
+              value={meetingUrl}
+              onChange={(e) => setMeetingUrl(e.target.value)}
+              className="rounded-xl border-gray-200 bg-[#F6F6F6] text-[#3A1F1F] focus:border-[#FF2B2B] focus:ring-[#FF2B2B]"
+            />
+          </div>
+
+          <div>
+            <label htmlFor="search-interview-notes" className="mb-2 block text-sm font-semibold text-[#3A1F1F]">
+              Instructions / Notes for Candidate (Optional)
+            </label>
+            <Textarea
+              id="search-interview-notes"
+              placeholder="Add meeting agenda, interviewers, preparation requirements..."
+              value={message}
+              onChange={(e) => setMessage(e.target.value)}
+              rows={4}
+              maxLength={2500}
+              className="rounded-xl border-gray-200 bg-[#F6F6F6] text-[#3A1F1F] focus:border-[#FF2B2B] focus:ring-[#FF2B2B]"
+            />
+          </div>
+
+          <div className="flex justify-end gap-3 pt-2">
+            <Button
+              type="button"
+              variant="outline"
+              onClick={() => onOpenChange(false)}
+              disabled={submitting}
+              className="rounded-full border-gray-200 text-[#3A1F1F] hover:bg-gray-100"
+            >
+              Cancel
+            </Button>
+            <Button
+              type="button"
+              onClick={handleSend}
+              disabled={submitting || jobs.length === 0 || !meetingUrl.trim()}
+              className="rounded-full bg-[#FF2B2B] text-white hover:bg-[#e02525]"
+            >
+              {submitting ? (
+                <>
+                  <span className="mr-2 inline-block h-4 w-4 animate-spin rounded-full border-2 border-white border-t-transparent" />
+                  Scheduling...
+                </>
+              ) : (
+                <>
+                  <Calendar className="mr-2 h-4 w-4" />
+                  Schedule Interview
+                </>
+              )}
+            </Button>
+          </div>
+        </div>
+      </DialogContent>
+    </Dialog>
+  );
+}
+
 function SearchCandidatesPage() {
   const { recruiterProfile } = useAuth();
   const navigate = useNavigate();
@@ -6160,6 +6387,10 @@ function SearchCandidatesPage() {
   const [messagingCandidate, setMessagingCandidate] = useState<DBCandidate | null>(null);
   const [searchPage, setSearchPage] = useState<number>(1);
   const [searchError, setSearchError] = useState<string | null>(null);
+  const [interviewCandidate, setInterviewCandidate] = useState<DBCandidate | null>(null);
+  const [recruiterActiveJobs, setRecruiterActiveJobs] = useState<Array<{ id: string; title: string }>>([]);
+  const [selectedJobIdForInterview, setSelectedJobIdForInterview] = useState<string>("");
+  const [isSendingSearchInterview, setIsSendingSearchInterview] = useState(false);
 
   const countriesList = useMemo(() => getAllCountriesList(), []);
   const statesList = useMemo(() => getStatesList(selectedCountry), [selectedCountry]);
@@ -6198,6 +6429,130 @@ function SearchCandidatesPage() {
   const handleMessageCandidate = (candidate: DBCandidate) => {
     if (!candidate) return;
     setMessagingCandidate(candidate);
+  };
+
+  const handleOpenInterviewModal = async (candidate: DBCandidate) => {
+    if (!candidate) return;
+    setInterviewCandidate(candidate);
+    if (!recruiterProfile?.id) return;
+    try {
+      const { data } = await supabase
+        .from("jobs")
+        .select("id, title")
+        .eq("recruiter_id", recruiterProfile.id)
+        .eq("status", "Active")
+        .order("created_at", { ascending: false });
+      const list = data || [];
+      setRecruiterActiveJobs(list);
+      if (list.length > 0) {
+        setSelectedJobIdForInterview(list[0].id);
+      }
+    } catch (err) {
+      console.error("Failed to load active jobs for interview:", err);
+    }
+  };
+
+  const handleScheduleSearchCandidateInterview = async (
+    message: string,
+    meetingUrl: string,
+    round: "L1" | "L2" | "L3" | "HR Round"
+  ) => {
+    if (!interviewCandidate?.id || !recruiterProfile?.id) return;
+    if (!selectedJobIdForInterview) {
+      toast.error("Please select an active job for this interview.");
+      return;
+    }
+
+    setIsSendingSearchInterview(true);
+    const nowIso = new Date().toISOString();
+    const candidateName = getCandidateDisplayName(interviewCandidate);
+    const companyName = recruiterProfile.company_name || "the hiring team";
+    const selectedJob = recruiterActiveJobs.find(j => j.id === selectedJobIdForInterview);
+    const roleTitle = selectedJob?.title || "the position";
+    const normalizedMeetingUrl = meetingUrl.trim();
+
+    try {
+      // 1. Check if application already exists for this job & candidate
+      let applicationId: string | null = null;
+      const { data: existingApp } = await supabase
+        .from("applications")
+        .select("id")
+        .eq("job_id", selectedJobIdForInterview)
+        .eq("profile_id", interviewCandidate.id)
+        .maybeSingle();
+
+      if (existingApp?.id) {
+        applicationId = existingApp.id;
+        await supabase
+          .from("applications")
+          .update({ status: "Interview Scheduled", status_updated_at: nowIso })
+          .eq("id", applicationId);
+      } else {
+        const { data: newApp, error: appErr } = await supabase
+          .from("applications")
+          .insert({
+            job_id: selectedJobIdForInterview,
+            profile_id: interviewCandidate.id,
+            recruiter_id: recruiterProfile.id,
+            status: "Interview Scheduled",
+            applied_at: nowIso,
+            status_updated_at: nowIso,
+          })
+          .select("id")
+          .single();
+
+        if (appErr) throw appErr;
+        applicationId = newApp.id;
+      }
+
+      // 2. Insert interview details
+      const formattedMessage = [`Job: ${roleTitle}`, `Round: ${round}`, `Meeting URL: ${normalizedMeetingUrl}`, "", message].join("\n");
+      const { error: intErr } = await supabase
+        .from("interview_details")
+        .upsert(
+          {
+            application_id: applicationId,
+            recruiter_id: recruiterProfile.id,
+            candidate_id: interviewCandidate.id,
+            interview_message: formattedMessage,
+            meeting_url: normalizedMeetingUrl,
+            status: "Interview Scheduled",
+          },
+          { onConflict: "application_id" }
+        );
+
+      if (intErr) throw intErr;
+
+      // 3. Send candidate notification
+      await supabase
+        .from("notifications")
+        .insert({
+          user_id: interviewCandidate.id,
+          user_type: "jobseeker",
+          title: `Interview Details from ${companyName}`,
+          message: [
+            `Status: Interview Scheduled`,
+            `Role: ${roleTitle}`,
+            `Round: ${round}`,
+            `Company: ${companyName}`,
+            `Updated: ${new Date(nowIso).toLocaleString()}`,
+            `Meeting URL: ${normalizedMeetingUrl}`,
+            "",
+            message,
+          ].join("\n"),
+          type: "status_change",
+          is_read: false,
+          related_id: applicationId,
+        });
+
+      toast.success(`🎉 Interview scheduled with ${candidateName}!`);
+      setInterviewCandidate(null);
+    } catch (err: any) {
+      console.error("Failed to schedule interview:", err);
+      toast.error(err.message || "Failed to schedule interview");
+    } finally {
+      setIsSendingSearchInterview(false);
+    }
   };
 
   // ── Helpers ───────────────────────────────────────────────
@@ -8410,6 +8765,14 @@ function SearchCandidatesPage() {
                           <Button
                             size="sm"
                             variant="outline"
+                            className="border-purple-300 text-purple-700 bg-purple-50 hover:bg-purple-100 rounded-full text-xs h-7 font-medium"
+                            onClick={() => void handleOpenInterviewModal(c)}
+                          >
+                            <Calendar className="h-3.5 w-3.5 mr-1" /> Interview
+                          </Button>
+                          <Button
+                            size="sm"
+                            variant="outline"
                             className="border-gray-200 text-[#3A1F1F] hover:bg-gray-50 rounded-full text-xs h-7 font-medium"
                             onClick={() => handleMessageCandidate(c)}
                           >
@@ -8513,6 +8876,21 @@ function SearchCandidatesPage() {
             setMessagedCandidates(prev => new Set(prev).add(messagingCandidate.id));
           }
         }}
+      />
+
+      <SearchCandidateInterviewModal
+        open={Boolean(interviewCandidate)}
+        onOpenChange={(open) => {
+          if (!open && !isSendingSearchInterview) {
+            setInterviewCandidate(null);
+          }
+        }}
+        candidate={interviewCandidate}
+        jobs={recruiterActiveJobs}
+        selectedJobId={selectedJobIdForInterview}
+        onSelectJobId={setSelectedJobIdForInterview}
+        onSubmit={handleScheduleSearchCandidateInterview}
+        submitting={isSendingSearchInterview}
       />
     </div>
   );
@@ -9521,15 +9899,26 @@ Best regards,
     setSendingEmail(true);
 
     try {
-      const recipients = selectedCandidates.map(c => ({
+      const validCandidates = selectedCandidates.filter(
+        c => c.email && c.email.includes("@") && !c.email.endsWith("@candidate.recruiter")
+      );
+      const skippedCount = selectedCandidates.length - validCandidates.length;
+
+      if (validCandidates.length === 0) {
+        toast.error("None of the selected candidates have a valid email address on file.");
+        setSendingEmail(false);
+        return;
+      }
+
+      const recipients = validCandidates.map(c => ({
         id: c.id,
-        email: c.email || `${c.id}@candidate.recruiter`,
+        email: c.email!,
         name: getCandidateDisplayName(c),
         subject: getRenderedText(subject, c),
         body: getRenderedText(body, c),
       }));
 
-      for (const candidate of selectedCandidates) {
+      for (const candidate of validCandidates) {
         const candidateSubject = getRenderedText(subject, candidate);
         const candidateBody = getRenderedText(body, candidate);
 
@@ -9555,9 +9944,13 @@ Best regards,
         templateName: EMAIL_TEMPLATES[emailTemplateKey]?.name,
       });
 
-      const count = selectedCandidates.length;
-      setToastMessage(`🎉 Successfully sent email to ${count} candidate${count > 1 ? "s" : ""}!`);
-      setTimeout(() => setToastMessage(null), 5000);
+      const sentCount = validCandidates.length;
+      let msg = `🎉 Successfully sent email to ${sentCount} candidate${sentCount > 1 ? "s" : ""}!`;
+      if (skippedCount > 0) {
+        msg += ` (${skippedCount} candidate${skippedCount > 1 ? "s were" : " was"} skipped due to missing email)`;
+      }
+      setToastMessage(msg);
+      setTimeout(() => setToastMessage(null), 6000);
 
       setIsComposerOpen(false);
       setSelectedCandidatesMap(new Map());
@@ -10437,6 +10830,7 @@ function ApplicantsPage() {
   const [optimisticStatusByApplicant, setOptimisticStatusByApplicant] = useState<Record<string, Application["status"]>>({});
   const [resumePreview, setResumePreview] = useState<{ url: string; candidateName: string } | null>(null);
   const [selectedInterviewRoundApplicantId, setSelectedInterviewRoundApplicantId] = useState<string | null>(null);
+  const [fetchError, setFetchError] = useState<string | null>(null);
 
   const getEffectiveApplicationStatus = (applicant: AppWithProfile) =>
     optimisticStatusByApplicant[applicant.id] ?? applicant.status;
@@ -10447,18 +10841,71 @@ function ApplicantsPage() {
   const fetchApplicants = useCallback(async () => {
     if (!recruiterProfile?.id) return;
     setLoading(true);
-    const { data } = await supabase
-      .from("applications")
-      .select(`
+    setFetchError(null);
+
+    try {
+      const selectQuery = `
         id, status, applied_at, cover_letter, resume_url, recruiter_id, profile_id, job_id,
         profile:profiles(id, first_name, last_name, email, avatar_url, headline, location, total_experience, skills, current_title, current_company, expected_salary, notice_period, current_salary, about, work_experience(id, company, title, start_date, end_date, description, is_current), education(id, institution, degree, field, start_month, start_year, end_month, end_year)),
         job:jobs(id, title),
         interview_details(id, interview_message, meeting_url, status, created_at, updated_at)
-      `)
-      .eq("recruiter_id", recruiterProfile.id)
-      .order("applied_at", { ascending: false });
-    if (data) setApplicants(data as unknown as AppWithProfile[]);
-    setLoading(false);
+      `;
+
+      const resByRecruiter = await supabase
+        .from("applications")
+        .select(selectQuery)
+        .eq("recruiter_id", recruiterProfile.id)
+        .order("applied_at", { ascending: false });
+
+      if (resByRecruiter.error) {
+        throw resByRecruiter.error;
+      }
+
+      const { data: recruiterJobs, error: jobsError } = await supabase
+        .from("jobs")
+        .select("id")
+        .eq("recruiter_id", recruiterProfile.id);
+
+      if (jobsError) {
+        throw jobsError;
+      }
+
+      const jobIds = (recruiterJobs || []).map(j => j.id).filter(Boolean);
+
+      let combinedApps = resByRecruiter.data || [];
+
+      if (jobIds.length > 0) {
+        const resByJobs = await supabase
+          .from("applications")
+          .select(selectQuery)
+          .in("job_id", jobIds)
+          .order("applied_at", { ascending: false });
+
+        if (resByJobs.error) {
+          throw resByJobs.error;
+        }
+
+        if (resByJobs.data && resByJobs.data.length > 0) {
+          const appMap = new Map<string, any>();
+          combinedApps.forEach(app => appMap.set(app.id, app));
+          resByJobs.data.forEach(app => {
+            if (!appMap.has(app.id)) {
+              appMap.set(app.id, app);
+            }
+          });
+          combinedApps = Array.from(appMap.values()).sort(
+            (a, b) => new Date(b.applied_at).getTime() - new Date(a.applied_at).getTime()
+          );
+        }
+      }
+
+      setApplicants(combinedApps as unknown as AppWithProfile[]);
+    } catch (err: any) {
+      console.error("Failed to load applicants:", err);
+      setFetchError(err.message || "Failed to load applicants. Please check your network connection.");
+    } finally {
+      setLoading(false);
+    }
   }, [recruiterProfile?.id]);
 
   useEffect(() => { fetchApplicants(); }, [fetchApplicants]);
@@ -10517,8 +10964,22 @@ function ApplicantsPage() {
     return new URLSearchParams(location.search).get("applicantId");
   }, [location.search]);
 
+  const targetAction = useMemo(() => {
+    return new URLSearchParams(location.search).get("action");
+  }, [location.search]);
+
   useEffect(() => {
     if (targetApplicantId && !loading && applicants.length > 0) {
+      const applicant = applicants.find(a => a.id === targetApplicantId);
+      if (applicant && targetAction) {
+        if (targetAction === "interview") {
+          handleInterviewStatusRequest(applicant, "L1");
+        } else if (targetAction === "offer") {
+          handleOfferStatusRequest(applicant);
+        } else if (targetAction === "feedback") {
+          void handleInterviewFeedbackRequest(applicant);
+        }
+      }
       const timer = setTimeout(() => {
         const el = document.getElementById(`applicant-${targetApplicantId}`);
         if (el) {
@@ -10527,7 +10988,7 @@ function ApplicantsPage() {
       }, 150);
       return () => clearTimeout(timer);
     }
-  }, [targetApplicantId, loading, applicants]);
+  }, [targetApplicantId, targetAction, loading, applicants]);
 
   useEffect(() => {
     if (!skillDropdownOpen) return;
@@ -10672,10 +11133,21 @@ function ApplicantsPage() {
       // reinstating a candidate does not silently keep the old decline reason.
       if (reason !== undefined) patch.status_reason = reason || null;
 
-      const { error } = await supabase
+      let { error } = await supabase
         .from("applications")
         .update(patch)
         .eq("id", id);
+
+      // Graceful fallback: If status_updated_at or status_reason column doesn't exist, retry with status alone
+      if (error && (patch.status_updated_at || patch.status_reason)) {
+        const fallbackRes = await supabase
+          .from("applications")
+          .update({ status: candidateStatus as Application["status"] })
+          .eq("id", id);
+        if (!fallbackRes.error) {
+          error = null;
+        }
+      }
 
       if (!error) {
         const resolved = candidateStatus as Application["status"];
@@ -10801,11 +11273,10 @@ function ApplicantsPage() {
         // other transition was previously silent, so the candidate only found
         // out by logging in and re-reading their application.
         void notifyCandidateOfStageChange(applicantId, resolvedStatus, reason);
+        toast.success(`Candidate status moved to "${resolvedStatus}"`);
       } else {
-        // Fallback for development/testing: update local state even if DB rejects the new status due to unmigrated constraints
-        console.warn(`Database update failed. Applying fallback state update for status "${nextStatus}" (local testing only).`);
-        setApplicants(prev => prev.map(a => a.id === applicantId ? { ...a, status: nextStatus } : a));
-        setProfileModal(prev => prev && prev.id === applicantId ? { ...prev, status: nextStatus } : prev);
+        console.error(`Database update failed for application ${applicantId} to status "${nextStatus}"`);
+        toast.error("Failed to update status in database. Please try again.");
       }
     } finally {
       setOptimisticStatusByApplicant(prev => {
@@ -10902,12 +11373,8 @@ function ApplicantsPage() {
     const normalizedMeetingUrl = meetingUrl.trim();
     const formattedInterviewMessage = [`Round: ${round}`, `Meeting URL: ${normalizedMeetingUrl}`, "", message].join("\n");
 
-    const statusUpdatePromise = supabase
-      .from("applications")
-      .update({ status: "Interview Scheduled" })
-      .eq("id", targetApplicant.id);
-
-    const interviewDetailsPromise = supabase
+    // 1. Save interview details first
+    const { error: interviewDetailsError } = await supabase
       .from("interview_details")
       .upsert(
         {
@@ -10921,7 +11388,28 @@ function ApplicantsPage() {
         { onConflict: "application_id" },
       );
 
-    const notificationPromise = supabase
+    if (interviewDetailsError) {
+      console.error("Failed to save interview details:", interviewDetailsError.message);
+      setIsSendingInterviewDetails(false);
+      toast.error(interviewDetailsError.message || "Failed to save interview details");
+      return;
+    }
+
+    // 2. Update application status
+    const { error: statusError } = await supabase
+      .from("applications")
+      .update({ status: "Interview Scheduled" })
+      .eq("id", targetApplicant.id);
+
+    if (statusError) {
+      console.error("Failed to update interview status:", statusError.message);
+      setIsSendingInterviewDetails(false);
+      toast.error(statusError.message || "Failed to update interview status");
+      return;
+    }
+
+    // 3. Send notification only after DB updates succeed
+    const { error: notificationError } = await supabase
       .from("notifications")
       .insert({
         user_id: targetApplicant.profile_id,
@@ -10941,23 +11429,7 @@ function ApplicantsPage() {
         related_id: targetApplicant.id,
       });
 
-    const [{ error: statusError }, { error: interviewDetailsError }, { error: notificationError }] = await Promise.all([
-      statusUpdatePromise,
-      interviewDetailsPromise,
-      notificationPromise,
-    ]);
-
     setIsSendingInterviewDetails(false);
-
-    if (statusError) {
-      console.error("Failed to update interview status:", statusError.message);
-      return;
-    }
-
-    if (interviewDetailsError) {
-      console.error("Failed to save interview details:", interviewDetailsError.message);
-      return;
-    }
 
     if (notificationError) {
       console.error("Failed to send interview details notification:", notificationError.message);
@@ -11008,12 +11480,23 @@ function ApplicantsPage() {
     const { data } = supabase.storage.from("offer-letters").getPublicUrl(filePath);
     offerLetterUrl = data.publicUrl || null;
 
-    const statusUpdatePromise = supabase
+    // 1. Update application status to "Offered" first
+    const { error: statusError } = await supabase
       .from("applications")
       .update({ status: "Offered" })
       .eq("id", targetApplicant.id);
 
-    const notificationPromise = supabase
+    if (statusError) {
+      console.error("Failed to update offer status:", statusError.message);
+      // Clean up orphaned file from storage
+      void supabase.storage.from("offer-letters").remove([filePath]);
+      setIsSendingOfferDetails(false);
+      toast.error(statusError.message || "Failed to update offer status");
+      return;
+    }
+
+    // 2. Send notification only after status update succeeds
+    const { error: notificationError } = await supabase
       .from("notifications")
       .insert({
         user_id: targetApplicant.profile_id,
@@ -11034,17 +11517,7 @@ function ApplicantsPage() {
         related_id: targetApplicant.id,
       });
 
-    const [{ error: statusError }, { error: notificationError }] = await Promise.all([
-      statusUpdatePromise,
-      notificationPromise,
-    ]);
-
     setIsSendingOfferDetails(false);
-
-    if (statusError) {
-      console.error("Failed to update offer status:", statusError.message);
-      return;
-    }
 
     if (notificationError) {
       console.error("Failed to send offer notification:", notificationError.message);
@@ -11717,6 +12190,15 @@ function ApplicantsPage() {
 
           {loading ? (
             <div className="text-center py-12 text-[#8A8A8A]">Loading applicants...</div>
+          ) : fetchError ? (
+            <div className="bg-white rounded-2xl p-12 text-center shadow-sm border border-red-200">
+              <AlertCircle className="h-12 w-12 text-red-500 mx-auto mb-4" />
+              <p className="text-red-700 font-semibold text-lg mb-1">Unable to load applicants</p>
+              <p className="text-[#8A8A8A] text-sm mb-5 max-w-md mx-auto">{fetchError}</p>
+              <Button onClick={() => fetchApplicants()} variant="outline" className="rounded-full border-red-300 text-red-700 hover:bg-red-50 font-medium">
+                <RotateCcw className="h-4 w-4 mr-2" /> Try Again
+              </Button>
+            </div>
           ) : filtered.length === 0 ? (
             <div className="bg-white rounded-2xl p-12 text-center shadow-sm border border-gray-200">
               <Users className="h-12 w-12 text-gray-200 mx-auto mb-4" />
