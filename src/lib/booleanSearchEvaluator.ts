@@ -416,7 +416,7 @@ export function evaluateCandidateWithQuery(
     // Standard mode: comma-separated list (every segment should match)
     const segments = clean
       .split(",")
-      .map(s => s.trim())
+      .map(s => s.trim().replace(/^['"]+|['"]+$/g, "").trim())
       .filter(Boolean);
 
     if (segments.length === 0) return true;
@@ -452,7 +452,7 @@ export function parseSearchTokens(
     const mainPart = notParts[0];
     for (let i = 1; i < notParts.length; i++) {
       const notWord = notParts[i].trim().split(/\s+/)[0];
-      if (notWord) notTokens.push(notWord.toLowerCase());
+      if (notWord) notTokens.push(notWord.toLowerCase().replace(/^['"]+|['"]+$/g, ""));
     }
 
     const isOr = /\bor\b/i.test(mainPart);
@@ -461,12 +461,12 @@ export function parseSearchTokens(
     if (isOr) {
       tokens = mainPart
         .split(/\bor\b/i)
-        .map(s => s.replace(/\b(?:and|not)\b/gi, "").trim())
+        .map(s => s.replace(/\b(?:and|not)\b/gi, "").trim().replace(/^['"]+|['"]+$/g, "").trim())
         .filter(Boolean);
     } else {
       tokens = mainPart
         .split(/\s+/)
-        .map(t => t.replace(/\b(?:and|not)\b/gi, "").trim())
+        .map(t => t.replace(/\b(?:and|not)\b/gi, "").trim().replace(/^['"]+|['"]+$/g, "").trim())
         .filter(t => Boolean(t) && !/^(and|or|not)$/i.test(t));
     }
 
@@ -479,7 +479,7 @@ export function parseSearchTokens(
     // → ["Machine Learning", "Data Science"] instead of ["Machine", "Learning", "Data", "Science"]
     const tokens = trimmed
       .split(",")
-      .map(s => s.trim())
+      .map(s => s.trim().replace(/^['"]+|['"]+$/g, "").trim())
       .filter(Boolean);
     return { tokens, isOr: true, notTokens: [] };
   }
@@ -567,6 +567,43 @@ export function expandLocationAliases(location: string): string[] {
     variants.push(...aliases);
   }
   return variants;
+}
+
+/**
+ * Checks whether a candidate's current or preferred location matches any of the
+ * requested location filters, taking into account common aliases (e.g. Pune/Poona, Bengaluru/Bangalore).
+ */
+export function candidateMatchesLocations(
+  candidate: { location?: string | null; preferred_location?: any },
+  requestedLocations: string[]
+): boolean {
+  if (!requestedLocations || requestedLocations.length === 0) return true;
+
+  const locs = [
+    candidate.location,
+    ...(Array.isArray(candidate.preferred_location)
+      ? candidate.preferred_location
+      : typeof candidate.preferred_location === "string"
+        ? candidate.preferred_location.split(",").map((s: string) => s.trim())
+        : [candidate.preferred_location])
+  ].filter(Boolean) as string[];
+
+  if (locs.length === 0) return false;
+
+  return requestedLocations.some(reqLoc => {
+    const cleanReq = reqLoc.trim().toLowerCase();
+    if (!cleanReq) return false;
+    const aliases = expandLocationAliases(cleanReq);
+    return locs.some(cLoc => {
+      const cClean = cLoc.trim().toLowerCase();
+      return aliases.some(alias => {
+        const a = alias.toLowerCase().trim();
+        if (!a) return false;
+        const boundaryRegex = new RegExp(`\\b${a.replace(/[.*+?^${}()|[\\]\\]/g, "\\$&")}\\b`, "i");
+        return cClean.includes(a) || boundaryRegex.test(cClean);
+      });
+    });
+  });
 }
 
 /**
