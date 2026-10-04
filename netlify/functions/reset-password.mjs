@@ -1,13 +1,20 @@
 import bcrypt from "bcryptjs";
 import crypto from "crypto";
+import { enforceRateLimit, clientIp } from "../shared/rateLimit.mjs";
 
 export default async (request) => {
   if (request.method !== "POST") {
     return new Response("Method Not Allowed", { status: 405 });
   }
 
+  const limited = await enforceRateLimit([[`reset-pw:ip:${clientIp(request)}`, 20, 900]]);
+  if (limited) return limited;
+
   const { email, otp_hash, otp, new_password, user_type } = await request.json();
   const cleanEmail = (email || "").trim().toLowerCase();
+  const limitedEmail = cleanEmail ? await enforceRateLimit([[`reset-pw:email:${cleanEmail}`, 5, 900]]) : null;
+  if (limitedEmail) return limitedEmail;
+
   const incomingHash = (otp_hash || (otp ? crypto.createHash("sha256").update((otp || "").trim()).digest("hex") : "")).trim();
 
   if (!cleanEmail || !incomingHash || !new_password) {

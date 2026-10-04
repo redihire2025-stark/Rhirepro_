@@ -66,6 +66,14 @@
     # Netlify-CDN-Cache-Control targets the edge specifically and takes
     # precedence there, forcing it to revalidate on every request.
     Netlify-CDN-Cache-Control = "public, max-age=0, must-revalidate"
+    # Baseline security headers. A full Content-Security-Policy is deliberately
+    # not set yet: Razorpay, Supabase and Google sign-in all load third-party
+    # scripts/frames, and a wrong CSP would break checkout. Add it behind a
+    # Report-Only trial first.
+    X-Content-Type-Options = "nosniff"
+    X-Frame-Options = "SAMEORIGIN"
+    Referrer-Policy = "strict-origin-when-cross-origin"
+    Strict-Transport-Security = "max-age=31536000; includeSubDomains"
     # Razorpay's checkout runs in a cross-origin iframe and reads motion sensors
     # for its fraud fingerprinting. The browser default for these features is
     # "self", so the iframe was denied and the checkout console filled with

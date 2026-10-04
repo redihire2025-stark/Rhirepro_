@@ -1,4 +1,5 @@
 import { createClient } from "@supabase/supabase-js";
+import { enforceRateLimit, clientIp } from "../shared/rateLimit.mjs";
 
 // Best-effort log for the Super Admin "API Monitoring" module.
 async function logApiRequest(supabaseUrl, serviceKey, { status_code, duration_ms, error_message }) {
@@ -26,6 +27,9 @@ export default async (request) => {
   if (request.method !== "POST") {
     return new Response("Method Not Allowed", { status: 405 });
   }
+
+  const limited = await enforceRateLimit([[`sa-login:ip:${clientIp(request)}`, 10, 900]]);
+  if (limited) return limited;
 
   const SUPABASE_URL = process.env.VITE_SUPABASE_URL;
   const SERVICE_KEY = process.env.SUPABASE_SERVICE_ROLE_KEY;

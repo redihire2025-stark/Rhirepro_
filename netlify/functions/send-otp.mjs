@@ -1,5 +1,6 @@
 import bcrypt from "bcryptjs";
 import crypto from "crypto";
+import { enforceRateLimit, clientIp } from "../shared/rateLimit.mjs";
 
 // Best-effort log for the Super Admin "Emails" module — never allowed to
 // break the actual send if it fails (e.g. table not migrated yet).
@@ -152,6 +153,9 @@ export default async (request) => {
     return new Response("Method Not Allowed", { status: 405 });
   }
 
+  const limited = await enforceRateLimit([[`otp-send:ip:${clientIp(request)}`, 20, 3600]]);
+  if (limited) return limited;
+
   const supabaseUrl = process.env.VITE_SUPABASE_URL || process.env.SUPABASE_URL;
   const serviceKey = process.env.SUPABASE_SERVICE_ROLE_KEY;
 
@@ -172,6 +176,9 @@ export default async (request) => {
 
   const { to_email, to_name, user_type, purpose, check_signup } = body;
   const cleanEmail = (to_email || "").trim().toLowerCase();
+
+  const limitedEmail = cleanEmail ? await enforceRateLimit([[`otp-send:email:${cleanEmail}`, 5, 900]]) : null;
+  if (limitedEmail) return limitedEmail;
 
   if (!cleanEmail) {
     return finish({ error: "Email is required" }, 400, "Missing email");
