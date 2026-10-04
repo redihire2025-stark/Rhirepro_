@@ -84,24 +84,38 @@ export const toVector = (values) => `[${values.join(",")}]`;
  * to the model as an attachment (used for PDF resumes). Returns parsed JSON or
  * throws.
  */
-export async function generateJson({ system, user, file, maxTokens = 2048, budgetMs = 8000 }) {
+export async function generateJson({ system, user, file, maxTokens = 2048, budgetMs = 8000, temperature = 0.1 }) {
   const content = [];
   if (file) {
     content.push({ type: "file", file: { filename: file.filename, file_data: `data:${file.mime};base64,${file.base64}` } });
   }
   content.push({ type: "text", text: user });
-  const data = await openai(
-    "chat/completions",
-    {
-      model: CHAT_MODEL(),
-      temperature: 0.1,
-      max_tokens: maxTokens,
-      response_format: { type: "json_object" },
-      messages: [{ role: "system", content: system }, { role: "user", content }],
-    },
-    budgetMs,
-  );
-  return JSON.parse(data?.choices?.[0]?.message?.content || "");
+  const payload = {
+    model: CHAT_MODEL(),
+    temperature,
+    max_tokens: maxTokens,
+    response_format: { type: "json_object" },
+    messages: [{ role: "system", content: system }, { role: "user", content }],
+  };
+
+  // One retry for transient failures (429 / 5xx / network / timeout), always
+  // inside the budget: Netlify kills a synchronous function at 10s.
+  const started = Date.now();
+  let lastErr;
+  for (let attempt = 0; attempt < 2; attempt++) {
+    const remaining = budgetMs - (Date.now() - started);
+    if (remaining < 1000) break;
+    try {
+      const data = await openai("chat/completions", payload, remaining);
+      return JSON.parse(data?.choices?.[0]?.message?.content || "");
+    } catch (err) {
+      lastErr = err;
+      const transient = !err.status || err.status === 429 || err.status >= 500;
+      if (!transient) throw err;
+      await new Promise((r) => setTimeout(r, 300 + Math.floor(Math.random() * 200)));
+    }
+  }
+  throw lastErr || new Error("no attempt made");
 }
 
 /** Text that represents a profile for embedding. Ids/emails/phones are never included. */

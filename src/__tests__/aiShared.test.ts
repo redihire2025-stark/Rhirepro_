@@ -1,6 +1,6 @@
 import { describe, it, expect, vi, afterEach } from "vitest";
 // @ts-expect-error — plain .mjs modules shared with the Netlify Functions
-import { profileEmbeddingText, jobEmbeddingText, toVector, sha256, clean } from "../../netlify/shared/ai.mjs";
+import { profileEmbeddingText, jobEmbeddingText, toVector, sha256, clean, generateJson, embedText } from "../../netlify/shared/ai.mjs";
 // @ts-expect-error — plain .mjs module shared with the Netlify Functions
 import { checkRateLimit, enforceRateLimit, clientIp } from "../../netlify/shared/rateLimit.mjs";
 
@@ -63,5 +63,40 @@ describe("rate limiter", () => {
   it("prefers the Netlify client IP header", () => {
     const req = new Request("https://x", { headers: { "x-nf-client-connection-ip": "1.2.3.4", "x-forwarded-for": "9.9.9.9" } });
     expect(clientIp(req)).toBe("1.2.3.4");
+  });
+});
+
+describe("OpenAI wrappers", () => {
+  afterEach(() => { vi.unstubAllGlobals(); vi.unstubAllEnvs(); });
+
+  it("generateJson parses the model's JSON and retries once on a 503", async () => {
+    vi.stubEnv("OPENAI_API_KEY", "sk-test");
+    const fetchMock = vi.fn()
+      .mockResolvedValueOnce({ ok: false, status: 503, text: async () => "busy" })
+      .mockResolvedValueOnce({ ok: true, json: async () => ({ choices: [{ message: { content: '{"score":77}' } }] }) });
+    vi.stubGlobal("fetch", fetchMock);
+    const out = await generateJson({ system: "s", user: "u" });
+    expect(out).toEqual({ score: 77 });
+    expect(fetchMock).toHaveBeenCalledTimes(2);
+    const sent = JSON.parse(fetchMock.mock.calls[1][1].body);
+    expect(sent.response_format).toEqual({ type: "json_object" });
+  });
+
+  it("generateJson does not retry a 401", async () => {
+    vi.stubEnv("OPENAI_API_KEY", "bad");
+    const fetchMock = vi.fn().mockResolvedValue({ ok: false, status: 401, text: async () => "no" });
+    vi.stubGlobal("fetch", fetchMock);
+    await expect(generateJson({ system: "s", user: "u" })).rejects.toMatchObject({ status: 401 });
+    expect(fetchMock).toHaveBeenCalledTimes(1);
+  });
+
+  it("embedText requests 768 dims and rejects a wrong-sized vector", async () => {
+    vi.stubEnv("OPENAI_API_KEY", "sk-test");
+    const ok = vi.fn().mockResolvedValue({ ok: true, json: async () => ({ data: [{ embedding: new Array(768).fill(0.1) }] }) });
+    vi.stubGlobal("fetch", ok);
+    expect(await embedText("hi")).toHaveLength(768);
+    expect(JSON.parse(ok.mock.calls[0][1].body)).toMatchObject({ model: "text-embedding-3-small", dimensions: 768 });
+    vi.stubGlobal("fetch", vi.fn().mockResolvedValue({ ok: true, json: async () => ({ data: [{ embedding: [1, 2] }] }) }));
+    await expect(embedText("hi")).rejects.toThrow(/unexpected/);
   });
 });

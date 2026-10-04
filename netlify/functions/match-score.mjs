@@ -1,7 +1,7 @@
 /*
  * POST /api/match-score
  *
- * Scores how well a candidate profile fits a job, using Gemini, and caches the
+ * Scores how well a candidate profile fits a job, using OpenAI, and caches the
  * result in ai_match_scores.
  *
  * Why a single endpoint for both sides: "how well does this profile fit this
@@ -23,37 +23,12 @@
  */
 
 /*
- * Model order and per-model settings are both measured, not guessed.
- *
- * gemini-flash-latest is a thinking model. Left to think, it took ~18s on this
- * prompt — Netlify kills a synchronous function at 10s, so it would never have
- * returned. With thinking disabled it answers the same prompt in ~1.4s and
- * scores consistently (25-28 on a candidate the fallback rated 50), so it stays
- * the primary and simply does not think.
- *
- * gemini-flash-lite-latest REJECTS thinkingConfig with a 400, so it must be
- * sent the plain config. It answers in ~1s but grades more generously, which is
- * why it is the fallback rather than the default.
- */
-const MODELS = [
-  { name: "gemini-flash-latest", generationConfig: { thinkingConfig: { thinkingBudget: 0 } } },
-  { name: "gemini-flash-lite-latest", generationConfig: {} },
-];
-const endpointFor = (model) =>
-  `https://generativelanguage.googleapis.com/v1beta/models/${model}:generateContent`;
-
-/*
  * Netlify kills a synchronous function at 10s and returns a bodiless 502 the
- * client cannot explain. A live end-to-end call measured 8.3s (≈2s of Supabase
- * round trips plus a Gemini call that varies from 1.4s to ~6s), so the headroom
- * was one slow response wide.
- *
- * Two budgets rather than one: BUDGET_MS is when we stop starting new attempts,
- * and ATTEMPT_MS aborts an individual call that is running long, so a stalled
- * model response cannot drag the whole function past the platform limit.
+ * client cannot explain. BUDGET_MS bounds the model call (measured from the
+ * start of the request, so the Supabase round trips before it count against
+ * it); generateJson retries a transient failure once inside that budget.
  */
 const BUDGET_MS = 7000;
-const ATTEMPT_MS = 5500;
 // Re-score if the cached answer predates a profile or job edit, but never more
 // often than this — the inputs rarely change and the call is not free.
 const CACHE_TTL_MS = 7 * 24 * 60 * 60 * 1000;
@@ -75,79 +50,9 @@ const clean = (value, max = 400) =>
     .trim()
     .slice(0, max);
 
-async function callGemini(apiKey, requestBody, startedAt = Date.now()) {
-  let last = { status: 0, message: "No attempt made" };
-
-  for (const model of MODELS) {
-    const remaining = BUDGET_MS - (Date.now() - startedAt);
-    if (remaining <= 500) break;
-
-    const body = {
-      ...requestBody,
-      generationConfig: { ...requestBody.generationConfig, ...model.generationConfig },
-    };
-
-    const controller = new AbortController();
-    const timer = setTimeout(() => controller.abort(), Math.min(ATTEMPT_MS, remaining));
-
-    let res;
-    try {
-      res = await fetch(`${endpointFor(model.name)}?key=${apiKey}`, {
-        method: "POST",
-        headers: { "Content-Type": "application/json" },
-        body: JSON.stringify(body),
-        signal: controller.signal,
-      });
-    } catch (networkErr) {
-      last = networkErr.name === "AbortError"
-        ? { status: 504, message: `${model.name}: timed out` }
-        : { status: 0, message: `Could not reach the AI service: ${networkErr.message}` };
-      continue;
-    } finally {
-      clearTimeout(timer);
-    }
-
-    if (res.ok) {
-      const payload = await res.json().catch(() => null);
-      if (!payload) {
-        last = { status: 502, message: `${model.name}: non-JSON success body` };
-        continue;
-      }
-      return { ok: true, payload, model: model.name };
-    }
-
-    const errText = await res.text().catch(() => "");
-    let message = errText;
-    try {
-      message = JSON.parse(errText)?.error?.message || errText;
-    } catch {
-      // Non-JSON error body — keep the raw text.
-    }
-    last = { status: res.status, message: `${model.name}: ${message}` };
-
-    // A bad key will not fix itself. Anything else — including a 400 from a
-    // model that rejects a config the next one accepts — leaves the fallback
-    // worth trying, which is the case that 503 on the primary depends on.
-    if (res.status === 401 || res.status === 403) return { ok: false, ...last };
-  }
-  return { ok: false, ...last };
-}
-
-// Thinking models emit reasoning parts flagged `thought`; take the rest.
-function extractText(payload) {
-  const parts = payload?.candidates?.[0]?.content?.parts;
-  if (!Array.isArray(parts)) return "";
-  return parts
-    .filter((part) => part && part.thought !== true && typeof part.text === "string")
-    .map((part) => part.text)
-    .join("")
-    .trim();
-}
-
-function mapGeminiStatus(status) {
+function mapAiStatus(status) {
   if (status === 429) return 429;
-  if (status === 401 || status === 403) return 500;
-  if (status === 400 || status === 404) return 500;
+  if (status === 401 || status === 403 || status === 400 || status === 404) return 500;
   return 502;
 }
 
@@ -200,6 +105,9 @@ Return ONLY valid JSON, no text outside the object:
 
   return { systemMessage, userMessage };
 }
+
+import { enforceRateLimit } from "../shared/rateLimit.mjs";
+import { generateJson, OPENAI_KEY, CHAT_MODEL } from "../shared/ai.mjs";
 
 export default async (request) => {
   const requestStart = Date.now();
@@ -285,42 +193,30 @@ export default async (request) => {
   const profile = Array.isArray(profiles) ? profiles[0] : null;
   if (!profile) return json({ error: "Profile not found." }, 404);
 
-  const apiKey = process.env.GEMINI_API_KEY;
-  if (!apiKey) {
-    console.error("[match-score] GEMINI_API_KEY missing from the environment");
+  if (!OPENAI_KEY()) {
+    console.error("[match-score] OPENAI_API_KEY missing from the environment");
     return json({ error: "AI matching is not configured." }, 500);
   }
+
+  const limited = await enforceRateLimit([[`match-score:user:${caller.id}`, 120, 3600]]);
+  if (limited) return limited;
 
   const { systemMessage, userMessage } = buildPrompt(profile, job);
 
   try {
-    const result = await callGemini(
-      apiKey,
-      {
-        systemInstruction: { parts: [{ text: systemMessage }] },
-        contents: [{ role: "user", parts: [{ text: userMessage }] }],
-        generationConfig: {
-          temperature: 0.1,
-          maxOutputTokens: 1024,
-          responseMimeType: "application/json",
-        },
-      },
-      requestStart,
-    );
-
-    if (!result.ok) {
-      console.error(`[match-score] Gemini ${result.status}:`, result.message);
+    let parsed;
+    try {
+      parsed = await generateJson({
+        system: systemMessage,
+        user: userMessage,
+        maxTokens: 1024,
+        budgetMs: Math.max(1500, BUDGET_MS - (Date.now() - requestStart)),
+      });
+    } catch (err) {
+      console.error(`[match-score] OpenAI ${err.status || ""}:`, err.message);
       // A stale cached score beats no score at all.
       if (hit) return json({ ...hit, cached: true, stale: true }, 200);
-      return json({ error: "AI matching is temporarily unavailable." }, mapGeminiStatus(result.status));
-    }
-
-    const text = extractText(result.payload);
-    let parsed = null;
-    try {
-      parsed = JSON.parse(text);
-    } catch {
-      console.error("[match-score] Unparseable completion:", text.slice(0, 200));
+      return json({ error: "AI matching is temporarily unavailable." }, mapAiStatus(err.status));
     }
 
     const score = Number(parsed?.score);
@@ -329,7 +225,7 @@ export default async (request) => {
       return json({ error: "AI matching is temporarily unavailable." }, 502);
     }
 
-    const row = {
+  const row = {
       profile_id: profileId,
       job_id: jobId,
       // The model is instructed to stay in 0-100 but the column has a CHECK
@@ -338,7 +234,7 @@ export default async (request) => {
       summary: typeof parsed.summary === "string" ? parsed.summary.slice(0, 300) : null,
       strengths: Array.isArray(parsed.strengths) ? parsed.strengths.slice(0, 5).map((x) => String(x).slice(0, 120)) : [],
       gaps: Array.isArray(parsed.gaps) ? parsed.gaps.slice(0, 5).map((x) => String(x).slice(0, 120)) : [],
-      model: result.model,
+      model: CHAT_MODEL(),
       computed_at: new Date().toISOString(),
     };
 
