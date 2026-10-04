@@ -1,7 +1,7 @@
 /*
  * POST /api/embed-sync   { kind: "profile" | "job", id }
  *
- * (Re)computes the Gemini embedding for a profile or job and stores it for
+ * (Re)computes the OpenAI embedding for a profile or job and stores it for
  * semantic matching. Call it after a profile save or job post/edit. It is a
  * no-op when the embedded text has not changed (content hash), so calling it
  * liberally costs nothing.
@@ -12,7 +12,7 @@
 import { enforceRateLimit } from "../shared/rateLimit.mjs";
 import {
   json, getCaller, SUPABASE_URL, SERVICE_KEY, svcHeaders, sha256,
-  embedText, toVector, profileEmbeddingText, jobEmbeddingText,
+  embedText, OPENAI_KEY, toVector, profileEmbeddingText, jobEmbeddingText,
 } from "../shared/ai.mjs";
 
 const PROFILE_COLS = "id,headline,current_title,current_company,total_experience,location,skills,about,embedding_hash";
@@ -27,8 +27,7 @@ export default async (request) => {
     return json({ error: "kind ('profile'|'job') and id are required." }, 400);
   }
   if (!SUPABASE_URL() || !SERVICE_KEY()) return json({ error: "Server is not configured." }, 500);
-  const apiKey = process.env.GEMINI_API_KEY;
-  if (!apiKey) return json({ error: "AI is not configured." }, 500);
+  if (!OPENAI_KEY()) return json({ error: "AI is not configured." }, 500);
 
   const caller = await getCaller(request);
   if (!caller) return json({ error: "Authentication required." }, 401);
@@ -62,7 +61,7 @@ export default async (request) => {
   if (row.embedding_hash === hash) return json({ status: "unchanged" }, 200);
 
   try {
-    const values = await embedText(apiKey, text, "RETRIEVAL_DOCUMENT");
+    const values = await embedText(text);
     const patch = await fetch(`${SUPABASE_URL()}/rest/v1/${table}?id=eq.${encodeURIComponent(id)}`, {
       method: "PATCH",
       headers: { ...svcHeaders(), Prefer: "return=minimal" },

@@ -2,16 +2,16 @@
  * POST /api/resume-parse   { path: "<user-id>/<file>.pdf" }
  *
  * Reads a PDF resume the caller already uploaded to the private `resumes`
- * bucket and returns structured profile data extracted by Gemini. Nothing is
+ * bucket and returns structured profile data extracted by OpenAI. Nothing is
  * saved here: the client shows the result for the seeker to review and confirm,
  * so a model mistake never silently overwrites a profile.
  *
  * Only the caller's own folder is readable (path must start with their user id),
  * and the file bytes go from storage to the model without touching the browser.
- * DOCX is not accepted yet (Gemini reads PDF natively; DOCX needs a converter).
+ * DOCX is not accepted yet (DOCX needs a converter).
  */
 import { enforceRateLimit } from "../shared/rateLimit.mjs";
-import { json, getCaller, SUPABASE_URL, SERVICE_KEY, svcHeaders, generateJson, clean } from "../shared/ai.mjs";
+import { json, getCaller, SUPABASE_URL, SERVICE_KEY, svcHeaders, generateJson, OPENAI_KEY, clean } from "../shared/ai.mjs";
 
 const MAX_BYTES = 4 * 1024 * 1024; // keeps base64 payload + latency inside Netlify's 10s budget
 
@@ -71,8 +71,7 @@ export default async (request) => {
   const path = typeof body?.path === "string" ? body.path.trim() : "";
   if (!path) return json({ error: "path is required." }, 400);
   if (!SUPABASE_URL() || !SERVICE_KEY()) return json({ error: "Server is not configured." }, 500);
-  const apiKey = process.env.GEMINI_API_KEY;
-  if (!apiKey) return json({ error: "AI is not configured." }, 500);
+  if (!OPENAI_KEY()) return json({ error: "AI is not configured." }, 500);
 
   const caller = await getCaller(request);
   if (!caller) return json({ error: "Authentication required." }, 401);
@@ -94,13 +93,11 @@ export default async (request) => {
   if (bytes.subarray(0, 5).toString("latin1") !== "%PDF-") return json({ error: "File is not a valid PDF." }, 415);
 
   try {
-    const parsed = await generateJson(apiKey, {
+    const parsed = await generateJson({
       system: SYSTEM,
-      parts: [
-        { inline_data: { mime_type: "application/pdf", data: bytes.toString("base64") } },
-        { text: `Extract the resume above.\n${SCHEMA_HINT}` },
-      ],
-      maxOutputTokens: 4096,
+      user: `Extract the attached resume.\n${SCHEMA_HINT}`,
+      file: { filename: "resume.pdf", mime: "application/pdf", base64: bytes.toString("base64") },
+      maxTokens: 4096,
       budgetMs: 8500,
     });
     return json({ parsed: sanitise(parsed || {}) });

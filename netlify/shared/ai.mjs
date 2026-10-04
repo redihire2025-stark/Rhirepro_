@@ -1,9 +1,9 @@
 /*
  * Shared plumbing for the AI endpoints: caller authentication, Supabase REST
- * access with the service role, and thin Gemini wrappers (embeddings and
+ * access with the service role, and thin OpenAI wrappers (OpenAI embeddings and
  * structured generation).
  *
- * The browser never holds GEMINI_API_KEY; every prompt and every value sent to
+ * The browser never holds OPENAI_API_KEY; every prompt and every value sent to
  * the model is built here from database rows, so a caller cannot turn the key
  * into a general-purpose proxy.
  */
@@ -38,95 +38,70 @@ export async function sha256(text) {
   return Array.from(new Uint8Array(buf), (b) => b.toString(16).padStart(2, "0")).join("");
 }
 
-export const EMBEDDING_MODEL = "gemini-embedding-001";
+export const EMBEDDING_MODEL = "text-embedding-3-small";
+// text-embedding-3 models can be shortened server-side, so the column stays
+// vector(768) and no migration is needed.
 export const EMBEDDING_DIMS = 768;
+export const CHAT_MODEL = () => process.env.OPENAI_MODEL || "gpt-4o-mini";
 
-/**
- * @param {"RETRIEVAL_DOCUMENT"|"RETRIEVAL_QUERY"|"SEMANTIC_SIMILARITY"} taskType
- * @returns {Promise<number[]>}
- */
-export async function embedText(apiKey, text, taskType = "RETRIEVAL_DOCUMENT", timeoutMs = 6000) {
+export const OPENAI_KEY = () => process.env.OPENAI_API_KEY;
+
+async function openai(path, payload, timeoutMs) {
   const controller = new AbortController();
   const timer = setTimeout(() => controller.abort(), timeoutMs);
   try {
-    const res = await fetch(
-      `https://generativelanguage.googleapis.com/v1beta/models/${EMBEDDING_MODEL}:embedContent?key=${apiKey}`,
-      {
-        method: "POST",
-        headers: { "Content-Type": "application/json" },
-        body: JSON.stringify({
-          model: `models/${EMBEDDING_MODEL}`,
-          content: { parts: [{ text }] },
-          taskType,
-          outputDimensionality: EMBEDDING_DIMS,
-        }),
-        signal: controller.signal,
-      },
-    );
-    if (!res.ok) throw Object.assign(new Error(`embed ${res.status}: ${(await res.text()).slice(0, 200)}`), { status: res.status });
-    const data = await res.json();
-    const values = data?.embedding?.values;
-    if (!Array.isArray(values) || values.length !== EMBEDDING_DIMS) throw new Error("embed: unexpected response shape");
-    return values;
+    const res = await fetch(`https://api.openai.com/v1/${path}`, {
+      method: "POST",
+      headers: { "Content-Type": "application/json", Authorization: `Bearer ${OPENAI_KEY()}` },
+      body: JSON.stringify(payload),
+      signal: controller.signal,
+    });
+    if (!res.ok) {
+      throw Object.assign(new Error(`openai ${path} ${res.status}: ${(await res.text().catch(() => "")).slice(0, 200)}`), { status: res.status });
+    }
+    return await res.json();
   } finally {
     clearTimeout(timer);
   }
 }
 
+/**
+ * Embedding for `text`. (OpenAI embeddings have no query/document task types, so
+ * none is taken.) Returns number[] of EMBEDDING_DIMS.
+ */
+export async function embedText(text, timeoutMs = 6000) {
+  const data = await openai("embeddings", { model: EMBEDDING_MODEL, input: text, dimensions: EMBEDDING_DIMS }, timeoutMs);
+  const values = data?.data?.[0]?.embedding;
+  if (!Array.isArray(values) || values.length !== EMBEDDING_DIMS) throw new Error("embed: unexpected response shape");
+  return values;
+}
+
 /** pgvector text literal. */
 export const toVector = (values) => `[${values.join(",")}]`;
 
-const GEN_MODELS = [
-  { name: "gemini-flash-latest", generationConfig: { thinkingConfig: { thinkingBudget: 0 } } },
-  { name: "gemini-flash-lite-latest", generationConfig: {} },
-];
-
 /**
- * Structured generation with model fallback. Returns parsed JSON or throws.
- * `parts` is the Gemini `parts` array (text and/or inline_data).
+ * Structured generation. `file` is an optional { filename, mime, base64 } sent
+ * to the model as an attachment (used for PDF resumes). Returns parsed JSON or
+ * throws.
  */
-export async function generateJson(apiKey, { system, parts, maxOutputTokens = 2048, budgetMs = 8000 }) {
-  const started = Date.now();
-  let lastErr = new Error("no attempt made");
-  for (const model of GEN_MODELS) {
-    const remaining = budgetMs - (Date.now() - started);
-    if (remaining <= 500) break;
-    const controller = new AbortController();
-    const timer = setTimeout(() => controller.abort(), remaining);
-    try {
-      const res = await fetch(
-        `https://generativelanguage.googleapis.com/v1beta/models/${model.name}:generateContent?key=${apiKey}`,
-        {
-          method: "POST",
-          headers: { "Content-Type": "application/json" },
-          body: JSON.stringify({
-            systemInstruction: { parts: [{ text: system }] },
-            contents: [{ role: "user", parts }],
-            generationConfig: { temperature: 0.1, maxOutputTokens, responseMimeType: "application/json", ...model.generationConfig },
-          }),
-          signal: controller.signal,
-        },
-      );
-      if (!res.ok) {
-        lastErr = Object.assign(new Error(`${model.name} ${res.status}`), { status: res.status });
-        if (res.status === 401 || res.status === 403) throw lastErr;
-        continue;
-      }
-      const payload = await res.json();
-      const text = (payload?.candidates?.[0]?.content?.parts || [])
-        .filter((p) => p && p.thought !== true && typeof p.text === "string")
-        .map((p) => p.text)
-        .join("")
-        .trim();
-      return JSON.parse(text);
-    } catch (err) {
-      lastErr = err;
-      if (err.status === 401 || err.status === 403) throw err;
-    } finally {
-      clearTimeout(timer);
-    }
+export async function generateJson({ system, user, file, maxTokens = 2048, budgetMs = 8000 }) {
+  const content = [];
+  if (file) {
+    content.push({ type: "file", file: { filename: file.filename, file_data: `data:${file.mime};base64,${file.base64}` } });
   }
-  throw lastErr;
+  content.push({ type: "text", text: user });
+  const data = await openai(
+    "chat/completions",
+    {
+      model: CHAT_MODEL(),
+      temperature: 0.1,
+      max_tokens: maxTokens,
+      response_format: { type: "json_object" },
+      messages: [{ role: "system", content: system }, { role: "user", content }],
+    },
+    budgetMs,
+  );
+  return JSON.parse(data?.choices?.[0]?.message?.content || "");
 }
 
 /** Text that represents a profile for embedding. Ids/emails/phones are never included. */

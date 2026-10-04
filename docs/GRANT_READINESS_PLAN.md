@@ -45,7 +45,7 @@ Week: Mon–Fri (5 days). Replaces the earlier PDF analysis, which described an 
 
 | Day | Goal | Deliverable |
 |---|---|---|
-| **Mon (today)** | Backend foundation | A1, A2, B1–B3 built and tested (done). You: run the 2 SQL files, set `GEMINI_API_KEY` in Netlify; start Track C (incorporation date, domain/email, GCP billing). |
+| **Mon (today)** | Backend foundation | A1, A2, B1–B3 built and tested (done). You: run the 2 SQL files, set `OPENAI_API_KEY` in Netlify; start Track C (incorporation date, domain/email, GCP billing). |
 | **Tue** | AI visible in the product | B4, B5. Seeker uploads resume → fields prefilled; "AI match %" and semantic search work in the UI. |
 | **Wed** | Hardening + coverage | B6, B7, A3, A4. Production deploy of everything so far. |
 | **Thu** | Story & materials | Pitch deck (outline §5), finalize application answers (§4), landing-page copy honest about AI features, B8 if time. Founders add traction numbers. |
@@ -59,11 +59,11 @@ Honest risk: Tue is the heaviest day (the seeker dashboard is a ~5,000-line file
 
 **Problem:** Job boards rely on keyword filters; recruiters drown in unranked applicants and seekers miss roles described in different words.
 
-**Solution / AI use (state only what is live):** Gemini-based fit scoring with strengths and gaps; embedding-based semantic search and applicant ranking (pgvector); automated resume parsing; AI skill/certification insights.
+**Solution / AI use (state only what is live):** LLM fit scoring with strengths and gaps; embedding-based semantic search and applicant ranking (pgvector); automated resume parsing; AI skill/certification insights.
 
 **Why GPU/NVIDIA (honest roadmap framing):** Today inference runs on Gemini APIs. Planned: self-hosted embedding/rerank models and video-interview analysis (speech via NVIDIA Riva, NIM microservices) — this is the reason for the request; present it as roadmap.
 
-**Why Google Cloud:** Move AI inference to Vertex AI (Gemini/embeddings), Cloud Run for services, credits to cover embedding and scoring costs as usage grows.
+**Why Google Cloud:** Move AI inference to Vertex AI (Gemini/embeddings) — note: today the new AI endpoints run on OpenAI, so the Google pitch must be honest about migrating, Cloud Run for services, credits to cover embedding and scoring costs as usage grows.
 
 **Traction (fill in):** pilot recruiters __, job seekers __, jobs posted __, paying plans __.
 
@@ -74,7 +74,7 @@ Honest risk: Tue is the heaviest day (the seeker dashboard is a ~5,000-line file
 
 ## 6. Your checklist this week (things only you can do)
 - [ ] Run `supabase/rate_limits.sql` and `supabase/ai_embeddings.sql` in the Supabase SQL editor
-- [ ] Confirm `GEMINI_API_KEY`, `SUPABASE_SERVICE_ROLE_KEY` are set in Netlify
+- [ ] Confirm `OPENAI_API_KEY` (optional `OPENAI_MODEL`, default gpt-4o-mini), `SUPABASE_SERVICE_ROLE_KEY` are set in Netlify
 - [ ] Confirm Redihire incorporation date/type/registration number
 - [ ] Domain site + domain email live; Google Cloud billing account created
 - [ ] Provide founder bios + any traction numbers by Wed

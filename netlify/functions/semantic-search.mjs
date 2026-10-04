@@ -14,7 +14,7 @@
  * RLS-protected queries, so this endpoint never leaks job or profile fields.
  */
 import { enforceRateLimit } from "../shared/rateLimit.mjs";
-import { json, getCaller, SUPABASE_URL, SERVICE_KEY, svcHeaders, embedText, toVector, clean } from "../shared/ai.mjs";
+import { json, getCaller, SUPABASE_URL, SERVICE_KEY, svcHeaders, embedText, OPENAI_KEY, toVector, clean } from "../shared/ai.mjs";
 
 const rpc = (name, args) =>
   fetch(`${SUPABASE_URL()}/rest/v1/rpc/${name}`, { method: "POST", headers: svcHeaders(), body: JSON.stringify(args) });
@@ -37,10 +37,9 @@ export default async (request) => {
     let vector;
     const query = clean(body.query, 300);
     if (query) {
-      const apiKey = process.env.GEMINI_API_KEY;
-      if (!apiKey) return json({ error: "AI is not configured." }, 500);
+      if (!OPENAI_KEY()) return json({ error: "AI is not configured." }, 500);
       try {
-        vector = toVector(await embedText(apiKey, query, "RETRIEVAL_QUERY"));
+        vector = toVector(await embedText(query));
       } catch (err) {
         console.error("[semantic-search] embed:", err.message);
         return json({ error: "AI search is temporarily unavailable." }, err.status === 429 ? 429 : 502);

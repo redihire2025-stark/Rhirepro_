@@ -6,7 +6,7 @@
 -- WHY
 -- ---
 -- Keyword filters miss "backend engineer" vs "server-side developer". Profiles
--- and jobs each get a 768-dim Gemini embedding (gemini-embedding-001); cosine
+-- and jobs each get a 768-dim OpenAI embedding (text-embedding-3-small, shortened to 768); cosine
 -- similarity then ranks jobs for a seeker, applicants for a job, and free-text
 -- queries ("remote React roles, good work-life balance") for search.
 --
