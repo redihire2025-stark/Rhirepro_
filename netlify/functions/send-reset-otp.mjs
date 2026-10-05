@@ -1,13 +1,20 @@
 import bcrypt from "bcryptjs";
 import crypto from "crypto";
+import { enforceRateLimit, clientIp } from "../shared/rateLimit.mjs";
 
 export default async (request) => {
   if (request.method !== "POST") {
     return new Response("Method Not Allowed", { status: 405 });
   }
 
+  const limited = await enforceRateLimit([[`reset-send:ip:${clientIp(request)}`, 10, 3600]]);
+  if (limited) return limited;
+
   const { email, user_type } = await request.json();
   const cleanEmail = (email || "").trim().toLowerCase();
+  const limitedEmail = cleanEmail ? await enforceRateLimit([[`reset-send:email:${cleanEmail}`, 3, 900]]) : null;
+  if (limitedEmail) return limitedEmail;
+
 
   if (!cleanEmail) {
     return new Response(JSON.stringify({ error: "Email is required" }), {

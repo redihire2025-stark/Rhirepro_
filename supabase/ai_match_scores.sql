@@ -11,7 +11,7 @@
 --
 -- Caching is not an optimisation here, it is what makes the feature viable:
 -- a recruiter's applicant list and a seeker's recommendations both render many
--- rows at once, and scoring each one live would mean a Gemini call per row per
+-- rows at once, and scoring each one live would mean a model call per row per
 -- render — slow, expensive, and rate-limited. Scores are computed on demand for
 -- a single pair and reused afterwards.
 --
@@ -36,7 +36,7 @@ CREATE TABLE IF NOT EXISTS public.ai_match_scores (
 );
 
 COMMENT ON TABLE public.ai_match_scores IS
-  'Gemini-computed fit between a candidate profile and a job. Written only by the match-score function; read by both the recruiter applicant view and the seeker recommendations.';
+  'AI-computed fit between a candidate profile and a job. Written only by the match-score function; read by both the recruiter applicant view and the seeker recommendations.';
 
 CREATE INDEX IF NOT EXISTS ai_match_scores_job_idx ON public.ai_match_scores (job_id);
 CREATE INDEX IF NOT EXISTS ai_match_scores_profile_idx ON public.ai_match_scores (profile_id);

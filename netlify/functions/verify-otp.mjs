@@ -1,5 +1,6 @@
 import bcrypt from "bcryptjs";
 import crypto from "crypto";
+import { enforceRateLimit, clientIp } from "../shared/rateLimit.mjs";
 
 // Best-effort log for the Super Admin "API Monitoring" module.
 async function logApiRequest(supabaseUrl, serviceKey, { function_name, status_code, duration_ms, error_message }) {
@@ -27,8 +28,15 @@ export default async (request) => {
     return new Response("Method Not Allowed", { status: 405 });
   }
 
+  const limited = await enforceRateLimit([[`otp-verify:ip:${clientIp(request)}`, 30, 900]]);
+  if (limited) return limited;
+
   const { email, otp_hash, otp, user_type, purpose } = await request.json();
   const cleanEmail = (email || "").trim().toLowerCase();
+
+  // 10 guesses per 15 min per address: a 6-digit OTP must not be brute-forceable.
+  const limitedEmail = cleanEmail ? await enforceRateLimit([[`otp-verify:email:${cleanEmail}`, 10, 900]]) : null;
+  if (limitedEmail) return limitedEmail;
   
   // Resolve incoming OTP hash (client SHA-256 pre-hash preferred, fallback to computing sha256 if plain otp sent)
   const incomingHash = (otp_hash || (otp ? crypto.createHash("sha256").update((otp || "").trim()).digest("hex") : "")).trim();
