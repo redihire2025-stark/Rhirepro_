@@ -26,6 +26,7 @@ import {
 } from "../../components/ui/sheet";
 import { supabase, Application, ApplicationStatusHistory } from "../../../lib/supabase";
 import { logAdminAction } from "../../../lib/admin-audit";
+import { getStorageObjectFromUrl } from "../../components/ResumePreviewDialog";
 
 interface ApplicationRow {
   id: string;
@@ -255,14 +256,26 @@ export default function SuperAdminApplications() {
                   <Badge>{selected.status}</Badge>
                 </div>
                 {selected.resume_url && (
-                  <a
-                    href={selected.resume_url}
-                    target="_blank"
-                    rel="noreferrer"
-                    className="text-primary underline text-sm"
+                  <button
+                    type="button"
+                    onClick={async () => {
+                      if (!selected.resume_url) return;
+                      const storageObject = getStorageObjectFromUrl(selected.resume_url);
+                      if (storageObject) {
+                        const { data, error } = await supabase.storage
+                          .from(storageObject.bucket)
+                          .createSignedUrl(storageObject.path, 10 * 60);
+                        if (!error && data?.signedUrl) {
+                          window.open(data.signedUrl, "_blank", "noopener,noreferrer");
+                          return;
+                        }
+                      }
+                      window.open(selected.resume_url, "_blank", "noopener,noreferrer");
+                    }}
+                    className="text-primary underline text-sm hover:opacity-80 text-left cursor-pointer inline-block"
                   >
                     View resume
-                  </a>
+                  </button>
                 )}
                 {selected.cover_letter && (
                   <div>

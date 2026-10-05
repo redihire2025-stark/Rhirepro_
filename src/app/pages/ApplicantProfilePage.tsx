@@ -9,7 +9,7 @@ import {
   User, MapPin, Phone, Mail, Globe, Star, Briefcase, GraduationCap,
   Award, FileText, Download, Loader2, ArrowLeft, ShieldAlert,
   Calendar, Clock, Check, Building2, Eye, ExternalLink, Linkedin, Minimize2,
-  ThumbsUp, ThumbsDown, Pause
+  ThumbsUp, ThumbsDown, Pause, RotateCcw, MessageSquare
 } from "lucide-react";
 import { Button } from "../components/ui/button";
 import { Badge } from "../components/ui/badge";
@@ -71,6 +71,22 @@ function splitPreferredLocations(value: string | string[] | null | undefined): s
         .filter(Boolean)
     )
   );
+}
+
+function mapApplicationStatusToPipelineStage(status: string | null | undefined): string {
+  const normalized = (status || "").toLowerCase().trim().replace(/[\s-]+/g, "_");
+  if (normalized === "applied" || normalized === "new" || normalized === "under_review" || normalized === "screening" || normalized === "reviewed") return "Applied";
+  if (normalized === "shortlisted") return "Shortlisted";
+  if (normalized === "not_shortlisted") return "Not Shortlisted";
+  if (normalized === "interview_scheduled" || normalized === "interview") return "Interview Scheduled";
+  if (normalized === "interview_completed") return "Interview Completed";
+  if (normalized === "interview_selected") return "Interview Selected";
+  if (normalized === "interview_rejected") return "Interview Rejected";
+  if (normalized === "offered" || normalized === "offer_given") return "Offered";
+  if (normalized === "joined" || normalized === "hired" || normalized === "hire") return "Joined";
+  if (normalized === "rejected") return "Rejected";
+  if (normalized === "on_hold") return "On Hold";
+  return "Applied";
 }
 
 interface WorkExp {
@@ -326,22 +342,56 @@ export default function ApplicantProfilePage() {
   const [profile, setProfile] = useState<ApplicantProfile | null>(cachedData?.profile || null);
   const [updatingStatus, setUpdatingStatus] = useState(false);
 
-  const handleStatusChange = async (newStatus: "Shortlisted" | "On Hold" | "Rejected") => {
+  const handleStatusChange = async (newStatus: string) => {
     if (!application?.id) return;
     setUpdatingStatus(true);
     try {
-      const { error } = await supabase
+      // 1. Try updating with status and status_updated_at
+      let { error } = await supabase
         .from("applications")
-        .update({ status: newStatus, updated_at: new Date().toISOString() })
+        .update({ status: newStatus as any, status_updated_at: new Date().toISOString() })
         .eq("id", application.id);
+
+      // 2. Fallback to just status if status_updated_at column doesn't exist
+      if (error) {
+        const retryRes = await supabase
+          .from("applications")
+          .update({ status: newStatus as any })
+          .eq("id", application.id);
+        error = retryRes.error;
+      }
 
       if (error) throw error;
 
-      setApplication(prev => prev ? { ...prev, status: newStatus } : null);
-      toast.success(`Candidate marked as "${newStatus}"`);
+      setApplication(prev => prev ? { ...prev, status: newStatus as any } : null);
+      if (id && profileCache[id]?.application) {
+        profileCache[id].application.status = newStatus as any;
+      }
+
+      // Notify candidate of stage change
+      if (application.profile_id) {
+        const stage = mapApplicationStatusToPipelineStage(newStatus);
+        const companyName = recruiterProfile?.company_name || "the hiring team";
+        const roleName = application.job?.title ? ` for ${application.job.title}` : "";
+        void supabase.from("notifications").upsert(
+          {
+            user_id: application.profile_id,
+            user_type: "jobseeker",
+            title: `Your application${roleName} moved to ${stage}`,
+            message: `Status: ${stage}\nCompany: ${companyName}`,
+            type: "status_change",
+            related_id: application.id,
+            is_read: false,
+            notification_key: `application-stage:${application.id}:${stage}`,
+          },
+          { onConflict: "notification_key" }
+        );
+      }
+
+      toast.success(`Candidate status moved to "${newStatus}"`);
     } catch (err: any) {
       console.error("Failed to update status:", err);
-      toast.error(err.message || "Failed to update status");
+      toast.error(err.message || "Failed to update status in database");
     } finally {
       setUpdatingStatus(false);
     }
@@ -915,54 +965,221 @@ export default function ApplicantProfilePage() {
               <ArrowLeft className="h-4 w-4 mr-1" /> Back to {application ? "Applicants" : "Candidate Search"}
             </Button>
             <span className="text-xs font-semibold px-2.5 py-1 bg-red-50 text-[#FF2B2B] border border-red-100 rounded-full">Profile Review Mode</span>
+            {application && (
+              <span className="text-xs font-semibold px-2.5 py-1 bg-gray-100 text-gray-700 border border-gray-200 rounded-full">
+                Stage: {mapApplicationStatusToPipelineStage(application.status)}
+              </span>
+            )}
           </div>
 
-          {/* Quick Screening Decision Actions */}
-          {application && (
-            <div className="flex items-center gap-2">
-              <Button
-                size="sm"
-                variant={application.status === "Shortlisted" ? "default" : "outline"}
-                disabled={updatingStatus}
-                onClick={() => handleStatusChange("Shortlisted")}
-                className={`rounded-full text-xs font-semibold h-8 px-3.5 transition-all ${
-                  application.status === "Shortlisted"
-                    ? "bg-emerald-600 hover:bg-emerald-700 text-white shadow-sm ring-2 ring-emerald-300"
-                    : "border-emerald-500 text-emerald-700 bg-emerald-50 hover:bg-emerald-100"
-                }`}
-              >
-                <ThumbsUp className="h-3.5 w-3.5 mr-1.5" /> Shortlist
-              </Button>
+          {/* Quick Screening Decision Actions (Stage-Aware) */}
+          {application && (() => {
+            const stage = mapApplicationStatusToPipelineStage(application.status);
+            return (
+              <div className="flex items-center gap-2 flex-wrap">
+                {stage === "Applied" && (
+                  <>
+                    <Button
+                      size="sm"
+                      variant="outline"
+                      disabled={updatingStatus}
+                      className="border-2 border-pink-500 bg-pink-50 text-pink-700 hover:bg-pink-100 rounded-full text-xs h-8 font-medium"
+                      onClick={() => handleStatusChange("Shortlisted")}
+                    >
+                      <Star className="h-3.5 w-3.5 mr-1" /> Shortlist
+                    </Button>
+                    <Button
+                      size="sm"
+                      variant="outline"
+                      disabled={updatingStatus}
+                      className="border-2 border-purple-500 bg-purple-50 text-purple-700 hover:bg-purple-100 rounded-full text-xs h-8 font-medium"
+                      onClick={() => navigate(`/recruiter/dashboard/applicants?applicantId=${application.id}&action=interview`)}
+                    >
+                      <Calendar className="h-3.5 w-3.5 mr-1" /> Interview
+                    </Button>
+                    <Button
+                      size="sm"
+                      variant="outline"
+                      disabled={updatingStatus}
+                      className="border-2 border-red-500 bg-red-50 text-red-700 hover:bg-red-100 rounded-full text-xs h-8 font-medium"
+                      onClick={() => handleStatusChange("Rejected")}
+                    >
+                      <ThumbsDown className="h-3.5 w-3.5 mr-1" /> Reject
+                    </Button>
+                  </>
+                )}
 
-              <Button
-                size="sm"
-                variant={application.status === "On Hold" ? "default" : "outline"}
-                disabled={updatingStatus}
-                onClick={() => handleStatusChange("On Hold")}
-                className={`rounded-full text-xs font-semibold h-8 px-3.5 transition-all ${
-                  application.status === "On Hold"
-                    ? "bg-amber-600 hover:bg-amber-700 text-white shadow-sm ring-2 ring-amber-300"
-                    : "border-amber-500 text-amber-700 bg-amber-50 hover:bg-amber-100"
-                }`}
-              >
-                <Pause className="h-3.5 w-3.5 mr-1.5" /> Hold
-              </Button>
+                {stage === "Shortlisted" && (
+                  <>
+                    <Button
+                      size="sm"
+                      variant="outline"
+                      disabled={updatingStatus}
+                      className="border-2 border-purple-500 bg-purple-50 text-purple-700 hover:bg-purple-100 rounded-full text-xs h-8 font-medium"
+                      onClick={() => navigate(`/recruiter/dashboard/applicants?applicantId=${application.id}&action=interview`)}
+                    >
+                      <Calendar className="h-3.5 w-3.5 mr-1" /> Schedule Interview
+                    </Button>
+                    <Button
+                      size="sm"
+                      variant="outline"
+                      disabled={updatingStatus}
+                      className="border-2 border-amber-500 bg-amber-50 text-amber-700 hover:bg-amber-100 rounded-full text-xs h-8 font-medium"
+                      onClick={() => handleStatusChange("On Hold")}
+                    >
+                      <Pause className="h-3.5 w-3.5 mr-1" /> On Hold
+                    </Button>
+                    <Button
+                      size="sm"
+                      variant="outline"
+                      disabled={updatingStatus}
+                      className="border-2 border-red-500 bg-red-50 text-red-700 hover:bg-red-100 rounded-full text-xs h-8 font-medium"
+                      onClick={() => handleStatusChange("Rejected")}
+                    >
+                      <ThumbsDown className="h-3.5 w-3.5 mr-1" /> Reject
+                    </Button>
+                  </>
+                )}
 
-              <Button
-                size="sm"
-                variant={application.status === "Rejected" ? "default" : "outline"}
-                disabled={updatingStatus}
-                onClick={() => handleStatusChange("Rejected")}
-                className={`rounded-full text-xs font-semibold h-8 px-3.5 transition-all ${
-                  application.status === "Rejected"
-                    ? "bg-red-600 hover:bg-red-700 text-white shadow-sm ring-2 ring-red-300"
-                    : "border-red-500 text-red-600 bg-red-50 hover:bg-red-100"
-                }`}
-              >
-                <ThumbsDown className="h-3.5 w-3.5 mr-1.5" /> Reject
-              </Button>
-            </div>
-          )}
+                {(stage === "Interview Scheduled" || stage === "Interview Completed") && (
+                  <>
+                    <Button
+                      size="sm"
+                      variant="outline"
+                      disabled={updatingStatus}
+                      className="border-2 border-purple-500 bg-purple-50 text-purple-700 hover:bg-purple-100 rounded-full text-xs h-8 font-medium"
+                      onClick={() => navigate(`/recruiter/dashboard/applicants?applicantId=${application.id}&action=feedback`)}
+                    >
+                      <MessageSquare className="h-3.5 w-3.5 mr-1" /> Feedback
+                    </Button>
+                    <Button
+                      size="sm"
+                      variant="outline"
+                      disabled={updatingStatus}
+                      className="border-2 border-emerald-500 bg-emerald-50 text-emerald-700 hover:bg-emerald-100 rounded-full text-xs h-8 font-medium"
+                      onClick={() => navigate(`/recruiter/dashboard/applicants?applicantId=${application.id}&action=offer`)}
+                    >
+                      <FileText className="h-3.5 w-3.5 mr-1" /> Send Offer
+                    </Button>
+                    <Button
+                      size="sm"
+                      variant="outline"
+                      disabled={updatingStatus}
+                      className="border-2 border-red-500 bg-red-50 text-red-700 hover:bg-red-100 rounded-full text-xs h-8 font-medium"
+                      onClick={() => handleStatusChange("Interview Rejected")}
+                    >
+                      <ThumbsDown className="h-3.5 w-3.5 mr-1" /> Reject
+                    </Button>
+                  </>
+                )}
+
+                {stage === "Interview Selected" && (
+                  <>
+                    <Button
+                      size="sm"
+                      variant="outline"
+                      disabled={updatingStatus}
+                      className="border-2 border-emerald-500 bg-emerald-50 text-emerald-700 hover:bg-emerald-100 rounded-full text-xs h-8 font-medium"
+                      onClick={() => navigate(`/recruiter/dashboard/applicants?applicantId=${application.id}&action=offer`)}
+                    >
+                      <FileText className="h-3.5 w-3.5 mr-1" /> Send Offer
+                    </Button>
+                    <Button
+                      size="sm"
+                      variant="outline"
+                      disabled={updatingStatus}
+                      className="border-2 border-amber-500 bg-amber-50 text-amber-700 hover:bg-amber-100 rounded-full text-xs h-8 font-medium"
+                      onClick={() => handleStatusChange("On Hold")}
+                    >
+                      <Pause className="h-3.5 w-3.5 mr-1" /> On Hold
+                    </Button>
+                    <Button
+                      size="sm"
+                      variant="outline"
+                      disabled={updatingStatus}
+                      className="border-2 border-red-500 bg-red-50 text-red-700 hover:bg-red-100 rounded-full text-xs h-8 font-medium"
+                      onClick={() => handleStatusChange("Rejected")}
+                    >
+                      <ThumbsDown className="h-3.5 w-3.5 mr-1" /> Reject
+                    </Button>
+                  </>
+                )}
+
+                {stage === "Offered" && (
+                  <>
+                    <Button
+                      size="sm"
+                      variant="outline"
+                      disabled={updatingStatus}
+                      className="border-2 border-emerald-600 bg-emerald-50 text-emerald-700 hover:bg-emerald-100 rounded-full text-xs h-8 font-medium"
+                      onClick={() => handleStatusChange("Joined")}
+                    >
+                      <Check className="h-3.5 w-3.5 mr-1" /> Mark as Hired
+                    </Button>
+                    <Button
+                      size="sm"
+                      variant="outline"
+                      disabled={updatingStatus}
+                      className="border-2 border-red-500 bg-red-50 text-red-700 hover:bg-red-100 rounded-full text-xs h-8 font-medium"
+                      onClick={() => handleStatusChange("Rejected")}
+                    >
+                      <ThumbsDown className="h-3.5 w-3.5 mr-1" /> Reject
+                    </Button>
+                  </>
+                )}
+
+                {stage === "Joined" && (
+                  <Button size="sm" variant="outline" disabled className="border-emerald-500 text-emerald-700 bg-emerald-100 ring-1 ring-emerald-300 rounded-full text-xs h-8 font-medium disabled:opacity-100">
+                    <Check className="h-3.5 w-3.5 mr-1" /> Hired
+                  </Button>
+                )}
+
+                {stage === "On Hold" && (
+                  <>
+                    <Button
+                      size="sm"
+                      variant="outline"
+                      disabled={updatingStatus}
+                      className="border-2 border-pink-500 bg-pink-50 text-pink-700 hover:bg-pink-100 rounded-full text-xs h-8 font-medium"
+                      onClick={() => handleStatusChange("Shortlisted")}
+                    >
+                      <Star className="h-3.5 w-3.5 mr-1" /> Shortlist
+                    </Button>
+                    <Button
+                      size="sm"
+                      variant="outline"
+                      disabled={updatingStatus}
+                      className="border-2 border-purple-500 bg-purple-50 text-purple-700 hover:bg-purple-100 rounded-full text-xs h-8 font-medium"
+                      onClick={() => navigate(`/recruiter/dashboard/applicants?applicantId=${application.id}&action=interview`)}
+                    >
+                      <Calendar className="h-3.5 w-3.5 mr-1" /> Interview
+                    </Button>
+                    <Button
+                      size="sm"
+                      variant="outline"
+                      disabled={updatingStatus}
+                      className="border-2 border-red-500 bg-red-50 text-red-700 hover:bg-red-100 rounded-full text-xs h-8 font-medium"
+                      onClick={() => handleStatusChange("Rejected")}
+                    >
+                      <ThumbsDown className="h-3.5 w-3.5 mr-1" /> Reject
+                    </Button>
+                  </>
+                )}
+
+                {(stage === "Rejected" || stage === "Not Shortlisted" || stage === "Interview Rejected") && (
+                  <Button
+                    size="sm"
+                    variant="outline"
+                    disabled={updatingStatus}
+                    className="border-2 border-gray-400 bg-gray-50 text-gray-700 hover:bg-gray-100 rounded-full text-xs h-8 font-medium"
+                    onClick={() => handleStatusChange("Applied")}
+                  >
+                    <RotateCcw className="h-3.5 w-3.5 mr-1" /> Reconsider
+                  </Button>
+                )}
+              </div>
+            );
+          })()}
 
           <Button variant="outline" size="sm" className="rounded-full text-xs" onClick={() => window.close()}>
             Close Tab

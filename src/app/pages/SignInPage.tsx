@@ -133,8 +133,6 @@ export default function SignInPage() {
     e.preventDefault();
     setError("");
     setLoading(true);
-    // Claim the session about to be created so the redirect effect above leaves
-    // the OTP step alone.
     startedSignInHere.current = true;
     try {
       const { data, error: authErr } = await secureSignIn(email, password);
@@ -227,6 +225,10 @@ export default function SignInPage() {
         await requestOTP({ email, name: rp.recruiter_name || "", userType: "recruiter", purpose: "login" });
       }
 
+      // Credentials verified and OTP sent. Sign out of the temporary session so that
+      // refreshing the page or navigating cannot bypass the OTP step.
+      await supabase.auth.signOut();
+
       setStep("otp");
     } catch (err: unknown) {
       setError(err instanceof Error ? err.message : "Sign in failed.");
@@ -242,10 +244,17 @@ export default function SignInPage() {
     try {
       await verifyOTP({ email, otp: otp.trim(), userType, purpose: "login" });
 
+      startedSignInHere.current = true;
+      const { data: authData, error: authErr } = await secureSignIn(email, password);
+      if (authErr || !authData?.user) {
+        throw new Error("Authentication failed. Please try signing in again.");
+      }
+
       if (userType === "jobseeker") {
-        await supabase.from("profiles").update({ last_active_at: new Date().toISOString(), otp_code: null, otp_expires_at: null }).eq("id", userId);
+        await supabase.from("profiles").update({ last_active_at: new Date().toISOString(), otp_code: null, otp_expires_at: null }).eq("id", authData.user.id);
         navigate("/jobseeker/dashboard");
       } else {
+        await supabase.from("recruiter_profiles").update({ last_login_at: new Date().toISOString() }).eq("id", authData.user.id);
         navigate(planRedirect ? `/recruiter/plan-details?plan=${planRedirect}` : "/recruiter/dashboard");
       }
     } catch (err: unknown) {
@@ -294,6 +303,7 @@ export default function SignInPage() {
   };
 
   const resetToCredentials = () => {
+    supabase.auth.signOut().catch(() => {});
     setStep("credentials");
     setOtp("");
     setError("");

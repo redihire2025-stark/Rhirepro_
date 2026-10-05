@@ -32,9 +32,6 @@ export default function RecruiterSignIn() {
   const [resetSuccess, setResetSuccess] = useState(false);
   const navigate = useNavigate();
 
-  // A session this page did not create — a Google OAuth return, or a bounce from
-  // a dashboard auth guard — must not strand an authenticated user on the login
-  // form. The OTP step legitimately runs with a live session, so it is excluded.
   const { user: authedUser, role: authedRole, loading: authLoading } = useAuth();
   const startedSignInHere = useRef(false);
 
@@ -42,8 +39,8 @@ export default function RecruiterSignIn() {
     if (authLoading || startedSignInHere.current) return;
     if (step !== "credentials" || !authedUser) return;
     const effectiveRole = authedUser.user_metadata?.role || authedRole;
-    navigate(effectiveRole === "recruiter" ? "/recruiter/dashboard" : "/jobseeker/dashboard", { replace: true });
-  }, [authLoading, authedUser, authedRole, step, navigate]);
+    navigate(effectiveRole === "jobseeker" ? "/jobseeker/dashboard" : (isOrgAdmin ? "/recruiter/admin" : "/recruiter/dashboard"), { replace: true });
+  }, [authLoading, authedUser, authedRole, step, navigate, isOrgAdmin]);
 
 
   useEffect(() => {
@@ -88,8 +85,6 @@ export default function RecruiterSignIn() {
     e.preventDefault();
     setError("");
     setLoading(true);
-    // Claim the session about to be created so the redirect effect leaves the
-    // OTP step alone.
     startedSignInHere.current = true;
     try {
       // 1. Authenticate securely (SHA-256 pre-hashed password)
@@ -165,6 +160,10 @@ export default function RecruiterSignIn() {
 
       await requestOTP({ email, name: rp.recruiter_name || "", userType: "recruiter", purpose: "login" });
 
+      // Credentials verified and OTP sent. Sign out of the temporary session so that
+      // refreshing the page or navigating cannot bypass the OTP step.
+      await supabase.auth.signOut();
+
       setStep("otp");
     } catch (err: unknown) {
       setError(err instanceof Error ? err.message : "Sign in failed. Check credentials.");
@@ -179,7 +178,14 @@ export default function RecruiterSignIn() {
     setLoading(true);
     try {
       await verifyOTP({ email, otp: otp.trim(), userType: "recruiter", purpose: "login" });
-      await supabase.from("recruiter_profiles").update({ last_login_at: new Date().toISOString() }).eq("id", userId);
+
+      startedSignInHere.current = true;
+      const { data: authData, error: authErr } = await secureSignIn(email, password);
+      if (authErr || !authData?.user) {
+        throw new Error("Authentication failed. Please try signing in again.");
+      }
+
+      await supabase.from("recruiter_profiles").update({ last_login_at: new Date().toISOString() }).eq("id", authData.user.id);
       navigate(isOrgAdmin ? "/recruiter/admin" : "/recruiter/dashboard");
     } catch (err: unknown) {
       setError(err instanceof Error ? err.message : "OTP verification failed.");
@@ -435,7 +441,12 @@ export default function RecruiterSignIn() {
 
               <div className="flex items-center justify-between mt-4">
                 <button
-                  onClick={() => { setStep("credentials"); setOtp(""); setError(""); }}
+                  onClick={() => {
+                    supabase.auth.signOut().catch(() => {});
+                    setStep("credentials");
+                    setOtp("");
+                    setError("");
+                  }}
                   className="text-sm text-[#8A8A8A] hover:text-[#3A1F1F]"
                 >
                   ← Back
