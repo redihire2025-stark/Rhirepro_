@@ -25,17 +25,6 @@ async function storeOTP(userId: string, otp: string) {
   if (error) throw new Error("Failed to store OTP: " + error.message);
 }
 
-async function verifyOTPFromDB(userId: string, otp: string): Promise<boolean> {
-  const { data } = await supabase
-    .from("profiles")
-    .select("otp_code, otp_expires_at")
-    .eq("id", userId)
-    .single();
-  if (!data?.otp_code) return false;
-  if (new Date(data.otp_expires_at) < new Date()) return false;
-  return data.otp_code === otp;
-}
-
 // ─── Google SVG ──────────────────────────────────────────────────────────────
 const GoogleIcon = () => (
   <svg className="w-5 h-5 mr-2" viewBox="0 0 24 24">
@@ -69,23 +58,19 @@ export default function JobSeekerSignIn() {
   const [resetSuccess, setResetSuccess] = useState(false);
   const navigate = useNavigate();
 
-  // A session this page did not create — a Google OAuth return, or a bounce from
-  // a dashboard auth guard — must not strand an authenticated user on the login
-  // form. The OTP step legitimately runs with a live session, so it is excluded.
-  const { user: authedUser, role: authedRole, loading: authLoading } = useAuth();
+  const { user: authedUser, role: authedRole, loading: authLoading, refreshProfile } = useAuth();
   const startedSignInHere = useRef(false);
+
+  const location = useLocation();
+  const redirectTo = new URLSearchParams(location.search).get("redirect");
+  const safeRedirectTo = redirectTo?.startsWith("/") ? redirectTo : "/jobseeker/dashboard";
 
   useEffect(() => {
     if (authLoading || startedSignInHere.current) return;
     if (step !== "credentials" || !authedUser) return;
     const effectiveRole = authedUser.user_metadata?.role || authedRole;
-    navigate(effectiveRole === "recruiter" ? "/recruiter/dashboard" : "/jobseeker/dashboard", { replace: true });
-  }, [authLoading, authedUser, authedRole, step, navigate]);
-
-  const { refreshProfile } = useAuth();
-  const location = useLocation();
-  const redirectTo = new URLSearchParams(location.search).get("redirect");
-  const safeRedirectTo = redirectTo?.startsWith("/") ? redirectTo : "/jobseeker/dashboard";
+    navigate(effectiveRole === "recruiter" ? "/recruiter/dashboard" : safeRedirectTo, { replace: true });
+  }, [authLoading, authedUser, authedRole, step, navigate, safeRedirectTo]);
 
   useEffect(() => {
     const originalBg = document.body.style.backgroundColor;
@@ -178,6 +163,10 @@ export default function JobSeekerSignIn() {
       setDisplayName(fullName);
       await requestOTP({ email, name: fullName, userType: "jobseeker", purpose: "login" });
 
+      // Credentials verified and OTP sent. Sign out of the temporary session so that
+      // refreshing the page or navigating cannot bypass the OTP step.
+      await supabase.auth.signOut();
+
       setStep("otp");
     } catch (err: unknown) {
       setError(err instanceof Error ? err.message : "Sign in failed. Check credentials.");
@@ -192,9 +181,20 @@ export default function JobSeekerSignIn() {
     setError("");
     setLoading(true);
     try {
-      const valid = await verifyOTPFromDB(userId, otp.trim());
-      if (!valid) throw new Error("Invalid or expired OTP. Please try again.");
-      await supabase.from("profiles").update({ last_active_at: new Date().toISOString(), otp_code: null, otp_expires_at: null }).eq("id", userId);
+      await verifyOTP({ email, otp: otp.trim(), userType: "jobseeker", purpose: "login" });
+
+      startedSignInHere.current = true;
+      const { data: authData, error: authErr } = await secureSignIn(email, password);
+      if (authErr || !authData?.user) {
+        throw new Error("Authentication failed. Please try signing in again.");
+      }
+
+      await supabase.from("profiles").update({
+        last_active_at: new Date().toISOString(),
+        otp_code: null,
+        otp_expires_at: null,
+      }).eq("id", authData.user.id);
+
       await refreshProfile();
       // Dashboard checks profile completion on load and redirects to profile if needed
       navigate(safeRedirectTo);
@@ -489,7 +489,12 @@ export default function JobSeekerSignIn() {
 
               <div className="flex items-center justify-between mt-4">
                 <button
-                  onClick={() => { setStep("credentials"); setOtp(""); setError(""); }}
+                  onClick={() => {
+                    supabase.auth.signOut().catch(() => {});
+                    setStep("credentials");
+                    setOtp("");
+                    setError("");
+                  }}
                   className="text-sm text-[#8A8A8A] hover:text-[#3A1F1F]"
                 >
                   ← Back
